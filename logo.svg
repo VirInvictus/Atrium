@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!--
   Atrium — placeholder logo.
-  Reads as a building floorplan: outer mass holding an open central court
-  (the atrium). Negative space is the brand. The base line of the inner
-  rectangle reads as a threshold/floor, making the architectural reading
-  legible. Replace before 1.0.
+  A capital "A" rendered as a building silhouette: the A's triangular
+  counter is the atrium itself — an open court with sky above. The flat
+  plateau across the top stands in for a roofline; the solid pedestal at
+  the base reads as the building's plinth. A faint warm line traces the
+  floor of the courtyard. Replace before 1.0.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Atrium">
   <defs>
@@ -14,6 +15,9 @@
     </linearGradient>
   </defs>
   <rect x="24" y="24" width="208" height="208" rx="32" fill="url(#atrium-shell)"/>
-  <rect x="80" y="80" width="96" height="96" rx="14" fill="#F4F1EA"/>
-  <line x1="80" y1="176" x2="176" y2="176" stroke="#C8C0B0" stroke-width="2" stroke-linecap="round"/>
+  <path
+    d="M 60 200 L 118 56 L 138 56 L 196 200 Z M 128 80 L 102 150 L 154 150 Z"
+    fill="#F4F1EA"
+    fill-rule="evenodd"/>
+  <line x1="102" y1="150" x2="154" y2="150" stroke="#C8C0B0" stroke-width="2" stroke-linecap="round"/>
 </svg>
