@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  Atrium — placeholder logo.
+  Reads as a building floorplan: outer mass holding an open central court
+  (the atrium). Negative space is the brand. The base line of the inner
+  rectangle reads as a threshold/floor, making the architectural reading
+  legible. Replace before 1.0.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Atrium">
+  <defs>
+    <linearGradient id="atrium-shell" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2C3137"/>
+      <stop offset="1" stop-color="#1A1D21"/>
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="208" height="208" rx="32" fill="url(#atrium-shell)"/>
+  <rect x="80" y="80" width="96" height="96" rx="14" fill="#F4F1EA"/>
+  <line x1="80" y1="176" x2="176" y2="176" stroke="#C8C0B0" stroke-width="2" stroke-linecap="round"/>
+</svg>
