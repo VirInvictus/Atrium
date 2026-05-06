@@ -72,6 +72,40 @@ GTK main thread ──direct read──▶ SQLite read-only connection pool (sep
 
 v0.1 is a single GTK application binary. v0.2 introduces an optional capture daemon (`atriumd`) running under user systemd that handles the global Quick Entry shortcut even when the main app is closed and IPCs the captured task. Until v0.2 lands, Quick Entry works only when Atrium is running.
 
+### 3.4 Debug-First Architecture
+
+Testing and debugging tooling is part of the binary, not a separate harness. A `--debug` CLI flag opens a debug surface inside the running application that exposes:
+
+- **Stress generators** — synthesize 10K / 50K / 100K-task fixture databases on demand so the §8 perf budget can be exercised without manual seeding.
+- **Edge-case fixtures** — pre-canned weird states reachable from a debug menu: empty projects, deeply nested hierarchies, recurring rules at DST boundaries, malformed imports, clock-skewed timestamps, unicode-hostile titles.
+- **IO instrumentation** — every SQLite statement (text, params, duration) and every file read/write logged through `tracing` spans into a debug pane.
+- **Memory watch** — periodic RSS / heap sampling surfaced live, with a "drop caches" affordance to expose retained allocations and leaks.
+
+Release builds carry the same code paths; the heavy generators and the debug pane are gated on `--debug` so end users never see them. The integration test suite reuses the same fixtures — there is no separate test-only fork. The skeleton lands in Phase 0 and grows phase by phase (see `roadmap.md`); no extra crates are required, since `tracing` / `tracing-subscriber` are already in the v0.1 dependency set.
+
+### 3.5 Org Vault as Projection
+
+Atrium ships an optional **two-way Org-mode mirror**: a user-designated directory (the "vault", default `~/Tasks/`) holding `.org` files that reflect the database state and accept edits back from Emacs / Doom / vim-orgmode / any Org-aware tool.
+
+The discipline is **DB canonical, vault projected**:
+
+- The SQLite database is the single source of truth for application state. Atrium runs cleanly with no vault configured.
+- When a vault is configured, the worker emits a vault-write job after each commit to mirror the change into the right `.org` file.
+- The vault is watched via `inotify`. External edits (Emacs, etc.) are parsed, diffed against the DB by `:ID:` property, and applied through the worker as TaskChanges deltas — the same plumbing as a local UI edit.
+- Conflicts (simultaneous edits, malformed files) follow a **never silently lose data** policy: the loser is preserved at `<file>.atrium.bak.<timestamp>` with a UI toast surfaced.
+
+The §8 perf budget is met by the database (indexed SELECTs, FTS5), while the user keeps a useful plain-text representation of their tasks they can edit in any Org tool. **The vault is not a sync client** — there is no remote, no merge protocol, just file-watching and best-effort round-tripping.
+
+Vault layout: `<vault>/<Area>/<Project>.org`, with `inbox.org` at the vault root and an Atrium-only sidecar at `<vault>/.atrium/config.toml`. Full mapping in §7.3.
+
+Three documented limitations:
+
+1. **Complex `repeat_rule` values** beyond Org's repeater syntax (`+1w` / `++1w` / `.+1w`) are stored verbatim in `:RRULE:` and rendered as a best-effort approximation in the SCHEDULED cookie. Editing a complex repeat in Emacs may lose precision; simple repeats round-trip cleanly.
+2. **Atrium-only metadata** (tag colors, saved Perspectives, mode preference) lives in the sidecar. Other Org tools ignore it.
+3. **Unknown Org constructs** (custom keywords, drawers Atrium doesn't model, body content Atrium doesn't render) are preserved verbatim — never destroyed on round-trip.
+
+Read-only sync (DB → vault) plus one-shot import from existing Org libraries ships in Phase 17. Full two-way sync (vault → DB via inotify) ships in Phase 17.5.
+
 ---
 
 ## 4. Data Model
@@ -234,22 +268,66 @@ Atrium does **not** act as a CalDAV client in v1.0. VTODO export is a one-way fi
 
 ### 7.3 Org-mode mapping
 
-| Atrium concept | Org concept |
+When an Org vault is configured (see §3.5), Atrium projects the data model into a directory of `.org` files. The mapping below is the contract for one-shot import, ongoing read-only sync (Phase 17), and the full two-way sync (Phase 17.5).
+
+#### 7.3.1 Vault layout
+
+```
+~/Tasks/                              ← vault root (configurable, default $HOME/Tasks)
+├── inbox.org                         ← uncategorized tasks
+├── .atrium/
+│   └── config.toml                   ← Atrium-only metadata (tag colors, perspectives, mode pref)
+├── Personal/                         ← Area = directory
+│   ├── Errands.org                   ← Project = file
+│   └── Reading.org
+└── Work/
+    ├── Q3.org
+    └── Onboarding.org
+```
+
+Each `.org` file is one project. The file's `#+TITLE:` line carries the project title (the file's first headline is the fallback). Headlines without TODO keywords inside a project file are project sub-headings (`heading` table); headlines with TODO/DONE/CANCELLED keywords are tasks. Subtasks are nested headlines under their parent task. Unfiled projects live as `.org` files at the vault root next to `inbox.org`.
+
+#### 7.3.2 Field mapping
+
+| Atrium concept | Org representation |
 |---|---|
-| Project | Top-level headline tagged `:project:` |
-| Heading | Sub-headline within project |
-| Task | Headline with TODO/DONE/CANCELLED keyword |
+| Vault root | User-configurable path; default `~/Tasks/` |
+| Area | Directory under vault root |
+| Project | `.org` file inside an area directory (or vault root for unfiled) |
+| Project sub-heading (`heading`) | Non-TODO headline within a project file |
+| Task | Headline with TODO / DONE / CANCELLED keyword |
+| Subtask (`parent_id`) | Nested headline under its parent task |
+| `title` | Headline text |
+| `note` | Headline body — preserved verbatim, including unmodeled constructs |
+| `tags` | `:tag1:tag2:` headline tags |
+| Status (open / done / cancelled) | TODO / DONE / CANCELLED keyword |
 | `scheduled_for` | `SCHEDULED:` cookie |
 | `deadline` | `DEADLINE:` cookie |
 | `completed_at` | `CLOSED:` cookie |
-| `defer_until` | Custom `:DEFER:` property |
-| `tags` | `:tag1:tag2:` headline tags |
-| `note` | Headline body text |
-| `repeat_rule` | `+1w` / `++1w` / `.+1w` cookies on SCHEDULED/DEADLINE |
-| `uuid` | `:ID:` property drawer entry |
-| `estimated_minutes` | `Effort` property (in minutes) |
+| `defer_until` | `:DEFER_UNTIL:` property |
+| `estimated_minutes` | `Effort` property (Org-standard) |
+| `repeat_rule` (canonical) | `:RRULE:` property (verbatim RFC 5545) |
+| `repeat_rule` (rendered) | `+1w` / `++1w` / `.+1w` cookie on SCHEDULED / DEADLINE, when expressible |
+| `uuid` | `:ID:` property — the round-trip anchor |
+| `created_at` | `:CREATED:` property |
+| `modified_at` | `:MODIFIED:` property |
+| `sequential` (project) | `:SEQUENTIAL: t` property in file's `:PROPERTIES:` block |
+| `review_interval_days` (project) | `:REVIEW_INTERVAL:` property |
+| `last_reviewed_at` (project) | `:LAST_REVIEWED:` property |
+| `archived_at` (project) | `:ARCHIVED:` property + `ARCHIVE` tag |
+| `position` (ordering) | Implicit by file order; reorder = file rewritten in new order |
+| Tag color, perspectives, mode pref | Atrium-only sidecar (`<vault>/.atrium/config.toml`) |
 
-UUIDs preserved in `:ID:` make round-trip (import → edit elsewhere → re-import) safe.
+#### 7.3.3 Round-trip rules
+
+These rules govern Atrium's behaviour on every read and write of a vault file:
+
+1. **Never destroy data.** Anything Atrium doesn't model — custom TODO keywords (`WAITING`, etc.), unknown drawers, body content with constructs Atrium doesn't render — is preserved verbatim. Custom keywords map to a sentinel state on import; the original is stashed in `:ORIG_KEYWORD:` and restored on export.
+2. **`:ID:` is the round-trip anchor.** Tasks imported without `:ID:` receive one and the file is rewritten with the property added. Tasks edited in Emacs and saved must keep their `:ID:` for the next vault read to recognise them as the same row.
+3. **Best-effort RRULE rendering.** Simple repeats (fixed-interval daily / weekly / monthly with the three Org completion semantics) render to `+1w` / `++1w` / `.+1w` and round-trip cleanly. Complex RRULEs (BYDAY filters, COUNT, EXDATE, etc.) are stored canonical in `:RRULE:` and approximated in the SCHEDULED cookie. Editing a complex repeat in Emacs may lose precision — Atrium surfaces this in the post-sync report.
+4. **Sidecar metadata is Atrium-only.** `<vault>/.atrium/config.toml` holds tag colors, saved Perspectives, and the mode preference. Other Org tools ignore it. Deleting the sidecar loses Atrium-side state but never task data.
+5. **Conflicts are surfaced, not silenced.** Simultaneous edits → last-writer-wins by mtime; the loser is preserved at `<file>.atrium.bak.<timestamp>` and surfaced in a UI toast. Malformed file → vault sync paused for that file with a toast; DB version preserved; auto-resume when the file parses again.
+6. **Atomic file writes.** Every Atrium-side vault write is `write-temp + fsync + rename`, never partial. Crash mid-write leaves the previous version intact.
 
 ### 7.4 Linux productivity-app landscape
 

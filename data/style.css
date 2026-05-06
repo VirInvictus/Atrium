@@ -1,0 +1,41 @@
+/* Atrium — base stylesheet (Phase 3 foundation).
+ *
+ * Builds on libadwaita's CSS variables; later phases (4, 8) refine
+ * type sizes, weights, and per-surface spacing. The Phase 3 baseline
+ * sets the bundled font families and turns tabular figures on for
+ * numeric contexts so badges and date columns don't dance.
+ */
+
+:root {
+  --atrium-font-ui:    "Inter", "Inter Variable", system-ui, sans-serif;
+  --atrium-font-serif: "Source Serif 4", "Source Serif Pro", serif;
+  --atrium-font-mono:  "JetBrains Mono", "JetBrainsMono", monospace;
+}
+
+window {
+  font-family: var(--atrium-font-ui);
+}
+
+/* Tabular figures everywhere we display counts or dates so digits
+ * keep their column when values change. */
+.numeric,
+.task-row .date,
+.task-row .count,
+.sidebar .count-badge {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+/* Note bodies use the serif. The selector lands in Phase 4 with the
+ * actual editor; declared here as a foundation. */
+.atrium-note-body {
+  font-family: var(--atrium-font-serif);
+  font-size: 1.05em;
+  line-height: 1.55;
+}
+
+/* Debug pane / SQL trace surface use the monospace. */
+.atrium-debug-pane,
+.atrium-debug-pane * {
+  font-family: var(--atrium-font-mono);
+}

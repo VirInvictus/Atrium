@@ -1,0 +1,32 @@
+# Cargo build output
+/target
+**/target
+
+# Rustfmt backup files
+**/*.rs.bk
+
+# MSVC Windows builds of rustc generate these for debugging
+*.pdb
+*.run
+
+# cargo mutants — mutation testing data
+**/mutants.out*/
+
+# Meson build directories. Convention is `builddir`; tolerate variants.
+/builddir
+/build
+/_build
+
+# Compiled GSettings schemas — produced by the build; source XML is
+# checked in, the binary blob is regenerated.
+data/gschemas.compiled
+
+# Memory-diagnostic capture file produced by `--debug` runs.
+debug-memory.log
+
+# Editor / OS detritus
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/

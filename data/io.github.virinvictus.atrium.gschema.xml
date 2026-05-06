@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <enum id="io.github.virinvictus.atrium.Mode">
+    <value nick="simple" value="0"/>
+    <value nick="builder" value="1"/>
+  </enum>
+
+  <schema id="io.github.virinvictus.atrium" path="/io/github/virinvictus/atrium/">
+    <key name="mode" enum="io.github.virinvictus.atrium.Mode">
+      <default>"simple"</default>
+      <summary>Application mode</summary>
+      <description>
+        Simple Mode shows the calm Things-3-style surface; Builder Mode
+        adds the Inspector pane, Forecast, Review, and Perspectives.
+        Flipping mode is a UI re-render only — the database is never
+        touched (spec §3.1, "Mode-as-View").
+      </description>
+    </key>
+
+    <key name="window-width" type="i">
+      <default>1100</default>
+      <summary>Last window width</summary>
+      <description>Width of the application window in pixels.</description>
+    </key>
+
+    <key name="window-height" type="i">
+      <default>700</default>
+      <summary>Last window height</summary>
+      <description>Height of the application window in pixels.</description>
+    </key>
+
+    <key name="window-maximized" type="b">
+      <default>false</default>
+      <summary>Whether the window was maximized at last close</summary>
+    </key>
+
+    <key name="sidebar-width" type="i">
+      <default>240</default>
+      <summary>Sidebar pane width</summary>
+      <description>Width of the navigation split view's sidebar in pixels.</description>
+    </key>
+
+    <key name="quick-entry-shortcut" type="s">
+      <default>"&lt;Control&gt;&lt;Alt&gt;space"</default>
+      <summary>Global Quick Entry shortcut</summary>
+      <description>
+        Accelerator that opens the Quick Entry capture modal. Phase 6
+        binds this; declared here from Phase 3 so the value persists
+        across versions. GTK accelerator syntax — e.g. "&lt;Control&gt;n".
+      </description>
+    </key>
+  </schema>
+</schemalist>

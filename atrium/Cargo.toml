@@ -1,0 +1,27 @@
+[package]
+name = "atrium"
+description = "Native GNOME task manager — Things 3 clarity, OmniFocus depth, mode-switched."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+default-run = "atrium"
+
+[dependencies]
+atrium-core = { path = "../atrium-core" }
+
+# Phase 0 set.
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Phase 3: GTK + libadwaita application shell, tokio runtime for the
+# worker. `gtk` re-exports glib / gio / pango.
+gtk.workspace = true
+adw.workspace = true
+tokio.workspace = true
+
+# Phase 4: chrono for date formatting in row labels and `Today` filter.
+chrono.workspace = true

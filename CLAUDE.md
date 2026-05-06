@@ -16,7 +16,7 @@ Until code lands, the work in this directory is almost entirely **editing the co
 
 ## Architectural commitments (don't drift from these)
 
-These three decisions are load-bearing. Any code that contradicts them is wrong even if it compiles and passes tests.
+These five decisions are load-bearing. Any code that contradicts them is wrong even if it compiles and passes tests.
 
 ### 1. Mode-as-View
 
@@ -30,9 +30,28 @@ A dedicated `tokio` task owns the writable `rusqlite::Connection`. The GTK threa
 
 This pattern is lifted directly from Viaduct's `DatabaseQueue` (sibling repo at `~/.gitrepos/Viaduct/`). When implementing the data layer, look there for the pattern's shape rather than reinventing it.
 
-### 3. Local-first, no sync
+### 3. Local-first, no network sync
 
-SQLite at `$XDG_DATA_HOME/atrium/atrium.db`. No CalDAV client, no cloud, no telemetry, no network calls in v1.0. VTODO export (Phase 19) is a one-way file dump — explicitly **not** a CalDAV client. If a feature request implies sync, push back; it's out of scope through 1.0.
+SQLite at `$XDG_DATA_HOME/atrium/atrium.db`. No CalDAV client, no cloud, no telemetry, no network calls in v1.0. VTODO export (Phase 19) is a one-way file dump — explicitly **not** a CalDAV client. Local file mirroring (the Org vault, see commitment #5) is fine — that's filesystem IO, not network sync. If a feature request implies *network* sync, push back; it's out of scope through 1.0.
+
+### 4. Debug-first architecture
+
+Testing and debugging tooling is **built into the binary**, not bolted on after the fact. A `--debug` CLI flag opens a debug mode that surfaces special functions for stress-testing, edge-case rehearsal, and runtime introspection:
+
+- **Stress generators** — synthesize 10K / 50K / 100K-task fixture databases on demand so the perf budget (spec.md §8) can be validated without hand-seeding.
+- **Edge-case fixtures** — pre-canned weird states reachable from a debug menu: empty projects, deeply nested hierarchies, recurring rules at DST boundaries, malformed imports, clock-skewed timestamps, unicode-hostile titles.
+- **IO instrumentation** — every SQLite statement (text, params, duration) and every file read/write logged via `tracing` spans into a debug pane. No new crates; this rides on the dependencies already in Phase 0.
+- **Memory watch** — periodic RSS / heap sampling surfaced in the debug pane, with a "drop caches" affordance to expose retained allocations and leaks.
+
+The skeleton lands in Phase 0 alongside the Cargo scaffolding so later phases grow the harness instead of inventing it. Release builds ship the same code paths — heavy generators are gated on `--debug` so end users never see them, but the wiring is always present. Tests reuse the same fixtures; don't fork a separate "test-only" path.
+
+### 5. Vault projection, not alternative store
+
+When configured, an Org vault (default `~/Tasks/`) mirrors task state to `.org` files for editing in Emacs / Doom / vim-orgmode / any Org-aware tool. The discipline is **DB canonical, vault projected** — SQLite is the source of truth, the vault is downstream. Atrium runs cleanly without a vault; the vault never runs without the DB.
+
+Read-only sync (DB → vault, plus one-shot import on setup) ships in Phase 17. Two-way sync (vault → DB via `inotify`) ships in Phase 17.5. Both directions follow the round-trip rules in spec §7.3.3: never destroy data, `:ID:` is the round-trip anchor, conflicts are surfaced not silenced (losers preserved at `<file>.atrium.bak.<timestamp>`), atomic writes (`write-temp + fsync + rename`).
+
+Don't pivot to "vault is the storage." The §8 perf budget assumes SQLite indexes for Forecast and Review queries; Org-as-store can't hit those targets at 10K-task scale (org-roam itself uses a SQLite cache for the same reason). The vault is interop, not architecture below it.
 
 ## Dependency discipline
 
@@ -50,6 +69,15 @@ The contract docs are the single most valuable artifact in this repo right now. 
 - **Cross-reference, don't duplicate.** If a fact is in `spec.md` §4, refer to it from `roadmap.md` rather than restating it. They drift if both contain the same claim.
 - **Update sibling docs when one changes.** A schema change in `spec.md` §4 likely needs a Phase 1 roadmap update and a `patchnotes.md` entry. The README's "Architecture (in one paragraph)" and "Stack" sections must stay aligned with `spec.md` §3 and §8.
 - **`VERSION` is the single source of truth.** `Cargo.toml` (once it exists) and the AppStream metainfo must match. Bumping a version means updating all three.
+
+## Release discipline
+
+Versioning and the documentation set move together. No silent changes, no deferred bookkeeping.
+
+- **Every change earns a logical version bump.** Patch for fixes-only, minor for additive features that don't break the spec, major for spec-changing or breaking work. The `VERSION` bump rides with the change that earns it — never "we'll bump it later".
+- **Every minor or major change updates all four docs.** `spec.md`, `roadmap.md`, `patchnotes.md`, and `VERSION` move in the same commit (or stacked commits within the same change). If you can't write the `patchnotes.md` line, the change isn't done. If `spec.md` semantics shifted, the matching `roadmap.md` phase item gets updated too — the cross-reference rule in "Spec discipline" still applies.
+- **Patch releases still update `patchnotes.md` and `VERSION`.** They're allowed to skip `spec.md` / `roadmap.md` only when the fix doesn't change documented behavior or the plan.
+- **Every major bump includes a maintenance pass.** Majors are the sanctioned moment to refactor what's gotten messy, clear deferred bugs, and prune dead code. Don't slip cleanup into minor releases as a side-quest, and don't let a major ship without it. Call out the maintenance work in `patchnotes.md` so it's visible.
 
 ## Schema rule (once Phase 1 ships)
 

@@ -1,0 +1,40 @@
+[workspace]
+members = ["atrium-core", "atrium"]
+default-members = ["atrium"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.16"
+edition = "2024"
+license = "MIT"
+authors = ["Brandon LaRocque"]
+repository = "https://github.com/VirInvictus/Atrium"
+
+# Locked v0.1 dependency set (per spec.md and roadmap.md Phase 0).
+# No third-party crate gets added without prior sign-off.
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Storage
+rusqlite = { version = "0.32", features = ["bundled", "chrono", "trace"] }
+
+# Data + serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Errors
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Diagnostics
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# UI (binary-only)
+gtk = { version = "0.9", package = "gtk4", features = ["v4_16"] }
+adw = { version = "0.7", package = "libadwaita", features = ["v1_7"] }
+
+# Phase 1: UUID v4 generation. Sign-off granted in Phase 1 design call.
+uuid = { version = "1", features = ["v4", "serde"] }

@@ -1,0 +1,27 @@
+[package]
+name = "atrium-core"
+description = "Headless core (database worker, domain types, paths, errors) for the Atrium task manager."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+# Phase 1: storage + serialization land with the schema migration.
+rusqlite.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# Phase 1: UUID v4 generation. Per design call, sign-off granted in
+# Phase 1 plan — the alternative was hand-rolling RFC 4122 generation
+# in pure SQL, uglier and not constructable from Rust.
+uuid.workspace = true
+
+# Phase 2: tokio runtime for the single-writer worker task.
+tokio.workspace = true

@@ -88,7 +88,7 @@ The journey to v1.0 lives in [`roadmap.md`](roadmap.md), broken into 20 phases:
 
 ## Architecture (in one paragraph)
 
-A single GTK4 + libadwaita application written in Rust 2024. Storage is SQLite in WAL mode, with the schema modeled as the OmniFocus superset so Builder fields exist on every task from day one. A dedicated `tokio` worker task owns the writable connection; the UI thread holds an `mpsc::Sender<Command>` and reads through a separate read-only connection pool. UI updates arrive as `TaskChanges { created, updated, deleted, status_changed }` deltas via a `glib::MainContext` channel, never as full reloads. Mode (Simple / Builder) is a per-app GSettings flag — flipping it never touches the DB. See [`spec.md`](spec.md) §3 for the full architecture and §4 for the schema.
+A single GTK4 + libadwaita application written in Rust 2024. Storage is SQLite in WAL mode, with the schema modeled as the OmniFocus superset so Builder fields exist on every task from day one. A dedicated `tokio` worker task owns the writable connection; the UI reads through a separate read-only connection pool. Updates arrive as `TaskChanges` deltas via a `glib::MainContext` channel, never as full reloads. Mode (Simple / Builder) is a per-app GSettings flag — flipping it never touches the DB. An optional Org vault (default `~/Tasks/`) projects task state to `.org` files for editing in Emacs / Doom / any Org tool — SQLite stays canonical, the vault is a projection. A `--debug` CLI flag opens an in-app debug surface for stress fixtures, SQLite tracing, and live memory watch. See [`spec.md`](spec.md) §3 for the full architecture and §4 for the schema.
 
 ## Stack
 
