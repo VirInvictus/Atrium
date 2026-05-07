@@ -1,5 +1,35 @@
 # Atrium — Patch Notes
 
+## v0.1.5 (2026-05-07) — Inspector pane hides on Simple Mode flip
+
+Brandon caught a follow-on bug after v0.1.4: switching from Builder Mode back to Simple left the Inspector side pane visible on the right, including its "Builder" group with the subtitle *"Fields exposed only in Builder Mode."* Visually inconsistent — Simple Mode users shouldn't see the pane at all, much less one that announces it's a Builder feature.
+
+Two reasons it survived:
+
+1. **`AdwOverlaySplitView::set_show_sidebar(false)` alone wasn't sufficient** to fully hide the pane host on every code path. The property toggles the visual state, but in some cases the AdwBin in the sidebar slot remained visible.
+2. **`refresh_inspector_pane`** (the selection-changed handler that mirrors the active row into the pane) didn't gate on mode. So even if `apply_mode("simple")` had cleared the pane, the next single-row selection in Simple Mode repopulated it — invisible mostly, but very visible if reason 1 also kicked in.
+
+### What changed
+
+`atrium/src/ui/window.rs::apply_mode`:
+
+- Adds `inspector_pane_host.set_visible(builder)` alongside the existing `overlay_split.set_show_sidebar(builder)`. Belt-and-suspenders — even if the OverlaySplitView's show-sidebar somehow doesn't propagate (which v0.1.4 user testing surfaced as a real failure mode), the host AdwBin is hidden directly.
+- Calls `pane.clear()` on the InspectorPane when entering Simple Mode. Drops the per-task editor body so there's nothing visible inside even if the host happened to be visible.
+- Adds a `tracing::debug!(mode, builder, "apply_mode")` log so the next time someone hits a "Builder Mode is sticky" report, the trace tells you whether `apply_mode` actually fired or whether the GSettings change observer dropped the event.
+
+`atrium/src/ui/window.rs::refresh_inspector_pane`:
+
+- Bails out early with `pane.clear()` when `mode != "builder"`. The pane stays empty in Simple Mode regardless of selection changes; on a flip back to Builder, the next selection repopulates it correctly.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests unchanged.
+
+`VERSION`: 0.1.4 → 0.1.5 (patch — UI bug fix; mode-flip pane visibility).
+
 ## v0.1.4 (2026-05-07) — Builder-Mode Inspector chord fix
 
 Brandon hit a real bug: pressing `Ctrl+I` on a task in Builder Mode did nothing. Tracing it back, the v0.1.1 Phase 10 implementation had `open_inspector_focused` short-circuit when `mode = builder`, on the rationale "the side pane already shows the editor; opening another one would be redundant." That was a wrong design call.

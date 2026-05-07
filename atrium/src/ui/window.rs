@@ -914,8 +914,21 @@ impl AtriumWindow {
     /// never a migration, never a DB write.
     pub fn apply_mode(&self, mode: &str) {
         let builder = mode == "builder";
-        // Right-side Inspector pane.
+        debug!(mode, builder, "apply_mode");
+
+        // Right-side Inspector pane. Three independent levers all
+        // resolve the same way (`builder`) — belt-and-suspenders
+        // because v0.1.4 user testing surfaced a case where the
+        // OverlaySplitView's show-sidebar didn't fully hide the
+        // pane on its own.
         self.imp().overlay_split.set_show_sidebar(builder);
+        self.imp().inspector_pane_host.set_visible(builder);
+        if !builder && let Some(pane) = self.imp().inspector_pane.borrow().clone() {
+            // Don't keep a stale per-task editor around when
+            // there's no pane to render it in. A future flip back
+            // to Builder repopulates from the live selection.
+            pane.clear();
+        }
 
         // Builder-only sidebar entries (Forecast / Review / Perspectives).
         // The rebuild_dynamic_sidebar pass below appends them when
@@ -1852,9 +1865,20 @@ impl AtriumWindow {
     /// Phase 10 — refresh the side pane based on the current
     /// selection. Single-task selection → populate; otherwise →
     /// clear back to the empty-state placeholder.
+    ///
+    /// v0.1.4 — gated on `mode = builder`. In Simple Mode the pane
+    /// host is hidden and `pane.clear()` is held permanently; we
+    /// don't want a selection change in Simple Mode to repopulate
+    /// the editor with a stale task that the user can't see anyway
+    /// (and that would resurface immediately on a flip back to
+    /// Builder, ignoring whatever they're actually selecting now).
     fn refresh_inspector_pane(&self) {
         let pane_opt = self.imp().inspector_pane.borrow().clone();
         let Some(pane) = pane_opt else { return };
+        if self.settings().string("mode") != "builder" {
+            pane.clear();
+            return;
+        }
         let selected = self.selected_task_ids();
         if selected.len() != 1 {
             pane.clear();

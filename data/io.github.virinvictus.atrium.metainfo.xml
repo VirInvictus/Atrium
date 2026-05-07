@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.5" date="2026-05-07">
+      <description>
+        <p>Fix: the Inspector side pane now reliably hides when
+           switching from Builder Mode back to Simple. The
+           OverlaySplitView's show-sidebar property alone wasn't
+           sufficient — apply_mode now also hides the pane host
+           explicitly and clears its content, and the selection-
+           changed handler bails out in Simple Mode so it can't
+           repopulate the editor for an invisible pane.</p>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-05-07">
       <description>
         <p>Fix: Ctrl+I, double-click, and right-click → Edit Details
