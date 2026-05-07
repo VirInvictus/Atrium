@@ -90,6 +90,19 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.7" date="2026-05-07">
+      <description>
+        <p>Fix: switching to Builder Mode via the menu now reliably
+           shows the side pane on the same frame as the click. The
+           window's GSettings change observer wasn't firing on the
+           process's own writes — likely two separate Settings
+           wrappers and the dconf backend not crossing the changed
+           signal between them. The menu action now calls
+           window.apply_mode directly after persisting the GSetting,
+           and the observer stays as a safety net for external
+           writes (dconf-editor and similar).</p>
+      </description>
+    </release>
     <release version="0.1.6" date="2026-05-07">
       <description>
         <p>Fix: the Inspector side pane now reliably populates when

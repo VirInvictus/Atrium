@@ -346,9 +346,20 @@ fn install_mode_action(app: &adw::Application) {
         Some(glib::VariantTy::STRING),
         &initial.to_variant(),
     );
+    // v0.1.7 — call window.apply_mode directly after writing the
+    // GSetting. The window-side `connect_changed` observer is a
+    // safety net (for external writes via dconf-editor or another
+    // process), but it doesn't always fire reliably on the same
+    // process's writes — Brandon's v0.1.6 trace caught this:
+    // "mode switched mode=builder" logged, but the observer's
+    // `apply_mode` callback never ran. Calling apply_mode straight
+    // from the menu activation guarantees the UI rerender lands
+    // synchronously with the user's click.
     action.connect_activate(clone!(
         #[strong]
         settings,
+        #[weak]
+        app,
         move |action, parameter| {
             let Some(target) = parameter else { return };
             let Some(value) = target.get::<String>() else {
@@ -360,6 +371,9 @@ fn install_mode_action(app: &adw::Application) {
             }
             action.set_state(&value.to_variant());
             info!(mode = %value, "mode switched");
+            if let Some(win) = app.active_window().and_downcast::<AtriumWindow>() {
+                win.apply_mode(&value);
+            }
         }
     ));
     app.add_action(&action);

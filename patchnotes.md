@@ -1,5 +1,40 @@
 # Atrium — Patch Notes
 
+## v0.1.7 (2026-05-07) — Mode flip lands synchronously
+
+The v0.1.6 trace Brandon ran nailed the actual root cause of the v0.1.5/v0.1.6 flap:
+
+```
+INFO atrium: mode switched mode=builder              ← action handler ran
+(no apply_mode log here)                             ← observer never fired
+DEBUG atrium::ui::window: refresh_inspector_pane: simple mode → clear
+```
+
+The action handler in `main.rs` was writing the GSetting (`settings.set_string("mode", "builder")`), but the window-side `connect_changed` handler that should have been routing the change into `apply_mode` **didn't fire**. So the Cell tracker stayed at `false`, the OverlaySplitView stayed hidden, and `refresh_inspector_pane` correctly observed Simple Mode and bailed.
+
+Two `gio::Settings::new(APP_ID)` wrappers were involved — one in the action handler, one in the observer. `gio::Settings` instances for the same schema/path *should* share a backend and propagate the changed signal across all instances, but on this dconf backend the same-process write wasn't crossing wrapper boundaries reliably.
+
+### Fix
+
+`atrium/src/main.rs::install_mode_action`:
+
+- After `settings.set_string("mode", &value)` succeeds, the action handler now calls `window.apply_mode(&value)` directly via `app.active_window().and_downcast::<AtriumWindow>()`. The UI rerender lands synchronously on the same frame as the menu click — no GSettings round-trip in the path.
+
+`atrium/src/ui/window.rs::install_mode_observer`:
+
+- Stays in place as a *safety net* for external GSettings writes (dconf-editor, another process, automated tooling). When external writes happen, the observer fires and routes through `apply_mode`. Same-process writes from the menu now bypass the observer entirely. `apply_mode` is idempotent — a duplicate call from the observer (if the dconf backend ever does cross the signal across wrappers) is harmless.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests unchanged.
+
+The v0.1.5+v0.1.6 belt-and-suspenders work isn't reverted — it stays as defense in depth. The synchronous `apply_mode` call from the action handler is the new primary path; the Cell tracker is still synchronously written; the explicit `set_visible` + `pane.clear()` in `apply_mode` still hold. Three layers of redundancy now resolve mode flips correctly.
+
+`VERSION`: 0.1.6 → 0.1.7 (patch — UI bug fix; mode action wires apply_mode directly).
+
 ## v0.1.6 (2026-05-07) — Inspector pane populates reliably in Builder
 
 Brandon caught the inverse of v0.1.5: now the side pane stays empty (`No task selected`) when a row is actually selected in Builder Mode. The v0.1.5 fix added a mode gate at the top of `refresh_inspector_pane`:
