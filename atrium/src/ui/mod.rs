@@ -11,6 +11,7 @@
 
 pub mod about;
 pub mod filter;
+pub mod forecast;
 pub mod inspector;
 pub mod inspector_pane;
 pub mod shortcuts;

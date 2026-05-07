@@ -154,6 +154,20 @@
                             </child>
 
                             <child>
+                              <!-- Phase 12 — Forecast view container. The window
+                                   builds the actual forecast widget in code via
+                                   `forecast::build_page` and parents it here as
+                                   the bin's child every time the active list
+                                   becomes ActiveList::Forecast. -->
+                              <object class="GtkStackPage">
+                                <property name="name">forecast</property>
+                                <property name="child">
+                                  <object class="AdwBin" id="forecast_host"/>
+                                </property>
+                              </object>
+                            </child>
+
+                            <child>
                               <object class="GtkStackPage">
                                 <property name="name">list</property>
                                 <property name="child">

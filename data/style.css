@@ -138,6 +138,61 @@ window.atrium-high-legibility .atrium-task-deadline {
   font-style: italic;
 }
 
+/* Phase 12 — Forecast view. Vertical column of card-shaped day
+ * blocks plus an Overdue pseudo-block at the top. Each card uses
+ * libadwaita's `card` baseline; we add accents for "today" and
+ * the overdue header, plus a chip-shaped reason tag on every
+ * task row inside a card.
+ *
+ * The overall visual rhythm matches the inline `#tag` chip
+ * styling above — radius 6px, accent palette, tabular-nums
+ * variant for any numeric subtitle. */
+
+.atrium-forecast-day.today {
+  /* The current day is the user's anchor — accent border draws
+   * the eye to it without shouting. */
+  border: 1px solid alpha(@accent_bg_color, 0.6);
+}
+.atrium-forecast-day.today > box > label.heading {
+  color: @accent_color;
+}
+
+.atrium-forecast-overdue {
+  /* Overdue is the only block where dropping is intentional
+   * "this needs attention" energy. Accent the heading. */
+  border: 1px solid alpha(@destructive_bg_color, 0.45);
+}
+.atrium-forecast-overdue > box > label.heading {
+  color: @destructive_color;
+}
+
+/* Per-row reason chip — same chip shape as tag pills, but the
+ * colour shifts per reason so a quick scan tells you whether the
+ * row is here because of When, Deadline, or a defer expiring. */
+.atrium-forecast-reason {
+  font-size: 0.85em;
+  letter-spacing: 0.005em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-feature-settings: var(--atrium-inter-features);
+}
+.atrium-forecast-reason.atrium-forecast-reason-scheduled {
+  background-color: alpha(@accent_bg_color, 0.18);
+  color: @accent_color;
+}
+.atrium-forecast-reason.atrium-forecast-reason-deadline {
+  background-color: alpha(@destructive_bg_color, 0.18);
+  color: @destructive_color;
+}
+.atrium-forecast-reason.atrium-forecast-reason-defer {
+  background-color: alpha(@warning_bg_color, 0.18);
+  color: @warning_color;
+}
+
+.atrium-forecast-row-title {
+  font-size: 0.95em;
+}
+
 /* Sidebar count badges: dim-label + numeric in code; tighten the
  * size and tabular-figure them so the values stay aligned column-
  * wise as they change. */

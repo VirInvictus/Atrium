@@ -168,10 +168,10 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 ## Phase 12: Builder Mode — Forecast View
 *OmniFocus's killer view: a calendar-axis layout of next ~30 days.*
 
-- [ ] **Forecast page:** vertical day-blocks, each showing scheduled / deadline / deferred tasks for that day.
-- [ ] **Drag-to-reschedule:** drag a task to a different day → updates `scheduled_for`.
-- [ ] **Today indicator and overdue surfacing.**
-- [ ] **Compact / expanded toggles** for dense schedules.
+- [x] **Forecast page:** new `atrium/src/ui/forecast.rs` builds a vertical column of card-shaped day blocks for the next `FORECAST_WINDOW_DAYS` (30) days. Each card lists open tasks that touch the date via `scheduled_for`, `deadline`, or `defer_until`, each row tagged with a reason chip ("Scheduled" / "Deadline" / "Defer ends"). Empty days render with a single em-dash. Two new SQL queries — `list_forecast(conn, today, days)` and `list_overdue(conn, today)` — pull the data; pure-function `group_by_date` buckets it for rendering. The window content stack gains a `"forecast"` `GtkStackPage` hosting an `AdwBin id="forecast_host"`; `ActiveList::Forecast` mounts the freshly-built page on every refresh.
+- [x] **Drag-to-reschedule:** every forecast row carries a `GtkDragSource` with the task id; every day card carries a `GtkDropTarget` that on drop fires `worker.update_task(TaskUpdate::new(id).schedule(Some(ScheduledFor::Date(target))))`. Dropping on the Overdue block is intentionally a no-op (overdue is the consequence of dates, not a target date). `apply_task_changes` re-renders the forecast page on any `TaskChanges` so the drop's resulting move is visible immediately.
+- [x] **Today indicator and overdue surfacing:** today's day card adds the `.today` CSS class, which `data/style.css` paints with an accent border + accent heading. The Overdue pseudo-block sits above all day cards with destructive-accent styling and a "Caught up." subtitle when empty. Header titles also promote `Today · Wed May 7` and `Tomorrow · Thu May 8` for the first two days; further days show weekday + date.
+- [ ] **Compact / expanded toggles** for dense schedules. *Deferred to Phase 12.5 / Phase 20 polish — Phase 12 ships the dense default. Compact / expanded as a per-card toggle requires a per-card state model that's worth its own follow-up.*
 
 ## Phase 12.5: Builder Mode — Calendar Month View
 *The other side of Forecast — a familiar month grid for users who think in calendar pages.*

@@ -1,5 +1,108 @@
 # Atrium — Patch Notes
 
+## v0.1.3 (2026-05-07) — Phase 12: Forecast view
+
+OmniFocus's signature view, ported. Builder Mode now has a 30-day calendar-axis layout — a scrollable column of day cards that surfaces every task touching the window via `scheduled_for`, `deadline`, or `defer_until`. The Phase 10 Forecast stub ("lands in Phase 12") falls away; selecting Forecast in the sidebar now lands you on the real page.
+
+### Data layer
+
+- `atrium-core/src/db/read.rs::list_forecast(conn, today, days)` — selects every open task whose scheduled / deadline / defer_until lands in `[today, today + days]`. Someday excluded.
+- `atrium-core/src/db/read.rs::list_overdue(conn, today)` — selects open tasks with scheduled or deadline strictly before today, excluding tasks deferred to a future date (those aren't actionable yet).
+- Both queries return `Vec<Task>`; the UI groups by date in Rust via the pure helper `forecast::group_by_date(tasks, today, days)`.
+- Four new tests cover the boundaries: forecast picks up scheduled / deadline / defer-ends in window; forecast excludes overdue; overdue picks up late scheduled / deadline; overdue excludes deferred-future. Plus five new tests for `group_by_date` and the day-title formatter.
+
+### UI
+
+- New module `atrium/src/ui/forecast.rs` (~400 lines). Public surface:
+  - `pub const FORECAST_WINDOW_DAYS: i64 = 30` — single source of truth for the window length.
+  - `pub fn build_page(today, forecast_tasks, overdue_tasks, worker) -> gtk::Widget` — assembles the entire scrollable column.
+  - `pub fn group_by_date(tasks, today, days) -> Vec<(NaiveDate, Vec<DayEntry>)>` — pure function, the unit of testing.
+- Each day card is an `card`-classed `GtkBox` with a `heading`-styled title and one row per `DayEntry`. The header line promotes `Today · Wed May 7` and `Tomorrow · Thu May 8` for the first two days; later days show weekday + date.
+- Each row inside a card is `[reason chip] [title (ellipsised)]`. The reason chip uses one of three colour-shifted styles — `atrium-forecast-reason-scheduled` (accent), `atrium-forecast-reason-deadline` (destructive), `atrium-forecast-reason-defer` (warning) — so a quick scan tells you why the row is there.
+- The Overdue pseudo-block sits above the day cards. Counts overdue tasks; when zero, a "Caught up." subtitle replaces the row list.
+
+### Window integration
+
+- `data/window.ui` — `content_stack` gains a third `GtkStackPage "forecast"` hosting an `AdwBin id="forecast_host"`. The window builds a fresh forecast widget every refresh and parents it into the bin.
+- `atrium/src/ui/window.rs::refresh_forecast_page` — pulls forecast + overdue tasks from the read pool, calls `forecast::build_page`, mounts the result.
+- `refresh_active_list` now special-cases `ActiveList::Forecast` to call `refresh_forecast_page` and switch the stack to `"forecast"` instead of running a list query. Review and Perspectives still hit the empty-state path.
+- `apply_task_changes` re-renders the forecast page on every `TaskChanges` when the active view is Forecast — the page rebuilds in full rather than diff-applying, since day-card layout depends on date grouping that's cheaper to recompute than to track in place.
+
+### Drag-to-reschedule
+
+- Every forecast row carries a `GtkDragSource` carrying the task id (i64).
+- Every day card carries a `GtkDropTarget` that on drop fires `worker.update_task(TaskUpdate::new(id).schedule(Some(ScheduledFor::Date(target))))` against the card's date.
+- The worker write returns a `TaskChanges` delta, which the bridge applies via `apply_task_changes` → `refresh_forecast_page`, and the row visibly moves to the destination card.
+- Dropping on the Overdue block is intentionally a no-op (overdue is a consequence of dates, not a target date).
+
+### Today indicator + overdue surfacing
+
+- `.atrium-forecast-day.today` — accent-coloured 1px border + accent-coloured heading. The user's anchor in time.
+- `.atrium-forecast-overdue` — destructive-accent border + destructive-coloured heading. Reads as "this needs attention" without being noisy when empty.
+
+### CSS
+
+`data/style.css` gains:
+
+```css
+.atrium-forecast-day.today { border: 1px solid alpha(@accent_bg_color, 0.6); }
+.atrium-forecast-day.today > box > label.heading { color: @accent_color; }
+.atrium-forecast-overdue { border: 1px solid alpha(@destructive_bg_color, 0.45); }
+.atrium-forecast-overdue > box > label.heading { color: @destructive_color; }
+.atrium-forecast-reason { ...chip shape, font-size 0.85em, radius 6px... }
+.atrium-forecast-reason.atrium-forecast-reason-scheduled { accent palette }
+.atrium-forecast-reason.atrium-forecast-reason-deadline { destructive palette }
+.atrium-forecast-reason.atrium-forecast-reason-defer { warning palette }
+```
+
+All accent colours pull from libadwaita's variables; light / dark / `prefer-contrast: more` all follow the platform.
+
+### What didn't ship
+
+The roadmap's Phase 12 *compact / expanded toggles* item is deferred. The dense layout is the Phase 12 default; per-card compact / expanded as a user-toggleable preference needs per-card state plus a header control, and is worth its own follow-up. Roadmap entry kept open with a note to that effect.
+
+### Numbers
+
+- **168 tests** pass (was 158). +5 forecast UI helper tests, +4 atrium-core integration / unit tests for the new SQL.
+- `cargo fmt` clean.
+- `cargo clippy --workspace --all-targets -- -D warnings` clean.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests
+
+### Try it
+
+```bash
+cargo run -p atrium -- --debug --fixture medium
+
+# Mode → Builder.
+# Sidebar → Forecast.
+# Scroll the day cards. Today's gets an accent border; the Overdue
+#   block at the top shows everything past-due.
+# Drag a row from one day to another — it moves, the row's
+#   scheduled_for updates, the badge counts shift.
+# Click any task's reason chip to see the original row in the
+#   sidebar list (future polish: chip → focus row).
+```
+
+### What didn't change
+
+- Schema (`0001_initial.sql` — Phase 1 superset is the contract; v0.1.3 only added two new SELECTs).
+- Single-writer worker, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Simple Mode is identical — Forecast is hidden when mode = simple. The mode-flip snapshot test still passes.
+- Quick Entry, FTS5 search, multi-select, undo, Inspector, Builder side pane — every Phase 4–11 surface unchanged.
+
+### What's next
+
+Phase 13 — Review queue. Projects whose `last_reviewed_at + review_interval_days ≤ today` surface in a Review list, oldest first. The Phase 11 review-interval picker on the project page already writes the column; Phase 13 turns it into a queue.
+
+`VERSION`: 0.1.2 → 0.1.3 (patch — Phase 12; new view on top of two new SELECTs, no schema changes).
+
 ## v0.1.2 (2026-05-07) — Phase 11: defer dates + sequential project rendering
 
 The OmniFocus mechanics that turn the Builder Mode shell from a stage set into something you can actually run. v0.1.1 wired the side pane and surfaced the Builder fields; v0.1.2 makes `defer_until` and `sequential` matter.

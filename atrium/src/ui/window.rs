@@ -72,6 +72,8 @@ mod imp {
         #[template_child]
         pub content_status: TemplateChild<adw::StatusPage>,
         #[template_child]
+        pub forecast_host: TemplateChild<adw::Bin>,
+        #[template_child]
         pub new_task_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub new_task_entry: TemplateChild<gtk::Entry>,
@@ -1120,9 +1122,17 @@ impl AtriumWindow {
         let active = self.active_list();
         let today = Local::now().date_naive();
 
-        // Phase 10 — Builder stub views render an empty placeholder.
-        // No DB query runs; the empty-state copy explains where the
-        // real content will land.
+        // Phase 12 — Forecast is a Builder stub no longer; it
+        // renders a real calendar-axis page.
+        if matches!(active, ActiveList::Forecast) {
+            store.remove_all();
+            self.refresh_forecast_page();
+            self.imp().content_stack.set_visible_child_name("forecast");
+            return;
+        }
+
+        // Phase 10 — remaining Builder stubs (Review, Perspectives)
+        // render the empty placeholder until their phases ship.
         if active.is_builder_stub() {
             store.remove_all();
             self.update_empty_state(&store);
@@ -1239,6 +1249,16 @@ impl AtriumWindow {
             return;
         };
         let active = self.active_list();
+        // Phase 12 — Forecast view rebuilds in full on any task
+        // delta. Day-card layout depends on date grouping that's
+        // cheaper to recompute than to diff in place.
+        if matches!(active, ActiveList::Forecast) {
+            self.refresh_forecast_page();
+            self.refresh_counts();
+            self.refresh_canonical_badges();
+            self.refresh_dynamic_badges();
+            return;
+        }
         let today = Local::now().date_naive();
         // Re-load tag map so the diff applier renders updated pills.
         let tag_map: TagMap = self
@@ -1776,6 +1796,35 @@ impl AtriumWindow {
         if let Some(id) = self.focused_task_id() {
             self.open_inspector_for(id);
         }
+    }
+
+    /// Phase 12 — rebuild the Forecast page from the read pool
+    /// and mount it into the `forecast_host` AdwBin. Called from
+    /// `refresh_active_list` when the active view becomes
+    /// Forecast, and from `apply_task_changes` if the active view
+    /// is currently Forecast (so a drag-to-reschedule, completion
+    /// toggle, or worker-driven mutation refreshes the cards).
+    fn refresh_forecast_page(&self) {
+        let Some(pool) = self.read_pool() else {
+            self.imp().forecast_host.set_child(None::<&gtk::Widget>);
+            return;
+        };
+        let today = Local::now().date_naive();
+        let forecast_tasks = pool
+            .with(|conn| {
+                atrium_core::db::read::list_forecast(
+                    conn,
+                    today,
+                    crate::ui::forecast::FORECAST_WINDOW_DAYS,
+                )
+            })
+            .unwrap_or_default();
+        let overdue = pool
+            .with(|conn| atrium_core::db::read::list_overdue(conn, today))
+            .unwrap_or_default();
+        let widget =
+            crate::ui::forecast::build_page(today, &forecast_tasks, &overdue, self.worker());
+        self.imp().forecast_host.set_child(Some(&widget));
     }
 
     /// Phase 10 — refresh the side pane based on the current

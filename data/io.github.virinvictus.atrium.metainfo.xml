@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.3" date="2026-05-07">
+      <description>
+        <p>Phase 12 — Forecast view. Builder Mode's calendar-axis
+           layout: a scrollable column of day cards over the next 30
+           days, each showing scheduled / deadlined / defer-ending
+           tasks with reason chips. Today's card gets an accent
+           border; an Overdue pseudo-block at the top surfaces
+           past-due open tasks. Drag a task between day cards to
+           reschedule it. The Phase 10 Forecast stub is gone.</p>
+      </description>
+    </release>
     <release version="0.1.2" date="2026-05-07">
       <description>
         <p>Phase 11 — defer dates and sequential project rendering.

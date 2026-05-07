@@ -152,6 +152,70 @@ pub fn list_upcoming(conn: &Connection, today: NaiveDate) -> Result<Vec<Task>, D
         .map_err(Into::into)
 }
 
+/// Forecast window for Phase 12: every open, non-deferred-future
+/// task touching the `[today, today + days]` date span. A task
+/// "touches" the window if its `scheduled_for`, `deadline`, or
+/// `defer_until` lands on a date in the range. The Someday
+/// sentinel is excluded.
+///
+/// Tasks that match more than one column (e.g., scheduled today
+/// AND deadlined later in the window) are returned once — the UI
+/// renders them under each date they touch separately.
+pub fn list_forecast(conn: &Connection, today: NaiveDate, days: i64) -> Result<Vec<Task>, DbError> {
+    let today_str = today.format("%Y-%m-%d").to_string();
+    let horizon_str = (today + chrono::Duration::days(days))
+        .format("%Y-%m-%d")
+        .to_string();
+    let sql = format!(
+        "SELECT {TASK_COLUMNS} FROM task \
+         WHERE completed_at IS NULL \
+           AND ( \
+                 (scheduled_for IS NOT NULL \
+                    AND scheduled_for != '__someday__' \
+                    AND scheduled_for >= ?1 \
+                    AND scheduled_for <= ?2) \
+                 OR (deadline IS NOT NULL \
+                       AND deadline >= ?1 \
+                       AND deadline <= ?2) \
+                 OR (defer_until IS NOT NULL \
+                       AND defer_until >= ?1 \
+                       AND defer_until <= ?2) \
+               ) \
+         ORDER BY position"
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map(params![today_str, horizon_str], task_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+/// Overdue tasks for the Forecast Overdue header: every open task
+/// whose scheduled_for OR deadline is strictly before `today` AND
+/// which isn't currently deferred to a future date. Someday is
+/// excluded (it's a state, not a past date despite the
+/// lexicographic-low sentinel).
+pub fn list_overdue(conn: &Connection, today: NaiveDate) -> Result<Vec<Task>, DbError> {
+    let today_str = today.format("%Y-%m-%d").to_string();
+    let sql = format!(
+        "SELECT {TASK_COLUMNS} FROM task \
+         WHERE completed_at IS NULL \
+           AND ( \
+                 (scheduled_for IS NOT NULL \
+                    AND scheduled_for != '__someday__' \
+                    AND scheduled_for < ?1) \
+                 OR (deadline IS NOT NULL AND deadline < ?1) \
+               ) \
+           AND (defer_until IS NULL OR defer_until <= ?1) \
+         ORDER BY \
+             COALESCE(deadline, scheduled_for, '9999-12-31') ASC, \
+             position"
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map(params![today_str], task_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
 /// Logbook per spec §4.2: completed tasks, newest-first.
 pub fn list_logbook(conn: &Connection) -> Result<Vec<Task>, DbError> {
     let sql = format!(
@@ -836,6 +900,148 @@ mod tests {
         let conn = fresh_conn();
         insert_task(&conn, "a", "deferred", None, None, Some("2026-06-01"), None);
         assert!(list_anytime(&conn, today()).unwrap().is_empty());
+    }
+
+    // ── Forecast (Phase 12) ───────────────────────────────────────
+
+    #[test]
+    fn forecast_picks_up_scheduled_and_deadline_in_window() {
+        // today = 2026-05-15. Window = 30 days → through 2026-06-14.
+        let conn = fresh_conn();
+        // Scheduled in window.
+        insert_task(
+            &conn,
+            "a",
+            "sched-soon",
+            Some("2026-05-20"),
+            None,
+            None,
+            None,
+        );
+        // Deadline in window.
+        insert_task(
+            &conn,
+            "b",
+            "due-mid-window",
+            None,
+            Some("2026-06-01"),
+            None,
+            None,
+        );
+        // Defer expires in window.
+        insert_task(
+            &conn,
+            "c",
+            "defer-ends",
+            None,
+            None,
+            Some("2026-05-25"),
+            None,
+        );
+        // Scheduled past window.
+        insert_task(
+            &conn,
+            "d",
+            "sched-far",
+            Some("2026-09-01"),
+            None,
+            None,
+            None,
+        );
+        // Completed — must not appear.
+        insert_task(
+            &conn,
+            "e",
+            "done",
+            Some("2026-05-20"),
+            None,
+            None,
+            Some("2026-05-15T08:00:00.000Z"),
+        );
+        // Someday sentinel.
+        insert_task(&conn, "f", "later", Some("__someday__"), None, None, None);
+
+        let rows = list_forecast(&conn, today(), 30).unwrap();
+        let uuids: Vec<&str> = rows.iter().map(|t| t.uuid.as_str()).collect();
+        assert_eq!(uuids.len(), 3);
+        assert!(uuids.contains(&"a"));
+        assert!(uuids.contains(&"b"));
+        assert!(uuids.contains(&"c"));
+        assert!(!uuids.contains(&"d"));
+        assert!(!uuids.contains(&"e"));
+        assert!(!uuids.contains(&"f"));
+    }
+
+    #[test]
+    fn forecast_excludes_overdue() {
+        // Overdue tasks (scheduled or deadline before today) belong
+        // in the Overdue header, not in the day-grouped window.
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "old", Some("2026-05-01"), None, None, None);
+        let rows = list_forecast(&conn, today(), 30).unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn overdue_picks_up_late_scheduled_and_deadline() {
+        let conn = fresh_conn();
+        // Overdue scheduled.
+        insert_task(
+            &conn,
+            "a",
+            "old-sched",
+            Some("2026-05-01"),
+            None,
+            None,
+            None,
+        );
+        // Overdue deadline.
+        insert_task(&conn, "b", "old-due", None, Some("2026-05-10"), None, None);
+        // Today — *not* overdue.
+        insert_task(
+            &conn,
+            "c",
+            "due-today",
+            None,
+            Some("2026-05-15"),
+            None,
+            None,
+        );
+        // Future — *not* overdue.
+        insert_task(&conn, "d", "future", Some("2026-06-01"), None, None, None);
+        // Overdue scheduled but completed.
+        insert_task(
+            &conn,
+            "e",
+            "old-done",
+            Some("2026-05-01"),
+            None,
+            None,
+            Some("2026-05-05T08:00:00.000Z"),
+        );
+
+        let rows = list_overdue(&conn, today()).unwrap();
+        let uuids: Vec<&str> = rows.iter().map(|t| t.uuid.as_str()).collect();
+        assert_eq!(uuids.len(), 2);
+        assert!(uuids.contains(&"a"));
+        assert!(uuids.contains(&"b"));
+    }
+
+    #[test]
+    fn overdue_excludes_deferred_to_future() {
+        // An overdue scheduled task with a future defer_until is
+        // not actionable yet — keep it out of Overdue.
+        let conn = fresh_conn();
+        insert_task(
+            &conn,
+            "a",
+            "deferred",
+            Some("2026-05-01"),
+            None,
+            Some("2026-06-01"),
+            None,
+        );
+        assert!(list_overdue(&conn, today()).unwrap().is_empty());
     }
 
     // ── Someday ────────────────────────────────────────────────────
