@@ -90,6 +90,19 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.14" date="2026-05-07">
+      <description>
+        <p>Fix: double-click → inline title edit was firing the
+           edit but the editor was closing before users saw it.
+           Cause: the click event was still propagating when our
+           gesture's handler ran; GtkListView's internal selection
+           handler grabbed focus on the row *after* we'd grabbed
+           focus on the entry, triggering the entry's focus-leave
+           handler which committed and closed the editor. Deferred
+           the edit-start to an idle callback so it runs after the
+           event settles, and our grab_focus is the last word.</p>
+      </description>
+    </release>
     <release version="0.1.13" date="2026-05-07">
       <description>
         <p>Double-click hardening: 700 ms time window widened to

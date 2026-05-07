@@ -1,5 +1,53 @@
 # Atrium — Patch Notes
 
+## v0.1.14 (2026-05-07) — Defer edit-start to idle so the editor stays open
+
+The v0.1.13 trace was the smoking gun:
+
+```
+row activate-gesture released n_press=1 is_double_click=true already_editing=false
+start_edit_on_row has_class=true has_stack=true has_label=true has_entry=true
+row activate-gesture: start_edit_on_row returned did_edit=true
+... 1.1s later ...
+row activate-gesture released n_press=1 is_double_click=false already_editing=false
+```
+
+`already_editing=false` on the next click — meaning the editor opened (`did_edit=true`) but had already closed by the time the next click arrived. **The editor was opening then immediately closing.**
+
+The cause: GtkListView's internal click handler grabs focus on the activated row's `GtkListItemWidget` *after* our gesture's released callback runs. So our flow was:
+
+1. Our gesture fires; `start_edit_on_row` switches the stack to `edit`, calls `entry.grab_focus()`.
+2. The click event continues propagating.
+3. GtkListView's selection click handler runs; grabs focus on the row.
+4. The entry's `EventControllerFocus::connect_leave` fires (it just lost focus).
+5. The leave handler sees the stack is on `edit`, commits the (unchanged) text, switches stack back to `display`.
+6. User sees nothing.
+
+### Fix
+
+`atrium/src/ui/task_list.rs` — the activate gesture's edit-start now runs via `glib::idle_add_local_once` instead of inline:
+
+```rust
+glib::idle_add_local_once(move || {
+    crate::ui::window::start_edit_on_row(&widget);
+});
+```
+
+The idle callback runs after the current event finishes propagating. By the time we grab focus on the entry, GtkListView has already finished its focus dance and isn't going to steal back. Our `grab_focus` is the last focus operation; the entry stays focused; the editor stays open.
+
+### Tracing
+
+`focus-leave` on the title entry now logs `task_id` and `visible_child` — so the next time someone reports an editor that opens-then-closes, the trace tells us whether the leave fired and what the stack saw.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests unchanged.
+
+`VERSION`: 0.1.13 → 0.1.14 (patch — defer edit-start to idle so GtkListView's focus dance finishes first).
+
 ## v0.1.13 (2026-05-07) — Double-click hardening
 
 Brandon's v0.1.12 trace showed the time-window match working — every is_double_click=true case landed cleanly with did_edit=true. But he reported "twice in succession acted as one click." Two likely causes weren't visible in that trace:

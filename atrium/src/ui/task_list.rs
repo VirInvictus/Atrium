@@ -395,10 +395,16 @@ where
             let on_rename = on_rename.clone();
             let task_for_rename = task.clone();
             move |_| {
+                let visible = stack.visible_child_name();
+                tracing::debug!(
+                    task_id,
+                    visible_child = ?visible.as_deref(),
+                    "title-entry focus-leave"
+                );
                 // Only fire when we're actually in edit mode —
                 // recycled rows traverse the controller during bind
                 // even though the entry isn't on screen.
-                if stack.visible_child_name().as_deref() != Some("edit") {
+                if visible.as_deref() != Some("edit") {
                     return;
                 }
                 let new = entry.text().to_string();
@@ -570,8 +576,22 @@ where
                 && let Some(widget) = gesture.widget()
             {
                 last_release.set(None);
-                let did_edit = crate::ui::window::start_edit_on_row(&widget);
-                tracing::debug!(did_edit, "row activate-gesture: start_edit_on_row returned");
+                // v0.1.14 — defer the edit-start to the next idle
+                // tick. The click event is still propagating when
+                // this callback fires; GtkListView's internal click
+                // handler grabs focus on the row's ListItemWidget
+                // *after* we'd have grabbed focus on the entry,
+                // which triggers our focus-leave handler and
+                // commits + closes the editor before the user sees
+                // it. Idle deferral runs us *after* the event
+                // settles, so our grab_focus is the last word.
+                glib::idle_add_local_once(move || {
+                    let did_edit = crate::ui::window::start_edit_on_row(&widget);
+                    tracing::debug!(
+                        did_edit,
+                        "row activate-gesture: start_edit_on_row returned (idle)"
+                    );
+                });
             }
         });
         row.add_controller(activate_gesture.clone());
