@@ -525,26 +525,50 @@ where
         // GtkListItemWidget's selection-handling gesture was
         // consuming events before they bubbled up to us.
         activate_gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
-        // v0.1.12 — drop GTK's `n_press` double-click detection
-        // and roll our own time-window match. GTK's threshold
-        // (`gtk-double-click-time`) defaults to 400 ms on most
-        // setups; Brandon's natural double-click cadence on his
-        // ThinkPad trackpad lands closer to 700–800 ms, so the
-        // system never registered his clicks as a double. We use
-        // a generous 700 ms window — every legitimate
-        // double-click hits, single clicks never match.
+        // v0.1.12+ — own time-window double-click detection. GTK's
+        // `gtk-double-click-time` defaults to 400 ms; natural
+        // trackpad cadence often lands at 600–900 ms, so the
+        // system never registered those as a double. 800 ms is
+        // generous for users who don't double-click at machine
+        // speed, still tight enough that "click then click 850 ms
+        // later" doesn't accidentally collapse two distinct
+        // intents into a double.
+        //
+        // v0.1.13 — gate the match on "not already editing": once
+        // the title stack is on its `edit` page, further clicks
+        // (within or outside the window) shouldn't re-fire
+        // start_edit_on_row, which would reset the entry's text
+        // and cursor underneath whatever the user is typing. This
+        // also defends against trackpad chatter — a stray third
+        // click during a fast double won't bounce focus.
         let last_release: std::rc::Rc<std::cell::Cell<Option<std::time::Instant>>> =
             std::rc::Rc::new(std::cell::Cell::new(None));
         activate_gesture.connect_released(move |gesture, n_press, _, _| {
             let now = std::time::Instant::now();
             let prev = last_release.replace(Some(now));
             let is_double_click = prev
-                .is_some_and(|p| now.duration_since(p) <= std::time::Duration::from_millis(700));
-            tracing::debug!(n_press, is_double_click, "row activate-gesture released");
-            if is_double_click && let Some(widget) = gesture.widget() {
-                // Reset so a third click within the window doesn't
-                // re-fire (the user was double-clicking, not
-                // triple-clicking).
+                .is_some_and(|p| now.duration_since(p) <= std::time::Duration::from_millis(800));
+            // Already-editing check: read the stack's current page
+            // off the row Box (gesture.widget() is the row, where
+            // we stash the stack on bind).
+            let already_editing = gesture
+                .widget()
+                .map(|w| unsafe {
+                    w.data::<gtk::Stack>("atrium-title-stack")
+                        .map(|p| p.as_ref().visible_child_name().as_deref() == Some("edit"))
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            tracing::debug!(
+                n_press,
+                is_double_click,
+                already_editing,
+                "row activate-gesture released"
+            );
+            if is_double_click
+                && !already_editing
+                && let Some(widget) = gesture.widget()
+            {
                 last_release.set(None);
                 let did_edit = crate::ui::window::start_edit_on_row(&widget);
                 tracing::debug!(did_edit, "row activate-gesture: start_edit_on_row returned");

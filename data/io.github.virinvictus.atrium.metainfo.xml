@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.13" date="2026-05-07">
+      <description>
+        <p>Double-click hardening: 700 ms time window widened to
+           800 ms, plus the gesture now bails out when the row is
+           already in edit mode. Stops fast double-clicks from
+           bouncing the cursor and resetting the entry text after
+           the editor opens.</p>
+      </description>
+    </release>
     <release version="0.1.12" date="2026-05-07">
       <description>
         <p>Fix: double-clicking a task row now reliably enters

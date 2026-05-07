@@ -1,5 +1,36 @@
 # Atrium — Patch Notes
 
+## v0.1.13 (2026-05-07) — Double-click hardening
+
+Brandon's v0.1.12 trace showed the time-window match working — every is_double_click=true case landed cleanly with did_edit=true. But he reported "twice in succession acted as one click." Two likely causes weren't visible in that trace:
+
+### Re-entry while already editing
+
+After a successful double-click opens the title editor, the GTK Entry has focus and accepts text. But the row's Capture-phase gesture is still listening to clicks anywhere within the row's hit-area — including clicks on the Entry itself. A stray follow-up click within the time window would re-fire `start_edit_on_row`, reset the Entry to the original title, and bounce the cursor — looking like the editor "didn't open" because the user's typing got blown away.
+
+Fix: gate the gesture's match on the title stack's current page. If it's already showing the `edit` page, skip the match entirely.
+
+### Window slightly too tight
+
+The 700 ms window was based on the trace data (clicks in the 614–559–434 ms range), but Brandon's natural cadence sometimes pushes past 700 ms. Bumped to 800 ms — generous for any user, still well below the threshold where two distinct single-click intents would accidentally collapse into a double.
+
+### What changed
+
+`atrium/src/ui/task_list.rs` — the activate gesture's released handler:
+
+- Time window: 700 ms → 800 ms.
+- New `already_editing` check reads `atrium-title-stack`'s `visible_child_name`. If `"edit"`, skip the match.
+- Tracing now also logs `already_editing` so the next bug report has even more data.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests unchanged.
+
+`VERSION`: 0.1.12 → 0.1.13 (patch — double-click hardening; window widened, re-entry guarded).
+
 ## v0.1.12 (2026-05-07) — Double-click really fires this time
 
 The v0.1.11 trace was the gold:

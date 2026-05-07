@@ -19,7 +19,7 @@
 project(
   'atrium',
   'rust',
-  version: '0.1.12',
+  version: '0.1.13',
   meson_version: '>= 0.59.0',
   license: 'MIT',
 )
