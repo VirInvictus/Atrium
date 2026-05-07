@@ -523,15 +523,29 @@ where
         // v0.1.11 — explicit Capture phase. The Bubble default
         // wasn't firing reliably because the parent
         // GtkListItemWidget's selection-handling gesture was
-        // consuming events before they bubbled up to us. Capture
-        // runs on the way DOWN, so our handler sees the event
-        // before any ancestor's processing.
+        // consuming events before they bubbled up to us.
         activate_gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
+        // v0.1.12 — drop GTK's `n_press` double-click detection
+        // and roll our own time-window match. GTK's threshold
+        // (`gtk-double-click-time`) defaults to 400 ms on most
+        // setups; Brandon's natural double-click cadence on his
+        // ThinkPad trackpad lands closer to 700–800 ms, so the
+        // system never registered his clicks as a double. We use
+        // a generous 700 ms window — every legitimate
+        // double-click hits, single clicks never match.
+        let last_release: std::rc::Rc<std::cell::Cell<Option<std::time::Instant>>> =
+            std::rc::Rc::new(std::cell::Cell::new(None));
         activate_gesture.connect_released(move |gesture, n_press, _, _| {
-            tracing::debug!(n_press, "row activate-gesture released");
-            if n_press == 2
-                && let Some(widget) = gesture.widget()
-            {
+            let now = std::time::Instant::now();
+            let prev = last_release.replace(Some(now));
+            let is_double_click = prev
+                .is_some_and(|p| now.duration_since(p) <= std::time::Duration::from_millis(700));
+            tracing::debug!(n_press, is_double_click, "row activate-gesture released");
+            if is_double_click && let Some(widget) = gesture.widget() {
+                // Reset so a third click within the window doesn't
+                // re-fire (the user was double-clicking, not
+                // triple-clicking).
+                last_release.set(None);
                 let did_edit = crate::ui::window::start_edit_on_row(&widget);
                 tracing::debug!(did_edit, "row activate-gesture: start_edit_on_row returned");
             }

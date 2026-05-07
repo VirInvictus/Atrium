@@ -1,5 +1,48 @@
 # Atrium — Patch Notes
 
+## v0.1.12 (2026-05-07) — Double-click really fires this time
+
+The v0.1.11 trace was the gold:
+
+```
+row activate-gesture released n_press=1
+row activate-gesture released n_press=1     ← 720 ms after click 1
+row activate-gesture released n_press=3     ← rapid clicks finally counted
+row activate-gesture released n_press=4
+...
+```
+
+GTK's `n_press` increments only when consecutive clicks fall within `gtk-double-click-time` (default ~400 ms). Brandon's natural double-click cadence on his ThinkPad trackpad is ~700 ms — well outside that window. So the system was treating each of his "double-clicks" as two independent single-clicks (each `n_press = 1`), and our `n_press == 2` check never matched.
+
+### Fix
+
+`atrium/src/ui/task_list.rs` — the activate gesture now ignores GTK's `n_press` and runs its own time-window detection:
+
+```rust
+let last_release: Rc<Cell<Option<Instant>>> = Rc::new(Cell::new(None));
+activate_gesture.connect_released(move |gesture, _, _, _| {
+    let now = Instant::now();
+    let prev = last_release.replace(Some(now));
+    let is_double_click = prev.is_some_and(|p|
+        now.duration_since(p) <= Duration::from_millis(700)
+    );
+    if is_double_click { … start_edit_on_row … }
+});
+```
+
+700 ms is generous — every legitimate double-click matches comfortably; single clicks never accidentally count as doubles. Reset on match so a third click within the window doesn't re-trigger.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests unchanged.
+
+The diagnostic tracing from v0.1.11 stays in place; if a future user reports the same issue we can confirm the timing immediately.
+
+`VERSION`: 0.1.11 → 0.1.12 (patch — double-click detection now matches user cadence, not GTK's tight default).
+
 ## v0.1.11 (2026-05-07) — Double-click capture + diagnostics
 
 Brandon reported the v0.1.10 double-click → inline-edit change still wasn't firing. Two changes here to chase it:

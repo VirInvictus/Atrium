@@ -90,6 +90,18 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.12" date="2026-05-07">
+      <description>
+        <p>Fix: double-clicking a task row now reliably enters
+           inline title edit. The previous detection used GTK's
+           built-in n_press counter which only matches clicks
+           inside the system's gtk-double-click-time setting
+           (~400 ms by default) — too tight for natural
+           trackpad double-clicks. Replaced with our own 700 ms
+           time-window detection so the gesture matches user
+           intent rather than the system threshold.</p>
+      </description>
+    </release>
     <release version="0.1.11" date="2026-05-07">
       <description>
         <p>Diagnostic build for the double-click-not-firing report.
