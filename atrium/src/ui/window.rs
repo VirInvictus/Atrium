@@ -149,6 +149,18 @@ mod imp {
         /// `WorkerHandle`); from then on the window calls
         /// `set_task` / `clear` on it as the selection moves.
         pub inspector_pane: RefCell<Option<Rc<crate::ui::inspector_pane::InspectorPane>>>,
+        /// v0.1.6 — synchronous mode tracker. `apply_mode` is the
+        /// single writer; everything that needs to know "are we
+        /// in Builder right now" reads from this Cell rather than
+        /// `gio::Settings::new(APP_ID).string("mode")`. v0.1.5
+        /// surfaced a case where the GSettings string was returning
+        /// a value that didn't match what `apply_mode` had just
+        /// flipped to — most likely a per-instance staleness in
+        /// the dconf backend during a same-frame read. The Cell is
+        /// updated synchronously inside `apply_mode`, so any later
+        /// callback in the same event loop iteration reads the
+        /// just-applied value.
+        pub current_mode_is_builder: Cell<bool>,
         /// Cached project metadata for the active Project view —
         /// needed so the `Sequential` switch + `Review interval`
         /// SpinButton can populate from current values when the
@@ -915,6 +927,12 @@ impl AtriumWindow {
     pub fn apply_mode(&self, mode: &str) {
         let builder = mode == "builder";
         debug!(mode, builder, "apply_mode");
+
+        // v0.1.6 — write the synchronous mode tracker first so any
+        // callbacks that fire during the rest of this method (e.g.,
+        // a selection-changed signal racing through the event loop)
+        // observe the new mode immediately.
+        self.imp().current_mode_is_builder.set(builder);
 
         // Right-side Inspector pane. Three independent levers all
         // resolve the same way (`builder`) — belt-and-suspenders
@@ -1874,24 +1892,48 @@ impl AtriumWindow {
     /// Builder, ignoring whatever they're actually selecting now).
     fn refresh_inspector_pane(&self) {
         let pane_opt = self.imp().inspector_pane.borrow().clone();
-        let Some(pane) = pane_opt else { return };
-        if self.settings().string("mode") != "builder" {
+        let Some(pane) = pane_opt else {
+            debug!("refresh_inspector_pane: no pane installed yet");
+            return;
+        };
+        // v0.1.6 — read from the synchronous Cell instead of
+        // round-tripping through GSettings. apply_mode is the only
+        // writer; the value is set before any of apply_mode's
+        // sibling work runs, so any callback that lands here in
+        // the same event-loop iteration sees the just-flipped
+        // mode (which the GSettings string compare in v0.1.5 was
+        // sometimes missing).
+        let builder = self.imp().current_mode_is_builder.get();
+        if !builder {
+            debug!("refresh_inspector_pane: simple mode → clear");
             pane.clear();
             return;
         }
         let selected = self.selected_task_ids();
         if selected.len() != 1 {
+            debug!(
+                n = selected.len(),
+                "refresh_inspector_pane: not 1-selected → clear"
+            );
             pane.clear();
             return;
         }
         let id = selected[0];
         if pane.current_task_id() == Some(id) {
+            debug!(
+                id,
+                "refresh_inspector_pane: already showing this task → noop"
+            );
             return;
         }
-        let Some(pool) = self.read_pool() else { return };
+        let Some(pool) = self.read_pool() else {
+            debug!("refresh_inspector_pane: no read pool yet");
+            return;
+        };
         let task = match pool.with(|c| atrium_core::db::read::task_by_id(c, id)) {
             Ok(Some(t)) => t,
             _ => {
+                debug!(id, "refresh_inspector_pane: task not found → clear");
                 pane.clear();
                 return;
             }
@@ -1903,6 +1945,7 @@ impl AtriumWindow {
             .with(|c| atrium_core::db::read::tag_ids_for_task(c, id))
             .unwrap_or_default()
             .len();
+        debug!(id, "refresh_inspector_pane: set_task");
         pane.set_task(task, projects, tag_count);
     }
 

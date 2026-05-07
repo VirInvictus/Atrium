@@ -1,5 +1,58 @@
 # Atrium — Patch Notes
 
+## v0.1.6 (2026-05-07) — Inspector pane populates reliably in Builder
+
+Brandon caught the inverse of v0.1.5: now the side pane stays empty (`No task selected`) when a row is actually selected in Builder Mode. The v0.1.5 fix added a mode gate at the top of `refresh_inspector_pane`:
+
+```rust
+if self.settings().string("mode") != "builder" {
+    pane.clear();
+    return;
+}
+```
+
+That GSettings round-trip was sometimes returning a stale value on the same frame as a mode flip — the Cell- vs- read-through-backend timing isn't quite synchronous from the perspective of a callback that fires while the menu action is still in flight. The pane host's visibility was getting set to true (via `apply_mode`'s explicit `set_visible(builder)` belt added in v0.1.5), but the immediately-following selection-changed fire was reading "simple" from GSettings and bailing with `pane.clear()` — leaving the visible host stuck on the empty-state placeholder.
+
+### What changed
+
+`atrium/src/ui/window.rs::imp::AtriumWindow`:
+
+- New `current_mode_is_builder: Cell<bool>`. Synchronous mode tracker; `apply_mode` is the single writer.
+
+`atrium/src/ui/window.rs::apply_mode`:
+
+- Writes `current_mode_is_builder.set(builder)` first thing — before any of the visibility setters or sidebar rebuilds run. Any callback that races into this method's body while it's still executing observes the new mode.
+
+`atrium/src/ui/window.rs::refresh_inspector_pane`:
+
+- Reads from `current_mode_is_builder.get()` instead of `self.settings().string("mode")`. Sidesteps the same-frame staleness entirely.
+- Adds `tracing::debug!` at every branch — pane-missing, simple-mode, no-selection, multi-selection, same-task-noop, set-task-fired. The next mode-flip behaviour report comes with data: run with `RUST_LOG=atrium=debug` and the trace tells you exactly which branch each call lands in.
+
+### Other reads of GSettings `mode`
+
+The other call sites (`refresh_dynamic_badges`, `set_active_list`, etc.) keep reading from `self.settings().string("mode")` rather than the Cell. They run on user-initiated events (menu open, list switch) that don't race with `apply_mode` itself, so the round-trip is safe there. We could migrate them to the Cell for consistency, but that's a "no behaviour change" cleanup; flagging it as a follow-up rather than landing it speculatively.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests unchanged.
+
+### Try it
+
+```bash
+RUST_LOG=atrium=debug cargo run -p atrium
+
+# Mode → Builder. Click a task. The pane populates.
+# Console shows: refresh_inspector_pane: set_task id=...
+# Mode → Simple. Pane hides. Click a task in Simple Mode.
+# Console shows: refresh_inspector_pane: simple mode → clear
+# Mode → Builder. Click a task. The pane populates again.
+```
+
+`VERSION`: 0.1.5 → 0.1.6 (patch — UI bug fix; mode-flip race in the pane refresh).
+
 ## v0.1.5 (2026-05-07) — Inspector pane hides on Simple Mode flip
 
 Brandon caught a follow-on bug after v0.1.4: switching from Builder Mode back to Simple left the Inspector side pane visible on the right, including its "Builder" group with the subtitle *"Fields exposed only in Builder Mode."* Visually inconsistent — Simple Mode users shouldn't see the pane at all, much less one that announces it's a Builder feature.

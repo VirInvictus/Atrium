@@ -90,6 +90,19 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.6" date="2026-05-07">
+      <description>
+        <p>Fix: the Inspector side pane now reliably populates when
+           you select a task in Builder Mode. The v0.1.5 mode-gate
+           in the selection-changed handler was reading the GSettings
+           string directly, which sometimes returned a stale value
+           on the same frame as a mode flip. Replaced with a
+           synchronous Cell tracker that apply_mode writes before
+           any other work happens. Plus debug-level tracing on every
+           branch of the pane-refresh path so the next bug report
+           comes with data.</p>
+      </description>
+    </release>
     <release version="0.1.5" date="2026-05-07">
       <description>
         <p>Fix: the Inspector side pane now reliably hides when
