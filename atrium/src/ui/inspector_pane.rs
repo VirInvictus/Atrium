@@ -35,7 +35,7 @@ use gtk::glib;
 use gtk::glib::clone;
 use tracing::error;
 
-use crate::ui::inspector::{format_deadline_label, format_schedule_label};
+use crate::ui::inspector::{format_deadline_label, format_defer_label, format_schedule_label};
 
 /// Shared state mounted into the pane host. Keeps the empty-state
 /// page + the editor page in a single `gtk::Stack` and exposes
@@ -318,7 +318,9 @@ where
         .description("Fields exposed only in Builder Mode.")
         .build();
 
-    // estimated_minutes — functional in Phase 10.
+    // estimated_minutes — Phase 11 wires the dispatch. SpinRow
+    // commits on value-changed via `worker.update_task(
+    // TaskUpdate::estimated_minutes_value(_))`. 0 clears the field.
     let est_row = adw::SpinRow::with_range(0.0, 24.0 * 60.0, 5.0);
     est_row.set_title("Estimated minutes");
     est_row.set_subtitle("0 leaves the field unset.");
@@ -332,33 +334,51 @@ where
             if new == original_estimated {
                 return;
             }
-            // estimated_minutes isn't on TaskUpdate's builder yet;
-            // exposing it here is a future Phase 10.5 / Phase 11
-            // task. For Phase 10 the SpinRow lives but doesn't
-            // commit — flagged in the patchnotes.
-            let _ = (new, &worker);
+            let worker = worker.clone();
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker
+                    .update_task(TaskUpdate::new(task_id).estimated_minutes_value(new))
+                    .await
+                {
+                    error!(?e, task_id, "inspector pane: estimated autosave failed");
+                }
+            });
         });
     }
     builder_group.add(&est_row);
 
-    // defer_until — Phase 11 owns the editor; we render a disabled
-    // placeholder so the row still appears in the layout.
+    // Phase 11 — defer_until is a functional date popover that
+    // mirrors the Schedule / Deadline pickers. A future date
+    // excludes the task from Today and Anytime per spec §4.2.
+    let defer_state: Rc<RefCell<Option<NaiveDate>>> = Rc::new(RefCell::new(task.defer_until));
+    let original_defer = task.defer_until;
+    let defer_button = build_date_button(&defer_state, format_defer_label, {
+        let worker = worker.clone();
+        move |new| {
+            if new == original_defer {
+                return;
+            }
+            let worker = worker.clone();
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker
+                    .update_task(TaskUpdate::new(task_id).defer_value(new))
+                    .await
+                {
+                    error!(?e, task_id, "inspector pane: defer autosave failed");
+                }
+            });
+        }
+    });
+    defer_button.add_css_class("flat");
     let defer_row = adw::ActionRow::builder()
         .title("Defer until")
-        .subtitle("Editor lands in Phase 11.")
-        .sensitive(false)
+        .activatable_widget(&defer_button)
         .build();
-    let defer_label = gtk::Label::builder()
-        .label(
-            task.defer_until
-                .map(|d| d.format("%a · %b %-d, %Y").to_string())
-                .unwrap_or_else(|| "—".to_string()),
-        )
-        .build();
-    defer_row.add_suffix(&defer_label);
+    defer_row.add_suffix(&defer_button);
     builder_group.add(&defer_row);
 
-    // repeat_rule — Phase 15 owns the editor; same shape as defer.
+    // repeat_rule — Phase 15 owns the editor; we render a disabled
+    // placeholder so the row still appears in the layout.
     let repeat_row = adw::ActionRow::builder()
         .title("Repeat rule")
         .subtitle("Editor lands in Phase 15.")

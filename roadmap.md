@@ -160,10 +160,10 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 ## Phase 11: Builder Mode — Defer Dates & Sequential Projects
 *OmniFocus mechanics. Tasks with future defer dates become "available" later.*
 
-- [ ] **`defer_until` editor** in Inspector.
-- [ ] **List filter logic:** `Today` and `Anytime` exclude deferred tasks until their defer date.
-- [ ] **Sequential project rendering:** in a sequential project, only the first incomplete task renders as "available"; later tasks render dimmed/disabled.
-- [ ] **"Available" task count:** sidebar projects show available-task count instead of open-task count when mode = Builder.
+- [x] **`defer_until` editor** in Inspector — both the modal `inspector.rs` and the Builder side pane `inspector_pane.rs` now have a real Defer-until row using the same Today / Tomorrow / Calendar / Clear popover that drives Schedule and Deadline. `TaskUpdate` gains a `defer_value(Option<NaiveDate>)` builder method; the worker SQL builder picks up the new field. Modal Inspector commits via the existing Apply diff; side pane auto-saves on popover commit.
+- [x] **List filter logic:** Today and Anytime already filtered `defer_until > today` since Phase 4 (the SQL was in place; only the editor was missing). With the Phase 11 editor live, the predicate finally has something to act on. Tests `today_excludes_deferred_to_future`, `anytime_excludes_future_deferred`, and `today_includes_deferred_now_active` cover the boundaries.
+- [x] **Sequential project rendering:** `AtriumTask` gains a `queued` glib property; `task_list::compute_queued_state` flags every row past the first incomplete one as queued when viewing a sequential project. The factory's bind handler and a `connect_queued_notify` hook apply / remove the `.queued` CSS class so already-bound rows update when the head row gets completed (which promotes the next). `data/style.css` adds `.atrium-task-row.queued { opacity: 0.45; font-style: italic on title }`. `apply_changes_seq` recomputes the state after every TaskChanges delta on a sequential project view, so completion-toggling the head row demotes it and promotes the next in the same frame.
+- [x] **"Available" task count:** `refresh_dynamic_badges` consults `project_meta` per project and runs an `available_count(open, sequential)` helper — sequential projects clamp to 0 or 1; parallel projects show their open count. Builder Mode only; Simple Mode keeps showing open count regardless. Three new unit tests cover the math.
 
 ## Phase 12: Builder Mode — Forecast View
 *OmniFocus's killer view: a calendar-axis layout of next ~30 days.*

@@ -41,6 +41,13 @@ mod imp {
         /// Empty when the task has no tags.
         #[property(get, set)]
         pub tag_names_csv: RefCell<String>,
+        /// Phase 11 — `true` when the task is in a sequential
+        /// project AND not the first incomplete task. The factory
+        /// applies the `.queued` CSS class based on this; it never
+        /// changes membership. Always `false` outside sequential
+        /// project views.
+        #[property(get, set)]
+        pub queued: Cell<bool>,
     }
 
     #[glib::object_subclass]

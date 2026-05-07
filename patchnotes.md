@@ -1,5 +1,92 @@
 # Atrium — Patch Notes
 
+## v0.1.2 (2026-05-07) — Phase 11: defer dates + sequential project rendering
+
+The OmniFocus mechanics that turn the Builder Mode shell from a stage set into something you can actually run. v0.1.1 wired the side pane and surfaced the Builder fields; v0.1.2 makes `defer_until` and `sequential` matter.
+
+### Defer-until editor
+
+- `atrium-core/src/domain/mod.rs::TaskUpdate` gains `defer_until: Option<Option<NaiveDate>>` and a `defer_value(Option<NaiveDate>)` builder method. Same `Some(None)` / `Some(Some(date))` semantics as the existing schedule + deadline fields.
+- The worker's `update_task` SQL builder picks up the new field — one extra `if let Some(defer_until) = update.defer_until { sets.push("defer_until = ?"); … }` arm.
+- Both Inspectors get the editor:
+  - **Modal `inspector.rs`** — adds a Defer-until `AdwActionRow` with the same date popover used by Schedule and Deadline (`build_date_button` + the new `format_defer_label` helper that says *"Available now"* when the field is null instead of *"No deadline"*). Apply diffs include `defer_until` alongside the other columns.
+  - **Side pane `inspector_pane.rs`** — the disabled "Editor lands in Phase 11" placeholder is gone; a real `MenuButton` popover replaces it. Auto-save on popover commit, mirroring how Schedule and Deadline work.
+- Two new core tests: `update_task_sets_and_clears_defer_until` (set / clear round-trip) and `update_task_sets_and_clears_estimated_minutes` (the carryover from Phase 10).
+
+### List-filter logic — already in place
+
+The Today and Anytime SQL queries have filtered `defer_until > today` since Phase 4 (`atrium-core/src/db/read.rs::list_today` + `list_anytime`). The predicate was correct; it just had no editor wired to surface the column. With Phase 11 the editor's live, and the existing tests (`today_excludes_deferred_to_future`, `anytime_excludes_future_deferred`, `today_includes_deferred_now_active`) finally have a real user-facing path that exercises them. No SQL changes.
+
+### `estimated_minutes` — wired
+
+`TaskUpdate` gains `estimated_minutes: Option<Option<i64>>` and an `estimated_minutes_value(Option<i64>)` builder. The Phase 10 inspector-pane SpinRow that lived but didn't dispatch now commits via `worker.update_task(TaskUpdate::new(id).estimated_minutes_value(_))` on every value-changed event. 0 clears the column; any positive integer sets it.
+
+### Sequential project rendering
+
+- `AtriumTask` (`atrium/src/ui/task_object.rs`) gains a `queued` `glib::Property`. The factory mirrors it to a `.queued` CSS class on the row and observes `connect_queued_notify` so already-bound rows update when the head row gets completed and the next one is promoted to "available".
+- `data/style.css` adds:
+  ```css
+  .atrium-task-row.queued {
+      opacity: 0.45;
+  }
+  .atrium-task-row.queued .atrium-task-title {
+      font-style: italic;
+  }
+  ```
+  Plus a doc comment explaining why we don't disable the CheckButton (toggling the head row is how you advance through a sequential project — completing the head promotes the next).
+- `task_list::compute_queued_state(tasks, sequential)` is the pure helper: given a task list and a sequential bool, returns one bool per task. The first incomplete task is unqueued; the rest are queued; completed tasks are never queued (the `.completed` fade already dims them).
+- `replace_store_with_tags_seq(store, tasks, tag_map, sequential)` replaces the prior `replace_store_with_tags`. Window calls it with `sequential = matches!(active, ActiveList::Project(id)) && project_meta.get(id).is_some_and(|p| p.sequential)`. Other views (Today, Inbox, Area aggregates) pass `false` and never dim rows.
+- `apply_changes_seq` (the new diff applier) calls `recompute_queued_state` after the delta lands so toggling the head row demotes it and promotes the next in the same frame.
+- Four new tests cover the helper: empty when not sequential, first-open-unqueued / rest-queued, skip-completed-for-first-open, all-completed-no-queue.
+
+### Available-task count badges
+
+- `available_count(open, sequential)` — pure helper in `window.rs`. Sequential projects clamp to 0 or 1 (head only); parallel projects show their open count.
+- `refresh_dynamic_badges` reads the project metadata cache and applies the available-count translation when `mode == "builder"`. Simple Mode keeps showing open count (Simple Mode hides the Sequential toggle, so available ≡ open there anyway).
+- Two new unit tests: `available_parallel_project_shows_open_count` and `available_sequential_project_caps_at_one`.
+
+### Numbers
+
+- **158 tests** pass (was 150). +6 binary tests (4 queued-state, 2 available-count badge math); +2 atrium-core tests (defer / estimated round-trip).
+- `cargo fmt` clean.
+- `cargo clippy --workspace --all-targets -- -D warnings` clean.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 158 tests
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Mode → Builder.
+# Click any task → side pane shows Defer-until row → click → Calendar → pick
+#   a date 3 days out → row falls out of Today (and Anytime) until then.
+# Pick a project in the sidebar → flip Sequential ON → the project's tasks
+#   past the first incomplete one dim and italicise; the sidebar badge shrinks
+#   from N to 1.
+# Complete the head task → next row brightens and the badge stays at 1.
+# Set Estimated Minutes to 30 → reopen the row → the SpinRow shows 30.
+```
+
+### What didn't change
+
+- Schema (`0001_initial.sql` — Phase 1 superset is the contract; `defer_until` and `estimated_minutes` were already columns. v0.1.2 only added editors).
+- Single-writer worker, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Simple Mode is identical to v0.1.1 — every Builder-only surface still hides when mode = simple. The mode-flip snapshot test still passes.
+- Quick Entry, FTS5 search, multi-select, undo, sidebar filter — every Phase 4–9 surface unchanged.
+
+### What's next
+
+Phase 12 — Forecast view. The 30-day calendar-axis layout that gives Builder Mode its OmniFocus flavor. Vertical day blocks; each shows scheduled, deadlined, and deferred tasks for that day. Drag-to-reschedule between days writes `scheduled_for`. Today indicator + overdue surfacing. The Phase 10 Forecast stub becomes the real page.
+
+`VERSION`: 0.1.1 → 0.1.2 (patch — Phase 11; one new TaskUpdate field + a few hundred lines of UI on top of the v0.1.1 shell).
+
 ## v0.1.1 (2026-05-07) — Phase 10: Builder Mode UI shell
 
 The mode switch becomes real. Until v0.1.1, "Builder Mode" was a GSettings string with no visible consequence — flipping it changed nothing on screen because nothing observed the key. This release wires the observer, lands the right-side Inspector pane, surfaces the Builder-only sidebar sections (Forecast / Review / Perspectives) as stubs pointing at the phases that fill them in, and adds project-level controls for the Builder fields (`sequential` and `review_interval_days`) that have lived in the schema since Phase 1 unused.

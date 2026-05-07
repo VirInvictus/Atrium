@@ -103,12 +103,25 @@ pub fn open<F>(
         .build();
     deadline_row.add_suffix(&deadline_button);
 
+    // Phase 11 — defer_until editor. Same date popover shape as
+    // Schedule / Deadline. A future date excludes the task from
+    // Today and Anytime per spec §4.2 until the date crosses.
+    let defer_state: Rc<RefCell<Option<NaiveDate>>> = Rc::new(RefCell::new(task.defer_until));
+    let defer_button = build_date_button(&defer_state, format_defer_label);
+    defer_button.add_css_class("flat");
+    let defer_row = adw::ActionRow::builder()
+        .title("Defer until")
+        .activatable_widget(&defer_button)
+        .build();
+    defer_row.add_suffix(&defer_button);
+
     // Project — AdwComboRow gives the proper Adwaita dropdown chrome.
     let project_row = build_project_combo_row(&all_projects, task.project_id);
 
     let dates_group = adw::PreferencesGroup::new();
     dates_group.add(&schedule_row);
     dates_group.add(&deadline_row);
+    dates_group.add(&defer_row);
     dates_group.add(&project_row);
 
     // ── Tags row (its own group, with Edit Tags… suffix) ─────────
@@ -201,6 +214,7 @@ pub fn open<F>(
     let original_note = task.note.clone();
     let original_schedule = task.scheduled_for;
     let original_deadline = task.deadline;
+    let original_defer = task.defer_until;
     let original_project = task.project_id;
     let task_id = task.id;
     apply_button.connect_clicked(clone!(
@@ -219,6 +233,8 @@ pub fn open<F>(
         #[strong]
         deadline_state,
         #[strong]
+        defer_state,
+        #[strong]
         all_projects,
         move |_| {
             let new_title_raw = title_row.text().to_string();
@@ -233,6 +249,7 @@ pub fn open<F>(
                 .to_string();
             let new_schedule = *schedule_state.borrow();
             let new_deadline = *deadline_state.borrow();
+            let new_defer = *defer_state.borrow();
             let new_project = project_id_from_combo_row(&project_row, &all_projects);
 
             let mut update = TaskUpdate::new(task_id);
@@ -247,6 +264,9 @@ pub fn open<F>(
             }
             if new_deadline != original_deadline {
                 update = update.deadline_value(new_deadline);
+            }
+            if new_defer != original_defer {
+                update = update.defer_value(new_defer);
             }
             if new_project != original_project {
                 update = update.project(new_project);
@@ -544,6 +564,15 @@ pub(crate) fn format_schedule_label(value: Option<&ScheduledFor>) -> String {
 pub(crate) fn format_deadline_label(value: Option<&NaiveDate>) -> String {
     match value {
         None => "No deadline".to_string(),
+        Some(d) => d.format("%a · %b %-d, %Y").to_string(),
+    }
+}
+
+/// Phase 11 — defer-until label. Same shape as deadline; the empty
+/// state copy differs ("Available now" reads better than "No defer").
+pub(crate) fn format_defer_label(value: Option<&NaiveDate>) -> String {
+    match value {
+        None => "Available now".to_string(),
         Some(d) => d.format("%a · %b %-d, %Y").to_string(),
     }
 }

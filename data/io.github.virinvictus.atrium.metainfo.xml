@@ -90,6 +90,21 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.2" date="2026-05-07">
+      <description>
+        <p>Phase 11 — defer dates and sequential project rendering.
+           The Inspector (modal + side pane) gains a working
+           "Defer until" date picker; tasks deferred to a future
+           date drop out of Today and Anytime until the date
+           crosses. In a sequential project, only the first
+           incomplete task renders at full opacity; the rest dim
+           with a `.queued` CSS class. Sidebar project badges in
+           Builder Mode show the *available* count (1 for sequential,
+           N for parallel) instead of the raw open count. The Phase
+           10 placeholder for `estimated_minutes` becomes a live
+           SpinRow that dispatches to the worker.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-05-07">
       <description>
         <p>Phase 10 — Builder Mode UI shell. The mode switch becomes

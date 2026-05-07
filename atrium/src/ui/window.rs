@@ -36,7 +36,7 @@ use gtk::{CompositeTemplate, gio, glib};
 use tracing::{debug, error, warn};
 
 use crate::ui::task_list::{
-    ActiveList, TagMap, apply_changes, build_factory, replace_store_with_tags, sort_by_position,
+    ActiveList, TagMap, build_factory, replace_store_with_tags_seq, sort_by_position,
 };
 
 /// Shared cell used by both the undo toast button and the `Ctrl+Z`
@@ -514,11 +514,24 @@ impl AtriumWindow {
     }
 
     /// Update project / area / tag badges from the count caches.
+    /// Phase 11 — in Builder Mode, sequential project badges show
+    /// the *available* count instead of the open count: a sequential
+    /// project with N open tasks has 1 available (the head row);
+    /// a parallel project still shows N. Simple Mode shows open
+    /// count regardless (Simple Mode hides the sequential toggle).
     fn refresh_dynamic_badges(&self) {
+        let builder = self.settings().string("mode") == "builder";
         let project_counts = self.imp().project_counts.borrow().clone();
+        let project_meta = self.imp().project_meta.borrow().clone();
         for (pid, badge) in self.imp().project_badges.borrow().iter() {
-            let n = project_counts.get(pid).copied().unwrap_or(0);
-            apply_badge_label(badge, n);
+            let open = project_counts.get(pid).copied().unwrap_or(0);
+            let display = if builder {
+                let sequential = project_meta.get(pid).is_some_and(|p| p.sequential);
+                available_count(open, sequential)
+            } else {
+                open
+            };
+            apply_badge_label(badge, display);
         }
         let area_counts = self.imp().area_counts.borrow().clone();
         for (aid, badge) in self.imp().area_badges.borrow().iter() {
@@ -1158,7 +1171,20 @@ impl AtriumWindow {
                 } else {
                     tasks
                 };
-                replace_store_with_tags(&store, &tasks, &tag_map);
+                // Phase 11 — sequential project rendering. Only on
+                // a single-project view AND only when the project
+                // has sequential=true. Other views (Today, Inbox,
+                // Area aggregates) never dim rows.
+                let sequential = match &active {
+                    ActiveList::Project(id) => self
+                        .imp()
+                        .project_meta
+                        .borrow()
+                        .get(id)
+                        .is_some_and(|p| p.sequential),
+                    _ => false,
+                };
+                replace_store_with_tags_seq(&store, &tasks, &tag_map, sequential);
                 sort_by_position(&store);
             }
             Err(e) => {
@@ -1219,7 +1245,21 @@ impl AtriumWindow {
             .read_pool()
             .and_then(|p| p.with(atrium_core::db::read::tag_names_per_task).ok())
             .unwrap_or_default();
-        apply_changes(&store, changes, active, today, &tag_map);
+        // Phase 11 — propagate the sequential flag so the diff
+        // applier recomputes queued state when the active view is
+        // a sequential project.
+        let sequential = match &active {
+            ActiveList::Project(id) => self
+                .imp()
+                .project_meta
+                .borrow()
+                .get(id)
+                .is_some_and(|p| p.sequential),
+            _ => false,
+        };
+        crate::ui::task_list::apply_changes_seq(
+            &store, changes, active, today, &tag_map, sequential,
+        );
         self.update_empty_state(&store);
         // Phase 5c: any task delta might have moved a count.
         self.refresh_counts();
@@ -2675,6 +2715,14 @@ fn sidebar_row(icon: &str, label: &str, margin_start: i32) -> (gtk::ListBoxRow, 
     (row, badge)
 }
 
+/// Translate an open-task count into an "available-task" count for
+/// sidebar badge display in Builder Mode. A sequential project has
+/// at most one available task (the head row); a parallel project's
+/// available count equals its open count.
+fn available_count(open: i64, sequential: bool) -> i64 {
+    if sequential && open > 0 { 1 } else { open }
+}
+
 /// Set a badge label's text from a count, hiding when zero.
 fn apply_badge_label(badge: &gtk::Label, count: i64) {
     if count > 0 {
@@ -2901,5 +2949,23 @@ mod tests {
         let (t, n) = fake_sidebar();
         let v = compute_sidebar_visibility("   ", 2, &t, &n);
         assert_eq!(v, vec![true; 8]);
+    }
+
+    // Phase 11 — available-task badge math.
+
+    #[test]
+    fn available_parallel_project_shows_open_count() {
+        // Parallel project: every open task is available.
+        assert_eq!(available_count(0, false), 0);
+        assert_eq!(available_count(1, false), 1);
+        assert_eq!(available_count(7, false), 7);
+    }
+
+    #[test]
+    fn available_sequential_project_caps_at_one() {
+        // Sequential project: only the head row is available.
+        assert_eq!(available_count(0, true), 0);
+        assert_eq!(available_count(1, true), 1);
+        assert_eq!(available_count(7, true), 1);
     }
 }

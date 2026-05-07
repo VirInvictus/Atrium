@@ -123,6 +123,21 @@ window.atrium-high-legibility .atrium-task-deadline {
   text-decoration: line-through;
 }
 
+/* Phase 11 — sequential project queueing. When a project has
+ * `sequential = true`, only the first incomplete task is
+ * "available"; everything past it is queued. The `.queued` class
+ * dims those rows so the user can read at a glance which row is
+ * actionable, without removing them from view. The CheckButton
+ * stays interactive — completing the queued first task unlocks
+ * the next; that round-trip flows through worker.toggle_complete
+ * + a refresh. */
+.atrium-task-row.queued {
+  opacity: 0.45;
+}
+.atrium-task-row.queued .atrium-task-title {
+  font-style: italic;
+}
+
 /* Sidebar count badges: dim-label + numeric in code; tighten the
  * size and tabular-figure them so the values stay aligned column-
  * wise as they change. */

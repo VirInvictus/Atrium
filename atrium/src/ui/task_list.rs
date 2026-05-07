@@ -340,6 +340,26 @@ where
             row.remove_css_class("completed");
         }
 
+        // Phase 11 — .queued CSS class dims sequential-project
+        // rows past the first incomplete one. Window populates the
+        // `queued` property on each AtriumTask before it lands in
+        // the store; the factory mirrors the bool to the row class
+        // on bind, plus listens for runtime flips (e.g., the head
+        // task gets completed and the next promotes to "available").
+        if task.queued() {
+            row.add_css_class("queued");
+        } else {
+            row.remove_css_class("queued");
+        }
+        let row_for_queued = row.clone();
+        let queued_handler = task.connect_queued_notify(move |t| {
+            if t.queued() {
+                row_for_queued.add_css_class("queued");
+            } else {
+                row_for_queued.remove_css_class("queued");
+            }
+        });
+
         // Wire the user-input handlers. `connect_*_notify` fires on
         // *any* property change including programmatic ones, so we
         // gate by comparing against the model — only fire the worker
@@ -414,6 +434,8 @@ where
             row.set_data("atrium-toggle-handler", toggle_handler);
             row.set_data("atrium-activate-handler", activate_handler);
             row.set_data("atrium-focus-handler", focus_handler);
+            row.set_data("atrium-queued-handler", queued_handler);
+            row.set_data("atrium-task-obj", task.clone());
             row.set_data("atrium-check", check.clone());
             row.set_data("atrium-title-stack", title_stack.clone());
             row.set_data("atrium-title-label", title_label.clone());
@@ -524,6 +546,13 @@ where
             ) {
                 check.disconnect(handler);
             }
+            // Phase 11 — disconnect the queued-notify handler too.
+            if let (Some(task_obj), Some(handler)) = (
+                row.steal_data::<AtriumTask>("atrium-task-obj"),
+                row.steal_data::<glib::SignalHandlerId>("atrium-queued-handler"),
+            ) {
+                task_obj.disconnect(handler);
+            }
             // Title entry: disconnect the activate + focus-leave
             // handlers, drop the controllers, drop the cached
             // widget references. The next bind builds fresh.
@@ -585,32 +614,79 @@ where
 }
 
 /// Replace the store contents with `tasks`, populating each
-/// `AtriumTask`'s `tag_names_csv` from `tag_map`. Used on list
-/// switches and after mutations whose ordering implications are
-/// easier to refresh than to compute (e.g., after a `create_task`).
-pub fn replace_store_with_tags(store: &gio::ListStore, tasks: &[Task], tag_map: &TagMap) {
+/// `AtriumTask`'s `tag_names_csv` from `tag_map`. When
+/// `sequential` is `true` (Phase 11 — viewing a sequential
+/// project), every row past the first incomplete one gets
+/// `queued = true` so the factory applies the `.queued` CSS class.
+/// The caller is the only thing that knows whether the active list
+/// is a sequential project view, so this is a parameter rather
+/// than a global.
+pub fn replace_store_with_tags_seq(
+    store: &gio::ListStore,
+    tasks: &[Task],
+    tag_map: &TagMap,
+    sequential: bool,
+) {
     store.remove_all();
+    let queued = compute_queued_state(tasks, sequential);
     let objects: Vec<glib::Object> = tasks
         .iter()
-        .map(|t| {
+        .zip(queued.iter())
+        .map(|(t, q)| {
             let names = tag_map.get(&t.id).cloned().unwrap_or_default();
-            AtriumTask::from_task_with_tags(t, &names).upcast()
+            let obj = AtriumTask::from_task_with_tags(t, &names);
+            obj.set_queued(*q);
+            obj.upcast()
         })
         .collect();
     store.extend_from_slice(&objects);
 }
 
+/// Compute per-task "queued" flags for a sequential project view.
+/// Returns one bool per input task. When `sequential` is `false`,
+/// all flags are `false` (no queueing). When `true`, the first
+/// incomplete task is *not* queued; every subsequent open task is.
+/// Completed tasks are never queued — they've already been done,
+/// so dimming them on top of the completion fade is noise.
+pub fn compute_queued_state(tasks: &[Task], sequential: bool) -> Vec<bool> {
+    if !sequential {
+        return vec![false; tasks.len()];
+    }
+    let mut seen_first_open = false;
+    tasks
+        .iter()
+        .map(|t| {
+            if t.completed_at.is_some() {
+                return false;
+            }
+            if !seen_first_open {
+                seen_first_open = true;
+                false
+            } else {
+                true
+            }
+        })
+        .collect()
+}
+
 /// Apply a `TaskChanges` delta to `store`, respecting `active`'s
 /// membership filter so toggled-completed tasks leave Today, etc.
 /// `tag_map` provides current tag-name strings for tasks added or
-/// updated; pass an empty map if tags aren't known here (the row will
-/// render with no pills until the next full refresh).
-pub fn apply_changes(
+/// updated; pass an empty map if tags aren't known here. When
+/// `sequential` is true (Phase 11 — sequential project view),
+/// recomputes per-row queued state after the diff settles. The
+/// first incomplete row is unqueued; the rest are queued. A
+/// completion toggle on the head row demotes it to completed and
+/// promotes the next row to "available" — the recompute makes the
+/// dim/undim transition land in the same frame as the bound
+/// `completed` flip.
+pub fn apply_changes_seq(
     store: &gio::ListStore,
     changes: &TaskChanges,
     active: ActiveList,
     today: NaiveDate,
     tag_map: &TagMap,
+    sequential: bool,
 ) {
     // Created — append rows that belong here.
     for task in &changes.created {
@@ -655,6 +731,54 @@ pub fn apply_changes(
 
     // Re-sort by position so reorder updates land in the right slot.
     sort_by_position(store);
+
+    // Phase 11 — recompute queued state if this is a sequential
+    // project view. Walks the now-sorted store and updates each
+    // AtriumTask's `queued` property. The factory has a property
+    // notify on `queued` via `bind_property` — we'd love that, but
+    // since the property → CSS class isn't bindable, the factory
+    // mirrors `queued` to the row class on bind. So a recycled row
+    // picks up the new state on its next bind. For rows that are
+    // currently bound, we toggle the row class directly via the
+    // notify hookup that connect_bind installed. (Implemented by
+    // setting `queued` here — bound widgets observe via the
+    // glib::Object property system.)
+    if sequential {
+        recompute_queued_state(store);
+    } else {
+        // If we left a sequential project (e.g., user toggled
+        // sequential off and triggered a refresh), clear queued
+        // flags so no row stays dimmed.
+        for i in 0..store.n_items() {
+            if let Some(obj) = store.item(i).and_downcast::<AtriumTask>() {
+                obj.set_queued(false);
+            }
+        }
+    }
+}
+
+/// Walk the store and recompute queued flags assuming the active
+/// view is a sequential project. The first incomplete task is
+/// unqueued; the rest are queued. Completed tasks are never
+/// queued (the .completed dim takes precedence).
+fn recompute_queued_state(store: &gio::ListStore) {
+    let mut seen_first_open = false;
+    for i in 0..store.n_items() {
+        let Some(obj) = store.item(i).and_downcast::<AtriumTask>() else {
+            continue;
+        };
+        let target = if obj.completed() {
+            false
+        } else if !seen_first_open {
+            seen_first_open = true;
+            false
+        } else {
+            true
+        };
+        if obj.queued() != target {
+            obj.set_queued(target);
+        }
+    }
 }
 
 fn format_tag_names(names: &[String]) -> String {
@@ -809,5 +933,43 @@ mod tests {
         assert_eq!(ActiveList::Forecast.canonical_title(), "Forecast");
         assert_eq!(ActiveList::Review.canonical_title(), "Review");
         assert_eq!(ActiveList::Perspectives.canonical_title(), "Perspectives");
+    }
+
+    // Phase 11 — sequential rendering helper.
+
+    #[test]
+    fn queued_state_empty_when_not_sequential() {
+        let tasks = vec![dummy(1), dummy(2), dummy(3)];
+        let q = compute_queued_state(&tasks, false);
+        assert_eq!(q, vec![false, false, false]);
+    }
+
+    #[test]
+    fn queued_state_first_open_unqueued_rest_queued() {
+        let tasks = vec![dummy(1), dummy(2), dummy(3)];
+        let q = compute_queued_state(&tasks, true);
+        assert_eq!(q, vec![false, true, true]);
+    }
+
+    #[test]
+    fn queued_state_skips_completed_for_first_open() {
+        // First task is done; second is the first open task — so
+        // it's *not* queued. Third is queued.
+        let mut t1 = dummy(1);
+        t1.completed_at = Some(Utc::now());
+        let tasks = vec![t1, dummy(2), dummy(3)];
+        let q = compute_queued_state(&tasks, true);
+        assert_eq!(q, vec![false, false, true]);
+    }
+
+    #[test]
+    fn queued_state_all_completed_no_queue() {
+        // Every task is done — nothing is queued (all `false`).
+        let mut t1 = dummy(1);
+        t1.completed_at = Some(Utc::now());
+        let mut t2 = dummy(2);
+        t2.completed_at = Some(Utc::now());
+        let q = compute_queued_state(&[t1, t2], true);
+        assert_eq!(q, vec![false, false]);
     }
 }

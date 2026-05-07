@@ -82,6 +82,14 @@ pub struct TaskUpdate {
     /// Phase 7i — deadline. `Some(None)` clears, `Some(Some(date))`
     /// sets.
     pub deadline: Option<Option<NaiveDate>>,
+    /// Phase 11 — defer-until (Builder). The list-filter contract
+    /// in spec §4.2 already excludes `defer_until > today` from
+    /// Today / Anytime; this field is what the Inspector writes to
+    /// enable that exclusion.
+    pub defer_until: Option<Option<NaiveDate>>,
+    /// Phase 11 — estimated minutes (Builder). Free-form integer
+    /// minutes; `Some(None)` clears, `Some(Some(n))` sets.
+    pub estimated_minutes: Option<Option<i64>>,
 }
 
 impl TaskUpdate {
@@ -128,6 +136,21 @@ impl TaskUpdate {
         self
     }
 
+    /// Phase 11 — set the defer-until. Pass `None` to clear or
+    /// `Some(date)` to set. A future date excludes the task from
+    /// Today and Anytime until the date crosses.
+    pub fn defer_value(mut self, value: Option<NaiveDate>) -> Self {
+        self.defer_until = Some(value);
+        self
+    }
+
+    /// Phase 11 — set the estimated minutes. Pass `None` to clear
+    /// or `Some(n)` to set.
+    pub fn estimated_minutes_value(mut self, value: Option<i64>) -> Self {
+        self.estimated_minutes = Some(value);
+        self
+    }
+
     /// `true` when no field will change. The worker treats no-op
     /// updates as a read of the current row.
     pub fn is_noop(&self) -> bool {
@@ -137,6 +160,8 @@ impl TaskUpdate {
             && self.project_id.is_none()
             && self.scheduled_for.is_none()
             && self.deadline.is_none()
+            && self.defer_until.is_none()
+            && self.estimated_minutes.is_none()
     }
 }
 

@@ -578,6 +578,14 @@ impl Worker {
             sets.push("deadline = ?");
             bound.push(Box::new(deadline));
         }
+        if let Some(defer_until) = update.defer_until {
+            sets.push("defer_until = ?");
+            bound.push(Box::new(defer_until));
+        }
+        if let Some(est) = update.estimated_minutes {
+            sets.push("estimated_minutes = ?");
+            bound.push(Box::new(est));
+        }
         bound.push(Box::new(update.id));
 
         let sql = format!("UPDATE task SET {} WHERE id = ?", sets.join(", "));
@@ -996,6 +1004,54 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(cleared.deadline, None);
+    }
+
+    #[tokio::test]
+    async fn update_task_sets_and_clears_defer_until() {
+        // Phase 11 — defer_until set/clear round-trip via the
+        // TaskUpdate::defer_value builder.
+        let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+        let task = handle
+            .create_task(NewTask::inbox("deferred"))
+            .await
+            .unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
+        let with_defer = handle
+            .update_task(TaskUpdate::new(task.id).defer_value(Some(date)))
+            .await
+            .unwrap();
+        assert_eq!(with_defer.defer_until, Some(date));
+        let _ = changes_rx.recv().await.unwrap();
+
+        let cleared = handle
+            .update_task(TaskUpdate::new(task.id).defer_value(None))
+            .await
+            .unwrap();
+        assert_eq!(cleared.defer_until, None);
+    }
+
+    #[tokio::test]
+    async fn update_task_sets_and_clears_estimated_minutes() {
+        // Phase 11 — estimated_minutes set/clear via the
+        // TaskUpdate::estimated_minutes_value builder.
+        let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+        let task = handle.create_task(NewTask::inbox("timed")).await.unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+
+        let with_est = handle
+            .update_task(TaskUpdate::new(task.id).estimated_minutes_value(Some(45)))
+            .await
+            .unwrap();
+        assert_eq!(with_est.estimated_minutes, Some(45));
+        let _ = changes_rx.recv().await.unwrap();
+
+        let cleared = handle
+            .update_task(TaskUpdate::new(task.id).estimated_minutes_value(None))
+            .await
+            .unwrap();
+        assert_eq!(cleared.estimated_minutes, None);
     }
 
     #[tokio::test]
