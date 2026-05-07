@@ -1,5 +1,42 @@
 # Atrium — Patch Notes
 
+## v0.1.4 (2026-05-07) — Builder-Mode Inspector chord fix
+
+Brandon hit a real bug: pressing `Ctrl+I` on a task in Builder Mode did nothing. Tracing it back, the v0.1.1 Phase 10 implementation had `open_inspector_focused` short-circuit when `mode = builder`, on the rationale "the side pane already shows the editor; opening another one would be redundant." That was a wrong design call.
+
+The user's mental model of Ctrl+I is *"get me into the editor for this task"* — not *"open a redundant second editor on top of the first."* When the chord does nothing, Builder Mode feels broken. The fix routes Ctrl+I (and the matching double-click and right-click → *Edit Details…* gestures) through to the side pane in Builder Mode and *focuses the title row* so the user can immediately type. Simple Mode keeps opening the modal dialog as before — its analogue is the `title_row.grab_focus()` call at the bottom of `inspector::open`.
+
+### What changed
+
+`atrium/src/ui/inspector_pane.rs`:
+
+- `InspectorPane` gains a `current_title_row: RefCell<Option<adw::EntryRow>>` field.
+- `build_editor` returns `(gtk::Widget, adw::EntryRow)` — body plus the title row — so `set_task` can stash the title for later focus.
+- `set_task` populates `current_title_row` on every rebuild; `clear()` resets it.
+- New `pub fn focus_title(&self)` grabs focus on the current editor's title `EntryRow` and selects-all on its delegate (matching the modal Inspector's grab + select pattern). No-ops when no task is currently displayed.
+
+`atrium/src/ui/window.rs::open_inspector_for(task_id)`:
+
+- Now mode-aware. Builder Mode: re-populates the side pane if the requested task isn't the one currently shown (e.g., a right-click on a row outside the current selection), then calls `pane.focus_title()`. Simple Mode: opens the modal dialog as before.
+- All three editor entry points fan in here:
+  - **`Ctrl+I`** via `open_inspector_focused` — now a thin wrapper over `open_inspector_for(focused_id)`.
+  - **Double-click** via the per-row gesture in `task_list::build_factory` → `win.edit-details-for(i64)` action → `open_inspector_for(id)`.
+  - **Right-click → *Edit Details…*** via the same `win.edit-details-for` action target.
+- All three behave consistently in Builder Mode now: focus the side pane title row, ready to edit.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests unchanged.
+
+### What didn't change
+
+Schema, single-writer worker, every other Phase 4–12 surface. The fix is scoped to the editor-focus routing.
+
+`VERSION`: 0.1.3 → 0.1.4 (patch — bug fix; retracts the v0.1.1 "Ctrl+I is a no-op in Builder" design call).
+
 ## v0.1.3 (2026-05-07) — Phase 12: Forecast view
 
 OmniFocus's signature view, ported. Builder Mode now has a 30-day calendar-axis layout — a scrollable column of day cards that surfaces every task touching the window via `scheduled_for`, `deadline`, or `defer_until`. The Phase 10 Forecast stub ("lands in Phase 12") falls away; selecting Forecast in the sidebar now lands you on the real page.

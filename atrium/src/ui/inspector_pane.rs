@@ -46,6 +46,11 @@ pub struct InspectorPane {
     stack: gtk::Stack,
     editor_host: adw::Bin,
     current_task_id: RefCell<Option<i64>>,
+    /// The current editor's title `EntryRow`, stashed so
+    /// `focus_title()` can hand keyboard focus to it without
+    /// walking the widget tree. Cleared on `clear()` and replaced
+    /// on every `set_task` rebuild.
+    current_title_row: RefCell<Option<adw::EntryRow>>,
     worker: WorkerHandle,
     on_edit_tags: Rc<dyn Fn(i64)>,
 }
@@ -82,6 +87,7 @@ impl InspectorPane {
             stack,
             editor_host,
             current_task_id: RefCell::new(None),
+            current_title_row: RefCell::new(None),
             worker,
             on_edit_tags: Rc::new(on_edit_tags),
         })
@@ -94,16 +100,19 @@ impl InspectorPane {
     pub fn set_task(&self, task: Task, projects: Vec<Project>, tag_count: usize) {
         *self.current_task_id.borrow_mut() = Some(task.id);
         let edit_tags = self.on_edit_tags.clone();
-        let body = build_editor(self.worker.clone(), task, projects, tag_count, move |id| {
-            edit_tags(id)
-        });
+        let (body, title_row) =
+            build_editor(self.worker.clone(), task, projects, tag_count, move |id| {
+                edit_tags(id)
+            });
         self.editor_host.set_child(Some(&body));
+        *self.current_title_row.borrow_mut() = Some(title_row);
         self.stack.set_visible_child_name("editor");
     }
 
     /// Drop back to the empty-state placeholder.
     pub fn clear(&self) {
         *self.current_task_id.borrow_mut() = None;
+        *self.current_title_row.borrow_mut() = None;
         self.editor_host.set_child(None::<&gtk::Widget>);
         self.stack.set_visible_child_name("empty");
     }
@@ -112,19 +121,43 @@ impl InspectorPane {
     pub fn current_task_id(&self) -> Option<i64> {
         *self.current_task_id.borrow()
     }
+
+    /// Hand keyboard focus to the editor's title row and select all
+    /// the existing text. Routed to from `Ctrl+I`, double-click, and
+    /// right-click → Edit Details… in Builder Mode — the Simple-Mode
+    /// modal Inspector's analogue is the `title_row.grab_focus()`
+    /// call at the bottom of `inspector::open`. No-ops when no
+    /// task is currently displayed (e.g., empty state).
+    pub fn focus_title(&self) {
+        if let Some(row) = self.current_title_row.borrow().as_ref() {
+            row.grab_focus();
+            // EntryRow exposes the inner editable through
+            // `delegate()`; selecting all on it puts the cursor in
+            // a state where typing replaces the title outright,
+            // matching the modal Inspector's grab_focus + select-all
+            // shape.
+            if let Some(delegate) = row.delegate() {
+                delegate.select_region(0, -1);
+            }
+        }
+    }
 }
 
 /// Build the per-task editor body. Auto-saves each field on
 /// focus-out / Enter. Mirrors the Phase 7i dialog form's groups but
 /// ditches the Cancel/Apply footer in favor of live commits — the
 /// pane is non-modal, so there's nothing to dismiss.
+///
+/// Returns `(body, title_row)` so the caller can stash the title
+/// row for `InspectorPane::focus_title()` (`Ctrl+I` and the
+/// double-click / right-click activate paths in Builder Mode).
 fn build_editor<F>(
     worker: WorkerHandle,
     task: Task,
     projects: Vec<Project>,
     tag_count: usize,
     on_edit_tags: F,
-) -> gtk::Widget
+) -> (gtk::Widget, adw::EntryRow)
 where
     F: Fn(i64) + 'static,
 {
@@ -398,7 +431,7 @@ where
     page.add(&notes_group);
     page.add(&builder_group);
 
-    page.upcast()
+    (page.upcast(), title_row)
 }
 
 fn format_tag_count(n: usize) -> String {

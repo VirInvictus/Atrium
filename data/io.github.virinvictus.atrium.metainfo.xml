@@ -90,6 +90,19 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.4" date="2026-05-07">
+      <description>
+        <p>Fix: Ctrl+I, double-click, and right-click → Edit Details
+           now consistently open the editor in Builder Mode by
+           routing the targeted task into the side pane and grabbing
+           keyboard focus on its title row. The v0.1.1 design call
+           that made these no-ops in Builder was wrong — the user's
+           mental model of Ctrl+I is "get me into the editor for
+           this task," not "open another editor on top of one I'm
+           already looking at." Simple Mode keeps opening the modal
+           dialog as before.</p>
+      </description>
+    </release>
     <release version="0.1.3" date="2026-05-07">
       <description>
         <p>Phase 12 — Forecast view. Builder Mode's calendar-axis

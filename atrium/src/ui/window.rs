@@ -1740,12 +1740,25 @@ impl AtriumWindow {
         }
     }
 
-    /// Open the per-task Inspector dialog (Phase 7i). Loads the
-    /// task, the project list, and the current tag count from the
-    /// read pool, then hands off to `ui::inspector::open`. The
-    /// "Edit Tags…" button on the inspector closes that dialog and
-    /// re-routes through `open_tag_editor_for` so we don't have
-    /// two modal windows fighting for focus.
+    /// Open the per-task editor for `task_id`. Mode-aware: Simple
+    /// Mode opens the Phase 7i modal dialog; Builder Mode routes
+    /// through the always-visible side pane (re-populating it if
+    /// the requested task isn't the one currently shown) and
+    /// hands keyboard focus to the title row.
+    ///
+    /// All three editor entry points fan in here:
+    /// - `Ctrl+I` (`win.edit-details-focused` → `open_inspector_focused` →
+    ///   `open_inspector_for(focused_id)`),
+    /// - per-row double-click gesture (`task_list.rs` →
+    ///   `win.edit-details-for(i64)` → `open_inspector_for(id)`),
+    /// - right-click → *Edit Details…* (same `win.edit-details-for`
+    ///   action target).
+    ///
+    /// The v0.1.1 design call had `Ctrl+I` no-op in Builder Mode
+    /// on the rationale "the side pane already shows the editor."
+    /// That was wrong: the user's mental model of Ctrl+I is *get
+    /// me into the editor for this task*; doing nothing makes the
+    /// chord feel broken. v0.1.4 retracts the no-op.
     pub fn open_inspector_for(&self, task_id: i64) {
         let Some(pool) = self.read_pool() else {
             return;
@@ -1771,6 +1784,24 @@ impl AtriumWindow {
             .with(|conn| atrium_core::db::read::tag_ids_for_task(conn, task_id))
             .unwrap_or_default()
             .len();
+
+        // Builder Mode — route through the side pane. Repopulate
+        // if the pane isn't already showing this task (e.g., the
+        // user right-clicked a row that wasn't selected; the
+        // selection-changed signal hasn't fired yet so the pane
+        // still shows the previously-selected row). Either way,
+        // grab keyboard focus on the title.
+        let builder = self.settings().string("mode") == "builder";
+        if builder && let Some(pane) = self.imp().inspector_pane.borrow().clone() {
+            if pane.current_task_id() != Some(task_id) {
+                pane.set_task(task, projects, tag_count);
+            }
+            pane.focus_title();
+            return;
+        }
+
+        // Simple Mode (and any path where the pane isn't up yet)
+        // — open the modal dialog.
         let win_weak = self.downgrade();
         let on_edit_tags = move |id: i64| {
             if let Some(win) = win_weak.upgrade() {
@@ -1780,19 +1811,10 @@ impl AtriumWindow {
         crate::ui::inspector::open(self, worker, task, projects, tag_count, on_edit_tags);
     }
 
-    /// `Ctrl+I` shortcut + double-click activate entry point —
-    /// operates on the focused / first-selected task. In Simple
-    /// Mode opens the modal Inspector dialog; in Builder Mode the
-    /// side pane is already showing the row, so the chord becomes
-    /// a no-op (the user is already editing it).
+    /// `Ctrl+I` shortcut entry point — operates on the focused /
+    /// first-selected task. The mode-specific routing lives in
+    /// `open_inspector_for`; this is just the focus-resolver wrapper.
     pub fn open_inspector_focused(&self) {
-        let builder = self.settings().string("mode") == "builder";
-        if builder {
-            // Side pane already mirrors the selection; nothing to
-            // open. Could grab focus into the pane's title row in a
-            // future polish slice.
-            return;
-        }
         if let Some(id) = self.focused_task_id() {
             self.open_inspector_for(id);
         }
