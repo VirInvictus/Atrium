@@ -90,6 +90,32 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.0" date="2026-05-07" type="stable">
+      <description>
+        <p>First public release. Simple Mode is feature-complete:</p>
+        <ul>
+          <li>Inbox · Today · Upcoming · Anytime · Someday · Logbook</li>
+          <li>Areas → Projects → Tasks hierarchy with multi-tag</li>
+          <li>Scheduled (When) and Deadline distinction; Today picks up
+              both overdue items and the next 7 days of deadlines</li>
+          <li>Quick Entry global capture (Ctrl+Alt+Space) with inline
+              #tag / @today / @deadline syntax</li>
+          <li>FTS5-backed search with filter expressions
+              (tag:NAME · is:open|done|overdue · due:today)</li>
+          <li>Inspector and tag editor for the full per-task fieldset</li>
+          <li>Multi-select with bulk Complete / Delete and Ctrl+Z undo</li>
+          <li>Find-as-you-type sidebar filter (Ctrl+L)</li>
+          <li>Keyboard-first — every common op bound, mouse optional</li>
+          <li>Local-first storage at $XDG_DATA_HOME/atrium/atrium.db
+              (single-writer SQLite worker, WAL mode); no network,
+              no telemetry, no accounts</li>
+          <li>High-legibility accessibility toggle (Atkinson Hyperlegible)</li>
+        </ul>
+        <p>The schema is the OmniFocus superset on day one — Builder
+           Mode (v0.2) will expose the columns Simple Mode hides; no
+           migration on mode switch.</p>
+      </description>
+    </release>
     <release version="0.0.38" date="2026-05-07">
       <description>
         <p>Today filter widens to include upcoming-deadline heads-up.

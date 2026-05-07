@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-**Simple Mode shipping (v0.0.37, May 2026).** Phases 0–8 are landed: workspace scaffolding, schema + single-writer worker, application shell, Inbox/Today/all six canonical lists, areas + projects + tags, Quick Entry, FTS5 search + filter expressions, multi-select + undo, Inspector + tag editor dialogs, sidebar find-as-you-type, full keyboard map, typography + accessibility (Atkinson Hyperlegible), debug-pane Memory Watch, regression script. Phase 9 (release-tag work, README screenshots, Flatpak publish) is what stands between today and `v0.1.0`. Phases 10+ (Builder Mode) have not started.
+**Simple Mode shipped (v0.1.0, May 2026).** Phases 0–9 complete. Atrium runs end-to-end: workspace scaffolding, schema + single-writer worker, application shell, all six canonical lists (Inbox / Today / Upcoming / Anytime / Someday / Logbook), areas + projects + tags + multi-tag, Quick Entry, FTS5 search + filter expressions, multi-select + undo, Inspector + tag editor dialogs, sidebar find-as-you-type, full keyboard map, typography + accessibility (Atkinson Hyperlegible), debug-pane Memory Watch, ship-gate regression script. Three Phase 9 follow-ups remain on Brandon's plate (the actual `v0.1.0` git tag, the Flatpak publish, the public announcement on `VirInvictus.github.io`); two Phase 8 carryovers also outstanding (README screenshots, Flatpak font verification under sandbox).
 
-Code exists. Edit it like any working codebase — but most of the spec / roadmap / patchnotes discipline below still applies, since v0.1.0 hasn't been tagged yet.
+Phase 10 (Builder Mode UI shell) is what's next — mode toggle, `AdwOverlaySplitView` Inspector pane, Builder-only sidebar entries (Forecast / Review / Perspectives) as stubs, project page Sequential + Review interval pickers, mode-flip integration test. **No schema changes** — the Phase 1 superset already has every Builder column.
 
 ## Authoritative documents
 

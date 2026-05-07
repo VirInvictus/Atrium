@@ -1,5 +1,100 @@
 # Atrium — Patch Notes
 
+## v0.1.0 (2026-05-07) — Simple Mode ships
+
+The first public release. Atrium starts here: a native GNOME task manager that fuses Things 3's clarity with OmniFocus's depth via a mode switch over a shared local-first data store. Simple Mode — the calm, opinionated surface for *what am I doing right now* — is feature-complete. Builder Mode (Forecast, Review, Perspectives, defer dates, sequential projects, repeat rules) ships in v0.2.
+
+This release is the result of nine phases of sequenced work spelled out in `roadmap.md`. The version-bump entries between v0.0.0 and v0.0.38 are the development trail; this entry is the milestone framing for what v0.1.0 actually contains.
+
+### What ships in v0.1.0
+
+**Six canonical lists** (`spec.md` §4.2), each backed by an indexed SQLite SELECT and fed via the single-writer worker:
+
+- **Inbox** — open tasks with no project assignment.
+- **Today** — overdue + scheduled today + the next 7 days of deadlines (Things-3 "deadlines approaching" heads-up). Excludes deferred and Someday items.
+- **Upcoming** — future-scheduled tasks (`scheduled_for > today`).
+- **Anytime** — open tasks with no schedule, not currently deferred.
+- **Someday** — tasks parked on the `__someday__` sentinel (a state, not a date).
+- **Logbook** — completed tasks, newest first.
+
+**Hierarchy.** Areas → Projects → Tasks, with multi-tag attachment via a `task_tag` join table. Drag a task onto any sidebar project (or onto Inbox) to file it. Drag tasks within a list to reorder. Areas and projects support full CRUD with right-click context menus + the F2 / Ctrl+Shift+Delete / Ctrl+Shift+N / Ctrl+Shift+A keyboard chords. Project archive is transactional — completes every still-open task in the project inside the same SQL transaction.
+
+**Distinct When and Deadline.** Things 3's choice, kept. `scheduled_for` is when you intend to do the task; `deadline` is when it's actually due. They land in different lists — Today pulls both; Upcoming only watches schedule; the deadline heads-up window surfaces upcoming due dates as a Today reminder.
+
+**Quick Entry.** `Ctrl+Alt+Space` opens a small, non-modal capture modal anchored to the main window. Type a task title with optional inline `#tag`, `@today`, `@tomorrow`, `@someday`, `@yyyy-mm-dd`, `@deadline yyyy-mm-dd` syntax. Enter commits to Inbox; Esc dismisses. The same parser drives the bottom-of-list `Add task…` entry, so the syntax works in two places. (Phase 20's `atriumd` will give true OS-global capture; v0.1's shortcut requires Atrium be the focused application.)
+
+**FTS5-backed search.** `Ctrl+F` opens a search bar with 200 ms debounce. Queries can mix freeform text (passed to FTS5) with structured filter clauses applied in Rust — `tag:NAME`, `is:open`, `is:done`, `is:overdue`, `due:today`. AND semantics across filters. `Q3 tag:work is:overdue` is one query.
+
+**Inspector + tag editor.** Double-click a task row, right-click → *Edit Details…*, or `Ctrl+I` opens a modal `AdwDialog` exposing every editable Simple Mode field: title, notes (multi-line), schedule, deadline, project assignment. Tags get their own dialog (right-click → *Edit Tags…* or `Ctrl+T`) with a checkbox-per-tag picker plus an inline "Add a new tag" field that creates tags on demand. Both apply diffs against the opened snapshot — only changed fields hit the worker.
+
+**Multi-select + undo.** `Ctrl+Click` toggles, `Shift+Click` extends ranges, `Ctrl+A` selects all in the active list. A reveal toolbar above the list shows "N selected" with Complete and Delete (destructive-styled) buttons. Single-action toggle and delete are undoable via a 6-second `AdwToast` button or `Ctrl+Z`; whichever fires first consumes the callback.
+
+**Find-as-you-type sidebar.** `Ctrl+L` focuses the sidebar's filter entry. Live substring match against area / project / tag titles; the canonical list rows always stay visible; section headers ("Areas", "Unfiled", "Tags") hide automatically when none of their children pass.
+
+**Sidebar count badges.** Every canonical list, area, project, and tag shows an open-task count badge that hides at zero. Counts refresh on every `TaskChanges` / `LibraryChanges` delta.
+
+**Keyboard map.** Full coverage in `docs/keymap.md` and the in-app `Ctrl+?` / `F1` dialog. Every common operation has a chord; `Space` toggles the focused task, `Delete` removes it, `F2` starts inline rename, `Ctrl+1`–`Ctrl+6` jump between canonical lists. List-conflicting chords (Space, Delete, Ctrl+A, Esc) are scoped to the task-list widget so text entries elsewhere keep their normal key behavior.
+
+**Typography + accessibility.** Inter Variable for UI, Source Serif 4 Variable for note bodies, JetBrains Mono Variable for the debug pane — all SIL OFL 1.1, all bundled (no system-font dependency). Inter ships with `cv11` (curved-l) and `ss01` (single-storey-a) on, plus `tnum` tabular figures wherever digits would otherwise dance. Atkinson Hyperlegible (Braille Institute, SIL OFL 1.1) ships as a one-toggle a11y option for low-vision readers, surfaced in the primary menu under *Mode → Accessibility*.
+
+**Debug surface.** The `--debug` CLI flag opens additional menu entries in the primary menu. `Debug → Generate Fixtures` synthesizes 1K / 10K / 50K / 100K-task realistic fixture databases against the active library. `Debug → Memory Watch` opens a live readout of VmRSS / VmHWM / VmData sampled from `/proc/self/status` once a second. SQL statements stream to `tracing` at TRACE level (`RUST_LOG=trace` or scoped `atrium_core::db=trace` reveals every query and its wall time).
+
+### Architecture commitments honoured
+
+The five load-bearing decisions from `CLAUDE.md` all hold:
+
+1. **Mode-as-View.** The `mode` GSettings key flips between Simple and Builder; v0.1 only wires Simple. The schema in `atrium-core/src/db/migrations/0001_initial.sql` is the **OmniFocus superset** — every Builder column (`defer_until`, `estimated_minutes`, `sequential`, `review_interval_days`, `last_reviewed_at`, `repeat_rule`, `parent_id`, `archived_at`) exists from day one. Phase 10 just exposes them.
+2. **Single-writer SQLite worker.** A `tokio` task owns the writable `rusqlite::Connection`. The GTK thread holds an `mpsc::Sender<Command>` and never touches the writable connection. Reads use a separate `ReadPool` with `PRAGMA query_only=ON`. WAL mode is mandatory. UI updates arrive as `TaskChanges` / `LibraryChanges` deltas via `glib::MainContext::default().spawn_local`.
+3. **Local-first, no network sync.** Storage lives at `$XDG_DATA_HOME/atrium/atrium.db`. Zero network calls. No CalDAV client, no cloud, no telemetry. Org vault projection (Phase 17) and VTODO export (Phase 19) are filesystem IO, not sync.
+4. **Debug-first architecture.** The debug surface ships in the binary, not in a separate test harness. Every Phase grew the harness: schema-aware fixtures (Phase 1), SQLite IO instrumentation (Phase 2), live RSS readout (Phase 8e). Tests use the same fixtures.
+5. **Schema freeze through v0.1.** No mid-v0.1 migrations. Backwards-compatible migrations begin at v0.2. The v0.0.38 Today filter widening was a query change, not a schema change.
+
+### Out of scope for v0.1
+
+By design, not by oversight:
+
+- **Builder Mode** (Phase 10–15) — Inspector pane, Forecast, Review, Perspectives, defer dates, sequential project rendering, repeating tasks. Stubs exist where the v0.1 work needed Builder hooks; the actual UI lands in v0.2.
+- **Imports / exports** (Phase 16–19) — Things 3 JSON, Org-mode round-trip, OmniFocus `.ofocus`, Taskwarrior, Todoist, VTODO, todo.txt, TaskPaper. Atrium runs DB-only in v0.1.
+- **Network sync of any kind.** Per spec §9.
+- **Capture daemon (`atriumd`).** Phase 20. Quick Entry currently fires only when Atrium is focused; Phase 20 adds true OS-global capture.
+
+### Numbers
+
+- **144 tests** pass (62 binary + 82 core).
+- `cargo fmt --all --check` clean.
+- `cargo clippy --workspace --all-targets -- -D warnings` clean.
+- Release-mode cold start ~25–33 ms in ~32 MB on the 5K-task baseline (`docs/perf-baseline.md`).
+- Data-layer RSS flat with task count: 1K → 35 MB / 10K → 37 MB / 50K → 37 MB peak. All four §8 budgets met or trending well under.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 144 tests
+- `scripts/regression.sh` ✓ — full ship gate
+
+### Run it
+
+```bash
+git clone https://github.com/VirInvictus/Atrium
+cd Atrium
+cargo run -p atrium
+
+# Or with the debug surface:
+cargo run -p atrium -- --debug
+
+# Or a populated fixture for a real-feel demo:
+cargo run -p atrium -- --fixture medium  # 10K tasks
+cargo run -p atrium                      # then run normally — fixture data is already in the DB
+```
+
+### What's next
+
+Phase 10 — Builder Mode UI shell. Mode toggle in the primary menu, `AdwOverlaySplitView` Inspector pane, Builder-only sidebar entries (Forecast, Review, Perspectives) as stubs, Project page extras (Sequential toggle, Review interval picker). The mode-flip integration test proves no DB work happens on mode switch.
+
+`VERSION`: 0.0.38 → 0.1.0 (minor — Simple Mode complete; first public release).
+
 ## v0.0.38 (2026-05-07) — Today: deadlines-approaching heads-up
 
 Brandon flagged that Today wasn't matching the mental model — tasks with deadlines coming up in the next few days were buried in Anytime until the deadline date itself arrived, which is the opposite of what a "Today" view is supposed to do. Things 3 surfaces approaching deadlines in Today as a heads-up so you don't get blindsided; Atrium now matches that behaviour.
