@@ -90,6 +90,20 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.9" date="2026-05-07">
+      <description>
+        <p>Fix: double-clicking a task in Simple Mode now reliably
+           opens the modal Inspector dialog. open_inspector_for was
+           still reading the GSettings mode string directly, which
+           v0.1.6 caught as unreliable across Settings wrapper
+           instances. Migrated every same-frame mode read to the
+           synchronous Cell tracker that apply_mode writes to
+           first; the only GSettings reads that remain are the
+           startup initial-mode and the safety-net observer's
+           callback, both of which flow into apply_mode and
+           populate the Cell.</p>
+      </description>
+    </release>
     <release version="0.1.8" date="2026-05-07">
       <description>
         <p>The bulk-action toolbar above the task list now reveals

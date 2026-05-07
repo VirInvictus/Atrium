@@ -534,7 +534,7 @@ impl AtriumWindow {
     /// a parallel project still shows N. Simple Mode shows open
     /// count regardless (Simple Mode hides the sequential toggle).
     fn refresh_dynamic_badges(&self) {
-        let builder = self.settings().string("mode") == "builder";
+        let builder = self.imp().current_mode_is_builder.get();
         let project_counts = self.imp().project_counts.borrow().clone();
         let project_meta = self.imp().project_meta.borrow().clone();
         for (pid, badge) in self.imp().project_badges.borrow().iter() {
@@ -709,7 +709,7 @@ impl AtriumWindow {
         // Phase 10 — Builder-only sidebar entries. Forecast /
         // Review / Perspectives appear when mode = builder; each
         // routes to a placeholder status page in the content stack.
-        let builder = self.settings().string("mode") == "builder";
+        let builder = self.imp().current_mode_is_builder.get();
         if builder {
             list_box.append(&build_section_header("Builder"));
             targets.push(None);
@@ -1081,7 +1081,7 @@ impl AtriumWindow {
         // Phase 10 — project extras revealer follows the selection.
         // Visible only on a Project view in Builder Mode; populated
         // from the cached project metadata.
-        let builder = self.settings().string("mode") == "builder";
+        let builder = self.imp().current_mode_is_builder.get();
         match &active {
             ActiveList::Project(id) => {
                 self.imp().project_extras_revealer.set_reveal_child(builder);
@@ -1829,7 +1829,7 @@ impl AtriumWindow {
         // selection-changed signal hasn't fired yet so the pane
         // still shows the previously-selected row). Either way,
         // grab keyboard focus on the title.
-        let builder = self.settings().string("mode") == "builder";
+        let builder = self.imp().current_mode_is_builder.get();
         if builder && let Some(pane) = self.imp().inspector_pane.borrow().clone() {
             if pane.current_task_id() != Some(task_id) {
                 pane.set_task(task, projects, tag_count);

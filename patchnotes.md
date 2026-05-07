@@ -1,5 +1,31 @@
 # Atrium — Patch Notes
 
+## v0.1.9 (2026-05-07) — Double-click opens the Inspector in Simple Mode
+
+Brandon caught a hangover from v0.1.6: double-clicking a task in Simple Mode did nothing. Same root cause as the v0.1.6 selection-pane bug — `open_inspector_for` was reading `self.settings().string("mode") == "builder"` to decide between the modal dialog (Simple) and the side-pane focus (Builder). On the dconf-wrapper-cross issue we documented in v0.1.6/v0.1.7, that read returned a stale "builder" even after the user flipped back to Simple. The dialog branch never fired; the side-pane branch tried to populate the (hidden) pane and grab focus on its (hidden) title row. Visually nothing happened.
+
+The v0.1.6 patchnotes acknowledged the other call sites kept using GSettings reads and flagged it as a follow-up cleanup. Brandon's report turned that into a real bug — same race, different surface.
+
+### What changed
+
+`atrium/src/ui/window.rs` — every same-frame mode read now consults `current_mode_is_builder.get()` instead of `self.settings().string("mode")`:
+
+- `refresh_dynamic_badges` (sidebar count formatter — sequential project shows available count vs open count).
+- `rebuild_dynamic_sidebar` (decides whether to append the Builder section header + Forecast/Review/Perspectives entries).
+- `set_active_list` (project extras revealer visibility on Project view selection).
+- `open_inspector_for` (dialog vs side-pane routing for Ctrl+I, double-click, right-click → Edit Details).
+
+The two remaining GSettings reads are the canonical ones — `attach_data_layer` reads the initial persisted mode at startup, and `install_mode_observer`'s callback reads from the signal-emitting Settings instance when an external write fires. Both flow into `apply_mode`, which writes the Cell. The Cell is the only same-frame source of truth.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests unchanged.
+
+`VERSION`: 0.1.8 → 0.1.9 (patch — UI bug fix; the rest of the same-frame mode reads migrated to the Cell).
+
 ## v0.1.8 (2026-05-07) — Selection bar only for true bulk
 
 The bulk-action toolbar that previously appeared the moment a row was clicked is now gated on `n >= 2`. Single-row selection had four redundant ways to do the same thing:
