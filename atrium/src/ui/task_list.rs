@@ -506,22 +506,25 @@ where
         });
         row.add_controller(context_gesture.clone());
 
-        // Phase 7j — primary-button double-click opens the
-        // Inspector. We can't rely on `GtkListView::connect_activate`
-        // because the inner `GtkEditableLabel` (the title) traps
-        // double-click for its own enter-edit-mode behaviour. A
-        // gesture on the row Box runs even when the click lands on
-        // the row's padding or any non-text region; clicks on the
-        // title still go to the EditableLabel for inline editing.
+        // v0.1.10 — primary-button double-click enters inline title
+        // edit (same as F2). Single click selects + holds focus
+        // (MultiSelection's job, no extra wiring). The Inspector is
+        // accessible via Ctrl+I, right-click → *Edit Details…*, or
+        // F2; double-click is the lighter "just rename this" path.
+        //
+        // Earlier versions wired this to `win.edit-details-for(id)`
+        // for the modal Inspector, but Brandon found the double-
+        // click semantics felt heavy — clicking around to inspect
+        // tasks shouldn't always pop a dialog. Things-3 idiom:
+        // double-click renames in place, separate affordance opens
+        // the full editor.
         let activate_gesture = gtk::GestureClick::new();
         activate_gesture.set_button(gdk::BUTTON_PRIMARY);
-        let activate_id = task_id;
         activate_gesture.connect_released(move |gesture, n_press, _, _| {
             if n_press == 2
                 && let Some(widget) = gesture.widget()
             {
-                let _ =
-                    widget.activate_action("win.edit-details-for", Some(&activate_id.to_variant()));
+                crate::ui::window::start_edit_on_row(&widget);
             }
         });
         row.add_controller(activate_gesture.clone());

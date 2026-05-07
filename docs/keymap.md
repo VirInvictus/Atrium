@@ -33,10 +33,10 @@ These act on the focused row in the current list. From Phase 7h, the three input
 |---|---|
 | `Space` | Toggle completion |
 | `Delete` | Delete focused task |
-| `F2` | Start inline editing on the focused row's title (Phase 7f). Falls through to the sidebar rename if no task row is focused. |
+| `F2` | Start inline editing on the focused row's title. Same surface as double-click. |
+| `Double-click` | Start inline editing on the row's title (v0.1.10). Single click selects + holds focus. |
 | `Ctrl+T` | Open the tag editor for the focused / first-selected task (Phase 7g). Right-click on a task row also surfaces *Edit Tags…* |
-| `Ctrl+I` | Open the Inspector (full task editor — title, notes, schedule, deadline, project, tags) for the focused / first-selected task (Phase 7i). Double-click a task row also opens it; right-click → *Edit Details…* is the menu equivalent. |
-| `Enter` | Edit title inline *(land Phase 4 stretch — currently double-click on the title)* |
+| `Ctrl+I` | Open the Inspector (full task editor — title, notes, schedule, deadline, project, tags) for the focused / first-selected task (Phase 7i). Right-click → *Edit Details…* is the menu equivalent. |
 | `Ctrl+Click` | Toggle row in the multi-selection (Phase 7c) |
 | `Shift+Click` | Extend the multi-selection range (Phase 7c) |
 | `Ctrl+A` | Select all in the active list (Phase 7c) |

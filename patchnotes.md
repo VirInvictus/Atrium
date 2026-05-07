@@ -1,5 +1,45 @@
 # Atrium — Patch Notes
 
+## v0.1.10 (2026-05-07) — Double-click → inline title edit
+
+Brandon flagged that the v0.1.9 fix didn't help (double-click was still broken in Simple Mode), and pivoted to a different model entirely: double-click should rename the task in place; the Inspector stays a separate affordance.
+
+That's the Things-3 idiom — double-click renames inline; the full editor needs an explicit "i" or right-click. Lighter, less modal, and dodges the GSettings-mode-read race entirely (the new path doesn't ask which mode we're in — F2 and double-click both just flip the title stack into edit mode).
+
+### Interaction model now
+
+| Gesture | Action |
+|---|---|
+| Single click | Select row + hold focus (`gtk::MultiSelection`). |
+| Double click | Enter inline title edit (same as F2). |
+| F2 | Enter inline title edit (existing). |
+| Ctrl+I | Open Inspector (modal in Simple, side-pane focus in Builder). |
+| Right-click → *Edit Details…* | Open Inspector. |
+| Right-click → *Edit Tags…* | Open tag editor. |
+| Space | Toggle complete on the focused row. |
+| Delete | Delete the focused task. |
+
+### What changed
+
+`atrium/src/ui/task_list.rs` — the per-row primary-button double-click gesture stops calling `widget.activate_action("win.edit-details-for", …)` and starts calling `crate::ui::window::start_edit_on_row(&widget)` directly. Same code path F2 uses; same row-data stash (`atrium-title-stack` / `-label` / `-entry`).
+
+`atrium/src/ui/window.rs::start_edit_on_row` — visibility bumped from private to `pub` so `task_list` can call it. The function flips the title `GtkStack` to its "edit" page, populates the `GtkEntry` from the bound display label, grabs focus + select-all.
+
+`docs/keymap.md` — *List actions* section gains the explicit `Double-click` row pointing at inline title edit.
+
+### Bonus side effect
+
+The double-click path no longer reads the GSettings `mode` (because it doesn't decide between modal and side-pane anymore — both modes just edit inline). So even if every other mode-aware code path is broken on Brandon's GSettings backend, double-click will still work.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests unchanged.
+
+`VERSION`: 0.1.9 → 0.1.10 (patch — interaction-model refinement).
+
 ## v0.1.9 (2026-05-07) — Double-click opens the Inspector in Simple Mode
 
 Brandon caught a hangover from v0.1.6: double-clicking a task in Simple Mode did nothing. Same root cause as the v0.1.6 selection-pane bug — `open_inspector_for` was reading `self.settings().string("mode") == "builder"` to decide between the modal dialog (Simple) and the side-pane focus (Builder). On the dconf-wrapper-cross issue we documented in v0.1.6/v0.1.7, that read returned a stale "builder" even after the user flipped back to Simple. The dialog branch never fired; the side-pane branch tried to populate the (hidden) pane and grab focus on its (hidden) title row. Visually nothing happened.

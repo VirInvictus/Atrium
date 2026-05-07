@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.10" date="2026-05-07">
+      <description>
+        <p>Double-click a task row now enters inline title edit
+           (same surface as F2). Single click still selects and
+           holds focus. The Inspector dialog stays accessible via
+           Ctrl+I and right-click → Edit Details… — double-click
+           is the lighter "just rename this" path. Things-3 idiom.</p>
+      </description>
+    </release>
     <release version="0.1.9" date="2026-05-07">
       <description>
         <p>Fix: double-clicking a task in Simple Mode now reliably

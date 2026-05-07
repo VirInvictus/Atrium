@@ -2914,7 +2914,7 @@ fn find_task_row(start: &gtk::Widget) -> Option<gtk::Widget> {
 /// entry. Returns true on success, false if the row's stack /
 /// label / entry data isn't present (e.g., a row factory recycle
 /// where unbind has already run).
-fn start_edit_on_row(row: &gtk::Widget) -> bool {
+pub fn start_edit_on_row(row: &gtk::Widget) -> bool {
     unsafe {
         let stack = row
             .data::<gtk::Stack>("atrium-title-stack")
