@@ -135,6 +135,18 @@ impl WorkerHandle {
         rx.await.map_err(|_| DbError::WorkerClosed)?
     }
 
+    /// Phase 13 — acknowledge a project review. Sets
+    /// `last_reviewed_at = now()` so the project drops out of the
+    /// Review queue until its interval has elapsed again.
+    pub async fn mark_reviewed(&self, id: i64) -> Result<Project, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::MarkReviewed { id, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
     pub async fn delete_project(&self, id: i64) -> Result<(), DbError> {
         let (responder, rx) = oneshot::channel();
         self.cmd_tx
@@ -394,6 +406,16 @@ impl Worker {
                             ..Default::default()
                         });
                     }
+                }
+                let _ = responder.send(result);
+            }
+            Command::MarkReviewed { id, responder } => {
+                let result = self.mark_reviewed(id);
+                if let Ok(p) = &result {
+                    let _ = self.library_tx.send(LibraryChanges {
+                        projects_updated: vec![p.clone()],
+                        ..Default::default()
+                    });
                 }
                 let _ = responder.send(result);
             }
@@ -785,6 +807,21 @@ impl Worker {
             params![id],
         )?;
         tx.commit()?;
+        read::project_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
+    }
+
+    /// Phase 13 — Review queue's *Mark Reviewed* hook. Stamps
+    /// `last_reviewed_at` with the current UTC instant so the
+    /// project's next review fires at `now + review_interval_days`.
+    fn mark_reviewed(&mut self, id: i64) -> Result<Project, DbError> {
+        let n = self.conn.execute(
+            "UPDATE project SET last_reviewed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             WHERE id = ?1",
+            params![id],
+        )?;
+        if n == 0 {
+            return Err(DbError::NotFound);
+        }
         read::project_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
     }
 
@@ -1198,6 +1235,34 @@ mod tests {
         assert!(!project.sequential);
         let lib = library_rx.recv().await.unwrap();
         assert_eq!(lib.projects_created.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn mark_reviewed_stamps_last_reviewed_at_and_emits_library_change() {
+        // Phase 13 — Review queue's Mark Reviewed handler.
+        let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+        let project = handle
+            .create_project(NewProject::unfiled("Quarterly OKRs"))
+            .await
+            .unwrap();
+        let _ = library_rx.recv().await.unwrap();
+        assert!(project.last_reviewed_at.is_none());
+
+        let reviewed = handle.mark_reviewed(project.id).await.unwrap();
+        assert!(reviewed.last_reviewed_at.is_some());
+        assert_eq!(reviewed.id, project.id);
+
+        let lib = library_rx.recv().await.unwrap();
+        assert_eq!(lib.projects_updated.len(), 1);
+        assert_eq!(lib.projects_updated[0].id, project.id);
+        assert!(lib.projects_updated[0].last_reviewed_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn mark_reviewed_unknown_id_is_not_found() {
+        let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+        let result = handle.mark_reviewed(9999).await;
+        assert!(matches!(result, Err(DbError::NotFound)));
     }
 
     #[tokio::test]

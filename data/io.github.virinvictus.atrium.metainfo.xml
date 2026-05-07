@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.16" date="2026-05-07">
+      <description>
+        <p>Phase 13 — Review queue. Builder Mode's GTD discipline:
+           projects with a configured review interval surface in
+           the Review sidebar entry when their last review is older
+           than the interval allows. Each card shows the project
+           title, area, how stale the review is, and a Mark Reviewed
+           button that stamps the timestamp and drops the row out
+           of the queue. The Phase 10 Review stub is gone.</p>
+      </description>
+    </release>
     <release version="0.1.15" date="2026-05-07">
       <description>
         <p>Fix: fast double-clicks now reliably trigger inline title

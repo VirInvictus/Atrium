@@ -67,6 +67,13 @@ pub enum Command {
         id: i64,
         responder: oneshot::Sender<Result<Project, DbError>>,
     },
+    /// Phase 13 — sets `last_reviewed_at = now()`. Used by the
+    /// Review queue's *Mark Reviewed* button to acknowledge a
+    /// project review and advance it past its interval.
+    MarkReviewed {
+        id: i64,
+        responder: oneshot::Sender<Result<Project, DbError>>,
+    },
     DeleteProject {
         id: i64,
         responder: oneshot::Sender<Result<(), DbError>>,
@@ -119,6 +126,7 @@ impl Command {
             Self::CreateProject { .. } => "CreateProject",
             Self::UpdateProject { .. } => "UpdateProject",
             Self::ArchiveProject { .. } => "ArchiveProject",
+            Self::MarkReviewed { .. } => "MarkReviewed",
             Self::DeleteProject { .. } => "DeleteProject",
             Self::CreateTag { .. } => "CreateTag",
             Self::UpdateTag { .. } => "UpdateTag",

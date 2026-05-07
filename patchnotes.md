@@ -1,5 +1,104 @@
 # Atrium — Patch Notes
 
+## v0.1.16 (2026-05-07) — Phase 13: Review queue
+
+Builder Mode's GTD discipline lands. Projects with a `review_interval_days` set surface in the Review sidebar entry when their last review is older than the interval allows. Each card shows the project's title, area, "Last reviewed N days ago" subtitle, and a Mark Reviewed button that stamps `last_reviewed_at = now()` and drops the row out of the queue.
+
+The Phase 10 Review stub ("lands in Phase 13") is gone — selecting Review now lands on the real page.
+
+### Data layer
+
+`atrium-core/src/db/read.rs::list_review_queue(conn, today)` — SELECT with three filters:
+
+- `review_interval_days IS NOT NULL` (the user opted in to reviewing this project),
+- `archived_at IS NULL` (don't review archived projects),
+- `last_reviewed_at IS NULL OR date(last_reviewed_at, '+' || review_interval_days || ' days') <= ?today`.
+
+Order: `CASE WHEN last_reviewed_at IS NULL THEN 0 ELSE 1 END, last_reviewed_at ASC, position`. Never-reviewed projects sort first (highest priority — they've been waiting since creation); then oldest review next; manual `position` ordering breaks ties.
+
+`atrium-core/src/db/command.rs` — new `Command::MarkReviewed { id }` variant.
+
+`atrium-core/src/db/worker.rs::mark_reviewed(id)` — `UPDATE project SET last_reviewed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1`. Emits `LibraryChanges{projects_updated}` so the UI rebuilds the review page (and the row drops out).
+
+`atrium-core::WorkerHandle::mark_reviewed(id) -> Result<Project, DbError>` — async API.
+
+Three new SQL tests cover never-reviewed inclusion, overdue inclusion, ordering. Two new worker tests round-trip the timestamp + verify NotFound on unknown id.
+
+### UI
+
+New module `atrium/src/ui/review.rs` (~250 lines):
+
+- `pub fn build_page(today, queue, area_titles, worker)` returns a scrollable column of project cards. Empty queue swaps to an `AdwStatusPage` "All caught up" placeholder.
+- Each card: project title (heading), subtitle (`"<Area> · Last reviewed N days ago"` or `"Never reviewed"`), Mark Reviewed `suggested-action` button.
+- `format_last_reviewed` helper handles all the day-diff cases: `today`, `1 day ago`, `N days ago`, `Never reviewed`. Six new unit tests cover the formatter and subtitle composition.
+- The Mark Reviewed button disables itself while the worker call is in flight to prevent double-fires.
+
+### Window integration
+
+- `data/window.ui` — `content_stack` gains a `review` `GtkStackPage` with an `AdwBin id="review_host"` that the window mounts the freshly-built page into.
+- `atrium/src/ui/window.rs::refresh_review_page` — pulls `list_review_queue` via the read pool, builds the page, mounts it.
+- `refresh_active_list` special-cases `ActiveList::Review` to call `refresh_review_page` and switch the stack to `"review"` instead of falling through to the empty placeholder.
+- `apply_library_changes` already calls `refresh_active_list` on every library delta, so a Mark Reviewed click triggers a page rebuild that drops the row visibly. No additional wiring needed.
+
+### CSS
+
+```css
+.atrium-review-card {
+    border: 1px solid alpha(@accent_bg_color, 0.25);
+}
+.atrium-review-card-title {
+    font-size: 1.0em;
+}
+```
+
+Subtle accent border draws attention to each card without being loud. The Mark Reviewed button uses libadwaita's `suggested-action` styling so its prominence matches the card's.
+
+### Out of Phase 13 (deferred)
+
+The roadmap's *per-area review schedules* item — having an area default a review interval that new projects inherit — adds a column to the `area` table. Per spec §4.4 the v0.1 schema is frozen; backwards-compatible migrations begin at v0.2. Since the per-project interval (Phase 11's SpinButton) already gives users full control, this is a quality-of-life nicety we can land cleanly when we tag v0.2.0 and unlock the migration path. Roadmap entry stays open with the explanation.
+
+### Numbers
+
+- **180 tests** pass (was 168). +6 review.rs unit tests, +3 list_review_queue SQL tests, +2 mark_reviewed worker tests, +1 carry-over.
+- `cargo fmt` clean.
+- `cargo clippy --workspace --all-targets -- -D warnings` clean.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 180 tests
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Mode → Builder.
+# Pick a project, set its Review interval (days) via the project-page
+#   SpinButton — say 7.
+# Sidebar → Review.
+# The project shows up in the queue.
+# Click Mark Reviewed. The card disappears (next review fires in 7 days).
+# Set another project's interval to 0 — it surfaces every time you
+#   open Review.
+```
+
+### What didn't change
+
+- Schema (every column was already in `0001_initial.sql`'s superset).
+- Single-writer worker, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Simple Mode unchanged — Review hides when `mode = simple`.
+- Quick Entry, FTS5, multi-select, undo, Inspector, Forecast — every Phase 4–12 surface unchanged.
+
+### What's next
+
+Phase 14 — Perspectives (saved filter expressions). Filter expressions become first-class objects users can name and save (e.g., "Q3 work overdue" = `tag:work due:overdue`). The Phase 10 Perspectives sidebar stub becomes the real surface.
+
+`VERSION`: 0.1.15 → 0.1.16 (patch — Phase 13 Review queue; one new SELECT, one new Command, ~250 lines of UI).
+
 ## v0.1.15 (2026-05-07) — Listen to GtkListView::activate for fast double-clicks
 
 Brandon's v0.1.14 trace showed slow double-clicks working but **fast** ones registering only as a single click:

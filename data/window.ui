@@ -168,6 +168,19 @@
                             </child>
 
                             <child>
+                              <!-- Phase 13 — Review queue container. Same shape
+                                   as the forecast page; window builds the page
+                                   widget via `review::build_page` and mounts
+                                   it here when ActiveList::Review activates. -->
+                              <object class="GtkStackPage">
+                                <property name="name">review</property>
+                                <property name="child">
+                                  <object class="AdwBin" id="review_host"/>
+                                </property>
+                              </object>
+                            </child>
+
+                            <child>
                               <object class="GtkStackPage">
                                 <property name="name">list</property>
                                 <property name="child">

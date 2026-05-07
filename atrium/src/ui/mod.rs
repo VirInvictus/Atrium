@@ -14,6 +14,7 @@ pub mod filter;
 pub mod forecast;
 pub mod inspector;
 pub mod inspector_pane;
+pub mod review;
 pub mod shortcuts;
 pub mod tag_editor;
 pub mod task_list;

@@ -189,10 +189,10 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 ## Phase 13: Builder Mode — Review Queue
 *The GTD discipline. Surface stale projects so they don't rot.*
 
-- [ ] **`review_interval_days` per project**, editable in project page.
-- [ ] **Review perspective:** projects with `last_reviewed_at + interval ≤ today` surface here, oldest first.
-- [ ] **"Mark Reviewed" action** updates `last_reviewed_at = now()`.
-- [ ] **Per-area review schedules:** an area can default an interval new projects inherit.
+- [x] **`review_interval_days` per project** — Phase 11's project-page Review-interval `GtkSpinButton` already writes the column. v0.1.2 closed this slot ahead of Phase 13.
+- [x] **Review perspective:** new `read::list_review_queue(conn, today)` SQL selects projects with `review_interval_days IS NOT NULL`, `archived_at IS NULL`, and `last_reviewed_at + review_interval_days days ≤ today` (or never reviewed). Order: never-reviewed first, then by oldest `last_reviewed_at`, then by `position`. The Phase 10 Review sidebar stub now mounts a real `atrium/src/ui/review.rs` page that renders one card per queued project (title, area subtitle, "Last reviewed N days ago" / "Never reviewed" caption, Mark Reviewed button). Empty queue shows an `AdwStatusPage` "All caught up" placeholder.
+- [x] **"Mark Reviewed" action** — `Command::MarkReviewed { id }` worker variant + `WorkerHandle::mark_reviewed(id)` API. Handler runs `UPDATE project SET last_reviewed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1`, emits `LibraryChanges{projects_updated}`. The card's Mark Reviewed button dispatches via `glib::MainContext::default().spawn_local`, disables itself while in flight to prevent double-fire, and drops out of the visible queue when `apply_library_changes` triggers a page rebuild.
+- [ ] **Per-area review schedules:** an area can default an interval new projects inherit. *Deferred — adds a `default_review_interval_days` column to the `area` table, which is a schema change. Per spec §4.4 the v0.1 schema is frozen; once we tag v0.2.0 (or move to a clearly-pre-v0.2 lane) we can land it as a backwards-compatible migration. Functionality-wise it's a quality-of-life nicety on top of the per-project interval that already works, so deferring doesn't gate any other phase.*
 
 ## Phase 14: Builder Mode — Perspectives (Saved Views)
 *OmniFocus Perspectives. Filter expressions become first-class objects.*

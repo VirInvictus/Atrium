@@ -74,6 +74,8 @@ mod imp {
         #[template_child]
         pub forecast_host: TemplateChild<adw::Bin>,
         #[template_child]
+        pub review_host: TemplateChild<adw::Bin>,
+        #[template_child]
         pub new_task_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub new_task_entry: TemplateChild<gtk::Entry>,
@@ -1193,8 +1195,17 @@ impl AtriumWindow {
             return;
         }
 
-        // Phase 10 — remaining Builder stubs (Review, Perspectives)
-        // render the empty placeholder until their phases ship.
+        // Phase 13 — Review is a Builder stub no longer; it
+        // renders the project-review queue.
+        if matches!(active, ActiveList::Review) {
+            store.remove_all();
+            self.refresh_review_page();
+            self.imp().content_stack.set_visible_child_name("review");
+            return;
+        }
+
+        // Phase 10 — remaining Builder stub (Perspectives) renders
+        // the empty placeholder until Phase 14 ships.
         if active.is_builder_stub() {
             store.remove_all();
             self.update_empty_state(&store);
@@ -1916,6 +1927,24 @@ impl AtriumWindow {
         let widget =
             crate::ui::forecast::build_page(today, &forecast_tasks, &overdue, self.worker());
         self.imp().forecast_host.set_child(Some(&widget));
+    }
+
+    /// Phase 13 — rebuild the Review queue page from the read pool
+    /// and mount it into the `review_host` AdwBin. Called when the
+    /// active list becomes Review, and from `apply_library_changes`
+    /// (so a Mark Reviewed click drops the row visibly).
+    fn refresh_review_page(&self) {
+        let Some(pool) = self.read_pool() else {
+            self.imp().review_host.set_child(None::<&gtk::Widget>);
+            return;
+        };
+        let today = Local::now().date_naive();
+        let queue = pool
+            .with(|conn| atrium_core::db::read::list_review_queue(conn, today))
+            .unwrap_or_default();
+        let area_titles = self.imp().area_titles.borrow().clone();
+        let widget = crate::ui::review::build_page(today, &queue, &area_titles, self.worker());
+        self.imp().review_host.set_child(Some(&widget));
     }
 
     /// Phase 10 — refresh the side pane based on the current

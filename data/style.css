@@ -193,6 +193,17 @@ window.atrium-high-legibility .atrium-task-deadline {
   font-size: 0.95em;
 }
 
+/* Phase 13 — Review queue. Card per project, accent border to
+ * draw attention without being noisy. The button on the right
+ * uses libadwaita's suggested-action styling so its prominence
+ * matches the card's. */
+.atrium-review-card {
+  border: 1px solid alpha(@accent_bg_color, 0.25);
+}
+.atrium-review-card-title {
+  font-size: 1.0em;
+}
+
 /* Sidebar count badges: dim-label + numeric in code; tighten the
  * size and tabular-figure them so the values stay aligned column-
  * wise as they change. */

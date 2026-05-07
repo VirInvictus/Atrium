@@ -432,6 +432,43 @@ pub fn list_projects(conn: &Connection) -> Result<Vec<Project>, DbError> {
         .map_err(Into::into)
 }
 
+/// Phase 13 — projects due for review. A project surfaces in the
+/// queue when:
+///
+/// - it has a non-NULL `review_interval_days` (the user opted in),
+/// - it isn't archived,
+/// - either it has never been reviewed (`last_reviewed_at IS NULL`)
+///   or its last review plus the interval is on or before `today`.
+///
+/// Order: never-reviewed projects first (highest priority — they've
+/// been waiting since creation), then by oldest `last_reviewed_at`.
+/// Tie-break by `position` so the user's manual ordering shows
+/// through.
+///
+/// SQLite's `date(timestamp, '+N days')` does the math directly;
+/// we concat `review_interval_days` into the modifier string at the
+/// SQL level to avoid pulling each row into Rust just to filter.
+pub fn list_review_queue(conn: &Connection, today: NaiveDate) -> Result<Vec<Project>, DbError> {
+    let today_str = today.format("%Y-%m-%d").to_string();
+    let sql = format!(
+        "SELECT {PROJECT_COLUMNS} FROM project \
+         WHERE review_interval_days IS NOT NULL \
+           AND archived_at IS NULL \
+           AND ( \
+                 last_reviewed_at IS NULL \
+                 OR date(last_reviewed_at, '+' || review_interval_days || ' days') <= ?1 \
+               ) \
+         ORDER BY \
+             CASE WHEN last_reviewed_at IS NULL THEN 0 ELSE 1 END, \
+             last_reviewed_at ASC, \
+             position"
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map(params![today_str], project_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
 const TAG_COLUMNS: &str = "id, uuid, name, color, created_at, modified_at";
 
 /// Single tag by id.
@@ -1185,6 +1222,108 @@ mod tests {
         insert_area(&conn, "a2", "Personal");
         let areas = list_areas(&conn).unwrap();
         assert_eq!(areas.len(), 2);
+    }
+
+    // Phase 13 — review queue.
+
+    /// Insert a project with explicit review_interval_days /
+    /// last_reviewed_at so we can exercise the queue's filter.
+    fn insert_project_with_review(
+        conn: &Connection,
+        uuid: &str,
+        title: &str,
+        review_interval_days: Option<i64>,
+        last_reviewed_at: Option<&str>,
+    ) -> i64 {
+        conn.execute(
+            "INSERT INTO project (uuid, title, review_interval_days, last_reviewed_at, position) \
+             VALUES (?, ?, ?, ?, ?)",
+            params![uuid, title, review_interval_days, last_reviewed_at, 1.0],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn review_queue_includes_never_reviewed_with_interval() {
+        let conn = fresh_conn();
+        // Set up — project A has interval but no review yet; B
+        // has no interval (opted out); C is archived.
+        let _a = insert_project_with_review(&conn, "a", "needs review", Some(7), None);
+        let _b = insert_project_with_review(&conn, "b", "no interval", None, None);
+        let _c = insert_project_with_review(&conn, "c", "archived", Some(7), None);
+        conn.execute(
+            "UPDATE project SET archived_at = '2026-04-01T00:00:00.000Z' WHERE uuid = 'c'",
+            [],
+        )
+        .unwrap();
+
+        let queue = list_review_queue(&conn, today()).unwrap();
+        let titles: Vec<&str> = queue.iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(titles, vec!["needs review"]);
+    }
+
+    #[test]
+    fn review_queue_includes_overdue_projects() {
+        let conn = fresh_conn();
+        // today = 2026-05-15; reviewed 2026-05-01 with 7-day
+        // interval = next review due 2026-05-08. Overdue.
+        let _a = insert_project_with_review(
+            &conn,
+            "a",
+            "overdue",
+            Some(7),
+            Some("2026-05-01T08:00:00.000Z"),
+        );
+        // Reviewed 2026-05-10 with 7-day interval = next review
+        // due 2026-05-17. Not yet due.
+        let _b = insert_project_with_review(
+            &conn,
+            "b",
+            "fresh",
+            Some(7),
+            Some("2026-05-10T08:00:00.000Z"),
+        );
+        // Reviewed exactly today (interval 0 means review every
+        // day; today + 0 = today; <=today fires).
+        let _c = insert_project_with_review(
+            &conn,
+            "c",
+            "every-day",
+            Some(0),
+            Some("2026-05-15T08:00:00.000Z"),
+        );
+
+        let queue = list_review_queue(&conn, today()).unwrap();
+        let titles: Vec<&str> = queue.iter().map(|p| p.title.as_str()).collect();
+        assert!(titles.contains(&"overdue"));
+        assert!(!titles.contains(&"fresh"));
+        assert!(titles.contains(&"every-day"));
+    }
+
+    #[test]
+    fn review_queue_orders_never_reviewed_first_then_oldest() {
+        let conn = fresh_conn();
+        let _newest = insert_project_with_review(
+            &conn,
+            "a",
+            "two days ago",
+            Some(1),
+            Some("2026-05-13T08:00:00.000Z"),
+        );
+        let _never = insert_project_with_review(&conn, "b", "never", Some(7), None);
+        let _oldest = insert_project_with_review(
+            &conn,
+            "c",
+            "two weeks ago",
+            Some(1),
+            Some("2026-05-01T08:00:00.000Z"),
+        );
+
+        let queue = list_review_queue(&conn, today()).unwrap();
+        let titles: Vec<&str> = queue.iter().map(|p| p.title.as_str()).collect();
+        // Never-reviewed first, then oldest review next, then most recent.
+        assert_eq!(titles, vec!["never", "two weeks ago", "two days ago"]);
     }
 
     #[test]
