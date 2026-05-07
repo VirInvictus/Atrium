@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.8" date="2026-05-07">
+      <description>
+        <p>The bulk-action toolbar above the task list now reveals
+           only when 2 or more rows are selected. Single-row
+           selection had the row checkbox + Delete key + Ctrl+I
+           covering everything, so the toolbar's Complete and
+           Delete buttons were just redundant duplicates of those.
+           The toolbar still appears for true multi-select bulk
+           ops.</p>
+      </description>
+    </release>
     <release version="0.1.7" date="2026-05-07">
       <description>
         <p>Fix: switching to Builder Mode via the menu now reliably

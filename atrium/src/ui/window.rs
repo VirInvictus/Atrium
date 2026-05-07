@@ -1689,13 +1689,20 @@ impl AtriumWindow {
         out
     }
 
+    /// v0.1.8 — bulk-action toolbar reveals only when ≥ 2 rows
+    /// are selected. Single-row selection has the row's own
+    /// highlight as feedback, the per-row checkbox for completion,
+    /// the Delete key for deletion, and Ctrl+I for the editor —
+    /// the toolbar buttons would just be redundant copies of those.
+    /// The toolbar earns its keep when bulk ops are actually
+    /// available, i.e. when there's something to bulk-act on.
     fn update_selection_bar(&self, n: i64) {
         let revealer = self.imp().selection_revealer.clone();
         let label = self.imp().selection_label.clone();
-        if n == 0 {
+        if n < 2 {
             revealer.set_reveal_child(false);
         } else {
-            label.set_label(&format!("{n} selected",));
+            label.set_label(&format!("{n} selected"));
             revealer.set_reveal_child(true);
         }
     }

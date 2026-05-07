@@ -1,5 +1,38 @@
 # Atrium — Patch Notes
 
+## v0.1.8 (2026-05-07) — Selection bar only for true bulk
+
+The bulk-action toolbar that previously appeared the moment a row was clicked is now gated on `n >= 2`. Single-row selection had four redundant ways to do the same thing:
+
+- The row's own checkbox to toggle complete.
+- The `Space` key to toggle complete.
+- The `Delete` key to delete the focused task.
+- The toolbar's Complete + Delete buttons (the redundant ones).
+
+The toolbar earns its keep when bulk ops are actually available — selecting two rows or more, where the per-row checkbox can't operate on the whole set. So that's when it shows now.
+
+### What changed
+
+`atrium/src/ui/window.rs::update_selection_bar`:
+
+- Reveals the `selection_revealer` when `n >= 2`. Hides it for `n == 0` (no selection) and `n == 1` (single-row selection covered by the per-row affordances).
+- Doc comment cites the rationale inline so this isn't re-discovered as a regression next time someone audits the chord map.
+
+### What didn't change
+
+- `Ctrl+A` still selects every row in the active list. After it, the toolbar reveals (since `n >= 2` for any non-trivial list).
+- `Esc` still clears multi-selection via the `win.bulk-clear` action wired to the task list's shortcut controller. The toolbar's `×` button (still visible at `n >= 2`) targets the same action.
+- The bulk worker handlers (`bulk_complete_selection`, `bulk_delete_selection`) are unchanged. They iterate over `selected_task_ids()` regardless of count; the toolbar just isn't the path to them at `n == 1`.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests unchanged.
+
+`VERSION`: 0.1.7 → 0.1.8 (patch — UI cleanup; selection bar reveal threshold).
+
 ## v0.1.7 (2026-05-07) — Mode flip lands synchronously
 
 The v0.1.6 trace Brandon ran nailed the actual root cause of the v0.1.5/v0.1.6 flap:
