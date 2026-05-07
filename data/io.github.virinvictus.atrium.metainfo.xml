@@ -90,6 +90,50 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.2.1" date="2026-05-07">
+      <description>
+        <p>Two task-row fixes. Adding or removing a tag in the
+           per-task editor now updates the row's tag pill in place
+           instead of leaving stale text. And task rows on Today,
+           Inbox, Anytime, and other cross-list views now show an
+           "Area › Project" chip so you can place each task in your
+           hierarchy at a glance.</p>
+      </description>
+    </release>
+    <release version="0.2.0" date="2026-05-07">
+      <description>
+        <p>Builder Mode milestone — Phase 15 lands repeating tasks
+           with full RFC 5545 RRULE support. Set a repeat in the
+           Inspector (Daily / Weekly / Monthly / Yearly preset, or a
+           custom RRULE string), pick the Org-mode behavior — Cumulative
+           (the default — spawn the next instance after now),
+           From-completion-date (anchor on when you finished),
+           or Always-shift (basic). When you complete a repeating
+           task, Atrium spawns the next instance in place with all
+           dates shifted, tags carried forward, and project / parent
+           preserved. Backwards-compatible <code>0003_repeat_mode.sql</code>
+           migration adds the mode column to <code>task</code>.</p>
+        <p>v0.2.0 also runs the sanctioned major-bump maintenance
+           pass: dead Builder-stub helper removed, four duplicated
+           dummy-task test helpers consolidated behind a new
+           <code>atrium-core</code> <code>test-support</code> feature
+           gate. Spec §4.4 schema-freeze rule formally amended to
+           "no breaking mid-v0.1 changes" — purely-additive new tables
+           and columns are now allowed.</p>
+      </description>
+    </release>
+    <release version="0.1.17" date="2026-05-07">
+      <description>
+        <p>Phase 14 — saved Perspectives. Save the current search bar
+           query as a named view from the primary menu, and it lands
+           in a dedicated Perspectives section in the Builder sidebar.
+           Each perspective re-runs its filter expression every time
+           it's opened, so it stays current with the underlying tasks.
+           Right-click a perspective to rename or delete it. Adds a
+           backwards-compatible <code>0002_perspectives.sql</code>
+           migration; existing databases upgrade in place.</p>
+      </description>
+    </release>
     <release version="0.1.16" date="2026-05-07">
       <description>
         <p>Phase 13 — Review queue. Builder Mode's GTD discipline:

@@ -170,7 +170,13 @@ Things-style lists are SELECTs, not stored rows:
 
 ### 4.4 Migrations
 
-Schema versioned via SQLite `user_version` PRAGMA. Migrations live in `src/db/migrations/<NNNN>_*.sql`. v0.1 ships with `0001_initial.sql` containing the full superset. **No mid-v0.1 schema changes:** any v0.1 schema change is a breaking dev change. Backwards-compat begins at v0.2.
+Schema versioned via SQLite `user_version` PRAGMA. Migrations live in `src/db/migrations/<NNNN>_*.sql`.
+
+v0.1 shipped with `0001_initial.sql` (the full OmniFocus superset). During v0.1 the rule was **no breaking schema changes** — purely-additive migrations were allowed (`0002_perspectives.sql` at v0.1.17 added the `perspective` table; v0.2.0 marks the end of the v0.1 freeze).
+
+Post-v0.2.0, the discipline is **append-only and backwards-compatible**. `ALTER TABLE … ADD COLUMN` is allowed. `0003_repeat_mode.sql` (v0.2.0) is the first migration to alter an existing table, adding `task.repeat_mode TEXT NULL` for Phase 15's repeater semantics. Renaming or dropping columns is a major-bump-only operation. Constraint changes that could fail on existing rows (adding `NOT NULL`, tightening a `UNIQUE`, retargeting an FK) need a backfill step and explicit sign-off.
+
+Migrations are never rewritten once shipped — old databases must replay the same SQL the first version that introduced them ran. This means a fresh install at any version walks the full migration list from `0001` forward.
 
 ---
 

@@ -195,22 +195,44 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 - [ ] **Per-area review schedules:** an area can default an interval new projects inherit. *Deferred — adds a `default_review_interval_days` column to the `area` table, which is a schema change. Per spec §4.4 the v0.1 schema is frozen; once we tag v0.2.0 (or move to a clearly-pre-v0.2 lane) we can land it as a backwards-compatible migration. Functionality-wise it's a quality-of-life nicety on top of the per-project interval that already works, so deferring doesn't gate any other phase.*
 
 ## Phase 14: Builder Mode — Perspectives (Saved Views)
-*OmniFocus Perspectives. Filter expressions become first-class objects.*
+*OmniFocus Perspectives. Filter expressions become first-class objects.* Shipped v0.1.17.
 
-- [ ] **Perspective domain type:** `name`, `filter_expression` (subset of Phase 7's filter language), `sort`, `grouping`.
-- [ ] **CRUD for perspectives:** create from current filter state, rename, delete.
-- [ ] **Perspectives sidebar section** (Builder-only) with custom icon per perspective.
-- [ ] **Export perspective definition** to JSON for sharing.
+- [x] **Perspective domain type:** `name`, `filter_expression` (subset of Phase 7's filter language), `sort`, `grouping`. Backwards-compatible `0002_perspectives.sql` adds the table; `sort_order` and `grouping` columns ship now (UI consumers come later, no further migration needed).
+- [x] **CRUD for perspectives:** create from current filter state via *Save Search as Perspective…* in the primary menu (only enabled on `SearchResults`); right-click row for rename / delete.
+- [x] **Perspectives sidebar section** (Builder-only) — always present in Builder Mode, even when empty, so users know where new perspectives land. Per-row icon falls back to `view-grid-symbolic` when none is set.
+- [ ] **Export perspective definition** to JSON for sharing. *Deferred to Phase 16 alongside the rest of the export work — the file format belongs with the other exports rather than as a one-off here.*
 
 ## Phase 15: Repeating Tasks
-*The rabbit hole, addressed properly. RFC 5545 RRULE-based.*
+*The rabbit hole, addressed properly. RFC 5545 RRULE-based.* Shipped v0.2.0 — Builder Mode milestone tag.
 
-- [ ] **`repeat_rule` editor:** UI for daily / weekly / monthly / yearly + custom RRULE.
-- [ ] **Regenerate-on-complete logic:** when a repeating task is completed, the worker spawns the next instance.
-- [ ] **Defer-vs-due semantics:** repeats can move SCHEDULED, DEADLINE, both, or neither — user choice (matches Org-mode's `+`, `++`, `.+` cookies).
-- [ ] **Edge cases:** end-of-month rules, skipped occurrences, "after N completions" termination.
-- [ ] **Tests:** RRULE round-trip + regenerate logic over a synthetic 1-year horizon.
-- [ ] **Dependency check:** evaluate `rrule` crate vs hand-rolled subset; flag for sign-off if added.
+- [x] **`repeat_rule` editor:** UI for daily / weekly / monthly / yearly + custom RRULE. Inspector pane (Builder-only): frequency dropdown + interval spin + mode dropdown + custom rule entry. Local + worker-side validation.
+- [x] **Regenerate-on-complete logic:** when a repeating task is completed, the worker spawns the next instance with shifted dates, carried tags, preserved project / parent / repeat config. The completed instance stays in the Logbook.
+- [x] **Defer-vs-due semantics:** all three Org cookies — `+1w` (Basic), `++1w` (Cumulative, default), `.+1w` (Next-from-completion). Persisted in a new `repeat_mode TEXT` column via `0003_repeat_mode.sql`.
+- [x] **Edge cases:** end-of-month skip (Jan 31 + monthly = March 31), `COUNT=N` termination via per-spawn decrement, `UNTIL=` honored by the rrule iterator. Open tasks: `BYDAY` / `EXDATE` aren't exposed in the preset UI but Custom rule mode passes them through verbatim.
+- [x] **Tests:** RRULE round-trip in `repeat.rs` (14 tests), regen-on-complete in worker (7 tests), 52-week horizon (one test running the regen loop 52 times). Total 212 tests pass.
+- [x] **Dependency check:** `rrule` crate v0.14 (MIT/Apache) — sign-off granted before implementation. Default features only.
+
+## Phase 15.5: Calibre-Powered Search
+*Power-user search bar. Expansive boolean grammar over Phase 7d's foundation.*
+
+The Phase 7d filter parser handles `tag:foo`, `is:open`, `is:done`, `is:overdue`, `due:today` — useful but flat. Phase 15.5 grows it into a Calibre-shaped expression language: every list view becomes filterable by every task field, with negation, boolean composition, parens grouping, ranges, and exact-match. Saved Perspectives (Phase 14) inherit the new power for free since they store filter expressions verbatim. The expanded language ships before imports (Phases 16–19) so importers can map source-app searches into Atrium's syntax cleanly.
+
+- [ ] **Grammar design + spec.** New `spec.md` §4.3 (search expression language) documenting the full operator set with examples. Lexer / parser / AST / evaluator architecture sketch.
+- [ ] **Lexer + parser** in `atrium-core/src/search/` (new module). Hand-rolled recursive-descent matching the convention set by `repeat.rs` and `quickentry/parser.rs` — no new parser-combinator dependency.
+- [ ] **AST + evaluator.** Two evaluation paths: in-memory (against a `Vec<Task>` post-FTS5) for current Phase 7d shape; SQL-translation (where safe) for views over the entire library so we don't load everything to filter. Falls back to in-memory when the AST contains operators SQL can't express (most notably the `~regex` form below).
+- [ ] **Field operators.** `tag:`, `tags:` (alias), `area:`, `project:`, `title:`, `note:` (column-scoped FTS5), plus the existing `is:` / `due:` / `scheduled:` / `defer:`. New: `created:`, `modified:`, `completed:`, `estimated:`, `position:`, `repeats:`.
+- [ ] **Boolean operators + grouping.** `AND` / `OR` (case-insensitive), implicit `AND` between bare tokens (Calibre default), parenthesised sub-expressions, `NOT` prefix (or `!` shorthand) for negation. Standard precedence: **`NOT > AND > OR`** — matches Calibre, SQL, Python, and most search engines. `tag:work AND !done OR tag:home` parses as `(tag:work AND (NOT done)) OR tag:home`.
+- [ ] **Comparison operators.** `=`, `!=`, `>`, `<`, `>=`, `<=` on date and numeric fields. `due:>2026-05-01`, `estimated:>30`, `created:<lastweek`.
+- [ ] **Calibre-style match modifiers** on every field operator: `tag:x` substring (default, case-insensitive); `tag:"x y"` quoted substring for values with spaces; `tag:=x` exact match; `tag:"=x y"` quoted exact; `tag:~regex` regex match (in-memory only — SQLite has no built-in regex); `tag:true` / `tag:false` boolean existence (has-any-tag / has-no-tags). The `~regex` form needs a regex-crate sign-off (already transitively in the tree via `tracing-subscriber`; using it directly is the question).
+- [ ] **Date keywords.** `today`, `yesterday`, `tomorrow`, `thisweek`, `lastweek`, `nextweek`, `thismonth`, `lastmonth`, `nextmonth`, `thisyear`, `Ndaysago`, `Ndaysout`. Same set Calibre exposes plus future-tense forms (`tomorrow`, `nextweek`, etc.) since Atrium's tasks have future dates that Calibre's books don't. Mon-start ISO weeks.
+- [ ] **Range syntax.** `due:2026-05-01..2026-05-31` (inclusive). Open-ended ranges via comparison operators.
+- [ ] **Quote escape.** `\"` and `\\` inside quoted values.
+- [ ] **Boolean-existence operators.** `is:scheduled` / `is:deadline` / `is:deferred` / `is:repeating` / `is:archived` / `is:logbook` / `is:project` / `is:area` / `is:tagged`. `is:archived` means "task is in a project with `archived_at` set" — the column lives on `project` but the task-level shortcut reads cleaner. Each pairs with a `!` (negated) form.
+- [ ] **State predicates.** `is:open`, `is:done`, `is:overdue`, `is:queued` (sequential project), `is:available` (not deferred, not queued).
+- [ ] **Search-bar UX.** Live AST validity indicator (checkmark / red squiggle); ESC clears; `↑` / `↓` cycle recent searches (in-memory ring buffer, 20 entries).
+- [ ] **Operator reference popover.** `?` button at the right of the search bar opens a popover listing the operator set with examples. Same source as the `mdbook` documentation site (Phase 20).
+- [ ] **Tests:** parser round-trip on every operator, evaluator correctness across boolean composition, SQL-translation correctness vs in-memory eval (same result on the same input), edge cases (empty parens, mismatched quotes, unknown fields, regex compile errors). Synthetic 10K-task fixture exercises the SQL path.
+- [ ] **Saved Perspectives bonus.** Existing perspectives keep working; new perspectives written with the expanded grammar surface a "language: v2" hint in `perspective.filter_expr` so the parser can refuse legacy-only syntax cleanly if we ever break compatibility (we won't).
 
 ---
 

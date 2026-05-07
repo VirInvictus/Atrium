@@ -26,8 +26,9 @@ use adw::subclass::prelude::*;
 use atrium_core::db::read::CanonicalCounts;
 use atrium_core::db::read_pool::ReadPool;
 use atrium_core::{
-    APP_ID, Area, AreaUpdate, LibraryChanges, NewArea, NewProject, NewTag, NewTask, Project,
-    ProjectUpdate, Tag, TagUpdate, Task, TaskChanges, TaskUpdate, WorkerHandle,
+    APP_ID, Area, AreaUpdate, LibraryChanges, NewArea, NewPerspective, NewProject, NewTag, NewTask,
+    PerspectiveUpdate, Project, ProjectUpdate, Tag, TagUpdate, Task, TaskChanges, TaskUpdate,
+    WorkerHandle,
 };
 use chrono::Local;
 use gtk::glib::Propagation;
@@ -140,6 +141,16 @@ mod imp {
         /// `Tag(id)` content-pane titles.
         pub tag_titles: RefCell<HashMap<i64, String>>,
 
+        /// Phase 14 — saved-perspective caches populated from
+        /// `db::read::list_perspectives` during sidebar build. The
+        /// title cache resolves the content-pane heading for
+        /// `Perspective(id)`; the full meta cache lets
+        /// `refresh_active_list` re-parse the saved filter expression
+        /// without a round-trip to the read pool, and powers the
+        /// rename-prefill / delete-confirmation prompts.
+        pub perspective_titles: RefCell<HashMap<i64, String>>,
+        pub perspective_meta: RefCell<HashMap<i64, atrium_core::Perspective>>,
+
         /// Shared "most recent undo" callback. `show_undo_toast`
         /// stashes a fresh cell here so that either the toast button
         /// *or* the `Ctrl+Z` accel can take it (whoever fires first
@@ -226,6 +237,23 @@ glib::wrapper! {
         @implements gio::ActionGroup, gio::ActionMap;
 }
 
+/// How the row-context chip should render for a given active list.
+/// `build_context_resolver` selects one of these and the resolver
+/// closure dispatches per row.
+#[derive(Debug, Clone, Copy)]
+enum ContextMode {
+    /// Don't render anything — the heading already names the
+    /// project (e.g. on `Project(_)` views).
+    Suppressed,
+    /// Render just the project name. Used on `Area(_)` views: the
+    /// area is the heading, the project is the contextual scope
+    /// inside it.
+    ProjectOnly,
+    /// Render `Area › Project`. The full hierarchy chip; used
+    /// everywhere else.
+    AreaAndProject,
+}
+
 const CANONICAL_LISTS: &[ActiveList] = &[
     ActiveList::Inbox,
     ActiveList::Today,
@@ -249,7 +277,7 @@ fn icon_for(list: &ActiveList) -> &'static str {
         ActiveList::SearchResults(_) => "system-search-symbolic",
         ActiveList::Forecast => "x-office-calendar-symbolic",
         ActiveList::Review => "object-select-symbolic",
-        ActiveList::Perspectives => "view-grid-symbolic",
+        ActiveList::Perspective(_) => "view-grid-symbolic",
     }
 }
 
@@ -378,6 +406,35 @@ impl AtriumWindow {
                 return;
             };
             win.set_active_list(ActiveList::Area(area_id));
+            popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            popover.popup();
+        });
+        row.add_controller(gesture);
+    }
+
+    /// Phase 14 — saved perspective row context menu. Same shape as
+    /// the tag / area menus: Rename / Delete dispatch to the shared
+    /// `rename-active` / `delete-active` actions, which inspect the
+    /// active list and route accordingly.
+    fn install_perspective_context_menu(&self, row: &gtk::ListBoxRow, perspective_id: i64) {
+        let menu = gio::Menu::new();
+        menu.append(Some("Rename"), Some("win.rename-active"));
+        menu.append(Some("Delete"), Some("win.delete-active"));
+        let popover = gtk::PopoverMenu::from_model(Some(&menu));
+        popover.set_has_arrow(false);
+        popover.set_parent(row);
+        unsafe {
+            row.set_data("atrium-context-popover", popover.clone());
+        }
+
+        let gesture = gtk::GestureClick::new();
+        gesture.set_button(gtk::gdk::BUTTON_SECONDARY);
+        let win_weak = self.downgrade();
+        gesture.connect_pressed(move |_, _, x, y| {
+            let Some(win) = win_weak.upgrade() else {
+                return;
+            };
+            win.set_active_list(ActiveList::Perspective(perspective_id));
             popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
             popover.popup();
         });
@@ -708,10 +765,13 @@ impl AtriumWindow {
         self.imp().tag_titles.replace(tag_titles);
         self.imp().tag_badges.replace(tag_badges);
 
-        // Phase 10 — Builder-only sidebar entries. Forecast /
-        // Review / Perspectives appear when mode = builder; each
-        // routes to a placeholder status page in the content stack.
+        // Phase 10 / 12 / 13 / 14 — Builder-only sidebar entries.
+        // Forecast and Review (Phase 12 / 13) sit at the top of the
+        // Builder section; saved perspectives (Phase 14) follow under
+        // their own subsection so users can scan them at a glance.
         let builder = self.imp().current_mode_is_builder.get();
+        let mut perspective_titles: HashMap<i64, String> = HashMap::new();
+        let mut perspective_meta: HashMap<i64, atrium_core::Perspective> = HashMap::new();
         if builder {
             list_box.append(&build_section_header("Builder"));
             targets.push(None);
@@ -724,18 +784,36 @@ impl AtriumWindow {
                     "x-office-calendar-symbolic",
                 ),
                 (ActiveList::Review, "Review", "object-select-symbolic"),
-                (
-                    ActiveList::Perspectives,
-                    "Perspectives",
-                    "view-grid-symbolic",
-                ),
             ] {
                 let (row, _badge) = sidebar_row(icon, label, 8);
                 list_box.append(&row);
                 targets.push(Some(active));
                 titles.push(Some(label.to_string()));
             }
+
+            // Phase 14 — saved perspectives. Always show the header
+            // in Builder mode (even when the list is empty) so the
+            // user knows where new perspectives will land. Empty
+            // state is implicit (no rows under the header).
+            let perspectives = pool
+                .with(atrium_core::db::read::list_perspectives)
+                .unwrap_or_default();
+            list_box.append(&build_section_header("Perspectives"));
+            targets.push(None);
+            titles.push(None);
+            for p in &perspectives {
+                perspective_titles.insert(p.id, p.name.clone());
+                perspective_meta.insert(p.id, p.clone());
+                let icon = p.icon.as_deref().unwrap_or("view-grid-symbolic");
+                let (row, _badge) = sidebar_row(icon, &p.name, 8);
+                self.install_perspective_context_menu(&row, p.id);
+                list_box.append(&row);
+                targets.push(Some(ActiveList::Perspective(p.id)));
+                titles.push(Some(p.name.clone()));
+            }
         }
+        self.imp().perspective_titles.replace(perspective_titles);
+        self.imp().perspective_meta.replace(perspective_meta);
 
         // Cache project metadata so the project extras toolbar can
         // populate when a project view is selected.
@@ -993,9 +1071,17 @@ impl AtriumWindow {
             .project_extras_revealer
             .set_reveal_child(builder && on_project);
 
-        // If the active list became invalid (e.g., user was on a
-        // Builder stub and flipped to Simple), fall back to Today.
-        if !builder && self.active_list().is_builder_stub() {
+        // If the active list became invalid (a Builder-only view
+        // is selected and we just flipped back to Simple), fall back
+        // to Today so the Simple Mode user isn't stranded on a hidden
+        // sidebar row.
+        let active = self.active_list();
+        let invalid_in_simple = !builder
+            && matches!(
+                active,
+                ActiveList::Forecast | ActiveList::Review | ActiveList::Perspective(_)
+            );
+        if invalid_in_simple {
             self.set_active_list(ActiveList::Today);
             self.select_sidebar_row_for(ActiveList::Today);
         }
@@ -1155,6 +1241,13 @@ impl AtriumWindow {
                 .get(&id)
                 .map(|n| format!("#{n}"))
                 .unwrap_or_else(|| "Tag".into()),
+            ActiveList::Perspective(id) => self
+                .imp()
+                .perspective_titles
+                .borrow()
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| "Perspective".into()),
             ActiveList::SearchResults(_)
             | ActiveList::Inbox
             | ActiveList::Today
@@ -1163,13 +1256,64 @@ impl AtriumWindow {
             | ActiveList::Someday
             | ActiveList::Logbook
             | ActiveList::Forecast
-            | ActiveList::Review
-            | ActiveList::Perspectives => active.canonical_title().to_string(),
+            | ActiveList::Review => active.canonical_title().to_string(),
         }
     }
 
     pub fn active_list(&self) -> ActiveList {
         self.imp().active_list.borrow().clone()
+    }
+
+    /// Build a closure that maps a task to its "Area › Project"
+    /// context chip. Returns the empty string for views where the
+    /// chip would just echo what the user already sees:
+    ///
+    /// - `Project(_)`: the heading already names the project; no chip.
+    /// - `Area(_)`: the area name is in the heading. Render only the
+    ///   project name (drops the area part).
+    ///
+    /// Other views (Today / Inbox / Anytime / Someday / Logbook /
+    /// Tag / Forecast / Perspective / SearchResults / Upcoming)
+    /// render the full "Area › Project" form so users can place a
+    /// task in their hierarchy at a glance.
+    fn build_context_resolver(&self, active: &ActiveList) -> impl Fn(&Task) -> String + use<> {
+        let project_titles = self.imp().project_titles.borrow().clone();
+        let area_titles = self.imp().area_titles.borrow().clone();
+        let project_areas: HashMap<i64, Option<i64>> = self
+            .imp()
+            .project_meta
+            .borrow()
+            .iter()
+            .map(|(id, p)| (*id, p.area_id))
+            .collect();
+        let mode = match active {
+            ActiveList::Project(_) => ContextMode::Suppressed,
+            ActiveList::Area(_) => ContextMode::ProjectOnly,
+            _ => ContextMode::AreaAndProject,
+        };
+        move |task: &Task| -> String {
+            if matches!(mode, ContextMode::Suppressed) {
+                return String::new();
+            }
+            let Some(pid) = task.project_id else {
+                return String::new();
+            };
+            let project = project_titles.get(&pid).cloned().unwrap_or_default();
+            if matches!(mode, ContextMode::ProjectOnly) {
+                return project;
+            }
+            let area = project_areas
+                .get(&pid)
+                .copied()
+                .flatten()
+                .and_then(|aid| area_titles.get(&aid).cloned());
+            match area {
+                Some(area) if !area.is_empty() && !project.is_empty() => {
+                    format!("{area} › {project}")
+                }
+                _ => project,
+            }
+        }
     }
 
     pub fn refresh_active_list(&self) {
@@ -1204,10 +1348,51 @@ impl AtriumWindow {
             return;
         }
 
-        // Phase 10 — remaining Builder stub (Perspectives) renders
-        // the empty placeholder until Phase 14 ships.
-        if active.is_builder_stub() {
-            store.remove_all();
+        // Phase 14 — saved perspective. Resolve the filter
+        // expression from the meta cache, run it through the same
+        // parse + apply pipeline as the search bar, and render the
+        // matching tasks in the standard list view. The "list" page
+        // owns the rendering — the perspective is a saved query, not
+        // a separate page.
+        if let ActiveList::Perspective(id) = &active {
+            self.imp().content_stack.set_visible_child_name("list");
+            let expr = self
+                .imp()
+                .perspective_meta
+                .borrow()
+                .get(id)
+                .map(|p| p.filter_expr.clone());
+            let Some(expr) = expr else {
+                // Perspective row vanished from underneath us
+                // (e.g., deleted in another worker iteration). Drop
+                // back to Today.
+                store.remove_all();
+                self.update_empty_state(&store);
+                return;
+            };
+            let parsed = crate::ui::filter::parse(&expr);
+            let tasks = pool.with(|conn| {
+                if parsed.text.is_empty() {
+                    atrium_core::db::read::list_all_tasks(conn)
+                } else {
+                    atrium_core::db::read::search_tasks(conn, &parsed.text)
+                }
+            });
+            match tasks {
+                Ok(tasks) => {
+                    let tag_map: TagMap = pool
+                        .with(atrium_core::db::read::tag_names_per_task)
+                        .unwrap_or_default();
+                    let tasks = crate::ui::filter::apply(tasks, &parsed.filters, &tag_map, today);
+                    let context_for = self.build_context_resolver(&active);
+                    replace_store_with_tags_seq(&store, &tasks, &tag_map, false, context_for);
+                    sort_by_position(&store);
+                }
+                Err(e) => {
+                    error!(?e, perspective_id = id, "failed to load perspective");
+                    store.remove_all();
+                }
+            }
             self.update_empty_state(&store);
             return;
         }
@@ -1237,7 +1422,7 @@ impl AtriumWindow {
                     atrium_core::db::read::search_tasks(conn, &parsed.text)
                 }
             }
-            ActiveList::Forecast | ActiveList::Review | ActiveList::Perspectives => {
+            ActiveList::Forecast | ActiveList::Review | ActiveList::Perspective(_) => {
                 // Unreachable — gated above. Keeps the match exhaustive.
                 Ok(Vec::new())
             }
@@ -1267,7 +1452,8 @@ impl AtriumWindow {
                         .is_some_and(|p| p.sequential),
                     _ => false,
                 };
-                replace_store_with_tags_seq(&store, &tasks, &tag_map, sequential);
+                let context_for = self.build_context_resolver(&active);
+                replace_store_with_tags_seq(&store, &tasks, &tag_map, sequential, context_for);
                 sort_by_position(&store);
             }
             Err(e) => {
@@ -1289,6 +1475,7 @@ impl AtriumWindow {
         let deleted = match active {
             ActiveList::Project(id) => changes.projects_deleted.contains(&id),
             ActiveList::Area(id) => changes.areas_deleted.contains(&id),
+            ActiveList::Perspective(id) => changes.perspectives_deleted.contains(&id),
             _ => false,
         };
         self.rebuild_dynamic_sidebar();
@@ -1332,6 +1519,18 @@ impl AtriumWindow {
             self.refresh_dynamic_badges();
             return;
         }
+        // Phase 14 — perspective views run a saved filter expression
+        // against the global task set. The diff applier doesn't have
+        // visibility into the filter, so rerun the read query (same
+        // path SearchResults takes — cheap; FTS5-backed when the
+        // expression has freeform text).
+        if matches!(active, ActiveList::Perspective(_)) {
+            self.refresh_active_list();
+            self.refresh_counts();
+            self.refresh_canonical_badges();
+            self.refresh_dynamic_badges();
+            return;
+        }
         let today = Local::now().date_naive();
         // Re-load tag map so the diff applier renders updated pills.
         let tag_map: TagMap = self
@@ -1350,8 +1549,15 @@ impl AtriumWindow {
                 .is_some_and(|p| p.sequential),
             _ => false,
         };
+        let context_for = self.build_context_resolver(&active);
         crate::ui::task_list::apply_changes_seq(
-            &store, changes, active, today, &tag_map, sequential,
+            &store,
+            changes,
+            active,
+            today,
+            &tag_map,
+            sequential,
+            context_for,
         );
         self.update_empty_state(&store);
         // Phase 5c: any task delta might have moved a count.
@@ -1423,16 +1629,17 @@ impl AtriumWindow {
                 "Search covers task titles and notes (FTS5).".into(),
             ),
             ActiveList::Forecast => (
-                "Forecast".into(),
-                "30-day calendar-axis view of scheduled, deadlined, and deferred tasks. Lands in Phase 12.".into(),
+                "Forecast is empty".into(),
+                "Schedule, deadline, or defer a task and it'll appear here on its day.".into(),
             ),
             ActiveList::Review => (
-                "Review".into(),
-                "Projects whose review interval has elapsed surface here, oldest first. Lands in Phase 13.".into(),
+                "Nothing to review".into(),
+                "Projects with a review interval surface here when they're due — oldest first."
+                    .into(),
             ),
-            ActiveList::Perspectives => (
-                "Perspectives".into(),
-                "Saved filter expressions, OmniFocus-style. Lands in Phase 14.".into(),
+            ActiveList::Perspective(_) => (
+                format!("{} is empty", self.title_for(active.clone())),
+                "No tasks match this perspective's filter expression right now.".into(),
             ),
         }
     }
@@ -1669,6 +1876,7 @@ impl AtriumWindow {
                             defer_until: task.defer_until,
                             estimated_minutes: task.estimated_minutes,
                             repeat_rule: task.repeat_rule,
+                            repeat_mode: task.repeat_mode,
                         };
                         match worker.create_task(new).await {
                             Ok(restored) => {
@@ -2252,6 +2460,17 @@ impl AtriumWindow {
         ));
         self.add_action(&del_active);
 
+        // Phase 14 — save the current search bar query as a named
+        // perspective. Only fires when the active list is
+        // SearchResults; otherwise no-ops with a debug log.
+        let save_persp = gio::SimpleAction::new("save-perspective", None);
+        save_persp.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.prompt_save_perspective()
+        ));
+        self.add_action(&save_persp);
+
         let archive = gio::SimpleAction::new("archive-active-project", None);
         archive.connect_activate(clone!(
             #[weak(rename_to = win)]
@@ -2550,6 +2769,35 @@ impl AtriumWindow {
                     }
                 });
             }
+            ActiveList::Perspective(id) => {
+                let current = self
+                    .imp()
+                    .perspective_titles
+                    .borrow()
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_default();
+                glib::MainContext::default().spawn_local(async move {
+                    let Some(name) = prompt_for_text(
+                        &win,
+                        "Rename Perspective",
+                        "Perspective name",
+                        &current,
+                        "Rename",
+                    )
+                    .await
+                    else {
+                        return;
+                    };
+                    let Some(worker) = win.worker() else { return };
+                    if let Err(e) = worker
+                        .update_perspective(PerspectiveUpdate::new(id).name(name))
+                        .await
+                    {
+                        error!(?e, id, "update_perspective failed");
+                    }
+                });
+            }
             _ => {
                 debug!("rename-active: nothing to rename in canonical list");
             }
@@ -2644,6 +2892,34 @@ impl AtriumWindow {
                     }
                 });
             }
+            ActiveList::Perspective(id) => {
+                let title = self
+                    .imp()
+                    .perspective_titles
+                    .borrow()
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_default();
+                glib::MainContext::default().spawn_local(async move {
+                    let confirmed = prompt_confirm_destructive(
+                        &win,
+                        "Delete Perspective?",
+                        &format!(
+                            "“{}” will be removed. Tasks the perspective surfaces are not affected — only the saved view is deleted.",
+                            title
+                        ),
+                        "Delete",
+                    )
+                    .await;
+                    if !confirmed {
+                        return;
+                    }
+                    let Some(worker) = win.worker() else { return };
+                    if let Err(e) = worker.delete_perspective(id).await {
+                        error!(?e, id, "delete_perspective failed");
+                    }
+                });
+            }
             _ => {
                 debug!("delete-active: nothing to delete in canonical list");
             }
@@ -2660,6 +2936,46 @@ impl AtriumWindow {
             let Some(worker) = win.worker() else { return };
             if let Err(e) = worker.create_tag(NewTag { name, color: None }).await {
                 error!(?e, "create_tag failed");
+            }
+        });
+    }
+
+    /// Phase 14 — capture the current search bar query as a named
+    /// perspective. Only valid on SearchResults views; the menu item
+    /// surfaces the action but no-ops elsewhere with a debug log so
+    /// keyboard / accelerator dispatch doesn't crash.
+    fn prompt_save_perspective(&self) {
+        let ActiveList::SearchResults(query) = self.active_list() else {
+            debug!("save-perspective: not on a SearchResults view; ignoring");
+            return;
+        };
+        let trimmed = query.trim().to_string();
+        if trimmed.is_empty() {
+            debug!("save-perspective: empty query; ignoring");
+            return;
+        }
+        let win = self.clone();
+        glib::MainContext::default().spawn_local(async move {
+            let Some(name) =
+                prompt_for_text(&win, "Save Perspective", "Perspective name", "", "Save").await
+            else {
+                return;
+            };
+            let Some(worker) = win.worker() else { return };
+            match worker
+                .create_perspective(NewPerspective {
+                    name: name.clone(),
+                    icon: None,
+                    filter_expr: trimmed,
+                })
+                .await
+            {
+                Ok(p) => {
+                    // Switch to the new perspective so the user sees
+                    // the saved view immediately.
+                    win.set_active_list(ActiveList::Perspective(p.id));
+                }
+                Err(e) => error!(?e, "create_perspective failed"),
             }
         });
     }
@@ -2728,6 +3044,13 @@ pub(crate) fn build_primary_menu(include_debug: bool) -> gio::Menu {
     library_section.append(Some("Rename Active"), Some("win.rename-active"));
     library_section.append(Some("Archive Project"), Some("win.archive-active-project"));
     library_section.append(Some("Delete Active"), Some("win.delete-active"));
+    // Phase 14 — saved perspective from the current search query.
+    // Disabled implicitly when not on SearchResults (the action's
+    // enabled state tracks the active list).
+    library_section.append(
+        Some("Save Search as Perspective…"),
+        Some("win.save-perspective"),
+    );
     menu.append_section(None, &library_section);
 
     let mode_section = gio::Menu::new();

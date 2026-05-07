@@ -22,8 +22,8 @@ use crate::db::changes::{LibraryChanges, TaskChanges};
 use crate::db::command::Command;
 use crate::db::read;
 use crate::domain::{
-    Area, AreaUpdate, NewArea, NewProject, NewTag, NewTask, Project, ProjectUpdate, Tag, TagUpdate,
-    Task, TaskUpdate,
+    Area, AreaUpdate, NewArea, NewPerspective, NewProject, NewTag, NewTask, Perspective,
+    PerspectiveUpdate, Project, ProjectUpdate, Tag, TagUpdate, Task, TaskUpdate,
 };
 use crate::error::DbError;
 
@@ -209,6 +209,44 @@ impl WorkerHandle {
             .map_err(|_| DbError::WorkerClosed)?;
         rx.await.map_err(|_| DbError::WorkerClosed)?
     }
+
+    // ── Perspectives (Phase 14) ─────────────────────────────────
+
+    pub async fn create_perspective(
+        &self,
+        perspective: NewPerspective,
+    ) -> Result<Perspective, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::CreatePerspective {
+                perspective,
+                responder,
+            })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
+    pub async fn update_perspective(
+        &self,
+        update: PerspectiveUpdate,
+    ) -> Result<Perspective, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::UpdatePerspective { update, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
+    pub async fn delete_perspective(&self, id: i64) -> Result<(), DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::DeletePerspective { id, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
 }
 
 /// Spawn the worker on the current `tokio` runtime.
@@ -294,14 +332,21 @@ impl Worker {
             }
             Command::ToggleComplete { id, responder } => {
                 let result = self.toggle_complete(id);
-                if let Ok(ref task) = result {
-                    let _ = self.changes_tx.send(TaskChanges {
+                if let Ok((ref task, ref spawned)) = result {
+                    let mut changes = TaskChanges {
                         updated: vec![task.clone()],
                         status_changed: vec![task.id],
                         ..Default::default()
-                    });
+                    };
+                    // Phase 15 — if completing a repeating task
+                    // spawned a follow-up instance, ride its row out
+                    // on the same delta so the UI sees both at once.
+                    if let Some(next) = spawned {
+                        changes.created.push(next.clone());
+                    }
+                    let _ = self.changes_tx.send(changes);
                 }
-                let _ = responder.send(result);
+                let _ = responder.send(result.map(|(t, _)| t));
             }
             Command::DeleteTask { id, responder } => {
                 let result = self.delete_task(id);
@@ -511,18 +556,63 @@ impl Worker {
                 }
                 let _ = responder.send(result);
             }
+
+            // ── Perspectives (Phase 14) ──────────────────────────
+            Command::CreatePerspective {
+                perspective,
+                responder,
+            } => {
+                let result = self.create_perspective(perspective);
+                if let Ok(p) = &result {
+                    let _ = self.library_tx.send(LibraryChanges {
+                        perspectives_created: vec![p.clone()],
+                        ..Default::default()
+                    });
+                }
+                let _ = responder.send(result);
+            }
+            Command::UpdatePerspective { update, responder } => {
+                let result = self.update_perspective(update);
+                if let Ok(p) = &result {
+                    let _ = self.library_tx.send(LibraryChanges {
+                        perspectives_updated: vec![p.clone()],
+                        ..Default::default()
+                    });
+                }
+                let _ = responder.send(result);
+            }
+            Command::DeletePerspective { id, responder } => {
+                let result = self.delete_perspective(id);
+                if result.is_ok() {
+                    let _ = self.library_tx.send(LibraryChanges {
+                        perspectives_deleted: vec![id],
+                        ..Default::default()
+                    });
+                }
+                let _ = responder.send(result);
+            }
         }
     }
 
     fn create_task(&mut self, new: NewTask) -> Result<Task, DbError> {
+        // Phase 15 — reject malformed RRULE up front so we don't
+        // store a string that can't be iterated. Mode strings other
+        // than the three known values fall back to default at read
+        // time, so they don't need a hard reject; we only validate
+        // against the known set when set explicitly.
+        if let Some(rule) = new.repeat_rule.as_deref() {
+            crate::repeat::RepeatRule::parse(rule, crate::repeat::RepeatMode::Cumulative)
+                .map_err(|e| DbError::BadRepeatRule(e.to_string()))?;
+        }
+
         let uuid = Uuid::new_v4().to_string();
         let position = self.next_task_position(new.parent_id, new.project_id)?;
 
         self.conn.execute(
             "INSERT INTO task \
              (uuid, title, note, project_id, parent_id, scheduled_for, deadline, \
-              defer_until, estimated_minutes, repeat_rule, position) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              defer_until, estimated_minutes, repeat_rule, repeat_mode, position) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 uuid,
                 new.title,
@@ -534,6 +624,7 @@ impl Worker {
                 new.defer_until,
                 new.estimated_minutes,
                 new.repeat_rule,
+                new.repeat_mode,
                 position,
             ],
         )?;
@@ -573,6 +664,14 @@ impl Worker {
             return read::task_by_id(&self.conn, update.id)?.ok_or(DbError::NotFound);
         }
 
+        // Phase 15 — same validation as create_task: malformed
+        // RRULE strings get a hard reject so they never land in the
+        // column.
+        if let Some(Some(rule)) = update.repeat_rule.as_ref() {
+            crate::repeat::RepeatRule::parse(rule, crate::repeat::RepeatMode::Cumulative)
+                .map_err(|e| DbError::BadRepeatRule(e.to_string()))?;
+        }
+
         let mut sets: Vec<&'static str> = Vec::new();
         let mut bound: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
@@ -608,6 +707,14 @@ impl Worker {
             sets.push("estimated_minutes = ?");
             bound.push(Box::new(est));
         }
+        if let Some(rule) = update.repeat_rule {
+            sets.push("repeat_rule = ?");
+            bound.push(Box::new(rule));
+        }
+        if let Some(mode) = update.repeat_mode {
+            sets.push("repeat_mode = ?");
+            bound.push(Box::new(mode));
+        }
         bound.push(Box::new(update.id));
 
         let sql = format!("UPDATE task SET {} WHERE id = ?", sets.join(", "));
@@ -620,20 +727,142 @@ impl Worker {
         read::task_by_id(&self.conn, update.id)?.ok_or(DbError::NotFound)
     }
 
-    fn toggle_complete(&mut self, id: i64) -> Result<Task, DbError> {
+    /// Flip the task's `completed_at` and, when completing a
+    /// repeating task with a parseable `repeat_rule`, spawn the next
+    /// instance with shifted dates. Returns `(toggled, spawned)` —
+    /// `spawned` is `Some(new_task)` when a follow-up was created,
+    /// `None` otherwise (either the task isn't repeating, the rule
+    /// has no further occurrences, or we were reopening rather than
+    /// completing).
+    fn toggle_complete(&mut self, id: i64) -> Result<(Task, Option<Task>), DbError> {
         let task = read::task_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?;
+
         if task.is_completed() {
+            // Reopen — never spawns a new instance.
             self.conn.execute(
                 "UPDATE task SET completed_at = NULL WHERE id = ?1",
                 params![id],
             )?;
-        } else {
-            self.conn.execute(
-                "UPDATE task SET completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1",
-                params![id],
-            )?;
+            let toggled = read::task_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?;
+            return Ok((toggled, None));
         }
-        read::task_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
+
+        // Completing. Mark the row done first, then attempt to
+        // spawn the follow-up. If the spawn fails for any reason
+        // (malformed rule that somehow snuck past validation,
+        // exhausted COUNT, etc.) we still surface the toggle
+        // success — repeating-task users would rather lose the
+        // follow-up than block completion of the work they just did.
+        self.conn.execute(
+            "UPDATE task SET completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1",
+            params![id],
+        )?;
+        let toggled = read::task_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?;
+
+        let spawned = self.spawn_repeat_follow_up(&toggled)?;
+        Ok((toggled, spawned))
+    }
+
+    /// Phase 15 — given a freshly-completed task, decide whether a
+    /// follow-up instance should be created and, if so, INSERT it.
+    /// Returns the newly-created `Task` row when applicable.
+    ///
+    /// The follow-up inherits everything except the date fields: the
+    /// new row gets a fresh uuid and the same project / parent /
+    /// title / note / tags-via-`task_tag` / repeat fields. The date
+    /// fields (`scheduled_for`, `deadline`, `defer_until`) shift by
+    /// the delta the rule produces relative to the previous anchor.
+    fn spawn_repeat_follow_up(&mut self, completed: &Task) -> Result<Option<Task>, DbError> {
+        use chrono::Local;
+
+        let Some(rule_text) = completed.repeat_rule.as_deref() else {
+            return Ok(None);
+        };
+
+        // The rule was validated on insert, but a database row from
+        // a foreign source could theoretically be malformed. Be
+        // defensive — return None rather than propagate the error.
+        let mode = crate::repeat::RepeatMode::from_column(completed.repeat_mode.as_deref());
+        let rule = match crate::repeat::RepeatRule::parse(rule_text, mode) {
+            Ok(r) => r,
+            Err(_) => return Ok(None),
+        };
+
+        // Pick the rule's anchor: the earliest date field set on
+        // the task. `scheduled_for::Date` first, then `deadline`,
+        // then `defer_until`. Someday-scheduled tasks aren't
+        // repeated (no concrete date to shift from).
+        use crate::domain::ScheduledFor;
+        let scheduled_date = match completed.scheduled_for {
+            Some(ScheduledFor::Date(d)) => Some(d),
+            _ => None,
+        };
+        let mut candidates: Vec<chrono::NaiveDate> = Vec::with_capacity(3);
+        candidates.extend(scheduled_date);
+        candidates.extend(completed.deadline);
+        candidates.extend(completed.defer_until);
+        let Some(anchor) = candidates.iter().min().copied() else {
+            // No date field set — nothing to shift. Could still
+            // bump completion, but that produces a follow-up with
+            // no due date which has no advantage over leaving the
+            // user to manually re-create. Skip.
+            return Ok(None);
+        };
+
+        let completed_on = completed
+            .completed_at
+            .map(|dt| dt.with_timezone(&Local).date_naive())
+            .unwrap_or_else(|| Local::now().date_naive());
+
+        let Some(new_anchor) = rule.next_after(anchor, completed_on) else {
+            // Rule exhausted (COUNT met, UNTIL passed). Leave the
+            // completed instance as the final occurrence.
+            return Ok(None);
+        };
+
+        // Phase 15 — handle COUNT termination on the *spawned* rule.
+        // Each spawn re-anchors the iteration on the previous date,
+        // which would let `COUNT=N` reset infinitely if we just
+        // copied the rule forward. Decrement it on each spawn; when
+        // the prior count was already 1 the just-completed instance
+        // was the last in the series.
+        let (carried_rule, _is_last) = match rule.rule_with_count_decremented() {
+            crate::repeat::CountStep::Unbounded => (completed.repeat_rule.clone(), false),
+            crate::repeat::CountStep::Decremented(new_rule) => (Some(new_rule), false),
+            crate::repeat::CountStep::Exhausted => return Ok(None),
+        };
+
+        let delta = new_anchor.signed_duration_since(anchor);
+        let shift = |d: chrono::NaiveDate| d + delta;
+
+        let new_scheduled = scheduled_date.map(shift).map(ScheduledFor::Date);
+        let new_deadline = completed.deadline.map(shift);
+        let new_defer = completed.defer_until.map(shift);
+
+        let new_task = NewTask {
+            title: completed.title.clone(),
+            note: completed.note.clone(),
+            project_id: completed.project_id,
+            parent_id: completed.parent_id,
+            scheduled_for: new_scheduled,
+            deadline: new_deadline,
+            defer_until: new_defer,
+            estimated_minutes: completed.estimated_minutes,
+            repeat_rule: carried_rule,
+            repeat_mode: completed.repeat_mode.clone(),
+        };
+        let inserted = self.create_task(new_task)?;
+
+        // Carry the tag set forward. Tags live on `task_tag`, not
+        // on the Task struct — copy by ID so the new row inherits
+        // the same labels.
+        self.conn.execute(
+            "INSERT INTO task_tag (task_id, tag_id) \
+             SELECT ?1, tag_id FROM task_tag WHERE task_id = ?2",
+            params![inserted.id, completed.id],
+        )?;
+
+        Ok(Some(inserted))
     }
 
     fn delete_task(&mut self, id: i64) -> Result<(), DbError> {
@@ -933,6 +1162,70 @@ impl Worker {
             Err(e) => Err(e.into()),
         }
     }
+
+    // ── Perspectives (Phase 14) ─────────────────────────────────
+
+    fn create_perspective(&mut self, new: NewPerspective) -> Result<Perspective, DbError> {
+        let uuid = Uuid::new_v4().to_string();
+        let position = self.next_perspective_position()?;
+        self.conn.execute(
+            "INSERT INTO perspective \
+             (uuid, name, icon, filter_expr, position) \
+             VALUES (?, ?, ?, ?, ?)",
+            params![uuid, new.name, new.icon, new.filter_expr, position],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        read::perspective_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
+    }
+
+    fn next_perspective_position(&self) -> Result<f64, DbError> {
+        let max: Option<f64> =
+            self.conn
+                .query_row("SELECT MAX(position) FROM perspective", [], |r| r.get(0))?;
+        Ok(max.unwrap_or(0.0) + 1.0)
+    }
+
+    fn update_perspective(&mut self, update: PerspectiveUpdate) -> Result<Perspective, DbError> {
+        if update.is_noop() {
+            return read::perspective_by_id(&self.conn, update.id)?.ok_or(DbError::NotFound);
+        }
+        let mut sets: Vec<&'static str> = Vec::new();
+        let mut bound: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(name) = update.name {
+            sets.push("name = ?");
+            bound.push(Box::new(name));
+        }
+        if let Some(icon) = update.icon {
+            sets.push("icon = ?");
+            bound.push(Box::new(icon));
+        }
+        if let Some(filter_expr) = update.filter_expr {
+            sets.push("filter_expr = ?");
+            bound.push(Box::new(filter_expr));
+        }
+        if let Some(position) = update.position {
+            sets.push("position = ?");
+            bound.push(Box::new(position));
+        }
+        bound.push(Box::new(update.id));
+        let sql = format!("UPDATE perspective SET {} WHERE id = ?", sets.join(", "));
+        let params_refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
+        let n = self.conn.execute(&sql, &params_refs[..])?;
+        if n == 0 {
+            return Err(DbError::NotFound);
+        }
+        read::perspective_by_id(&self.conn, update.id)?.ok_or(DbError::NotFound)
+    }
+
+    fn delete_perspective(&mut self, id: i64) -> Result<(), DbError> {
+        let n = self
+            .conn
+            .execute("DELETE FROM perspective WHERE id = ?1", params![id])?;
+        if n == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1089,6 +1382,328 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(cleared.estimated_minutes, None);
+    }
+
+    #[tokio::test]
+    async fn update_task_sets_and_clears_repeat_rule() {
+        // Phase 15 — repeat_rule + repeat_mode set/clear via the
+        // TaskUpdate builder. Validates that round-trip survives.
+        let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+        let task = handle.create_task(NewTask::inbox("repeat")).await.unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+
+        let with_rule = handle
+            .update_task(
+                TaskUpdate::new(task.id)
+                    .repeat_rule_value(Some("FREQ=WEEKLY".into()))
+                    .repeat_mode_value(Some("NEXT".into())),
+            )
+            .await
+            .unwrap();
+        assert_eq!(with_rule.repeat_rule.as_deref(), Some("FREQ=WEEKLY"));
+        assert_eq!(with_rule.repeat_mode.as_deref(), Some("NEXT"));
+        let _ = changes_rx.recv().await.unwrap();
+
+        let cleared = handle
+            .update_task(
+                TaskUpdate::new(task.id)
+                    .repeat_rule_value(None)
+                    .repeat_mode_value(None),
+            )
+            .await
+            .unwrap();
+        assert!(cleared.repeat_rule.is_none());
+        assert!(cleared.repeat_mode.is_none());
+    }
+
+    #[tokio::test]
+    async fn update_task_rejects_malformed_repeat_rule() {
+        // Phase 15 — bad RRULE text is rejected up front.
+        let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+        let task = handle.create_task(NewTask::inbox("bad")).await.unwrap();
+        let result = handle
+            .update_task(TaskUpdate::new(task.id).repeat_rule_value(Some("not a rrule".into())))
+            .await;
+        match result {
+            Err(DbError::BadRepeatRule(_)) => {}
+            other => panic!("expected BadRepeatRule, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_task_rejects_malformed_repeat_rule() {
+        // Phase 15 — same validation runs on insert.
+        let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+        let result = handle
+            .create_task(NewTask {
+                title: "bad".into(),
+                repeat_rule: Some("FREQ=GARBAGE".into()),
+                ..Default::default()
+            })
+            .await;
+        match result {
+            Err(DbError::BadRepeatRule(_)) => {}
+            other => panic!("expected BadRepeatRule, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn complete_repeating_task_spawns_next_instance() {
+        // Phase 15 — completing a task with a repeat_rule spawns a
+        // follow-up with shifted scheduled_for. The original stays
+        // completed; the new instance is open with the next date.
+        use crate::domain::ScheduledFor;
+        let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+        let original = handle
+            .create_task(NewTask {
+                title: "weekly dishes".into(),
+                scheduled_for: Some(ScheduledFor::Date(
+                    chrono::NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
+                )),
+                repeat_rule: Some("FREQ=WEEKLY".into()),
+                repeat_mode: Some("CUMULATIVE".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+
+        let toggled = handle.toggle_complete(original.id).await.unwrap();
+        assert!(toggled.is_completed());
+        let changes = changes_rx.recv().await.unwrap();
+        // Toggled appears in updated; new instance appears in created.
+        assert_eq!(changes.updated.len(), 1);
+        assert_eq!(changes.created.len(), 1);
+        assert_eq!(changes.status_changed, vec![original.id]);
+
+        let next = &changes.created[0];
+        assert_ne!(next.id, original.id);
+        assert!(next.completed_at.is_none());
+        assert_eq!(next.title, "weekly dishes");
+        assert_eq!(next.repeat_rule.as_deref(), Some("FREQ=WEEKLY"));
+        // Cumulative jump from 2026-01-05 with completion ~today
+        // (2026-05-07 in this conversation) skips weeks ahead, so
+        // next.scheduled_for is strictly after both 2026-01-05 and
+        // today. Only assert the type + future-ness, not the exact
+        // date (today moves forward as the test environment ages).
+        match next.scheduled_for {
+            Some(ScheduledFor::Date(d)) => {
+                assert!(d > chrono::NaiveDate::from_ymd_opt(2026, 1, 5).unwrap());
+            }
+            _ => panic!(
+                "expected Date schedule on follow-up, got {:?}",
+                next.scheduled_for
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn complete_repeating_task_preserves_project_membership() {
+        // Phase 15 — the spawned follow-up inherits project / parent
+        // / note / repeat_rule / repeat_mode. Tag carry-forward is
+        // covered by the SQL-level test in `db::read::tests` (the
+        // tag map join exercises the same row).
+        use crate::domain::{NewProject, ScheduledFor};
+        let (handle, mut changes_rx, mut library_rx) = spawn(fresh_conn());
+        let project = handle
+            .create_project(NewProject {
+                title: "groceries".into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let _ = library_rx.recv().await.unwrap();
+
+        let original = handle
+            .create_task(NewTask {
+                title: "shop".into(),
+                note: "milk + eggs".into(),
+                project_id: Some(project.id),
+                scheduled_for: Some(ScheduledFor::Date(
+                    chrono::NaiveDate::from_ymd_opt(2026, 5, 1).unwrap(),
+                )),
+                repeat_rule: Some("FREQ=DAILY".into()),
+                repeat_mode: Some("NEXT".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+
+        let _ = handle.toggle_complete(original.id).await.unwrap();
+        let changes = changes_rx.recv().await.unwrap();
+        let next = &changes.created[0];
+        assert_eq!(next.project_id, Some(project.id));
+        assert_eq!(next.note, "milk + eggs");
+        assert_eq!(next.repeat_rule.as_deref(), Some("FREQ=DAILY"));
+        assert_eq!(next.repeat_mode.as_deref(), Some("NEXT"));
+    }
+
+    #[tokio::test]
+    async fn complete_non_repeating_task_does_not_spawn() {
+        // Phase 15 — sanity check: a task without repeat_rule
+        // toggles cleanly without producing a created delta.
+        let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+        let task = handle
+            .create_task(NewTask::inbox("one-shot"))
+            .await
+            .unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+
+        let _ = handle.toggle_complete(task.id).await.unwrap();
+        let changes = changes_rx.recv().await.unwrap();
+        assert!(changes.created.is_empty());
+        assert_eq!(changes.updated.len(), 1);
+        assert_eq!(changes.status_changed, vec![task.id]);
+    }
+
+    #[tokio::test]
+    async fn complete_repeating_task_with_count_terminator() {
+        // Phase 15 — COUNT=2 means the original is occurrence 1,
+        // the spawned follow-up is occurrence 2. Completing the
+        // follow-up exhausts the rule and produces no further
+        // instance.
+        //
+        // Use BASIC mode so the test is anchor-relative and doesn't
+        // depend on what today's date is when the test runs (CI
+        // could be days, months, or years past the synthetic
+        // anchor — CUMULATIVE would skip past all in-rule
+        // occurrences in that case and report "no next occurrence"
+        // even on the first cycle).
+        use crate::domain::ScheduledFor;
+        let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+        let original = handle
+            .create_task(NewTask {
+                title: "twice only".into(),
+                scheduled_for: Some(ScheduledFor::Date(
+                    chrono::NaiveDate::from_ymd_opt(2026, 5, 1).unwrap(),
+                )),
+                repeat_rule: Some("FREQ=DAILY;COUNT=2".into()),
+                repeat_mode: Some("BASIC".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+
+        // First completion → spawns occurrence 2.
+        let _ = handle.toggle_complete(original.id).await.unwrap();
+        let first_changes = changes_rx.recv().await.unwrap();
+        assert_eq!(first_changes.created.len(), 1);
+        let second = first_changes.created[0].clone();
+
+        // Second completion → no further occurrences.
+        let _ = handle.toggle_complete(second.id).await.unwrap();
+        let second_changes = changes_rx.recv().await.unwrap();
+        assert!(
+            second_changes.created.is_empty(),
+            "COUNT=2 rule should not spawn a third instance"
+        );
+    }
+
+    #[tokio::test]
+    async fn weekly_repeat_survives_one_year_horizon() {
+        // Phase 15 — synthetic 52-week horizon. Complete a weekly
+        // task one cycle at a time and check it produces the right
+        // sequence of dates. Uses BASIC mode so the test is anchor-
+        // relative regardless of when CI runs.
+        use crate::domain::ScheduledFor;
+        let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+        let start = chrono::NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(); // Mon
+        let mut current = handle
+            .create_task(NewTask {
+                title: "weekly".into(),
+                scheduled_for: Some(ScheduledFor::Date(start)),
+                repeat_rule: Some("FREQ=WEEKLY".into()),
+                repeat_mode: Some("BASIC".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+
+        for week in 1..=52 {
+            let _ = handle.toggle_complete(current.id).await.unwrap();
+            let changes = changes_rx.recv().await.unwrap();
+            assert_eq!(
+                changes.created.len(),
+                1,
+                "week {week}: expected a follow-up to spawn"
+            );
+            let next = &changes.created[0];
+            let expected_date = start + chrono::Duration::weeks(week as i64);
+            match next.scheduled_for {
+                Some(ScheduledFor::Date(d)) => assert_eq!(
+                    d, expected_date,
+                    "week {week}: expected {expected_date}, got {d}"
+                ),
+                _ => panic!("week {week}: missing schedule"),
+            }
+            current = next.clone();
+        }
+    }
+
+    #[tokio::test]
+    async fn monthly_repeat_skips_short_months_at_end_of_month() {
+        // Phase 15 — Jan 31 + monthly: Feb has no 31, RFC 5545
+        // skips the month rather than clamp. Worker carries the
+        // shifted date forward whatever rrule decides.
+        use crate::domain::ScheduledFor;
+        let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+        let task = handle
+            .create_task(NewTask {
+                title: "month-end".into(),
+                scheduled_for: Some(ScheduledFor::Date(
+                    chrono::NaiveDate::from_ymd_opt(2026, 1, 31).unwrap(),
+                )),
+                repeat_rule: Some("FREQ=MONTHLY".into()),
+                repeat_mode: Some("BASIC".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+
+        let _ = handle.toggle_complete(task.id).await.unwrap();
+        let changes = changes_rx.recv().await.unwrap();
+        let next = &changes.created[0];
+        match next.scheduled_for {
+            Some(ScheduledFor::Date(d)) => assert_eq!(
+                d,
+                chrono::NaiveDate::from_ymd_opt(2026, 3, 31).unwrap(),
+                "Feb skipped, next is March 31"
+            ),
+            _ => panic!("missing schedule"),
+        }
+    }
+
+    #[tokio::test]
+    async fn reopen_does_not_spawn_follow_up() {
+        // Phase 15 — toggling a *completed* task to open is a pure
+        // reopen, never a regenerate.
+        use crate::domain::ScheduledFor;
+        let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+        let task = handle
+            .create_task(NewTask {
+                title: "weekly".into(),
+                scheduled_for: Some(ScheduledFor::Date(
+                    chrono::NaiveDate::from_ymd_opt(2026, 5, 1).unwrap(),
+                )),
+                repeat_rule: Some("FREQ=WEEKLY".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+
+        let _ = handle.toggle_complete(task.id).await.unwrap(); // complete (spawns)
+        let _ = changes_rx.recv().await.unwrap();
+        let _ = handle.toggle_complete(task.id).await.unwrap(); // reopen
+        let reopen_changes = changes_rx.recv().await.unwrap();
+        assert!(
+            reopen_changes.created.is_empty(),
+            "reopening should not spawn a new instance"
+        );
     }
 
     #[tokio::test]
@@ -1359,6 +1974,74 @@ mod tests {
         handle.delete_tag(tag.id).await.unwrap();
         let lib = library_rx.recv().await.unwrap();
         assert_eq!(lib.tags_deleted, vec![tag.id]);
+    }
+
+    // ── Perspectives (Phase 14) ────────────────────────────────
+
+    #[tokio::test]
+    async fn create_perspective_round_trip_emits_library_change() {
+        let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+        let p = handle
+            .create_perspective(NewPerspective {
+                name: "Q3 work overdue".into(),
+                icon: None,
+                filter_expr: "tag:work due:overdue".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(p.name, "Q3 work overdue");
+        assert_eq!(p.filter_expr, "tag:work due:overdue");
+        assert!(p.icon.is_none());
+        assert!(!p.uuid.is_empty());
+
+        let lib = library_rx.recv().await.unwrap();
+        assert_eq!(lib.perspectives_created.len(), 1);
+        assert_eq!(lib.perspectives_created[0].id, p.id);
+    }
+
+    #[tokio::test]
+    async fn update_perspective_round_trip() {
+        let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+        let p = handle
+            .create_perspective(NewPerspective {
+                name: "Old name".into(),
+                icon: None,
+                filter_expr: "tag:work".into(),
+            })
+            .await
+            .unwrap();
+        let _ = library_rx.recv().await.unwrap();
+
+        let renamed = handle
+            .update_perspective(
+                PerspectiveUpdate::new(p.id)
+                    .name("New name")
+                    .filter_expr("tag:work is:overdue"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(renamed.name, "New name");
+        assert_eq!(renamed.filter_expr, "tag:work is:overdue");
+        let lib = library_rx.recv().await.unwrap();
+        assert_eq!(lib.perspectives_updated.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn delete_perspective_emits_library_change() {
+        let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+        let p = handle
+            .create_perspective(NewPerspective {
+                name: "Doomed".into(),
+                icon: None,
+                filter_expr: "is:done".into(),
+            })
+            .await
+            .unwrap();
+        let _ = library_rx.recv().await.unwrap();
+
+        handle.delete_perspective(p.id).await.unwrap();
+        let lib = library_rx.recv().await.unwrap();
+        assert_eq!(lib.perspectives_deleted, vec![p.id]);
     }
 
     #[tokio::test]

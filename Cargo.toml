@@ -4,7 +4,7 @@ default-members = ["atrium"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.16"
+version = "0.2.1"
 edition = "2024"
 license = "MIT"
 authors = ["Brandon LaRocque"]
@@ -38,3 +38,8 @@ adw = { version = "0.7", package = "libadwaita", features = ["v1_7"] }
 
 # Phase 1: UUID v4 generation. Sign-off granted in Phase 1 design call.
 uuid = { version = "1", features = ["v4", "serde"] }
+
+# Phase 15: RFC 5545 RRULE parser + iterator. Sign-off granted before
+# Phase 15 implementation. Default features only — `serde` is opt-in and
+# we store rules as strings, not serialised RRule structs.
+rrule = "0.14"

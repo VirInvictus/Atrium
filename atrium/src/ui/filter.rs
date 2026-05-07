@@ -188,24 +188,7 @@ mod tests {
     }
 
     fn dummy_task(id: i64, deadline: Option<NaiveDate>, completed: bool) -> Task {
-        use chrono::Utc;
-        Task {
-            id,
-            uuid: format!("u{id}"),
-            title: format!("t{id}"),
-            note: String::new(),
-            project_id: None,
-            parent_id: None,
-            scheduled_for: None,
-            deadline,
-            defer_until: None,
-            estimated_minutes: None,
-            completed_at: completed.then(Utc::now),
-            repeat_rule: None,
-            position: id as f64,
-            created_at: Utc::now(),
-            modified_at: Utc::now(),
-        }
+        atrium_core::test_support::dummy_task_with(id, deadline, completed)
     }
 
     #[test]

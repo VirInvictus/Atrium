@@ -29,6 +29,12 @@ pub enum DbError {
     /// responder dropped).
     #[error("worker channel closed")]
     WorkerClosed,
+
+    /// Phase 15 — the caller supplied a `repeat_rule` text that
+    /// failed RFC 5545 parsing. Carries the diagnostic from the
+    /// underlying parser so the UI editor can surface it.
+    #[error("invalid repeat rule: {0}")]
+    BadRepeatRule(String),
 }
 
 #[derive(Debug, Error)]

@@ -1,5 +1,210 @@
 # Atrium — Patch Notes
 
+## v0.2.1 (2026-05-07) — Tag pill update fix + Area › Project chip
+
+Two task-row fixes that arrived together because they touch the same factory and diff applier.
+
+### Tag pill never refreshed when added or removed via the per-task editor
+
+The tag label widget in the row factory was created with `visible(false)` at setup time and never had its visibility updated when `tag_names_csv` changed. The label's *text* was bound (so the property carried the right string), but the widget stayed hidden. New rows with non-empty tags rendered no pills; existing rows with tags didn't lose the chip when tags were removed; rows that had a tag added via the Inspector tag editor stayed pill-less.
+
+Fix in `atrium/src/ui/task_list.rs`:
+
+- `connect_bind` now calls `tags.set_visible(!task.tag_names_csv().is_empty())` — initial visibility from the bound state.
+- A new `connect_tag_names_csv_notify` handler updates visibility on every property change. The handler ID is stashed under `"atrium-tags-handler"` and disconnected in `connect_unbind` so recycled rows don't accumulate handlers across binds.
+
+The schedule and deadline labels already had this exact treatment (one-shot `set_visible` in bind plus implicit refresh via `refresh_from`); the tags label was the only `_label`-style row widget without it.
+
+### Area › Project chip on cross-list task rows
+
+The roadmap had a long-implicit gap: Today / Inbox / Anytime / Logbook / Tag / Forecast / Perspective / Search rows didn't show *which project* a task belonged to. You'd see "Buy milk" with `#errand May 12` but no indication of whether it was filed under Personal › Groceries or floating in the Inbox. Things 3 surfaces this with a project subtitle; OmniFocus uses an inline chip; Atrium now uses a chip on the right of the row.
+
+Layout (Things-3 inspired):
+
+```
+[✓] Buy milk    #errand   · Personal › Groceries ·  May 12  Due May 14
+[ ] Write spec  #work     · Work › Atrium       ·  May 15
+```
+
+Implementation:
+
+- `AtriumTask` gains a `context_label` glib property — the rendered string per row.
+- The factory adds a new ellipsizing `gtk::Label` between the tags chip and the schedule pill, with CSS class `.atrium-task-context` and a `.dim-label` style hand-off. `bind_property("context-label", &context, "label")` keeps it in sync; a notify hook flips visibility.
+- `replace_store_with_tags_seq` and `apply_changes_seq` now take a `context_for: F` closure parameter — the window builds the closure per refresh based on the active list, populating from the existing `project_titles`, `area_titles`, and `project_meta` caches. No new SQL.
+- `AtriumWindow::build_context_resolver` selects one of three modes:
+  - **Suppressed** on `Project(_)` views — the heading already names the project, the chip would echo it.
+  - **ProjectOnly** on `Area(_)` views — the area is the heading, render only the project name as the inner scope.
+  - **AreaAndProject** everywhere else (Today / Inbox / Anytime / Someday / Logbook / Tag / SearchResults / Forecast / Perspective / Upcoming) — the full `Area › Project` form.
+- The chip ellipsizes at 40 characters max so long Area + Project combinations don't push the schedule and deadline pills off-screen on narrow windows.
+
+CSS lands in `data/style.css` as `.atrium-task-context` — quieter than the tag chip (no background, smaller font, dim colour from the inherited `.dim-label`) so it reads as reference info, not metadata you actively engage with.
+
+### Numbers
+
+- 212 tests still pass — no test changes needed (pure UI plumbing; the diff applier semantics are unchanged).
+- Clippy clean, fmt clean, regression script green at v0.2.1.
+
+## v0.2.0 (2026-05-07) — Phase 15: Repeating Tasks (Builder Mode milestone)
+
+The first major release. Phases 10–15 are done; Builder Mode is feature-complete for the v0.2 milestone. Atrium can now repeat tasks with full RFC 5545 RRULE support, three Org-style completion semantics, and end-to-end editor → worker → list integration.
+
+### Repeating tasks
+
+Set a repeat in the Inspector pane (Builder Mode → select a task → scroll to *Builder*):
+
+- **Frequency** dropdown: None / Daily / Weekly / Monthly / Yearly / Custom. None clears the rule and the task stops repeating. Custom takes a raw RFC 5545 RRULE string (`FREQ=WEEKLY;BYDAY=MO,WE,FR`, `FREQ=MONTHLY;BYMONTHDAY=15`, anything the `rrule` crate parses).
+- **Every N** spin: hidden for None / Custom; visible for the four presets.
+- **After completion** dropdown — the Org-mode "cookie":
+  - *After completion (Cumulative)* — Org's `++1w`. Skip ahead until the next occurrence is in the future. Spawn that one. Most chores want this; it's the default.
+  - *From completion date (Next)* — Org's `.+1w`. Anchor on when you finished, ignore the previous schedule. Right for "every N after I last did this" (haircut, oil change).
+  - *Always shift by interval (Basic)* — Org's `+1w`. Always shift exactly one rule increment from the previous anchor, even if the result lands in the past. Rare; included for round-trip fidelity with Org files.
+
+When you complete a repeating task, the worker:
+
+1. Marks the row done (`completed_at = now()`).
+2. Reads the rule + mode + the earliest set date field (scheduled / deadline / defer).
+3. Computes the next occurrence per the mode.
+4. Inserts a fresh `task` row with: new uuid; same project / parent / title / note / tags / repeat config; date fields all shifted by the same delta; `completed_at = NULL`.
+5. If the rule had `COUNT=N`, the spawned row's `COUNT` is decremented; when `COUNT` was already 1, the just-completed instance was the last and no spawn happens.
+
+The completed instance stays in the Logbook as the historical record. Tags carry forward (one INSERT-FROM-SELECT on `task_tag`). Reopening a completed task is a pure reopen — never a regenerate.
+
+### Schema
+
+`atrium-core/src/db/migrations/0003_repeat_mode.sql` — backwards-compatible additive change:
+
+- `task.repeat_mode TEXT NULL` — one of `BASIC` / `CUMULATIVE` / `NEXT`. NULL falls back to the default (CUMULATIVE — matches Org's `++` and OmniFocus's "next instance after now").
+
+`PRAGMA user_version` advances 2 → 3. The migrations array in `atrium-core/src/db/migrations/mod.rs` registers the new version. **First migration to alter an existing table** — allowed because v0.2.0 ends the v0.1 schema freeze. Future minor releases can ship more `ALTER` migrations without further policy changes.
+
+### Data layer
+
+`atrium-core` adds the `rrule` crate (sign-off granted before Phase 15 implementation; the alternative was a hand-rolled RFC 5545 subset that would have to be replaced when Phase 17 needs full RRULE round-trip for Org export).
+
+`atrium-core/src/repeat.rs` (new, ~330 lines including tests):
+
+- `RepeatMode` enum (`Basic` / `Cumulative` / `Next`) with `from_column` / `as_column` / `org_cookie` round-trips. `#[derive(Default)]` annotates `Cumulative`.
+- `RepeatRule { rule, mode }` with `parse(rule, mode)` validating against the rrule crate, `next_after(previous_anchor, completed_on)` computing the next occurrence per mode, and `count` / `rule_with_count_decremented` for COUNT termination.
+- `CountStep { Unbounded, Decremented(String), Exhausted }` — the discriminated outcome of "should we spawn a follow-up, and with what rule text?"
+- 18 unit tests covering parse / mode round-trip / cumulative-skip / basic-strict-next / next-anchors-on-completion / daily / monthly / monthly-end-of-month-skips / yearly / count-termination / org-cookie-emit / count-step-{unbounded,decremented,exhausted}.
+
+`Task.repeat_mode: Option<String>` and `NewTask.repeat_mode: Option<String>` exposed on the domain types. `TaskUpdate.repeat_rule_value(Option<String>)` and `TaskUpdate.repeat_mode_value(Option<String>)` builder methods set/clear in the worker. `is_noop` updated.
+
+`atrium-core/src/error.rs` adds `DbError::BadRepeatRule(String)` so the editor can surface validation failures without relying on the underlying rrule diagnostic shape.
+
+`atrium-core/src/db/worker.rs`:
+
+- `create_task` and `update_task` validate `repeat_rule` against `RepeatRule::parse` up front; malformed text is rejected before any DB write.
+- `toggle_complete` returns `(Task, Option<Task>)` — the toggled instance and an optional spawned follow-up. The dispatch arm packages both into a single `TaskChanges` delta (`updated` + `created`) so the UI sees them atomically.
+- `spawn_repeat_follow_up(completed)` does the full regeneration logic: anchor pick, mode-aware iteration, COUNT decrement, NewTask construction, tag carry-forward INSERT.
+- 7 new worker tests: spawn-on-complete, project / note / repeat-config carry, no-spawn-for-non-repeating, COUNT termination, no-spawn-on-reopen, weekly-survives-1-year-horizon, monthly-skips-short-month-end-of-month. The 1-year horizon test exercises the loop 52 times and asserts each cycle's date.
+
+The public `WorkerHandle::toggle_complete` API is unchanged — UI callers still see a single `Task` returned. The spawned follow-up surfaces only via the `TaskChanges` delta on the changes channel.
+
+### UI
+
+`atrium/src/ui/inspector_pane.rs::install_repeat_editor` — the four-row repeat editor described above, autosaving on every interaction. Local validation short-circuits malformed Custom RRULE text before dispatch (the worker still validates server-side as a backstop). 6 new unit tests cover preset recognition, interval round-trip, rule emission, and mode-index round-trip.
+
+The previous "Editor lands in Phase 15" placeholder row is gone.
+
+### v0.2.0 maintenance pass
+
+Per CLAUDE.md release discipline, every major bump runs a maintenance pass:
+
+- **Dead code removal**: `ActiveList::is_builder_stub()` always returned `false` post-Phase 14 and was only called from its own tests. Function and tests removed.
+- **Test helper consolidation**: four duplicated `dummy_task` / `dummy` helpers across `db/changes.rs`, `ui/task_object.rs`, `ui/task_list.rs`, `ui/filter.rs`, `ui/forecast.rs` (each ~15-line `Task` literals that had to be touched on every domain-struct change) consolidated into a new `atrium-core::test_support` module. Gated behind a `test-support` Cargo feature; the `atrium` binary opts in via `[dev-dependencies]`. Future schema columns are now a one-line edit instead of a sweep.
+- **Clippy & doc nits**: `RepeatMode` switched to `#[derive(Default)]` with `#[default]` attribute (clippy's `derivable_impls`); doc-list-without-indentation warning fixed in `repeat.rs`.
+
+### Spec discipline
+
+Spec §4.4 ("Migrations") amended: the v0.1 schema freeze is now formally **"no breaking mid-v0.1 schema changes"** — purely-additive new tables (the v0.1.17 precedent set with `0002_perspectives.sql`) are allowed when they don't disturb v0.1 code paths or shift the v0.2 plan. v0.2.0 ships the first migration to alter an existing table (`0003_repeat_mode.sql`), explicitly allowed because the v0.1 freeze ends with this release.
+
+`CLAUDE.md`'s schema-rule section updated to match.
+
+### Numbers
+
+- **212 tests** pass total: 89 atrium (binary), 124 atrium-core (lib), 1 mode-flip integration. Up from 199 at v0.1.17 (+14: 7 worker regen tests, 4 repeat-rule round-trip tests, 6 inspector-pane preset tests, 4 CountStep tests; offset by removed builder-stub tests).
+- One new dependency: `rrule` (crate v0.14, MIT/Apache).
+- Schema version: 3.
+- One new migration: `0003_repeat_mode.sql`.
+
+### Phase 15 follow-ups
+
+- **Per-area review schedules** (deferred from Phase 13) — still open. The `area` table can take a `default_review_interval_days` column now that v0.2.0 unlocks `ALTER TABLE`. Quality-of-life on top of the per-project interval that already works; not blocking.
+- **Drag-to-reschedule in Forecast** picking up repeating-task semantics — the spawned follow-up should respect any reschedule the user makes mid-cycle. Belongs with Phase 17's vault-projection work since the same logic governs Org round-trip.
+
+## v0.1.17 (2026-05-07) — Phase 14: Saved Perspectives
+
+Builder Mode's last big sidebar feature lands: saved Perspectives. Type a filter expression in the search bar (`tag:work is:overdue`, `due:today is:open`, etc.), open the primary menu, pick **Save Search as Perspective…**, name it, and it lives forever in a dedicated *Perspectives* section in the Builder sidebar. Selecting a perspective re-runs its filter expression against the current task set every time, so the view stays current without any manual refresh.
+
+Right-click a perspective row for **Rename** / **Delete** (same shape as the area / project / tag context menus). Deleting only removes the saved view — the underlying tasks are untouched.
+
+### Schema
+
+`atrium-core/src/db/migrations/0002_perspectives.sql` — backwards-compatible add:
+
+- `perspective` table: `id`, `uuid`, `name`, `icon`, `filter_expr`, `sort_order`, `grouping`, `position`, `created_at`, `modified_at`. The `sort_order` and `grouping` columns are populated by the schema but not yet consumed by the UI — they exist now so a future minor release can add per-perspective sort / grouping without another migration.
+- `perspective_modified_at` trigger keeps `modified_at` in sync on every UPDATE, mirroring the trigger pattern on tasks / projects.
+
+`PRAGMA user_version` advances from 1 → 2; the migrations array in `atrium-core/src/db/migrations/mod.rs` registers the new version. Existing v0.1 databases pick the migration up on next launch via the established `migrate(&mut conn)` path — no schema rule was broken (the freeze rule is "no breaking changes mid-v0.1"; this is purely additive).
+
+### Data layer
+
+`atrium-core/src/domain` — `Perspective`, `NewPerspective`, `PerspectiveUpdate` types with serde derives and the same builder-pattern shape as `ProjectUpdate` / `TagUpdate`.
+
+`atrium-core/src/db/read.rs` — `list_perspectives(conn) -> Vec<Perspective>` (ordered by `position, name`) and `perspective_by_id(conn, id) -> Option<Perspective>` plus a `PERSPECTIVE_COLUMNS` const and a `perspective_from_row` row-mapper. No FTS5 or join — perspectives are a flat lookup table.
+
+`atrium-core/src/db/command.rs` — three new variants: `Command::CreatePerspective { perspective, responder }`, `Command::UpdatePerspective { update, responder }`, `Command::DeletePerspective { id, responder }`. `variant_name()` arms updated.
+
+`atrium-core/src/db/worker.rs`:
+
+- `create_perspective(perspective)` — generates a fresh UUID, picks the next position via `next_perspective_position` (max + 1.0, mirroring the existing area / project pattern), inserts, returns the row.
+- `update_perspective(update)` — partial update with the same dirty-field tracker as `update_project` / `update_tag`; emits `LibraryChanges { perspectives_updated }`.
+- `delete_perspective(id)` — straight DELETE; emits `LibraryChanges { perspectives_deleted }`.
+- `WorkerHandle::create_perspective` / `update_perspective` / `delete_perspective` async APIs.
+
+`atrium-core/src/db/changes.rs` — `LibraryChanges` extended with `perspectives_created` / `perspectives_updated` / `perspectives_deleted` Vecs. `merge` and `is_empty` updated.
+
+Three new worker tests round-trip create / update / delete and assert the matching `LibraryChanges` payload lands on the channel.
+
+### UI
+
+`atrium/src/ui/task_list.rs::ActiveList`:
+
+- `Perspectives` (no-arg stub) replaced with `Perspective(i64)`.
+- `is_builder_stub()` now always returns `false` (Forecast / Review / Perspective each drive concrete content).
+- `task_matches` returns `false` for `Perspective(_)` — the diff applier would need filter-expression visibility to make a sensible call, so refresh-on-update covers it (cheap, FTS5-backed).
+
+`atrium/src/ui/window.rs`:
+
+- New imp fields `perspective_titles: HashMap<i64, String>` and `perspective_meta: HashMap<i64, atrium_core::Perspective>`. The titles cache resolves the content-pane heading; the meta cache lets `refresh_active_list` re-parse the saved filter expression without a read-pool round trip and powers rename-prefill / delete-confirmation prompts.
+- `rebuild_dynamic_sidebar` appends a `Perspectives` section header in Builder Mode (always — even with zero perspectives, so the user knows where new ones land) followed by one row per saved perspective. Each row gets a context-menu gesture via `install_perspective_context_menu`.
+- `refresh_active_list` routes `ActiveList::Perspective(id)` through `crate::ui::filter::parse` + `crate::ui::filter::apply` — exactly the same pipeline the search bar uses, so saved expressions and live ones behave identically.
+- `apply_task_changes` re-runs `refresh_active_list` on every delta when the active view is a perspective (filter-expression visibility problem; same reasoning as `task_matches`).
+- `apply_library_changes` falls back to Today when the active perspective is in `perspectives_deleted`.
+- `prompt_rename_active` / `prompt_delete_active` gain `Perspective` arms with copy that mentions filter expressions explicitly so users understand delete only removes the saved view.
+- `prompt_save_perspective` (new) drives the *Save Search as Perspective…* primary menu item: only fires on a `SearchResults` view with a non-empty trimmed query; switches the active list to the new perspective on success so the user sees the saved view immediately.
+
+`build_primary_menu` adds the *Save Search as Perspective…* item to the library section.
+
+### Tests
+
+96 atrium-core tests pass (3 new perspective worker tests; 4 existing schema tests updated for the new `perspective` table + `user_version = 2`).
+
+Five existing schema-introspection tests updated:
+
+- `migration_applies_cleanly` and `migration_is_idempotent` now expect `user_version = 2`.
+- `all_user_tables_exist` now expects `["area", "heading", "perspective", "project", "tag", "task", "task_tag"]`.
+- `open_creates_parent_dir_and_migrates` and `acquire_release_round_trips` updated to expect version 2.
+- `task_list::tests::builder_stub_titles_render` updated for the renamed variant.
+- `task_list::tests::builder_stubs_report_themselves` and friends updated to reflect that `is_builder_stub()` is now always `false`.
+
+`mode_flip_does_not_touch_db` integration test still passes (mode-as-view stays a UI-layer flag; no schema or row mutations on flip).
+
+### Phase 14 follow-up deferred
+
+JSON export / import of saved perspectives is deferred to Phase 16 (Export discipline) where it can ride on the file-format work for the rest of the workspace. The schema and worker plumbing are in place; only the I/O is pending.
+
 ## v0.1.16 (2026-05-07) — Phase 13: Review queue
 
 Builder Mode's GTD discipline lands. Projects with a `review_interval_days` set surface in the Review sidebar entry when their last review is older than the interval allows. Each card shows the project's title, area, "Last reviewed N days ago" subtitle, and a Mark Reviewed button that stamps `last_reviewed_at = now()` and drops the row out of the queue.

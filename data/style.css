@@ -10,6 +10,7 @@
  *   .atrium-task-row           — task row container Box (task_list.rs)
  *   .atrium-task-title         — task title EditableLabel
  *   .atrium-task-tags          — inline tag-names-csv Label
+ *   .atrium-task-context       — Area › Project chip (cross-list context)
  *   .atrium-task-schedule      — schedule pill (Today / Tomorrow / …)
  *   .atrium-task-deadline      — deadline pill (Due …)
  *   .atrium-task-row.completed — completed task row (set in factory bind)
@@ -108,6 +109,20 @@ window.atrium-high-legibility .atrium-task-deadline {
  * fade so it doesn't visually outshout the dimmed title. */
 .atrium-task-row.completed .atrium-task-tags {
   background-color: alpha(@accent_bg_color, 0.08);
+}
+
+/* Cross-list context chip — "Area › Project". Surfaces the task's
+ * hierarchy on views that don't already heading it (Today, Inbox,
+ * Anytime, Tag views, Forecast, Perspective). Designed to read
+ * quieter than the tag chip — it's reference info, not metadata
+ * the user actively engages with. The bullet-separator + dim
+ * weight mirrors libadwaita's secondary-text idiom (think
+ * AdwActionRow subtitle). The `.dim-label` class on the widget
+ * supplies the muted colour; this rule just sets size + spacing. */
+.atrium-task-context {
+  font-size: 0.88em;
+  letter-spacing: 0.005em;
+  padding: 1px 4px;
 }
 
 /* Completion fade. The .completed class is toggled in

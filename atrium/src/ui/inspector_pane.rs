@@ -29,7 +29,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use atrium_core::{Project, ScheduledFor, Task, TaskUpdate, WorkerHandle};
+use atrium_core::{Project, RepeatMode, RepeatRule, ScheduledFor, Task, TaskUpdate, WorkerHandle};
 use chrono::NaiveDate;
 use gtk::glib;
 use gtk::glib::clone;
@@ -410,18 +410,17 @@ where
     defer_row.add_suffix(&defer_button);
     builder_group.add(&defer_row);
 
-    // repeat_rule — Phase 15 owns the editor; we render a disabled
-    // placeholder so the row still appears in the layout.
-    let repeat_row = adw::ActionRow::builder()
-        .title("Repeat rule")
-        .subtitle("Editor lands in Phase 15.")
-        .sensitive(false)
-        .build();
-    let repeat_label = gtk::Label::builder()
-        .label(task.repeat_rule.clone().unwrap_or_else(|| "—".into()))
-        .build();
-    repeat_row.add_suffix(&repeat_label);
-    builder_group.add(&repeat_row);
+    // Phase 15 — repeat rule editor. Three rows working together:
+    //
+    //   1. Frequency dropdown (None / Daily / Weekly / Monthly /
+    //      Yearly / Custom). "None" clears the rule.
+    //   2. Interval spin ("Every N"). Hidden for None / Custom.
+    //   3. Mode dropdown (After completion: Cumulative / Next /
+    //      Basic). Hidden for None.
+    //   4. Custom RRULE entry. Shown only for Custom; the user
+    //      types raw RFC 5545 text. Validation happens at the
+    //      worker; bad rules surface a toast.
+    install_repeat_editor(&builder_group, &worker, &task);
 
     // ── Page container ───────────────────────────────────────────
     let page = adw::PreferencesPage::new();
@@ -432,6 +431,269 @@ where
     page.add(&builder_group);
 
     (page.upcast(), title_row)
+}
+
+/// Phase 15 — install the repeat-rule editor into a Builder
+/// preferences group. Three preset frequencies (Daily / Weekly /
+/// Monthly / Yearly) plus a Custom escape hatch for the full RFC
+/// 5545 grammar. Autosaves on every interaction; validation
+/// failures from the worker land as a tracing::error (the entry
+/// is restored to whatever the worker last accepted on the next
+/// `set_task` call so the user isn't stranded with bad text).
+fn install_repeat_editor(group: &adw::PreferencesGroup, worker: &WorkerHandle, task: &Task) {
+    let task_id = task.id;
+    let initial_preset = preset_from_rule(task.repeat_rule.as_deref());
+    let initial_interval = interval_from_rule(task.repeat_rule.as_deref()).unwrap_or(1);
+    let initial_mode = RepeatMode::from_column(task.repeat_mode.as_deref());
+    let initial_custom = if matches!(initial_preset, RepeatPreset::Custom) {
+        task.repeat_rule.clone().unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    // Frequency dropdown. "None" lives at index 0 so a brand-new
+    // task without a repeat lands there by default.
+    let freq_model =
+        gtk::StringList::new(&["None", "Daily", "Weekly", "Monthly", "Yearly", "Custom"]);
+    let freq_row = adw::ComboRow::builder()
+        .title("Repeat")
+        .model(&freq_model)
+        .selected(preset_index(initial_preset))
+        .build();
+
+    let interval_row = adw::SpinRow::with_range(1.0, 365.0, 1.0);
+    interval_row.set_title("Every");
+    interval_row.set_subtitle("Number of frequency units between occurrences.");
+    interval_row.set_value(initial_interval as f64);
+
+    let mode_model = gtk::StringList::new(&[
+        "After completion (Cumulative)",
+        "From completion date (Next)",
+        "Always shift by interval (Basic)",
+    ]);
+    let mode_row = adw::ComboRow::builder()
+        .title("After completion")
+        .model(&mode_model)
+        .selected(mode_index(initial_mode))
+        .build();
+
+    let custom_row = adw::EntryRow::builder()
+        .title("Custom RRULE")
+        .text(&initial_custom)
+        .build();
+
+    let visible = matches!(initial_preset, RepeatPreset::None);
+    interval_row.set_visible(!visible);
+    mode_row.set_visible(!visible);
+    custom_row.set_visible(matches!(initial_preset, RepeatPreset::Custom));
+    if matches!(initial_preset, RepeatPreset::Custom) {
+        interval_row.set_visible(false);
+    }
+
+    group.add(&freq_row);
+    group.add(&interval_row);
+    group.add(&mode_row);
+    group.add(&custom_row);
+
+    // Shared commit closure — reads the current state of all three
+    // rows, builds the RRULE text, and dispatches an update to the
+    // worker. Mode is always sent (even when no rule is set, to
+    // clear stale state); rule is sent as Some(text) / None.
+    let commit = {
+        let worker = worker.clone();
+        let freq_row = freq_row.clone();
+        let interval_row = interval_row.clone();
+        let mode_row = mode_row.clone();
+        let custom_row = custom_row.clone();
+        Rc::new(move || {
+            let preset = preset_from_index(freq_row.selected());
+            let interval = interval_row.value().round().max(1.0) as u32;
+            let mode = mode_from_index(mode_row.selected());
+            let custom_text = custom_row.text().to_string();
+
+            let new_rule = match preset {
+                RepeatPreset::None => None,
+                RepeatPreset::Daily => Some(rule_from_freq("DAILY", interval)),
+                RepeatPreset::Weekly => Some(rule_from_freq("WEEKLY", interval)),
+                RepeatPreset::Monthly => Some(rule_from_freq("MONTHLY", interval)),
+                RepeatPreset::Yearly => Some(rule_from_freq("YEARLY", interval)),
+                RepeatPreset::Custom => {
+                    let trimmed = custom_text.trim().to_string();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        // Validate locally so we can avoid a
+                        // worker round-trip on obvious garbage.
+                        if RepeatRule::parse(&trimmed, mode).is_err() {
+                            // Don't dispatch; the user will see the
+                            // entry sit unstyled until they fix it.
+                            return;
+                        }
+                        Some(trimmed)
+                    }
+                }
+            };
+
+            let new_mode = if new_rule.is_some() {
+                Some(mode.as_column().to_string())
+            } else {
+                None
+            };
+
+            let worker = worker.clone();
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker
+                    .update_task(
+                        TaskUpdate::new(task_id)
+                            .repeat_rule_value(new_rule)
+                            .repeat_mode_value(new_mode),
+                    )
+                    .await
+                {
+                    error!(?e, task_id, "inspector pane: repeat autosave failed");
+                }
+            });
+        })
+    };
+
+    // Toggle row visibility when the preset changes.
+    {
+        let interval_row = interval_row.clone();
+        let mode_row = mode_row.clone();
+        let custom_row = custom_row.clone();
+        let commit = commit.clone();
+        freq_row.connect_selected_notify(move |row| {
+            let preset = preset_from_index(row.selected());
+            let none = matches!(preset, RepeatPreset::None);
+            let custom = matches!(preset, RepeatPreset::Custom);
+            interval_row.set_visible(!none && !custom);
+            mode_row.set_visible(!none);
+            custom_row.set_visible(custom);
+            commit();
+        });
+    }
+
+    {
+        let commit = commit.clone();
+        interval_row.connect_changed(move |_| commit());
+    }
+    {
+        let commit = commit.clone();
+        mode_row.connect_selected_notify(move |_| commit());
+    }
+    {
+        let commit = commit.clone();
+        custom_row.connect_apply(move |_| commit());
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RepeatPreset {
+    None,
+    Daily,
+    Weekly,
+    Monthly,
+    Yearly,
+    Custom,
+}
+
+fn preset_index(p: RepeatPreset) -> u32 {
+    match p {
+        RepeatPreset::None => 0,
+        RepeatPreset::Daily => 1,
+        RepeatPreset::Weekly => 2,
+        RepeatPreset::Monthly => 3,
+        RepeatPreset::Yearly => 4,
+        RepeatPreset::Custom => 5,
+    }
+}
+
+fn preset_from_index(i: u32) -> RepeatPreset {
+    match i {
+        1 => RepeatPreset::Daily,
+        2 => RepeatPreset::Weekly,
+        3 => RepeatPreset::Monthly,
+        4 => RepeatPreset::Yearly,
+        5 => RepeatPreset::Custom,
+        _ => RepeatPreset::None,
+    }
+}
+
+fn mode_index(m: RepeatMode) -> u32 {
+    match m {
+        RepeatMode::Cumulative => 0,
+        RepeatMode::Next => 1,
+        RepeatMode::Basic => 2,
+    }
+}
+
+fn mode_from_index(i: u32) -> RepeatMode {
+    match i {
+        1 => RepeatMode::Next,
+        2 => RepeatMode::Basic,
+        _ => RepeatMode::Cumulative,
+    }
+}
+
+/// Best-effort recognise the simple-preset shape of a stored rule.
+/// `FREQ=DAILY[;INTERVAL=N]` (in either order, possibly with extra
+/// whitespace) maps to Daily; anything outside the simple presets
+/// (BYDAY, COUNT, UNTIL, etc.) maps to Custom so the user keeps
+/// editorial control over the raw RRULE text.
+fn preset_from_rule(rule: Option<&str>) -> RepeatPreset {
+    let Some(rule) = rule else {
+        return RepeatPreset::None;
+    };
+    let mut freq: Option<&str> = None;
+    let mut has_interval = false;
+    let mut has_other = false;
+    for token in rule.split(';') {
+        let trimmed = token.trim();
+        let upper = trimmed.to_ascii_uppercase();
+        if let Some(rest) = upper.strip_prefix("FREQ=") {
+            freq = match rest {
+                "DAILY" => Some("DAILY"),
+                "WEEKLY" => Some("WEEKLY"),
+                "MONTHLY" => Some("MONTHLY"),
+                "YEARLY" => Some("YEARLY"),
+                _ => return RepeatPreset::Custom,
+            };
+        } else if upper.starts_with("INTERVAL=") {
+            has_interval = true;
+        } else if !trimmed.is_empty() {
+            has_other = true;
+        }
+    }
+    if has_other {
+        return RepeatPreset::Custom;
+    }
+    let _ = has_interval; // INTERVAL alone keeps the preset simple
+    match freq {
+        Some("DAILY") => RepeatPreset::Daily,
+        Some("WEEKLY") => RepeatPreset::Weekly,
+        Some("MONTHLY") => RepeatPreset::Monthly,
+        Some("YEARLY") => RepeatPreset::Yearly,
+        _ => RepeatPreset::Custom,
+    }
+}
+
+fn interval_from_rule(rule: Option<&str>) -> Option<u32> {
+    let rule = rule?;
+    for token in rule.split(';') {
+        let trimmed = token.trim();
+        if let Some(rest) = trimmed.to_ascii_uppercase().strip_prefix("INTERVAL=") {
+            return rest.trim().parse().ok();
+        }
+    }
+    Some(1)
+}
+
+fn rule_from_freq(freq: &str, interval: u32) -> String {
+    if interval <= 1 {
+        format!("FREQ={freq}")
+    } else {
+        format!("FREQ={freq};INTERVAL={interval}")
+    }
 }
 
 fn format_tag_count(n: usize) -> String {
@@ -694,5 +956,53 @@ mod tests {
         assert_eq!(format_tag_count(0), "No tags");
         assert_eq!(format_tag_count(1), "1 tag");
         assert_eq!(format_tag_count(5), "5 tags");
+    }
+
+    // Phase 15 — preset / interval round-trip helpers.
+
+    #[test]
+    fn preset_recognition() {
+        assert_eq!(preset_from_rule(None), RepeatPreset::None);
+        assert_eq!(preset_from_rule(Some("FREQ=DAILY")), RepeatPreset::Daily);
+        assert_eq!(preset_from_rule(Some("FREQ=WEEKLY")), RepeatPreset::Weekly);
+        assert_eq!(
+            preset_from_rule(Some("FREQ=MONTHLY")),
+            RepeatPreset::Monthly
+        );
+        assert_eq!(preset_from_rule(Some("FREQ=YEARLY")), RepeatPreset::Yearly);
+        // INTERVAL keeps the preset simple.
+        assert_eq!(
+            preset_from_rule(Some("FREQ=WEEKLY;INTERVAL=2")),
+            RepeatPreset::Weekly
+        );
+        // BYDAY / COUNT / UNTIL fall through to Custom.
+        assert_eq!(
+            preset_from_rule(Some("FREQ=WEEKLY;BYDAY=MO,WE")),
+            RepeatPreset::Custom
+        );
+        assert_eq!(
+            preset_from_rule(Some("FREQ=DAILY;COUNT=5")),
+            RepeatPreset::Custom
+        );
+    }
+
+    #[test]
+    fn interval_round_trip() {
+        assert_eq!(interval_from_rule(Some("FREQ=DAILY")), Some(1));
+        assert_eq!(interval_from_rule(Some("FREQ=WEEKLY;INTERVAL=3")), Some(3));
+        assert_eq!(interval_from_rule(None), None);
+    }
+
+    #[test]
+    fn rule_emit() {
+        assert_eq!(rule_from_freq("DAILY", 1), "FREQ=DAILY");
+        assert_eq!(rule_from_freq("WEEKLY", 2), "FREQ=WEEKLY;INTERVAL=2");
+    }
+
+    #[test]
+    fn mode_index_round_trip() {
+        for m in [RepeatMode::Cumulative, RepeatMode::Next, RepeatMode::Basic] {
+            assert_eq!(mode_from_index(mode_index(m)), m);
+        }
     }
 }

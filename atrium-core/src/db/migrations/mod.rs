@@ -13,9 +13,18 @@ use tracing::info;
 use crate::error::DbError;
 
 /// Ordered list of `(version, sql)` migrations. Append-only; never
-/// rewrite a shipped migration. v0.1 lives at version 1; v0.2's first
-/// migration would land at version 2.
-const MIGRATIONS: &[(i64, &str)] = &[(1, include_str!("0001_initial.sql"))];
+/// rewrite a shipped migration. v0.1.0 ships with version 1 (the
+/// OmniFocus superset); version 2 (Phase 14, v0.1.17) adds the
+/// `perspective` table for saved filter views — purely additive, no
+/// changes to v0.1's tables. Version 3 (Phase 15, v0.2.0) adds the
+/// `repeat_mode` column to `task` for Org-style repeater semantics —
+/// the first migration to alter an existing table, allowed because
+/// v0.2.0 ends the v0.1 schema freeze.
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, include_str!("0001_initial.sql")),
+    (2, include_str!("0002_perspectives.sql")),
+    (3, include_str!("0003_repeat_mode.sql")),
+];
 
 /// Apply any pending migrations to `conn`.
 ///

@@ -11,8 +11,8 @@
 use tokio::sync::oneshot;
 
 use crate::domain::{
-    AreaUpdate, NewArea, NewProject, NewTag, NewTask, Project, ProjectUpdate, Tag, TagUpdate, Task,
-    TaskUpdate,
+    AreaUpdate, NewArea, NewPerspective, NewProject, NewTag, NewTask, Perspective,
+    PerspectiveUpdate, Project, ProjectUpdate, Tag, TagUpdate, Task, TaskUpdate,
 };
 use crate::error::DbError;
 
@@ -110,6 +110,20 @@ pub enum Command {
         name: String,
         responder: oneshot::Sender<Result<Tag, DbError>>,
     },
+
+    // ── Perspectives (Phase 14) ────────────────────────────────
+    CreatePerspective {
+        perspective: NewPerspective,
+        responder: oneshot::Sender<Result<Perspective, DbError>>,
+    },
+    UpdatePerspective {
+        update: PerspectiveUpdate,
+        responder: oneshot::Sender<Result<Perspective, DbError>>,
+    },
+    DeletePerspective {
+        id: i64,
+        responder: oneshot::Sender<Result<(), DbError>>,
+    },
 }
 
 impl Command {
@@ -133,6 +147,9 @@ impl Command {
             Self::DeleteTag { .. } => "DeleteTag",
             Self::SetTaskTags { .. } => "SetTaskTags",
             Self::EnsureTag { .. } => "EnsureTag",
+            Self::CreatePerspective { .. } => "CreatePerspective",
+            Self::UpdatePerspective { .. } => "UpdatePerspective",
+            Self::DeletePerspective { .. } => "DeletePerspective",
         }
     }
 }

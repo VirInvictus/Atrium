@@ -54,13 +54,16 @@ pub enum ActiveList {
     Tag(i64),
     /// Phase 7a: FTS5-backed search results for a user-entered query.
     SearchResults(String),
-    /// Phase 10: Builder-only sidebar entries. Each renders an
-    /// `AdwStatusPage` placeholder pointing at the phase that owns
-    /// the actual content; selecting one is non-destructive (no
-    /// task list query runs).
+    /// Phase 10: Builder-only sidebar entries. Forecast and Review
+    /// have grown into real pages (Phase 12 / 13); they are still
+    /// listed here so the Builder Mode sidebar can dispatch to them.
     Forecast,
     Review,
-    Perspectives,
+    /// Phase 14 — saved perspective. The payload is the row id from
+    /// the `perspective` table; the window resolves the title and
+    /// filter expression from the `perspective_titles` /
+    /// `perspective_meta` caches populated when the sidebar is built.
+    Perspective(i64),
 }
 
 impl ActiveList {
@@ -81,15 +84,8 @@ impl ActiveList {
             Self::SearchResults(_) => "Search",
             Self::Forecast => "Forecast",
             Self::Review => "Review",
-            Self::Perspectives => "Perspectives",
+            Self::Perspective(_) => "Perspective",
         }
-    }
-
-    /// Builder-only Phase 10 stub views — no task list, just a
-    /// placeholder page. The window dispatches these to a status
-    /// page instead of running a list query.
-    pub fn is_builder_stub(&self) -> bool {
-        matches!(self, Self::Forecast | Self::Review | Self::Perspectives)
     }
 
     /// Does `task` belong in this list right now? Used by the diff
@@ -147,9 +143,12 @@ impl ActiveList {
             Self::Tag(_) => false,
             // Search relevance is FTS5-side; refresh-on-update.
             Self::SearchResults(_) => false,
-            // Phase 10 Builder stubs render a static placeholder —
-            // no task list, so no task can match.
-            Self::Forecast | Self::Review | Self::Perspectives => false,
+            // Forecast / Review render their own pages (calendar
+            // axis / project list), so the diff applier never
+            // matches a task into them. Perspectives drive a real
+            // task list, but membership depends on the saved
+            // filter expression — refresh-on-update covers it.
+            Self::Forecast | Self::Review | Self::Perspective(_) => false,
         }
     }
 }
@@ -236,6 +235,20 @@ where
         tags.add_css_class("dim-label");
         tags.set_ellipsize(pango::EllipsizeMode::End);
 
+        // Cross-list context chip: "Area › Project" surfaces the
+        // task's hierarchy on views that don't already heading it
+        // (Today / Inbox / Anytime / Someday / Logbook / Tag /
+        // Forecast / Perspective). Suppressed on Project / Area
+        // views by the window-side resolver returning an empty
+        // string. Ellipsizes to keep long area + project names
+        // from pushing the schedule/deadline pills off-screen on
+        // narrow windows.
+        let context = gtk::Label::builder().visible(false).build();
+        context.add_css_class("atrium-task-context");
+        context.add_css_class("dim-label");
+        context.set_ellipsize(pango::EllipsizeMode::End);
+        context.set_max_width_chars(40);
+
         // Schedule / deadline pills hold short, fixed-shape text
         // ("May 7", "Due May 15"). Earlier versions set
         // `ellipsize=End` on both, which combined with the title's
@@ -253,6 +266,7 @@ where
         row.append(&check);
         row.append(&title_stack);
         row.append(&tags);
+        row.append(&context);
         row.append(&schedule);
         row.append(&deadline);
 
@@ -288,7 +302,11 @@ where
             .next_sibling()
             .and_downcast::<gtk::Label>()
             .expect("tags");
-        let schedule = tags
+        let context = tags
+            .next_sibling()
+            .and_downcast::<gtk::Label>()
+            .expect("context");
+        let schedule = context
             .next_sibling()
             .and_downcast::<gtk::Label>()
             .expect("schedule");
@@ -312,6 +330,9 @@ where
             task.bind_property("tag-names-csv", &tags, "label")
                 .sync_create()
                 .build(),
+            task.bind_property("context-label", &context, "label")
+                .sync_create()
+                .build(),
             task.bind_property("schedule-label", &schedule, "label")
                 .sync_create()
                 .build(),
@@ -324,10 +345,25 @@ where
             row.set_data("atrium-bindings", bindings);
         }
 
-        // Empty schedule/deadline label hides the widget so the row
-        // stays clean.
+        // Empty schedule/deadline/tags labels hide the widget so the
+        // row stays clean. Schedule and deadline only flip on
+        // `refresh_from` (which fires their `_label` notify); the
+        // tags label needs an explicit notify hook because adding
+        // or removing a tag is a `tag-names-csv` property change
+        // that arrives independently of the schedule/deadline path.
         schedule.set_visible(!task.schedule_label().is_empty());
         deadline.set_visible(!task.deadline_label().is_empty());
+        tags.set_visible(!task.tag_names_csv().is_empty());
+        context.set_visible(!task.context_label().is_empty());
+
+        let tags_for_notify = tags.clone();
+        let tags_handler = task.connect_tag_names_csv_notify(move |t| {
+            tags_for_notify.set_visible(!t.tag_names_csv().is_empty());
+        });
+        let context_for_notify = context.clone();
+        let context_handler = task.connect_context_label_notify(move |t| {
+            context_for_notify.set_visible(!t.context_label().is_empty());
+        });
 
         // Always start a freshly-bound row in display mode so a
         // recycled row doesn't carry a previous task's edit state.
@@ -441,6 +477,8 @@ where
             row.set_data("atrium-activate-handler", activate_handler);
             row.set_data("atrium-focus-handler", focus_handler);
             row.set_data("atrium-queued-handler", queued_handler);
+            row.set_data("atrium-tags-handler", tags_handler);
+            row.set_data("atrium-context-handler", context_handler);
             row.set_data("atrium-task-obj", task.clone());
             row.set_data("atrium-check", check.clone());
             row.set_data("atrium-title-stack", title_stack.clone());
@@ -616,12 +654,29 @@ where
             ) {
                 check.disconnect(handler);
             }
-            // Phase 11 — disconnect the queued-notify handler too.
-            if let (Some(task_obj), Some(handler)) = (
-                row.steal_data::<AtriumTask>("atrium-task-obj"),
+            // Disconnect the property-notify handlers stashed on
+            // the AtriumTask. queued (Phase 11), tag-names-csv (the
+            // pill-visibility fix). Both were connected to the
+            // task object that's about to be unbound from this row;
+            // disconnect so we don't leak handler IDs.
+            let task_obj = row.steal_data::<AtriumTask>("atrium-task-obj");
+            if let (Some(task), Some(handler)) = (
+                task_obj.clone(),
                 row.steal_data::<glib::SignalHandlerId>("atrium-queued-handler"),
             ) {
-                task_obj.disconnect(handler);
+                task.disconnect(handler);
+            }
+            if let (Some(task), Some(handler)) = (
+                task_obj.clone(),
+                row.steal_data::<glib::SignalHandlerId>("atrium-tags-handler"),
+            ) {
+                task.disconnect(handler);
+            }
+            if let (Some(task), Some(handler)) = (
+                task_obj,
+                row.steal_data::<glib::SignalHandlerId>("atrium-context-handler"),
+            ) {
+                task.disconnect(handler);
             }
             // Title entry: disconnect the activate + focus-leave
             // handlers, drop the controllers, drop the cached
@@ -691,12 +746,15 @@ where
 /// The caller is the only thing that knows whether the active list
 /// is a sequential project view, so this is a parameter rather
 /// than a global.
-pub fn replace_store_with_tags_seq(
+pub fn replace_store_with_tags_seq<F>(
     store: &gio::ListStore,
     tasks: &[Task],
     tag_map: &TagMap,
     sequential: bool,
-) {
+    context_for: F,
+) where
+    F: Fn(&Task) -> String,
+{
     store.remove_all();
     let queued = compute_queued_state(tasks, sequential);
     let objects: Vec<glib::Object> = tasks
@@ -705,6 +763,7 @@ pub fn replace_store_with_tags_seq(
         .map(|(t, q)| {
             let names = tag_map.get(&t.id).cloned().unwrap_or_default();
             let obj = AtriumTask::from_task_with_tags(t, &names);
+            obj.set_context_label(context_for(t));
             obj.set_queued(*q);
             obj.upcast()
         })
@@ -750,19 +809,24 @@ pub fn compute_queued_state(tasks: &[Task], sequential: bool) -> Vec<bool> {
 /// promotes the next row to "available" — the recompute makes the
 /// dim/undim transition land in the same frame as the bound
 /// `completed` flip.
-pub fn apply_changes_seq(
+pub fn apply_changes_seq<F>(
     store: &gio::ListStore,
     changes: &TaskChanges,
     active: ActiveList,
     today: NaiveDate,
     tag_map: &TagMap,
     sequential: bool,
-) {
+    context_for: F,
+) where
+    F: Fn(&Task) -> String,
+{
     // Created — append rows that belong here.
     for task in &changes.created {
         if active.task_matches(task, today) && find_index(store, task.id).is_none() {
             let names = tag_map.get(&task.id).cloned().unwrap_or_default();
-            store.append(&AtriumTask::from_task_with_tags(task, &names));
+            let obj = AtriumTask::from_task_with_tags(task, &names);
+            obj.set_context_label(context_for(task));
+            store.append(&obj);
         }
     }
 
@@ -777,6 +841,10 @@ pub fn apply_changes_seq(
                     // Sync tag pills with the latest tag map.
                     let names = tag_map.get(&task.id).cloned().unwrap_or_default();
                     obj.set_tag_names_csv(format_tag_names(&names));
+                    // Sync the area/project context chip — the
+                    // task may have moved to a different project,
+                    // which slides it under a different area.
+                    obj.set_context_label(context_for(task));
                 }
             }
             (Some(i), false) => {
@@ -784,7 +852,9 @@ pub fn apply_changes_seq(
             }
             (None, true) => {
                 let names = tag_map.get(&task.id).cloned().unwrap_or_default();
-                store.append(&AtriumTask::from_task_with_tags(task, &names));
+                let obj = AtriumTask::from_task_with_tags(task, &names);
+                obj.set_context_label(context_for(task));
+                store.append(&obj);
             }
             (None, false) => {}
         }
@@ -885,27 +955,8 @@ fn find_index(store: &gio::ListStore, id: i64) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atrium_core::test_support::dummy_task as dummy;
     use chrono::{NaiveDate, Utc};
-
-    fn dummy(id: i64) -> Task {
-        Task {
-            id,
-            uuid: format!("uuid-{id}"),
-            title: format!("Task {id}"),
-            note: String::new(),
-            project_id: None,
-            parent_id: None,
-            scheduled_for: None,
-            deadline: None,
-            defer_until: None,
-            estimated_minutes: None,
-            completed_at: None,
-            repeat_rule: None,
-            position: id as f64,
-            created_at: Utc::now(),
-            modified_at: Utc::now(),
-        }
-    }
 
     fn today() -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 5, 15).unwrap()
@@ -968,41 +1019,27 @@ mod tests {
         assert!(!ActiveList::Today.task_matches(&t, today()));
     }
 
-    // Phase 10 — Builder Mode stub views.
+    // Phase 10 / 12 / 13 / 14 — Builder Mode views. Forecast,
+    // Review, and Perspective(id) render their own content; the
+    // diff applier never matches a task into them.
 
     #[test]
-    fn builder_stubs_report_themselves() {
-        assert!(ActiveList::Forecast.is_builder_stub());
-        assert!(ActiveList::Review.is_builder_stub());
-        assert!(ActiveList::Perspectives.is_builder_stub());
-    }
-
-    #[test]
-    fn non_builder_variants_are_not_stubs() {
-        assert!(!ActiveList::Inbox.is_builder_stub());
-        assert!(!ActiveList::Today.is_builder_stub());
-        assert!(!ActiveList::Project(7).is_builder_stub());
-        assert!(!ActiveList::Tag(3).is_builder_stub());
-        assert!(!ActiveList::SearchResults("milk".into()).is_builder_stub());
-    }
-
-    #[test]
-    fn builder_stubs_match_no_tasks() {
-        // Phase 10 stubs render an AdwStatusPage placeholder; no
-        // task can belong to them. The diff applier consults
-        // task_matches so it doesn't accidentally append rows to
-        // the empty content stack.
+    fn builder_views_match_no_tasks() {
+        // The diff applier consults task_matches; Forecast/Review
+        // own their own page so no task belongs to them, and
+        // Perspective membership depends on the saved filter
+        // expression which the diff applier doesn't have access to.
         let t = dummy(1);
         assert!(!ActiveList::Forecast.task_matches(&t, today()));
         assert!(!ActiveList::Review.task_matches(&t, today()));
-        assert!(!ActiveList::Perspectives.task_matches(&t, today()));
+        assert!(!ActiveList::Perspective(1).task_matches(&t, today()));
     }
 
     #[test]
     fn builder_stub_titles_render() {
         assert_eq!(ActiveList::Forecast.canonical_title(), "Forecast");
         assert_eq!(ActiveList::Review.canonical_title(), "Review");
-        assert_eq!(ActiveList::Perspectives.canonical_title(), "Perspectives");
+        assert_eq!(ActiveList::Perspective(1).canonical_title(), "Perspective");
     }
 
     // Phase 11 — sequential rendering helper.

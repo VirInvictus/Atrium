@@ -41,6 +41,14 @@ mod imp {
         /// Empty when the task has no tags.
         #[property(get, set)]
         pub tag_names_csv: RefCell<String>,
+        /// Cross-list context chip: `"Area › Project"` when the task
+        /// has both, just `"Project"` when it's unfiled or the area
+        /// is empty, empty string when the task has no project at
+        /// all. Window callers populate this before the row binds;
+        /// it stays blank for project- or area-scoped views where
+        /// the chip would just echo the heading.
+        #[property(get, set)]
+        pub context_label: RefCell<String>,
         /// Phase 11 — `true` when the task is in a sequential
         /// project AND not the first incomplete task. The factory
         /// applies the `.queued` CSS class based on this; it never
@@ -142,27 +150,8 @@ fn format_deadline(d: Option<chrono::NaiveDate>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atrium_core::test_support::dummy_task;
     use chrono::{NaiveDate, Utc};
-
-    fn dummy_task(id: i64) -> Task {
-        Task {
-            id,
-            uuid: format!("uuid-{id}"),
-            title: format!("Task {id}"),
-            note: String::new(),
-            project_id: None,
-            parent_id: None,
-            scheduled_for: None,
-            deadline: None,
-            defer_until: None,
-            estimated_minutes: None,
-            completed_at: None,
-            repeat_rule: None,
-            position: id as f64,
-            created_at: Utc::now(),
-            modified_at: Utc::now(),
-        }
-    }
 
     fn init() {
         // GObject initialisation is process-global; tests in this
@@ -203,7 +192,7 @@ mod tests {
         init();
         let t = dummy_task(7);
         let obj = AtriumTask::from_task(&t);
-        assert_eq!(obj.title(), "Task 7");
+        assert_eq!(obj.title(), "t7");
 
         let mut t2 = t.clone();
         t2.title = "renamed".into();

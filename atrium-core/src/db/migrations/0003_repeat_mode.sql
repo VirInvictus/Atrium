@@ -1,0 +1,24 @@
+-- 0003_repeat_mode.sql — Phase 15 (v0.2.0)
+--
+-- Adds the `repeat_mode` column to `task` to persist Org-style repeater
+-- semantics alongside the existing `repeat_rule` (which holds the
+-- canonical RFC 5545 RRULE text). Three valid string values:
+--
+--   'BASIC'       Org's `+1w` cookie — always shift by the rule
+--                 increment from the previous anchor, even if that
+--                 lands in the past.
+--   'CUMULATIVE'  Org's `++1w` cookie — shift repeatedly until the
+--                 next occurrence is in the future. Most common
+--                 default; matches OmniFocus's typical behavior.
+--   'NEXT'        Org's `.+1w` cookie — anchor on the completion
+--                 date, ignore the previous schedule entirely.
+--
+-- NULL means "use the default mode" (CUMULATIVE). The default isn't
+-- baked into the column default so a future spec change can shift it
+-- without a fresh migration.
+--
+-- Backwards-compatible additive change. v0.1 code paths don't read
+-- this column; v0.2 worker `toggle_complete` reads it during the
+-- regenerate-on-complete logic.
+
+ALTER TABLE task ADD COLUMN repeat_mode TEXT;

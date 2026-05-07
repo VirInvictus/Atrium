@@ -25,3 +25,15 @@ uuid.workspace = true
 
 # Phase 2: tokio runtime for the single-writer worker task.
 tokio.workspace = true
+
+# Phase 15: RFC 5545 RRULE parser + iterator. Powers repeat-rule
+# storage, regenerate-on-complete, and Org-mode round-trip.
+rrule.workspace = true
+
+[features]
+# v0.2.0 — opt-in test helpers for downstream test crates (the
+# `atrium` binary's UI tests, in particular). Exposes `Task::dummy`
+# and friends so each test crate doesn't have to hand-roll its own
+# placeholder constructor and pay attention to every new schema
+# column.
+test-support = []

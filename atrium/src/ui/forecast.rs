@@ -386,30 +386,13 @@ fn count_text(n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
 
     fn d(y: i32, m: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, day).unwrap()
     }
 
     fn task(id: i64, scheduled: Option<NaiveDate>, deadline: Option<NaiveDate>) -> Task {
-        Task {
-            id,
-            uuid: format!("u{id}"),
-            title: format!("t{id}"),
-            note: String::new(),
-            project_id: None,
-            parent_id: None,
-            scheduled_for: scheduled.map(ScheduledFor::Date),
-            deadline,
-            defer_until: None,
-            estimated_minutes: None,
-            completed_at: None,
-            repeat_rule: None,
-            position: id as f64,
-            created_at: Utc::now(),
-            modified_at: Utc::now(),
-        }
+        atrium_core::test_support::dummy_task_dated(id, scheduled, deadline)
     }
 
     #[test]

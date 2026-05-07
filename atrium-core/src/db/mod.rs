@@ -85,7 +85,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 1);
+        assert_eq!(v, 3);
     }
 
     #[test]
@@ -97,7 +97,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 1);
+        assert_eq!(v, 3);
     }
 
     #[test]
@@ -118,7 +118,15 @@ mod tests {
             .collect();
         assert_eq!(
             tables,
-            vec!["area", "heading", "project", "tag", "task", "task_tag"]
+            vec![
+                "area",
+                "heading",
+                "perspective",
+                "project",
+                "tag",
+                "task",
+                "task_tag"
+            ]
         );
     }
 
@@ -331,7 +339,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 1);
+        assert_eq!(v, 3);
         drop(conn);
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_file(tmp.with_extension("db-shm"));

@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Simple Mode shipped (v0.1.0, May 2026).** Phases 0–9 complete. Atrium runs end-to-end: workspace scaffolding, schema + single-writer worker, application shell, all six canonical lists (Inbox / Today / Upcoming / Anytime / Someday / Logbook), areas + projects + tags + multi-tag, Quick Entry, FTS5 search + filter expressions, multi-select + undo, Inspector + tag editor dialogs, sidebar find-as-you-type, full keyboard map, typography + accessibility (Atkinson Hyperlegible), debug-pane Memory Watch, ship-gate regression script. Three Phase 9 follow-ups remain on Brandon's plate (the actual `v0.1.0` git tag, the Flatpak publish, the public announcement on `VirInvictus.github.io`); two Phase 8 carryovers also outstanding (README screenshots, Flatpak font verification under sandbox).
 
-Phase 10 (Builder Mode UI shell) is what's next — mode toggle, `AdwOverlaySplitView` Inspector pane, Builder-only sidebar entries (Forecast / Review / Perspectives) as stubs, project page Sequential + Review interval pickers, mode-flip integration test. **No schema changes** — the Phase 1 superset already has every Builder column.
+**Builder Mode shipped (v0.2.0, May 2026).** Phases 10–15 complete. Mode toggle + Inspector pane + project Sequential / Review extras (Phase 10), defer dates + sequential rendering (Phase 11), Forecast 30-day calendar-axis page (Phase 12), Review queue with Mark Reviewed (Phase 13), saved Perspectives in their own sidebar section (Phase 14), and Repeating Tasks with full RFC 5545 RRULE support + three Org-mode completion semantics (Phase 15). v0.2.0 ends the v0.1 schema freeze: `ALTER TABLE` migrations are now allowed and v0.2.0 ships the first one (`0003_repeat_mode.sql` adds `task.repeat_mode`).
+
+Phase 16 (Things 3 import) is what's next — JSON via Things' URL scheme (`things:///add-json` / AppleScript export); importer module at `atrium-core/src/import/things3.rs`; mapping table per `spec.md` §7. Adds JSON export of saved perspectives as a Phase 14 follow-up alongside the file-format work.
 
 ## Authoritative documents
 
@@ -79,9 +81,13 @@ Versioning and the documentation set move together. No silent changes, no deferr
 - **Patch releases still update `patchnotes.md` and `VERSION`.** They're allowed to skip `spec.md` / `roadmap.md` only when the fix doesn't change documented behavior or the plan.
 - **Every major bump includes a maintenance pass.** Majors are the sanctioned moment to refactor what's gotten messy, clear deferred bugs, and prune dead code. Don't slip cleanup into minor releases as a side-quest, and don't let a major ship without it. Call out the maintenance work in `patchnotes.md` so it's visible.
 
-## Schema rule (once Phase 1 ships)
+## Schema rule (post-v0.2.0)
 
-**No mid-v0.1 schema changes.** Migration `0001_initial.sql` ships the full superset; backwards-compatible migrations begin at v0.2. If a v0.1 task seems to need a schema change, that's a signal to re-examine — almost always the column already exists in the superset and the right move is to expose it differently in the UI.
+The v0.1 schema freeze ended with v0.2.0 — `ALTER TABLE` migrations are now allowed.
+
+The discipline going forward: every migration is **append-only and backwards-compatible**. Never rewrite a shipped migration. Adding columns / tables / triggers / indexes is fine; renaming or dropping columns / tables is a major-bump-only operation (and even then, prefer a new column with a deprecation window over an in-place rename). Constraint changes that could fail on existing data — adding NOT NULL, changing FK targets, adding UNIQUE indexes — need a backfill step and explicit sign-off.
+
+The v0.1 freeze's good instinct still applies: when a Builder-feature task seems to need a new column on an existing table, first check whether the column already exists in the v0.1 superset and the right move is just to expose it differently in the UI. The superset is rich; most "I need a column for this" instincts turn out not to need a migration.
 
 ## Build / test / lint (once code lands)
 

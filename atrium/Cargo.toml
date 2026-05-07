@@ -25,3 +25,9 @@ tokio.workspace = true
 
 # Phase 4: chrono for date formatting in row labels and `Today` filter.
 chrono.workspace = true
+
+[dev-dependencies]
+# v0.2.0 — opt into atrium-core's test-only dummy-task helpers so
+# UI tests don't have to hand-roll a fresh literal every time the
+# Task struct grows a column.
+atrium-core = { path = "../atrium-core", features = ["test-support"] }

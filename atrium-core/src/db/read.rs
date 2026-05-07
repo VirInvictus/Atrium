@@ -9,12 +9,12 @@ use std::collections::HashMap;
 use chrono::NaiveDate;
 use rusqlite::{Connection, Row, params};
 
-use crate::domain::{Area, Project, ScheduledFor, Tag, Task};
+use crate::domain::{Area, Perspective, Project, ScheduledFor, Tag, Task};
 use crate::error::DbError;
 
 const TASK_COLUMNS: &str = "id, uuid, title, note, project_id, parent_id, \
     scheduled_for, deadline, defer_until, estimated_minutes, completed_at, \
-    repeat_rule, position, created_at, modified_at";
+    repeat_rule, repeat_mode, position, created_at, modified_at";
 
 /// Fetch a single task by primary key.
 pub fn task_by_id(conn: &Connection, id: i64) -> Result<Option<Task>, DbError> {
@@ -492,6 +492,33 @@ pub fn list_tags(conn: &Connection) -> Result<Vec<Tag>, DbError> {
         .map_err(Into::into)
 }
 
+// ── Perspectives (Phase 14) ─────────────────────────────────────
+
+const PERSPECTIVE_COLUMNS: &str = "id, uuid, name, icon, filter_expr, sort_order, grouping, \
+    position, created_at, modified_at";
+
+/// Single perspective by id.
+pub fn perspective_by_id(conn: &Connection, id: i64) -> Result<Option<Perspective>, DbError> {
+    let sql = format!("SELECT {PERSPECTIVE_COLUMNS} FROM perspective WHERE id = ?1");
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let mut rows = stmt.query_map(params![id], perspective_from_row)?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+/// All perspectives, ordered by user-managed `position`. The
+/// sidebar consumes this and renders one row per perspective
+/// under the "Perspectives" section header (Builder mode).
+pub fn list_perspectives(conn: &Connection) -> Result<Vec<Perspective>, DbError> {
+    let sql = format!("SELECT {PERSPECTIVE_COLUMNS} FROM perspective ORDER BY position, name");
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map([], perspective_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
 /// FTS5-backed search over `task.title` + `task.note`. Returns
 /// matches ranked by `bm25` (FTS5's default — closer to the top means
 /// stronger relevance). Phase 7a's "recency × relevance" requirement
@@ -614,6 +641,21 @@ fn area_from_row(row: &Row<'_>) -> rusqlite::Result<Area> {
     })
 }
 
+fn perspective_from_row(row: &Row<'_>) -> rusqlite::Result<Perspective> {
+    Ok(Perspective {
+        id: row.get("id")?,
+        uuid: row.get("uuid")?,
+        name: row.get("name")?,
+        icon: row.get("icon")?,
+        filter_expr: row.get("filter_expr")?,
+        sort_order: row.get("sort_order")?,
+        grouping: row.get("grouping")?,
+        position: row.get("position")?,
+        created_at: row.get("created_at")?,
+        modified_at: row.get("modified_at")?,
+    })
+}
+
 fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Project> {
     let sequential: i64 = row.get("sequential")?;
     Ok(Project {
@@ -646,6 +688,7 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         estimated_minutes: row.get("estimated_minutes")?,
         completed_at: row.get("completed_at")?,
         repeat_rule: row.get("repeat_rule")?,
+        repeat_mode: row.get("repeat_mode")?,
         position: row.get("position")?,
         created_at: row.get("created_at")?,
         modified_at: row.get("modified_at")?,

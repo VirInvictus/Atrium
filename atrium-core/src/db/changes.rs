@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::{Area, Project, Tag, Task};
+use crate::domain::{Area, Perspective, Project, Tag, Task};
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TaskChanges {
@@ -67,6 +67,11 @@ pub struct LibraryChanges {
     pub tags_created: Vec<Tag>,
     pub tags_updated: Vec<Tag>,
     pub tags_deleted: Vec<i64>,
+    /// Phase 14 — saved-perspective deltas. Sidebar consumes
+    /// these to rebuild the Perspectives section in place.
+    pub perspectives_created: Vec<Perspective>,
+    pub perspectives_updated: Vec<Perspective>,
+    pub perspectives_deleted: Vec<i64>,
 }
 
 impl LibraryChanges {
@@ -80,6 +85,9 @@ impl LibraryChanges {
             && self.tags_created.is_empty()
             && self.tags_updated.is_empty()
             && self.tags_deleted.is_empty()
+            && self.perspectives_created.is_empty()
+            && self.perspectives_updated.is_empty()
+            && self.perspectives_deleted.is_empty()
     }
 
     pub fn merge(&mut self, mut other: LibraryChanges) {
@@ -92,33 +100,19 @@ impl LibraryChanges {
         self.tags_created.append(&mut other.tags_created);
         self.tags_updated.append(&mut other.tags_updated);
         self.tags_deleted.append(&mut other.tags_deleted);
+        self.perspectives_created
+            .append(&mut other.perspectives_created);
+        self.perspectives_updated
+            .append(&mut other.perspectives_updated);
+        self.perspectives_deleted
+            .append(&mut other.perspectives_deleted);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
-
-    fn dummy_task(id: i64) -> Task {
-        Task {
-            id,
-            uuid: format!("uuid-{id}"),
-            title: format!("task {id}"),
-            note: String::new(),
-            project_id: None,
-            parent_id: None,
-            scheduled_for: None,
-            deadline: None,
-            defer_until: None,
-            estimated_minutes: None,
-            completed_at: None,
-            repeat_rule: None,
-            position: id as f64,
-            created_at: Utc::now(),
-            modified_at: Utc::now(),
-        }
-    }
+    use crate::test_support::dummy_task;
 
     #[test]
     fn empty_default() {
