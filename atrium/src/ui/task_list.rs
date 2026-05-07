@@ -520,11 +520,20 @@ where
         // the full editor.
         let activate_gesture = gtk::GestureClick::new();
         activate_gesture.set_button(gdk::BUTTON_PRIMARY);
+        // v0.1.11 — explicit Capture phase. The Bubble default
+        // wasn't firing reliably because the parent
+        // GtkListItemWidget's selection-handling gesture was
+        // consuming events before they bubbled up to us. Capture
+        // runs on the way DOWN, so our handler sees the event
+        // before any ancestor's processing.
+        activate_gesture.set_propagation_phase(gtk::PropagationPhase::Capture);
         activate_gesture.connect_released(move |gesture, n_press, _, _| {
+            tracing::debug!(n_press, "row activate-gesture released");
             if n_press == 2
                 && let Some(widget) = gesture.widget()
             {
-                crate::ui::window::start_edit_on_row(&widget);
+                let did_edit = crate::ui::window::start_edit_on_row(&widget);
+                tracing::debug!(did_edit, "row activate-gesture: start_edit_on_row returned");
             }
         });
         row.add_controller(activate_gesture.clone());

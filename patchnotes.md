@@ -1,5 +1,32 @@
 # Atrium — Patch Notes
 
+## v0.1.11 (2026-05-07) — Double-click capture + diagnostics
+
+Brandon reported the v0.1.10 double-click → inline-edit change still wasn't firing. Two changes here to chase it:
+
+### Capture-phase gesture
+
+`atrium/src/ui/task_list.rs` — the per-row activate gesture now sets `propagation_phase = PropagationPhase::Capture`. The Bubble default fires on the way up, *after* ancestor widgets have processed the event. The parent `GtkListItemWidget` has its own `GtkGestureClick` for selection handling, and on this configuration it appears to be consuming the second click of a double-click before our gesture sees it. Capture fires on the way *down*, so our handler runs first and the parent's selection logic still gets to run after.
+
+### Diagnostic tracing
+
+Both the gesture handler and `start_edit_on_row` now emit `tracing::debug!` lines:
+
+- `row activate-gesture released n_press=N` — fires every time the gesture's release handler runs. If we see this with `n_press=2`, the gesture fired correctly. If we see it only with `n_press=1` (or never), the gesture isn't reaching the double-click case.
+- `start_edit_on_row has_class=… has_stack=… has_label=… has_entry=…` — fires every time `start_edit_on_row` is called. If `has_class=false`, the widget passed in isn't actually the row Box. If any of the data slots are missing, the bind path didn't stash them correctly.
+- `row activate-gesture: start_edit_on_row returned did_edit=true|false` — confirms whether the start-edit succeeded.
+
+To get the trace, run with `RUST_LOG=atrium=debug` and double-click a task. Paste the output into the next bug report and we'll know exactly which branch is misbehaving.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests unchanged.
+
+`VERSION`: 0.1.10 → 0.1.11 (patch — capture-phase gesture + diagnostic tracing).
+
 ## v0.1.10 (2026-05-07) — Double-click → inline title edit
 
 Brandon flagged that the v0.1.9 fix didn't help (double-click was still broken in Simple Mode), and pivoted to a different model entirely: double-click should rename the task in place; the Inspector stays a separate affordance.

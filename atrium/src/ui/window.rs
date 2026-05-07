@@ -2915,6 +2915,7 @@ fn find_task_row(start: &gtk::Widget) -> Option<gtk::Widget> {
 /// label / entry data isn't present (e.g., a row factory recycle
 /// where unbind has already run).
 pub fn start_edit_on_row(row: &gtk::Widget) -> bool {
+    let has_class = row.has_css_class("atrium-task-row");
     unsafe {
         let stack = row
             .data::<gtk::Stack>("atrium-title-stack")
@@ -2925,6 +2926,13 @@ pub fn start_edit_on_row(row: &gtk::Widget) -> bool {
         let entry = row
             .data::<gtk::Entry>("atrium-title-entry")
             .map(|p| p.as_ref().clone());
+        let has_stack = stack.is_some();
+        let has_label = label.is_some();
+        let has_entry = entry.is_some();
+        debug!(
+            has_class,
+            has_stack, has_label, has_entry, "start_edit_on_row"
+        );
         if let (Some(stack), Some(label), Some(entry)) = (stack, label, entry) {
             entry.set_text(&label.label());
             stack.set_visible_child_name("edit");

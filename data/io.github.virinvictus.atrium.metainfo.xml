@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.11" date="2026-05-07">
+      <description>
+        <p>Diagnostic build for the double-click-not-firing report.
+           The per-row activate gesture moved from Bubble to
+           Capture propagation phase so it fires before the parent
+           GtkListItemWidget's selection-handling can consume the
+           event. Plus debug-level tracing on both the gesture
+           handler and start_edit_on_row so the trace output tells
+           us exactly which step is failing.</p>
+      </description>
+    </release>
     <release version="0.1.10" date="2026-05-07">
       <description>
         <p>Double-click a task row now enters inline title edit
