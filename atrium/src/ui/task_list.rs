@@ -54,6 +54,13 @@ pub enum ActiveList {
     Tag(i64),
     /// Phase 7a: FTS5-backed search results for a user-entered query.
     SearchResults(String),
+    /// Phase 10: Builder-only sidebar entries. Each renders an
+    /// `AdwStatusPage` placeholder pointing at the phase that owns
+    /// the actual content; selecting one is non-destructive (no
+    /// task list query runs).
+    Forecast,
+    Review,
+    Perspectives,
 }
 
 impl ActiveList {
@@ -72,7 +79,17 @@ impl ActiveList {
             Self::Area(_) => "Area",
             Self::Tag(_) => "Tag",
             Self::SearchResults(_) => "Search",
+            Self::Forecast => "Forecast",
+            Self::Review => "Review",
+            Self::Perspectives => "Perspectives",
         }
+    }
+
+    /// Builder-only Phase 10 stub views — no task list, just a
+    /// placeholder page. The window dispatches these to a status
+    /// page instead of running a list query.
+    pub fn is_builder_stub(&self) -> bool {
+        matches!(self, Self::Forecast | Self::Review | Self::Perspectives)
     }
 
     /// Does `task` belong in this list right now? Used by the diff
@@ -130,6 +147,9 @@ impl ActiveList {
             Self::Tag(_) => false,
             // Search relevance is FTS5-side; refresh-on-update.
             Self::SearchResults(_) => false,
+            // Phase 10 Builder stubs render a static placeholder —
+            // no task list, so no task can match.
+            Self::Forecast | Self::Review | Self::Perspectives => false,
         }
     }
 }
@@ -752,5 +772,42 @@ mod tests {
         let mut t = dummy(1);
         t.deadline = Some(today() + chrono::Duration::days(TODAY_DEADLINE_WINDOW_DAYS + 1));
         assert!(!ActiveList::Today.task_matches(&t, today()));
+    }
+
+    // Phase 10 — Builder Mode stub views.
+
+    #[test]
+    fn builder_stubs_report_themselves() {
+        assert!(ActiveList::Forecast.is_builder_stub());
+        assert!(ActiveList::Review.is_builder_stub());
+        assert!(ActiveList::Perspectives.is_builder_stub());
+    }
+
+    #[test]
+    fn non_builder_variants_are_not_stubs() {
+        assert!(!ActiveList::Inbox.is_builder_stub());
+        assert!(!ActiveList::Today.is_builder_stub());
+        assert!(!ActiveList::Project(7).is_builder_stub());
+        assert!(!ActiveList::Tag(3).is_builder_stub());
+        assert!(!ActiveList::SearchResults("milk".into()).is_builder_stub());
+    }
+
+    #[test]
+    fn builder_stubs_match_no_tasks() {
+        // Phase 10 stubs render an AdwStatusPage placeholder; no
+        // task can belong to them. The diff applier consults
+        // task_matches so it doesn't accidentally append rows to
+        // the empty content stack.
+        let t = dummy(1);
+        assert!(!ActiveList::Forecast.task_matches(&t, today()));
+        assert!(!ActiveList::Review.task_matches(&t, today()));
+        assert!(!ActiveList::Perspectives.task_matches(&t, today()));
+    }
+
+    #[test]
+    fn builder_stub_titles_render() {
+        assert_eq!(ActiveList::Forecast.canonical_title(), "Forecast");
+        assert_eq!(ActiveList::Review.canonical_title(), "Review");
+        assert_eq!(ActiveList::Perspectives.canonical_title(), "Perspectives");
     }
 }

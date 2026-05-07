@@ -246,6 +246,14 @@ impl ProjectUpdate {
         self
     }
 
+    /// Phase 10 — Review interval picker on the Builder Mode project
+    /// page. `Some(None)` clears the column (project no longer
+    /// reviewed); `Some(Some(days))` sets it.
+    pub fn review_interval_days(mut self, days: Option<i64>) -> Self {
+        self.review_interval_days = Some(days);
+        self
+    }
+
     pub fn position(mut self, position: f64) -> Self {
         self.position = Some(position);
         self

@@ -151,11 +151,11 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 ## Phase 10: Builder Mode — UI Shell
 *The mode switch becomes real. Inspector pane lands. No new logic — just exposure.*
 
-- [ ] **Mode toggle in primary menu:** `Settings → Mode → [Simple, Builder]`.
-- [ ] **Inspector pane:** `AdwOverlaySplitView` adds a third pane on the right with the full task editor (all Builder fields).
-- [ ] **Builder-only sidebar entries:** `Forecast`, `Review`, `Perspectives` appear when mode = Builder.
-- [ ] **Project page extras:** Sequential toggle, Review interval picker (visible only in Builder).
-- [ ] **No data changes:** flipping mode never touches the DB. Verified by an integration test that snapshots schema + rows before and after a switch.
+- [x] **Mode toggle in primary menu:** `Settings → Mode → [Simple, Builder]` — `app.mode` action wired since Phase 3 now actually drives a re-render. `AtriumWindow::install_mode_observer` subscribes to `gsettings.connect_changed("mode", …)`; flips route through `apply_mode(&str)`, the single function every Builder-only widget consults for visibility.
+- [x] **Inspector pane:** `data/window.ui` now wraps the `AdwNavigationSplitView` in an `AdwOverlaySplitView` whose right-side sidebar holds an `AdwBin` mounted with `atrium/src/ui/inspector_pane.rs::InspectorPane`. The pane swaps between an `AdwStatusPage` empty state and a per-task editor (same layout as the Phase 7i dialog Inspector but with a Builder group exposing `estimated_minutes` as a live `SpinRow` and `defer_until` / `repeat_rule` as disabled placeholder rows pointing at Phase 11 / 15). Auto-save on focus-out / Enter; no Apply button. `show-sidebar` is `false` in Simple Mode and `true` in Builder.
+- [x] **Builder-only sidebar entries:** `ActiveList::Forecast` / `Review` / `Perspectives` variants appear under a `Builder` section header in `rebuild_dynamic_sidebar` when `mode = builder`. Selecting one routes through the existing content stack to an `AdwStatusPage` placeholder (icon + copy referencing the phase that lands the real content). No DB query runs for these views.
+- [x] **Project page extras:** A `GtkRevealer` above the task list (`project_extras_revealer` in `data/window.ui`) holds a Sequential `GtkSwitch` and Review-interval `GtkSpinButton` (0–365 days). Visible only when `ActiveList::Project(id)` AND `mode = builder`. Wired to `worker.update_project(ProjectUpdate::sequential(_))` and `update_project(ProjectUpdate::review_interval_days(_))`; new `ProjectUpdate::review_interval_days` builder added to `atrium-core::domain` for the second one.
+- [x] **No data changes:** `apply_mode` is purely UI — its only DB-layer reach is `ReadPool` (which sets `PRAGMA query_only = ON`). Enforced by `atrium-core/tests/mode_flip_snapshot.rs` — populates the Small fixture (1K tasks across 50 projects in 5 areas, 20 tags), snapshots every row of every user table, exercises the same read traffic a mode flip triggers (sidebar reads + Today read + canonical-counts read), asserts a write attempt through the read pool fails, snapshots again, and asserts byte-identical state. The doc comment on `apply_mode` cites the architectural argument inline.
 
 ## Phase 11: Builder Mode — Defer Dates & Sequential Projects
 *OmniFocus mechanics. Tasks with future defer dates become "available" later.*

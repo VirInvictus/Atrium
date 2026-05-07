@@ -12,6 +12,7 @@
 pub mod about;
 pub mod filter;
 pub mod inspector;
+pub mod inspector_pane;
 pub mod shortcuts;
 pub mod tag_editor;
 pub mod task_list;

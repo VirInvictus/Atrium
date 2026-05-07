@@ -52,6 +52,10 @@ mod imp {
     #[template(file = "../../../data/window.ui")]
     pub struct AtriumWindow {
         #[template_child]
+        pub overlay_split: TemplateChild<adw::OverlaySplitView>,
+        #[template_child]
+        pub inspector_pane_host: TemplateChild<adw::Bin>,
+        #[template_child]
         pub split_view: TemplateChild<adw::NavigationSplitView>,
         #[template_child]
         pub menu_button: TemplateChild<gtk::MenuButton>,
@@ -83,6 +87,12 @@ mod imp {
         pub selection_revealer: TemplateChild<gtk::Revealer>,
         #[template_child]
         pub selection_label: TemplateChild<gtk::Label>,
+        #[template_child]
+        pub project_extras_revealer: TemplateChild<gtk::Revealer>,
+        #[template_child]
+        pub project_sequential_switch: TemplateChild<gtk::Switch>,
+        #[template_child]
+        pub project_review_spin: TemplateChild<gtk::SpinButton>,
 
         pub debug_enabled: Cell<bool>,
         pub active_list: RefCell<ActiveList>,
@@ -131,6 +141,21 @@ mod imp {
         /// *or* the `Ctrl+Z` accel can take it (whoever fires first
         /// wins; the loser sees an empty cell and no-ops). Phase 7f.
         pub last_undo: RefCell<Option<UndoCell>>,
+
+        /// Phase 10 — Builder Mode Inspector pane handle. `None`
+        /// until `attach_data_layer` runs (the pane needs a
+        /// `WorkerHandle`); from then on the window calls
+        /// `set_task` / `clear` on it as the selection moves.
+        pub inspector_pane: RefCell<Option<Rc<crate::ui::inspector_pane::InspectorPane>>>,
+        /// Cached project metadata for the active Project view —
+        /// needed so the `Sequential` switch + `Review interval`
+        /// SpinButton can populate from current values when the
+        /// user selects a project. Keyed by project id.
+        pub project_meta: RefCell<HashMap<i64, atrium_core::Project>>,
+        /// True while we're populating the project extras toolbar
+        /// programmatically, so the value-changed handlers don't
+        /// echo back as worker writes.
+        pub project_extras_syncing: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -157,6 +182,7 @@ mod imp {
             obj.bind_window_state();
             obj.install_menu();
             obj.build_sidebar();
+            obj.wire_project_extras();
             obj.init_list_view();
             obj.wire_new_task_entry();
             obj.wire_search_bar();
@@ -205,6 +231,9 @@ fn icon_for(list: &ActiveList) -> &'static str {
         ActiveList::Area(_) => "folder-symbolic",
         ActiveList::Tag(_) => "tag-outline-symbolic",
         ActiveList::SearchResults(_) => "system-search-symbolic",
+        ActiveList::Forecast => "x-office-calendar-symbolic",
+        ActiveList::Review => "object-select-symbolic",
+        ActiveList::Perspectives => "view-grid-symbolic",
     }
 }
 
@@ -650,6 +679,39 @@ impl AtriumWindow {
         self.imp().tag_titles.replace(tag_titles);
         self.imp().tag_badges.replace(tag_badges);
 
+        // Phase 10 — Builder-only sidebar entries. Forecast /
+        // Review / Perspectives appear when mode = builder; each
+        // routes to a placeholder status page in the content stack.
+        let builder = self.settings().string("mode") == "builder";
+        if builder {
+            list_box.append(&build_section_header("Builder"));
+            targets.push(None);
+            titles.push(None);
+
+            for (active, label, icon) in [
+                (
+                    ActiveList::Forecast,
+                    "Forecast",
+                    "x-office-calendar-symbolic",
+                ),
+                (ActiveList::Review, "Review", "object-select-symbolic"),
+                (
+                    ActiveList::Perspectives,
+                    "Perspectives",
+                    "view-grid-symbolic",
+                ),
+            ] {
+                let (row, _badge) = sidebar_row(icon, label, 8);
+                list_box.append(&row);
+                targets.push(Some(active));
+                titles.push(Some(label.to_string()));
+            }
+        }
+
+        // Cache project metadata so the project extras toolbar can
+        // populate when a project view is selected.
+        self.refresh_project_meta(&projects);
+
         self.imp().sidebar_targets.replace(targets);
         self.imp().sidebar_titles.replace(titles);
         self.refresh_dynamic_badges();
@@ -675,6 +737,9 @@ impl AtriumWindow {
         self.imp().task_list_view.set_model(Some(&selection));
 
         // Show / hide the bulk action bar as the selection size changes.
+        // Phase 10 — also drives the Inspector side pane in Builder
+        // Mode: a single-row selection populates the editor; zero or
+        // multiple rows show the empty-state placeholder.
         let win_weak = self.downgrade();
         selection.connect_selection_changed(move |sel, _, _| {
             let Some(win) = win_weak.upgrade() else {
@@ -682,6 +747,7 @@ impl AtriumWindow {
             };
             let n = sel.selection().size();
             win.update_selection_bar(n as i64);
+            win.refresh_inspector_pane();
         });
 
         // Factory wires interactions back into the window via weak
@@ -754,12 +820,191 @@ impl AtriumWindow {
     /// Push the worker handle / read pool into the window after the
     /// data layer boots.
     pub fn attach_data_layer(&self, worker: WorkerHandle, read_pool: ReadPool) {
-        let _ = self.imp().worker.set(worker);
+        let _ = self.imp().worker.set(worker.clone());
         let _ = self.imp().read_pool.set(read_pool);
+        // Phase 10 — Inspector pane needs the worker; install once
+        // the data layer is up. Mode is then applied so the pane
+        // shows / hides correctly on first paint.
+        self.install_inspector_pane(worker);
+        self.install_mode_observer();
         // Append the Areas / Projects sections to the sidebar.
         self.rebuild_dynamic_sidebar();
         // Initial content-pane load now that the read pool exists.
         self.refresh_active_list();
+        // Apply the persisted mode (calls into apply_mode which
+        // updates overlay-split visibility, sidebar Builder rows,
+        // project extras, etc.).
+        let mode = self.settings().string("mode").to_string();
+        self.apply_mode(&mode);
+    }
+
+    /// Mount the Inspector pane into the AdwBin host declared in
+    /// `data/window.ui`. Edit Tags hand-off routes through the
+    /// existing tag-editor open path.
+    fn install_inspector_pane(&self, worker: WorkerHandle) {
+        let win_weak = self.downgrade();
+        let pane = crate::ui::inspector_pane::InspectorPane::install(
+            &self.imp().inspector_pane_host,
+            worker,
+            move |task_id| {
+                if let Some(win) = win_weak.upgrade() {
+                    win.open_tag_editor_for(task_id);
+                }
+            },
+        );
+        *self.imp().inspector_pane.borrow_mut() = Some(pane);
+    }
+
+    /// Subscribe to GSettings `mode` and route changes through
+    /// `apply_mode`. Per spec §3 / CLAUDE.md commitment #1, this is
+    /// pure UI rerender — no worker dispatch.
+    fn install_mode_observer(&self) {
+        let settings = self.settings();
+        settings.connect_changed(
+            Some("mode"),
+            clone!(
+                #[weak(rename_to = win)]
+                self,
+                move |s, _key| {
+                    let mode = s.string("mode").to_string();
+                    win.apply_mode(&mode);
+                }
+            ),
+        );
+    }
+
+    /// Toggle every Builder-only UI surface based on the GSettings
+    /// `mode` value. Idempotent. **Pure UI** — never reaches the
+    /// worker.
+    ///
+    /// **Phase 10 acceptance — mode-flip snapshot invariant.**
+    ///
+    /// The only side effect of a mode flip on the DB layer is the
+    /// GSettings key write itself. `apply_mode` calls only:
+    ///
+    /// - `OverlaySplitView::set_show_sidebar` (GTK setter, no I/O)
+    /// - `Revealer::set_reveal_child` (GTK setter, no I/O)
+    /// - `rebuild_dynamic_sidebar` (read-pool SELECTs only)
+    /// - `set_active_list` → `refresh_active_list` (read-pool only)
+    /// - `select_sidebar_row_for` (GTK setter, no I/O)
+    ///
+    /// None of these reach `WorkerHandle`. The read pool is
+    /// read-only by construction (`PRAGMA query_only = ON` —
+    /// enforced engine-side, see
+    /// `atrium_core::db::read_pool::tests::read_only_enforcement_blocks_writes`).
+    /// Any accidental write attempt errors at SQLite, never lands.
+    ///
+    /// This is the spec §5.3 / CLAUDE.md commitment #1 contract:
+    /// flipping mode is a GSetting write plus a UI re-render,
+    /// never a migration, never a DB write.
+    pub fn apply_mode(&self, mode: &str) {
+        let builder = mode == "builder";
+        // Right-side Inspector pane.
+        self.imp().overlay_split.set_show_sidebar(builder);
+
+        // Builder-only sidebar entries (Forecast / Review / Perspectives).
+        // The rebuild_dynamic_sidebar pass below appends them when
+        // mode = builder; here we drop the entries that aren't valid.
+        self.rebuild_dynamic_sidebar();
+
+        // Project page extras revealer — visible when on a project
+        // view AND in Builder mode.
+        let on_project = matches!(self.active_list(), ActiveList::Project(_));
+        self.imp()
+            .project_extras_revealer
+            .set_reveal_child(builder && on_project);
+
+        // If the active list became invalid (e.g., user was on a
+        // Builder stub and flipped to Simple), fall back to Today.
+        if !builder && self.active_list().is_builder_stub() {
+            self.set_active_list(ActiveList::Today);
+            self.select_sidebar_row_for(ActiveList::Today);
+        }
+    }
+
+    /// Phase 10 — Builder-mode-aware project metadata cache.
+    /// `rebuild_dynamic_sidebar` calls this so the project_extras
+    /// toolbar can populate correctly when the user selects a
+    /// project row.
+    fn refresh_project_meta(&self, projects: &[Project]) {
+        let mut meta = self.imp().project_meta.borrow_mut();
+        meta.clear();
+        for p in projects {
+            meta.insert(p.id, p.clone());
+        }
+    }
+
+    /// Wire the project extras toolbar (Sequential switch + Review
+    /// interval SpinButton) to update_project. Called once during
+    /// `constructed`; the extras-syncing flag suppresses echoes
+    /// when we populate fields programmatically on selection change.
+    fn wire_project_extras(&self) {
+        let switch = self.imp().project_sequential_switch.clone();
+        let spin = self.imp().project_review_spin.clone();
+
+        let win_weak = self.downgrade();
+        switch.connect_active_notify(move |sw| {
+            let Some(win) = win_weak.upgrade() else {
+                return;
+            };
+            if win.imp().project_extras_syncing.get() {
+                return;
+            }
+            let ActiveList::Project(id) = win.active_list() else {
+                return;
+            };
+            let Some(worker) = win.worker() else { return };
+            let value = sw.is_active();
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker
+                    .update_project(ProjectUpdate::new(id).sequential(value))
+                    .await
+                {
+                    error!(?e, id, "update_project(sequential) failed");
+                }
+            });
+        });
+
+        let win_weak = self.downgrade();
+        spin.connect_value_changed(move |sb| {
+            let Some(win) = win_weak.upgrade() else {
+                return;
+            };
+            if win.imp().project_extras_syncing.get() {
+                return;
+            }
+            let ActiveList::Project(id) = win.active_list() else {
+                return;
+            };
+            let Some(worker) = win.worker() else { return };
+            let raw = sb.value().round() as i64;
+            let value = if raw <= 0 { None } else { Some(raw) };
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker
+                    .update_project(ProjectUpdate::new(id).review_interval_days(value))
+                    .await
+                {
+                    error!(?e, id, "update_project(review_interval_days) failed");
+                }
+            });
+        });
+    }
+
+    /// Populate the project extras toolbar from the cached project
+    /// metadata for the active project, suppressing the value-
+    /// changed handlers so we don't echo back as a worker write.
+    fn populate_project_extras(&self, project_id: i64) {
+        let Some(project) = self.imp().project_meta.borrow().get(&project_id).cloned() else {
+            return;
+        };
+        self.imp().project_extras_syncing.set(true);
+        self.imp()
+            .project_sequential_switch
+            .set_active(project.sequential);
+        self.imp()
+            .project_review_spin
+            .set_value(project.review_interval_days.unwrap_or(0) as f64);
+        self.imp().project_extras_syncing.set(false);
     }
 
     fn worker(&self) -> Option<WorkerHandle> {
@@ -782,8 +1027,26 @@ impl AtriumWindow {
             return;
         }
         self.imp().active_list.replace(active.clone());
-        self.imp().content_page.set_title(&self.title_for(active));
+        self.imp()
+            .content_page
+            .set_title(&self.title_for(active.clone()));
         self.refresh_active_list();
+
+        // Phase 10 — project extras revealer follows the selection.
+        // Visible only on a Project view in Builder Mode; populated
+        // from the cached project metadata.
+        let builder = self.settings().string("mode") == "builder";
+        match &active {
+            ActiveList::Project(id) => {
+                self.imp().project_extras_revealer.set_reveal_child(builder);
+                if builder {
+                    self.populate_project_extras(*id);
+                }
+            }
+            _ => {
+                self.imp().project_extras_revealer.set_reveal_child(false);
+            }
+        }
     }
 
     /// Resolve the human-readable title for a given active list.
@@ -813,7 +1076,16 @@ impl AtriumWindow {
                 .get(&id)
                 .map(|n| format!("#{n}"))
                 .unwrap_or_else(|| "Tag".into()),
-            other => other.canonical_title().to_string(),
+            ActiveList::SearchResults(_)
+            | ActiveList::Inbox
+            | ActiveList::Today
+            | ActiveList::Upcoming
+            | ActiveList::Anytime
+            | ActiveList::Someday
+            | ActiveList::Logbook
+            | ActiveList::Forecast
+            | ActiveList::Review
+            | ActiveList::Perspectives => active.canonical_title().to_string(),
         }
     }
 
@@ -834,6 +1106,15 @@ impl AtriumWindow {
 
         let active = self.active_list();
         let today = Local::now().date_naive();
+
+        // Phase 10 — Builder stub views render an empty placeholder.
+        // No DB query runs; the empty-state copy explains where the
+        // real content will land.
+        if active.is_builder_stub() {
+            store.remove_all();
+            self.update_empty_state(&store);
+            return;
+        }
 
         let result: Result<Vec<Task>, _> = pool.with(|conn| match &active {
             ActiveList::Inbox => atrium_core::db::read::list_inbox(conn),
@@ -859,6 +1140,10 @@ impl AtriumWindow {
                 } else {
                     atrium_core::db::read::search_tasks(conn, &parsed.text)
                 }
+            }
+            ActiveList::Forecast | ActiveList::Review | ActiveList::Perspectives => {
+                // Unreachable — gated above. Keeps the match exhaustive.
+                Ok(Vec::new())
             }
         });
 
@@ -1003,6 +1288,18 @@ impl AtriumWindow {
             ActiveList::SearchResults(q) => (
                 format!("No matches for “{q}”"),
                 "Search covers task titles and notes (FTS5).".into(),
+            ),
+            ActiveList::Forecast => (
+                "Forecast".into(),
+                "30-day calendar-axis view of scheduled, deadlined, and deferred tasks. Lands in Phase 12.".into(),
+            ),
+            ActiveList::Review => (
+                "Review".into(),
+                "Projects whose review interval has elapsed surface here, oldest first. Lands in Phase 13.".into(),
+            ),
+            ActiveList::Perspectives => (
+                "Perspectives".into(),
+                "Saved filter expressions, OmniFocus-style. Lands in Phase 14.".into(),
             ),
         }
     }
@@ -1424,12 +1721,54 @@ impl AtriumWindow {
     }
 
     /// `Ctrl+I` shortcut + double-click activate entry point —
-    /// operates on the focused / first-selected task. No-op when
-    /// nothing is selected.
+    /// operates on the focused / first-selected task. In Simple
+    /// Mode opens the modal Inspector dialog; in Builder Mode the
+    /// side pane is already showing the row, so the chord becomes
+    /// a no-op (the user is already editing it).
     pub fn open_inspector_focused(&self) {
+        let builder = self.settings().string("mode") == "builder";
+        if builder {
+            // Side pane already mirrors the selection; nothing to
+            // open. Could grab focus into the pane's title row in a
+            // future polish slice.
+            return;
+        }
         if let Some(id) = self.focused_task_id() {
             self.open_inspector_for(id);
         }
+    }
+
+    /// Phase 10 — refresh the side pane based on the current
+    /// selection. Single-task selection → populate; otherwise →
+    /// clear back to the empty-state placeholder.
+    fn refresh_inspector_pane(&self) {
+        let pane_opt = self.imp().inspector_pane.borrow().clone();
+        let Some(pane) = pane_opt else { return };
+        let selected = self.selected_task_ids();
+        if selected.len() != 1 {
+            pane.clear();
+            return;
+        }
+        let id = selected[0];
+        if pane.current_task_id() == Some(id) {
+            return;
+        }
+        let Some(pool) = self.read_pool() else { return };
+        let task = match pool.with(|c| atrium_core::db::read::task_by_id(c, id)) {
+            Ok(Some(t)) => t,
+            _ => {
+                pane.clear();
+                return;
+            }
+        };
+        let projects = pool
+            .with(atrium_core::db::read::list_projects)
+            .unwrap_or_default();
+        let tag_count = pool
+            .with(|c| atrium_core::db::read::tag_ids_for_task(c, id))
+            .unwrap_or_default()
+            .len();
+        pane.set_task(task, projects, tag_count);
     }
 
     /// Open the per-task tag editor for `task_id` (Phase 7g).

@@ -90,6 +90,19 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.1" date="2026-05-07">
+      <description>
+        <p>Phase 10 — Builder Mode UI shell. The mode switch becomes
+           real: the primary menu Mode → Builder toggle now reveals
+           an Inspector side pane on the right (auto-saving as you
+           edit), Builder-only sidebar entries (Forecast, Review,
+           Perspectives) appear as stub placeholders pointing at the
+           phases that fill them in, and project pages gain a
+           Sequential toggle and Review interval picker. Per spec
+           §3.1 mode-as-view, no DB work happens on mode switch —
+           enforced by the new mode-flip snapshot integration test.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-05-07" type="stable">
       <description>
         <p>First public release. Simple Mode is feature-complete:</p>

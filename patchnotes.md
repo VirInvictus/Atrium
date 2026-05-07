@@ -1,5 +1,94 @@
 # Atrium — Patch Notes
 
+## v0.1.1 (2026-05-07) — Phase 10: Builder Mode UI shell
+
+The mode switch becomes real. Until v0.1.1, "Builder Mode" was a GSettings string with no visible consequence — flipping it changed nothing on screen because nothing observed the key. This release wires the observer, lands the right-side Inspector pane, surfaces the Builder-only sidebar sections (Forecast / Review / Perspectives) as stubs pointing at the phases that fill them in, and adds project-level controls for the Builder fields (`sequential` and `review_interval_days`) that have lived in the schema since Phase 1 unused.
+
+Per the roadmap Phase 10 tagline — *no new logic, just exposure*. The Builder fields exposed here are columns that already existed; the lists, queues, and forecast calendar that consume them ship in Phases 11–14. v0.1.1 ships the *shell* for them.
+
+### Mode observer
+
+- `atrium/src/ui/window.rs::install_mode_observer` — subscribes to `gsettings.connect_changed("mode", …)` and routes every change through a single `apply_mode(&str)` method. The `app.mode::simple` / `app.mode::builder` stateful action (wired since Phase 3) writes the GSetting; the GSetting handler does the actual UI rerender. One source of truth, one re-render path.
+- `apply_mode` toggles four surfaces: the right-side `AdwOverlaySplitView::set_show_sidebar` (the Inspector pane), the Builder-only sidebar entries (via a `rebuild_dynamic_sidebar` pass that conditionally appends them), the project-extras revealer (when the active list is a Project view), and a fallback to Today if the user was on a Builder stub view and flipped to Simple. Idempotent.
+- The doc comment on `apply_mode` cites the spec §3.1 / spec §5.3 / CLAUDE.md commitment #1 contract: *flipping mode is a GSetting write plus a UI re-render, never a migration, never a DB write.* The transitive call set lists every method `apply_mode` reaches and confirms none holds a `WorkerHandle`. The only DB path is `ReadPool`, which `PRAGMA query_only = ON` makes write-impossible.
+
+### Inspector side pane
+
+- `data/window.ui` — the existing `AdwNavigationSplitView` is now wrapped in an `AdwOverlaySplitView` (`sidebar-position: end`, default `show-sidebar=false`). Right pane holds an `AdwBin id="inspector_pane_host"` that the new `inspector_pane.rs` module mounts into during `attach_data_layer`.
+- `atrium/src/ui/inspector_pane.rs` (new file, ~470 lines) — `InspectorPane` struct with `install` / `set_task` / `clear` / `current_task_id` API. Inside, a `GtkStack` swaps between an `AdwStatusPage` empty state ("No task selected — select a row to edit it here.") and a per-task editor body assembled at selection time.
+- The editor body mirrors the Phase 7i dialog Inspector's groups — Title (`AdwEntryRow`), Schedule + Deadline + Project (`AdwActionRow`s with the same date popovers / project `AdwComboRow`), Tags (with Edit Tags… button hand-off to the existing tag editor dialog), Notes (`GtkTextView` in a card-styled `ScrolledWindow`) — but adds a fifth group titled **Builder** containing:
+  - `estimated_minutes` — live `AdwSpinRow` (0–1440 minutes, step 5). The setter is wired but currently doesn't dispatch (TaskUpdate doesn't yet expose `estimated_minutes` as a builder method); flagged for a Phase 10.5 follow-up.
+  - `defer_until` — disabled placeholder row pointing at Phase 11 (which adds the editor and the Today/Anytime exclusion logic).
+  - `repeat_rule` — disabled placeholder row pointing at Phase 15.
+- **Auto-save semantics**: every field commits on focus-out and on Enter. Title rejects empty values (bounces back to the previous value); Notes commits via an `EventControllerFocus::connect_leave`. Project changes fire on `connect_selected_notify`. Schedule + Deadline pickers fire on the popover commit. No Apply button — the pane is non-modal, there's nothing to dismiss. Ctrl+Z still reverses any commit via the existing undo cell.
+- `Ctrl+I` and double-click behave differently per mode: in Simple Mode they open the modal Inspector dialog like before; in Builder Mode the side pane is already showing the row, so the chord becomes a no-op (the user is already editing it).
+
+### Builder-only sidebar entries
+
+- `ActiveList` enum gains `Forecast` / `Review` / `Perspectives` variants plus an `is_builder_stub() -> bool` predicate.
+- When `mode = builder`, `rebuild_dynamic_sidebar` appends a `Builder` section header followed by Forecast (icon `x-office-calendar-symbolic`), Review (`object-select-symbolic`), and Perspectives (`view-grid-symbolic`).
+- Selecting a Builder stub bypasses the read-pool query path entirely (`is_builder_stub()` short-circuits `refresh_active_list`) and renders an `AdwStatusPage` placeholder citing the phase that ships the actual content (Phase 12 for Forecast, 13 for Review, 14 for Perspectives).
+- `task_matches` returns `false` for all three so the diff applier never appends rows to a stub view.
+
+### Project page extras
+
+- `data/window.ui` adds a `GtkRevealer id="project_extras_revealer"` above the task list, holding a `toolbar`-styled `GtkBox` with a Sequential `GtkSwitch` and a Review-interval `GtkSpinButton` (0–365 days, step 1, page 7).
+- `wire_project_extras` connects `connect_active_notify` and `connect_value_changed` to dispatch `worker.update_project(ProjectUpdate::sequential(value))` and `worker.update_project(ProjectUpdate::review_interval_days(value))`. A `project_extras_syncing` flag suppresses echoes during programmatic population — `populate_project_extras(id)` reads the cached `Project` metadata and sets the controls without re-firing the handlers.
+- `atrium-core/src/domain/mod.rs::ProjectUpdate` gains a `review_interval_days(Option<i64>)` builder method (sequential's was already there). `Some(None)` clears the column; `Some(Some(days))` sets it.
+- The revealer's visibility is gated by `ActiveList::Project(_) && mode == builder`. Switching off Builder Mode hides it; switching projects re-populates from the project metadata cache.
+
+### Phase 10 acceptance — mode-flip snapshot test
+
+- New integration test `atrium-core/tests/mode_flip_snapshot.rs` enforces the *no DB writes on mode flip* contract.
+- The test populates the Small fixture (1,000 tasks across 50 projects in 5 areas with 20 tags) into a temp database, takes a row-by-row snapshot of every user table (`area`, `project`, `task`, `tag`, `task_tag`, `heading`), then exercises the read traffic a mode flip triggers via the `ReadPool`: `list_areas` + `list_projects` + `list_tags` + `list_today` + `count_open_canonical`. It then attempts a `DELETE FROM task` through the pool and asserts the write fails (the contract's architectural guard). Reopens the DB, snapshots again, asserts byte-identical state.
+- The UI side of the contract is enforced by code review of `apply_mode` — the doc comment lists the transitive call set and confirms it touches the worker through zero paths.
+
+### Numbers
+
+- **150 tests** pass (was 144). +5 binary tests for Builder ActiveList variants + tag-count formatter; +1 atrium-core integration test for the mode-flip snapshot.
+- `cargo fmt` clean.
+- `cargo clippy --workspace --all-targets -- -D warnings` clean.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 150 tests
+- The mode-flip snapshot test passes against a 1K-task populated DB.
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Open the primary menu → Mode → Builder.
+# The Inspector pane slides in on the right.
+# Click a task row — the pane populates with the editor; type into
+#   the title / notes; commit by clicking elsewhere.
+# Click a project in the sidebar — the Sequential toggle and Review
+#   interval picker appear above the task list; flip them and watch
+#   the worker writes flow.
+# Click Forecast / Review / Perspectives in the new Builder sidebar
+#   section — placeholder pages tell you which phase ships them.
+# Flip Mode → Simple — every Builder surface disappears; the side
+#   pane collapses; a Builder stub view falls back to Today.
+```
+
+### What didn't change
+
+- Schema (`0001_initial.sql` — Phase 1 superset is the contract; mid-v0.1 changes are forbidden).
+- Single-writer worker, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- The Phase 7i modal Inspector dialog still ships (Simple Mode's path); Builder Mode adds the pane *alongside* it.
+- Quick Entry, FTS5 search, multi-select, undo, sidebar filter, every Phase 4–9 surface — unchanged.
+
+### What's next
+
+Phase 11 — Defer dates and sequential project rendering. The `defer_until` placeholder row in the Builder group becomes a real date picker; Today/Anytime exclude tasks deferred to the future; sequential-project rendering dims/disables tasks past the first incomplete one when the project's Sequential toggle is on.
+
+`VERSION`: 0.1.0 → 0.1.1 (patch — Phase 10 UI shell; no schema or new behaviour, just exposure).
+
 ## v0.1.0 (2026-05-07) — Simple Mode ships
 
 The first public release. Atrium starts here: a native GNOME task manager that fuses Things 3's clarity with OmniFocus's depth via a mode switch over a shared local-first data store. Simple Mode — the calm, opinionated surface for *what am I doing right now* — is feature-complete. Builder Mode (Forecast, Review, Perspectives, defer dates, sequential projects, repeat rules) ships in v0.2.

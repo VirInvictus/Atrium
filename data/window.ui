@@ -23,6 +23,28 @@
         </child>
 
         <property name="content">
+          <object class="AdwOverlaySplitView" id="overlay_split">
+            <!-- Phase 10 — Builder Mode wraps the NavigationSplitView in an
+                 OverlaySplitView whose right-side sidebar holds the Inspector
+                 pane. show-sidebar=false at startup; AtriumWindow::apply_mode
+                 toggles it based on the GSettings `mode` key. The pane
+                 collapses on small windows so the overlay sheet behaviour
+                 takes over. -->
+            <property name="sidebar-position">end</property>
+            <property name="show-sidebar">false</property>
+            <property name="min-sidebar-width">320</property>
+            <property name="max-sidebar-width">480</property>
+            <property name="sidebar-width-fraction">0.32</property>
+
+            <property name="sidebar">
+              <object class="AdwBin" id="inspector_pane_host">
+                <!-- Populated by inspector_pane::install at startup; the
+                     content swaps between an empty AdwStatusPage (no task
+                     selected) and a per-task editor (task selected). -->
+              </object>
+            </property>
+
+            <property name="content">
           <object class="AdwNavigationSplitView" id="split_view">
             <property name="min-sidebar-width">220</property>
             <property name="max-sidebar-width">320</property>
@@ -189,6 +211,75 @@
                                       </object>
                                     </child>
                                     <child>
+                                      <!-- Phase 10 — Builder Mode project page extras.
+                                           Visible only when ActiveList::Project(id) is
+                                           active AND the GSettings mode = "builder".
+                                           Holds Sequential + Review interval pickers
+                                           wired to worker.update_project. -->
+                                      <object class="GtkRevealer" id="project_extras_revealer">
+                                        <property name="reveal-child">false</property>
+                                        <property name="transition-type">slide-down</property>
+                                        <property name="child">
+                                          <object class="GtkBox">
+                                            <property name="orientation">horizontal</property>
+                                            <property name="spacing">16</property>
+                                            <property name="margin-start">12</property>
+                                            <property name="margin-end">12</property>
+                                            <property name="margin-top">8</property>
+                                            <property name="margin-bottom">8</property>
+                                            <style>
+                                              <class name="toolbar"/>
+                                            </style>
+                                            <child>
+                                              <object class="GtkLabel">
+                                                <property name="label" translatable="yes">Sequential</property>
+                                                <property name="tooltip-text" translatable="yes">In a sequential project only the first incomplete task is "available". Phase 11 lands the rendering consequence.</property>
+                                              </object>
+                                            </child>
+                                            <child>
+                                              <object class="GtkSwitch" id="project_sequential_switch">
+                                                <property name="valign">center</property>
+                                              </object>
+                                            </child>
+                                            <child>
+                                              <object class="GtkSeparator">
+                                                <property name="orientation">vertical</property>
+                                                <property name="margin-start">8</property>
+                                                <property name="margin-end">8</property>
+                                              </object>
+                                            </child>
+                                            <child>
+                                              <object class="GtkLabel">
+                                                <property name="label" translatable="yes">Review every</property>
+                                                <property name="tooltip-text" translatable="yes">Days between Review queue surfacing. 0 means the project never auto-surfaces. Phase 13 lands the Review queue itself.</property>
+                                              </object>
+                                            </child>
+                                            <child>
+                                              <object class="GtkSpinButton" id="project_review_spin">
+                                                <property name="adjustment">
+                                                  <object class="GtkAdjustment">
+                                                    <property name="lower">0</property>
+                                                    <property name="upper">365</property>
+                                                    <property name="step-increment">1</property>
+                                                    <property name="page-increment">7</property>
+                                                  </object>
+                                                </property>
+                                                <property name="numeric">true</property>
+                                                <property name="valign">center</property>
+                                              </object>
+                                            </child>
+                                            <child>
+                                              <object class="GtkLabel">
+                                                <property name="label" translatable="yes">days</property>
+                                                <property name="hexpand">true</property>
+                                                <property name="halign">start</property>
+                                              </object>
+                                            </child>
+                                          </object>
+                                        </property>
+                                      </object>
+                                    </child>
+                                    <child>
                                       <object class="GtkScrolledWindow">
                                         <property name="hscrollbar-policy">never</property>
                                         <property name="vexpand">true</property>
@@ -233,6 +324,8 @@
                 </property>
               </object>
             </property>
+          </object>
+        </property>
           </object>
         </property>
       </object>
