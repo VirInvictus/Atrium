@@ -10,12 +10,16 @@ Atrium ships its own type system rather than depending on whatever the host has 
 | `SourceSerif4Variable-Italic.ttf` | Source Serif 4 Variable italic | [adobe-fonts/source-serif 4.005R](https://github.com/adobe-fonts/source-serif/releases/tag/4.005R) | SIL OFL 1.1 |
 | `JetBrainsMono-Variable.ttf` | JetBrains Mono Variable (debug pane / monospace) | [JetBrains/JetBrainsMono v2.304](https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304) | SIL OFL 1.1 — see `JetBrainsMono-OFL.txt` |
 | `JetBrainsMono-Variable-Italic.ttf` | JetBrains Mono Variable italic | [JetBrains/JetBrainsMono v2.304](https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304) | SIL OFL 1.1 |
+| `AtkinsonHyperlegible-Regular.ttf` | Atkinson Hyperlegible (accessibility toggle, Phase 8c) | [googlefonts/atkinson-hyperlegible](https://github.com/googlefonts/atkinson-hyperlegible) `main` | SIL OFL 1.1 — see `AtkinsonHyperlegible-OFL.txt` |
+| `AtkinsonHyperlegible-Italic.ttf` | Atkinson Hyperlegible italic | (same) | SIL OFL 1.1 |
+| `AtkinsonHyperlegible-Bold.ttf` | Atkinson Hyperlegible bold | (same) | SIL OFL 1.1 |
+| `AtkinsonHyperlegible-BoldItalic.ttf` | Atkinson Hyperlegible bold italic | (same) | SIL OFL 1.1 |
+
+Atkinson Hyperlegible is © 2020 Braille Institute of America, Inc., designed for low-vision readers with high inter-character distinguishability. It only swaps in when the *Accessibility → Use High-Legibility Font* toggle is on (GSetting `high-legibility-font`); the Inter triad remains the default.
 
 ## How they're loaded
 
-`atrium/src/ui/typography.rs` registers each TTF at startup via
-`pango::FontMap::add_font_file`, ensuring the fonts are available to
-GTK regardless of what's installed system-wide.
+`atrium/src/ui/typography.rs` copies each TTF into `$XDG_DATA_HOME/fonts/atrium/` on first run and refreshes `fc-cache`. Fontconfig handles registration after that, so the typography is identical across native and Flatpak installs without per-process Pango plumbing.
 
 If a file is missing at runtime, a warning is logged and Atrium falls
 back to system fonts — useful during development if `data/fonts/`

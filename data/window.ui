@@ -38,16 +38,32 @@
                       </object>
                     </child>
                     <property name="content">
-                      <object class="GtkScrolledWindow">
-                        <property name="hscrollbar-policy">never</property>
-                        <property name="child">
-                          <object class="GtkListBox" id="sidebar_list">
-                            <property name="selection-mode">single</property>
-                            <style>
-                              <class name="navigation-sidebar"/>
-                            </style>
+                      <object class="GtkBox">
+                        <property name="orientation">vertical</property>
+                        <child>
+                          <object class="GtkSearchEntry" id="sidebar_filter">
+                            <property name="placeholder-text" translatable="yes">Filter lists…</property>
+                            <property name="margin-start">8</property>
+                            <property name="margin-end">8</property>
+                            <property name="margin-top">4</property>
+                            <property name="margin-bottom">4</property>
+                            <property name="search-delay">100</property>
                           </object>
-                        </property>
+                        </child>
+                        <child>
+                          <object class="GtkScrolledWindow">
+                            <property name="hscrollbar-policy">never</property>
+                            <property name="vexpand">true</property>
+                            <property name="child">
+                              <object class="GtkListBox" id="sidebar_list">
+                                <property name="selection-mode">single</property>
+                                <style>
+                                  <class name="navigation-sidebar"/>
+                                </style>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
                       </object>
                     </property>
                   </object>
@@ -72,68 +88,145 @@
                             </style>
                           </object>
                         </child>
+                        <child type="end">
+                          <object class="GtkToggleButton" id="search_button">
+                            <property name="icon-name">system-search-symbolic</property>
+                            <property name="tooltip-text" translatable="yes">Search (Ctrl+F)</property>
+                            <style>
+                              <class name="flat"/>
+                            </style>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                    <child type="top">
+                      <object class="GtkSearchBar" id="search_bar">
+                        <property name="search-mode-enabled">false</property>
+                        <property name="key-capture-widget">task_list_view</property>
+                        <child>
+                          <object class="GtkSearchEntry" id="search_entry">
+                            <property name="placeholder-text" translatable="yes">Search · tag:errand · is:overdue · due:today</property>
+                            <property name="hexpand">true</property>
+                            <property name="search-delay">200</property>
+                          </object>
+                        </child>
                       </object>
                     </child>
                     <property name="content">
-                      <object class="GtkStack" id="content_stack">
-                        <property name="transition-type">crossfade</property>
+                      <object class="AdwToastOverlay" id="toast_overlay">
+                        <property name="child">
+                          <object class="GtkStack" id="content_stack">
+                            <property name="transition-type">crossfade</property>
 
-                        <child>
-                          <object class="GtkStackPage">
-                            <property name="name">empty</property>
-                            <property name="child">
-                              <object class="AdwStatusPage" id="content_status">
-                                <property name="icon-name">checkmark-symbolic</property>
-                                <property name="title" translatable="yes">No tasks yet</property>
-                                <property name="description" translatable="yes">Press Ctrl+N or the + button to create your first task.</property>
-                              </object>
-                            </property>
-                          </object>
-                        </child>
-
-                        <child>
-                          <object class="GtkStackPage">
-                            <property name="name">list</property>
-                            <property name="child">
-                              <object class="GtkBox">
-                                <property name="orientation">vertical</property>
-                                <child>
-                                  <object class="GtkScrolledWindow">
-                                    <property name="hscrollbar-policy">never</property>
-                                    <property name="vexpand">true</property>
-                                    <property name="child">
-                                      <object class="GtkListView" id="task_list_view">
-                                        <property name="show-separators">true</property>
-                                        <property name="single-click-activate">false</property>
-                                      </object>
-                                    </property>
+                            <child>
+                              <object class="GtkStackPage">
+                                <property name="name">empty</property>
+                                <property name="child">
+                                  <object class="AdwStatusPage" id="content_status">
+                                    <property name="icon-name">checkmark-symbolic</property>
+                                    <property name="title" translatable="yes">No tasks yet</property>
+                                    <property name="description" translatable="yes">Press Ctrl+N or the + button to create your first task.</property>
                                   </object>
-                                </child>
-                                <child>
+                                </property>
+                              </object>
+                            </child>
+
+                            <child>
+                              <object class="GtkStackPage">
+                                <property name="name">list</property>
+                                <property name="child">
                                   <object class="GtkBox">
-                                    <property name="orientation">horizontal</property>
-                                    <property name="margin-start">12</property>
-                                    <property name="margin-end">12</property>
-                                    <property name="margin-top">8</property>
-                                    <property name="margin-bottom">8</property>
-                                    <property name="spacing">8</property>
+                                    <property name="orientation">vertical</property>
                                     <child>
-                                      <object class="GtkImage">
-                                        <property name="icon-name">list-add-symbolic</property>
+                                      <object class="GtkRevealer" id="selection_revealer">
+                                        <property name="reveal-child">false</property>
+                                        <property name="transition-type">slide-down</property>
+                                        <property name="child">
+                                          <object class="GtkBox">
+                                            <property name="orientation">horizontal</property>
+                                            <property name="spacing">8</property>
+                                            <property name="margin-start">12</property>
+                                            <property name="margin-end">12</property>
+                                            <property name="margin-top">8</property>
+                                            <property name="margin-bottom">8</property>
+                                            <style>
+                                              <class name="toolbar"/>
+                                            </style>
+                                            <child>
+                                              <object class="GtkLabel" id="selection_label">
+                                                <property name="label">0 selected</property>
+                                                <property name="hexpand">true</property>
+                                                <property name="halign">start</property>
+                                              </object>
+                                            </child>
+                                            <child>
+                                              <object class="GtkButton">
+                                                <property name="label" translatable="yes">Complete</property>
+                                                <property name="action-name">win.bulk-complete</property>
+                                              </object>
+                                            </child>
+                                            <child>
+                                              <object class="GtkButton">
+                                                <property name="label" translatable="yes">Delete</property>
+                                                <property name="action-name">win.bulk-delete</property>
+                                                <style>
+                                                  <class name="destructive-action"/>
+                                                </style>
+                                              </object>
+                                            </child>
+                                            <child>
+                                              <object class="GtkButton">
+                                                <property name="icon-name">window-close-symbolic</property>
+                                                <property name="action-name">win.bulk-clear</property>
+                                                <property name="tooltip-text" translatable="yes">Clear selection (Esc)</property>
+                                                <style>
+                                                  <class name="flat"/>
+                                                </style>
+                                              </object>
+                                            </child>
+                                          </object>
+                                        </property>
                                       </object>
                                     </child>
                                     <child>
-                                      <object class="GtkEntry" id="new_task_entry">
-                                        <property name="placeholder-text" translatable="yes">Add task…</property>
-                                        <property name="hexpand">true</property>
+                                      <object class="GtkScrolledWindow">
+                                        <property name="hscrollbar-policy">never</property>
+                                        <property name="vexpand">true</property>
+                                        <property name="child">
+                                          <object class="GtkListView" id="task_list_view">
+                                            <property name="show-separators">true</property>
+                                            <property name="single-click-activate">false</property>
+                                          </object>
+                                        </property>
+                                      </object>
+                                    </child>
+                                    <child>
+                                      <object class="GtkBox">
+                                        <property name="orientation">horizontal</property>
+                                        <property name="margin-start">12</property>
+                                        <property name="margin-end">12</property>
+                                        <property name="margin-top">8</property>
+                                        <property name="margin-bottom">8</property>
+                                        <property name="spacing">8</property>
+                                        <child>
+                                          <object class="GtkImage">
+                                            <property name="icon-name">list-add-symbolic</property>
+                                          </object>
+                                        </child>
+                                        <child>
+                                          <object class="GtkEntry" id="new_task_entry">
+                                            <property name="placeholder-text" translatable="yes">Add task…</property>
+                                            <property name="hexpand">true</property>
+                                          </object>
+                                        </child>
                                       </object>
                                     </child>
                                   </object>
-                                </child>
+                                </property>
                               </object>
-                            </property>
+                            </child>
                           </object>
-                        </child>
+                        </property>
                       </object>
                     </property>
                   </object>

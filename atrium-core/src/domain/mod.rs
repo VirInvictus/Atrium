@@ -75,6 +75,13 @@ pub struct TaskUpdate {
     /// `Some(Some(id))` moves the task to that project; `Some(None)`
     /// unfiles it (Inbox); `None` leaves the field alone.
     pub project_id: Option<Option<i64>>,
+    /// Phase 7i — schedule (When). `Some(None)` clears the column
+    /// (no schedule), `Some(Some(value))` sets to either a date or
+    /// the Someday sentinel.
+    pub scheduled_for: Option<Option<ScheduledFor>>,
+    /// Phase 7i — deadline. `Some(None)` clears, `Some(Some(date))`
+    /// sets.
+    pub deadline: Option<Option<NaiveDate>>,
 }
 
 impl TaskUpdate {
@@ -106,6 +113,21 @@ impl TaskUpdate {
         self
     }
 
+    /// Phase 7i — set the schedule. Pass `None` to clear, or
+    /// `Some(ScheduledFor::Date(d))` / `Some(ScheduledFor::Someday)`
+    /// to set.
+    pub fn schedule(mut self, value: Option<ScheduledFor>) -> Self {
+        self.scheduled_for = Some(value);
+        self
+    }
+
+    /// Phase 7i — set the deadline. Pass `None` to clear or
+    /// `Some(date)` to set.
+    pub fn deadline_value(mut self, value: Option<NaiveDate>) -> Self {
+        self.deadline = Some(value);
+        self
+    }
+
     /// `true` when no field will change. The worker treats no-op
     /// updates as a read of the current row.
     pub fn is_noop(&self) -> bool {
@@ -113,6 +135,8 @@ impl TaskUpdate {
             && self.note.is_none()
             && self.position.is_none()
             && self.project_id.is_none()
+            && self.scheduled_for.is_none()
+            && self.deadline.is_none()
     }
 }
 

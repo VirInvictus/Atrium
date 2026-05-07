@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 
+use atrium_core::db::read::TODAY_DEADLINE_WINDOW_DAYS;
 use atrium_core::{ScheduledFor, Task, TaskChanges};
 use chrono::NaiveDate;
 use gtk::glib;
@@ -25,13 +26,17 @@ use crate::ui::task_object::AtriumTask;
 pub type TagMap = HashMap<i64, Vec<String>>;
 
 /// Which list is currently displayed in the content pane. Canonical
-/// Simple-Mode lists plus the `Project(id)` / `Area(id)` variants
-/// added in Phase 5a for clicking through the sidebar hierarchy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Simple-Mode lists plus the `Project(id)` / `Area(id)` / `Tag(id)`
+/// variants and Phase 7a's `SearchResults(query)` virtual list.
+///
+/// No longer `Copy` (the `String` payload on `SearchResults` makes
+/// that impossible); `Clone` is cheap enough — sidebar dispatch
+/// clones an enum once per click.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ActiveList {
     Inbox,
     /// First-run lands on Today per spec — derived `Default` reflects
-    /// that, so `Cell<ActiveList>::default()` does the right thing.
+    /// that, so `RefCell<ActiveList>::default()` does the right thing.
     #[default]
     Today,
     Upcoming,
@@ -47,13 +52,15 @@ pub enum ActiveList {
     Area(i64),
     /// Open tasks bearing a specific tag. Phase 6a.
     Tag(i64),
+    /// Phase 7a: FTS5-backed search results for a user-entered query.
+    SearchResults(String),
 }
 
 impl ActiveList {
     /// Static label for the canonical lists. Project/Area return a
     /// generic placeholder; the window resolves the real title from
     /// its cache because that requires DB-side data.
-    pub fn canonical_title(self) -> &'static str {
+    pub fn canonical_title(&self) -> &'static str {
         match self {
             Self::Inbox => "Inbox",
             Self::Today => "Today",
@@ -64,6 +71,7 @@ impl ActiveList {
             Self::Project(_) => "Project",
             Self::Area(_) => "Area",
             Self::Tag(_) => "Tag",
+            Self::SearchResults(_) => "Search",
         }
     }
 
@@ -77,7 +85,7 @@ impl ActiveList {
     /// won't add a newly-arriving task to those views — the next list
     /// refresh picks them up. Acceptable for Phase 5a; Phase 5c will
     /// revisit with a smarter applier when drag-to-project lands.
-    pub fn task_matches(self, task: &Task, today: NaiveDate) -> bool {
+    pub fn task_matches(&self, task: &Task, today: NaiveDate) -> bool {
         match self {
             Self::Inbox => task.completed_at.is_none() && task.project_id.is_none(),
             Self::Today => {
@@ -88,7 +96,12 @@ impl ActiveList {
                     &task.scheduled_for,
                     Some(ScheduledFor::Date(d)) if *d <= today
                 );
-                let deadline_match = task.deadline.is_some_and(|d| d <= today);
+                // Spec §4.2 (v0.0.38) — deadlines surface in Today
+                // for a heads-up window of TODAY_DEADLINE_WINDOW_DAYS,
+                // not only for `deadline ≤ today`. Mirrors the SQL
+                // in `atrium_core::db::read::list_today`.
+                let horizon = today + chrono::Duration::days(TODAY_DEADLINE_WINDOW_DAYS);
+                let deadline_match = task.deadline.is_some_and(|d| d <= horizon);
                 let not_deferred = task.defer_until.is_none_or(|d| d <= today);
                 (scheduled_match || deadline_match) && not_deferred
             }
@@ -109,12 +122,14 @@ impl ActiveList {
                     )
             }
             Self::Logbook => task.completed_at.is_some(),
-            Self::Project(id) => task.completed_at.is_none() && task.project_id == Some(id),
+            Self::Project(id) => task.completed_at.is_none() && task.project_id == Some(*id),
             // Area aggregates depend on project→area mapping that
             // isn't on the Task. Fall through to refresh-on-update.
             Self::Area(_) => false,
             // Tag membership lives on task_tag, not on Task. Same.
             Self::Tag(_) => false,
+            // Search relevance is FTS5-side; refresh-on-update.
+            Self::SearchResults(_) => false,
         }
     }
 }
@@ -156,29 +171,67 @@ where
 
         let check = gtk::CheckButton::builder()
             .css_classes(["selection-mode"])
+            .tooltip_text("Toggle complete (Space)")
             .build();
-        let title = gtk::EditableLabel::builder()
+        // Accessibility (Phase 8f): screen readers report the
+        // CheckButton as a "checkbox", but they need a name to
+        // announce. Updating the `LABEL` accessible property gives
+        // them one without showing a visible label next to the
+        // circle.
+        check.update_property(&[gtk::accessible::Property::Label("Task complete")]);
+
+        // Title is a `GtkStack` with two pages: a non-editable
+        // display Label, and an Entry for inline rename. v0.0.36
+        // and earlier used a `GtkEditableLabel`, but that widget's
+        // built-in click gesture intercepted single + double clicks
+        // on the title text — so clicks on the title couldn't reach
+        // the row's selection model or its double-click-opens-the-
+        // Inspector gesture (you'd accidentally enter edit mode
+        // depending on cursor position). Splitting into two named
+        // pages cleanly separates "render the title" from "rename
+        // the task": F2 / right-click → Rename swaps to the Entry,
+        // Enter / focus-out commits, Esc cancels. Single clicks on
+        // the title text just bubble up to the row's selection
+        // gesture like every other part of the row.
+        let title_stack = gtk::Stack::builder()
             .hexpand(true)
-            .xalign(0.0)
+            .transition_type(gtk::StackTransitionType::None)
             .build();
-        title.add_css_class("atrium-task-title");
+        let title_label = gtk::Label::builder()
+            .xalign(0.0)
+            .hexpand(true)
+            .ellipsize(pango::EllipsizeMode::End)
+            .build();
+        title_label.add_css_class("atrium-task-title");
+        title_label.update_property(&[gtk::accessible::Property::Label("Task title")]);
+        let title_entry = gtk::Entry::builder().hexpand(true).build();
+        title_entry.add_css_class("atrium-task-title");
+        title_entry.update_property(&[gtk::accessible::Property::Label("Task title")]);
+        title_stack.add_named(&title_label, Some("display"));
+        title_stack.add_named(&title_entry, Some("edit"));
+        title_stack.set_visible_child_name("display");
 
         let tags = gtk::Label::builder().visible(false).build();
         tags.add_css_class("atrium-task-tags");
         tags.add_css_class("dim-label");
         tags.set_ellipsize(pango::EllipsizeMode::End);
 
+        // Schedule / deadline pills hold short, fixed-shape text
+        // ("May 7", "Due May 15"). Earlier versions set
+        // `ellipsize=End` on both, which combined with the title's
+        // hexpand starvation produced rows that read just "May" —
+        // the day-of-month was being chopped. They now render at
+        // their natural width; the title pays the ellipsis cost.
         let schedule = gtk::Label::builder().visible(false).build();
         schedule.add_css_class("atrium-task-schedule");
         schedule.add_css_class("dim-label");
-        schedule.set_ellipsize(pango::EllipsizeMode::End);
 
         let deadline = gtk::Label::builder().visible(false).build();
         deadline.add_css_class("atrium-task-deadline");
         deadline.add_css_class("dim-label");
 
         row.append(&check);
-        row.append(&title);
+        row.append(&title_stack);
         row.append(&tags);
         row.append(&schedule);
         row.append(&deadline);
@@ -199,11 +252,19 @@ where
             .first_child()
             .and_downcast::<gtk::CheckButton>()
             .expect("check");
-        let title = check
+        let title_stack = check
             .next_sibling()
-            .and_downcast::<gtk::EditableLabel>()
-            .expect("title");
-        let tags = title
+            .and_downcast::<gtk::Stack>()
+            .expect("title stack");
+        let title_label = title_stack
+            .child_by_name("display")
+            .and_downcast::<gtk::Label>()
+            .expect("display label");
+        let title_entry = title_stack
+            .child_by_name("edit")
+            .and_downcast::<gtk::Entry>()
+            .expect("edit entry");
+        let tags = title_stack
             .next_sibling()
             .and_downcast::<gtk::Label>()
             .expect("tags");
@@ -216,11 +277,13 @@ where
             .and_downcast::<gtk::Label>()
             .expect("deadline");
 
-        // Bidirectional: GObject property ↔ widget property.
+        // Title bindings: model → display label is one-way. The
+        // entry is populated from the label only when edit mode
+        // begins (see `start_edit_focused_row` in window.rs); commit
+        // routes through the rename callback below.
         let bindings = vec![
-            task.bind_property("title", &title, "text")
+            task.bind_property("title", &title_label, "label")
                 .sync_create()
-                .bidirectional()
                 .build(),
             task.bind_property("completed", &check, "active")
                 .sync_create()
@@ -246,6 +309,10 @@ where
         schedule.set_visible(!task.schedule_label().is_empty());
         deadline.set_visible(!task.deadline_label().is_empty());
 
+        // Always start a freshly-bound row in display mode so a
+        // recycled row doesn't carry a previous task's edit state.
+        title_stack.set_visible_child_name("display");
+
         // .completed CSS class for the fade transition.
         if task.completed() {
             row.add_css_class("completed");
@@ -263,30 +330,76 @@ where
             on_toggle(task_id, b.is_active());
         });
 
-        let on_rename = on_rename.clone();
-        let task_for_rename = task.clone();
-        let rename_handler = title.connect_changed(move |label| {
-            // EditableLabel's `text` property fires on every keystroke
-            // in edit mode AND on commit. We only want commits — gate
-            // on `editing` being false when the change fires.
-            if label.is_editing() {
-                return;
-            }
-            let new = label.text().to_string();
-            let old = task_for_rename.title();
-            if new != old {
-                on_rename(task_id, new);
+        // Inline-rename commit handlers. Enter dispatches a rename;
+        // losing focus while the entry is showing also commits
+        // (Things-3-style autosave); Esc reverts to the bound label
+        // text and flips the stack back without writing.
+        let activate_handler = title_entry.connect_activate({
+            let on_rename = on_rename.clone();
+            let task_for_rename = task.clone();
+            let stack = title_stack.clone();
+            move |entry| {
+                let new = entry.text().to_string();
+                let old = task_for_rename.title();
+                if new != old {
+                    on_rename(task_id, new);
+                }
+                stack.set_visible_child_name("display");
             }
         });
 
-        // Stash handler IDs so unbind can disconnect — prevents the
-        // factory's recycling pool from firing handlers on stale
-        // model objects.
+        let focus_ctrl = gtk::EventControllerFocus::new();
+        let focus_handler = focus_ctrl.connect_leave({
+            let entry = title_entry.clone();
+            let stack = title_stack.clone();
+            let on_rename = on_rename.clone();
+            let task_for_rename = task.clone();
+            move |_| {
+                // Only fire when we're actually in edit mode —
+                // recycled rows traverse the controller during bind
+                // even though the entry isn't on screen.
+                if stack.visible_child_name().as_deref() != Some("edit") {
+                    return;
+                }
+                let new = entry.text().to_string();
+                let old = task_for_rename.title();
+                if new != old {
+                    on_rename(task_id, new);
+                }
+                stack.set_visible_child_name("display");
+            }
+        });
+        title_entry.add_controller(focus_ctrl.clone());
+
+        let key_ctrl = gtk::EventControllerKey::new();
+        key_ctrl.connect_key_pressed({
+            let stack = title_stack.clone();
+            let label = title_label.clone();
+            let entry = title_entry.clone();
+            move |_, key, _, _| {
+                if key == gdk::Key::Escape {
+                    entry.set_text(&label.label());
+                    stack.set_visible_child_name("display");
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            }
+        });
+        title_entry.add_controller(key_ctrl.clone());
+
+        // Stash widgets / handlers so unbind can disconnect them
+        // and `start_edit_focused_row` (window.rs) can find the
+        // stack + entry to flip into edit mode on F2.
         unsafe {
             row.set_data("atrium-toggle-handler", toggle_handler);
-            row.set_data("atrium-rename-handler", rename_handler);
+            row.set_data("atrium-activate-handler", activate_handler);
+            row.set_data("atrium-focus-handler", focus_handler);
             row.set_data("atrium-check", check.clone());
-            row.set_data("atrium-title", title.clone());
+            row.set_data("atrium-title-stack", title_stack.clone());
+            row.set_data("atrium-title-label", title_label.clone());
+            row.set_data("atrium-title-entry", title_entry.clone());
+            row.set_data("atrium-title-focus-ctrl", focus_ctrl);
+            row.set_data("atrium-title-key-ctrl", key_ctrl);
         }
 
         // Drag source: this row reports its task id so a drop
@@ -321,6 +434,61 @@ where
             row.set_data("atrium-drag-source", drag_source);
             row.set_data("atrium-drop-target", drop_target);
         }
+
+        // Phase 7g — right-click context menu. Single entry (Edit
+        // Tags…) targeting a parameterized win action so the menu
+        // works even when the right-click row isn't part of the
+        // current selection. The popover is `set_parent`-ed to the
+        // row, so it must be unparented on unbind to avoid the
+        // GtkListBoxRow finalizer warning that bit us in Phase 8h.
+        let menu_model = gio::Menu::new();
+        let edit_details_item = gio::MenuItem::new(Some("Edit Details…"), None);
+        edit_details_item
+            .set_action_and_target_value(Some("win.edit-details-for"), Some(&task_id.to_variant()));
+        menu_model.append_item(&edit_details_item);
+        let edit_tags_item = gio::MenuItem::new(Some("Edit Tags…"), None);
+        edit_tags_item
+            .set_action_and_target_value(Some("win.edit-tags-for"), Some(&task_id.to_variant()));
+        menu_model.append_item(&edit_tags_item);
+        let popover = gtk::PopoverMenu::from_model(Some(&menu_model));
+        popover.set_has_arrow(false);
+        popover.set_parent(&row);
+
+        let context_gesture = gtk::GestureClick::new();
+        context_gesture.set_button(gdk::BUTTON_SECONDARY);
+        let popover_for_gesture = popover.clone();
+        context_gesture.connect_pressed(move |_, _, x, y| {
+            popover_for_gesture
+                .set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            popover_for_gesture.popup();
+        });
+        row.add_controller(context_gesture.clone());
+
+        // Phase 7j — primary-button double-click opens the
+        // Inspector. We can't rely on `GtkListView::connect_activate`
+        // because the inner `GtkEditableLabel` (the title) traps
+        // double-click for its own enter-edit-mode behaviour. A
+        // gesture on the row Box runs even when the click lands on
+        // the row's padding or any non-text region; clicks on the
+        // title still go to the EditableLabel for inline editing.
+        let activate_gesture = gtk::GestureClick::new();
+        activate_gesture.set_button(gdk::BUTTON_PRIMARY);
+        let activate_id = task_id;
+        activate_gesture.connect_released(move |gesture, n_press, _, _| {
+            if n_press == 2
+                && let Some(widget) = gesture.widget()
+            {
+                let _ =
+                    widget.activate_action("win.edit-details-for", Some(&activate_id.to_variant()));
+            }
+        });
+        row.add_controller(activate_gesture.clone());
+
+        unsafe {
+            row.set_data("atrium-context-gesture", context_gesture);
+            row.set_data("atrium-context-popover", popover);
+            row.set_data("atrium-activate-gesture", activate_gesture);
+        }
     });
 
     factory.connect_unbind(move |_, item| {
@@ -336,12 +504,38 @@ where
             ) {
                 check.disconnect(handler);
             }
-            if let (Some(title), Some(handler)) = (
-                row.steal_data::<gtk::EditableLabel>("atrium-title"),
-                row.steal_data::<glib::SignalHandlerId>("atrium-rename-handler"),
+            // Title entry: disconnect the activate + focus-leave
+            // handlers, drop the controllers, drop the cached
+            // widget references. The next bind builds fresh.
+            let title_entry = row.steal_data::<gtk::Entry>("atrium-title-entry");
+            if let (Some(entry), Some(handler)) = (
+                title_entry.clone(),
+                row.steal_data::<glib::SignalHandlerId>("atrium-activate-handler"),
             ) {
-                title.disconnect(handler);
+                entry.disconnect(handler);
             }
+            if let Some(focus_ctrl) =
+                row.steal_data::<gtk::EventControllerFocus>("atrium-title-focus-ctrl")
+            {
+                if let (Some(entry), Some(handler)) = (
+                    title_entry.clone(),
+                    row.steal_data::<glib::SignalHandlerId>("atrium-focus-handler"),
+                ) {
+                    entry.remove_controller(&focus_ctrl);
+                    let _ = (entry, handler); // already disconnected via remove_controller
+                } else {
+                    let _ = focus_ctrl;
+                }
+            }
+            if let Some(key_ctrl) =
+                row.steal_data::<gtk::EventControllerKey>("atrium-title-key-ctrl")
+                && let Some(entry) = title_entry.clone()
+            {
+                entry.remove_controller(&key_ctrl);
+            }
+            let _ = title_entry;
+            let _ = row.steal_data::<gtk::Stack>("atrium-title-stack");
+            let _ = row.steal_data::<gtk::Label>("atrium-title-label");
             // Tear down the drag controllers; the next bind installs
             // fresh ones with the new task id captured.
             if let Some(drag_source) = row.steal_data::<gtk::DragSource>("atrium-drag-source") {
@@ -349,6 +543,20 @@ where
             }
             if let Some(drop_target) = row.steal_data::<gtk::DropTarget>("atrium-drop-target") {
                 row.remove_controller(&drop_target);
+            }
+            // Phase 7g — tear down the right-click context menu.
+            // The popover was set_parent-ed to the row; it must be
+            // unparented before the row recycles or the next bind
+            // double-parents and GTK warns.
+            if let Some(gesture) = row.steal_data::<gtk::GestureClick>("atrium-context-gesture") {
+                row.remove_controller(&gesture);
+            }
+            if let Some(popover) = row.steal_data::<gtk::PopoverMenu>("atrium-context-popover") {
+                popover.unparent();
+            }
+            // Phase 7j — tear down the activate gesture too.
+            if let Some(gesture) = row.steal_data::<gtk::GestureClick>("atrium-activate-gesture") {
+                row.remove_controller(&gesture);
             }
         }
     });
@@ -521,6 +729,28 @@ mod tests {
         let mut t = dummy(1);
         t.scheduled_for = Some(ScheduledFor::Date(today()));
         t.defer_until = Some(NaiveDate::from_ymd_opt(2026, 6, 1).unwrap());
+        assert!(!ActiveList::Today.task_matches(&t, today()));
+    }
+
+    #[test]
+    fn today_includes_deadline_within_window() {
+        // Spec §4.2 — deadline 5 days out lands in Today.
+        let mut t = dummy(1);
+        t.deadline = Some(today() + chrono::Duration::days(5));
+        assert!(ActiveList::Today.task_matches(&t, today()));
+    }
+
+    #[test]
+    fn today_includes_deadline_at_window_edge() {
+        let mut t = dummy(1);
+        t.deadline = Some(today() + chrono::Duration::days(TODAY_DEADLINE_WINDOW_DAYS));
+        assert!(ActiveList::Today.task_matches(&t, today()));
+    }
+
+    #[test]
+    fn today_excludes_deadline_past_window() {
+        let mut t = dummy(1);
+        t.deadline = Some(today() + chrono::Duration::days(TODAY_DEADLINE_WINDOW_DAYS + 1));
         assert!(!ActiveList::Today.task_matches(&t, today()));
     }
 }

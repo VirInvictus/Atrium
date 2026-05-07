@@ -157,7 +157,7 @@ OmniFocus superset. Every Builder column lives in v0.1 schema; only some are exp
 Things-style lists are SELECTs, not stored rows:
 
 - **Inbox:** `task WHERE project_id IS NULL AND completed_at IS NULL`
-- **Today:** `task WHERE completed_at IS NULL AND (scheduled_for ≤ today OR deadline ≤ today) AND (defer_until IS NULL OR defer_until ≤ today)`
+- **Today:** `task WHERE completed_at IS NULL AND (scheduled_for ≤ today OR deadline ≤ today + N) AND (defer_until IS NULL OR defer_until ≤ today)`, where `N = TODAY_DEADLINE_WINDOW_DAYS` (default `7`). The deadline window is the Things-3 "deadlines approaching" heads-up — a future-deadlined task surfaces in Today before it's actually due, so the user isn't blindsided. The window is a single constant in v0.1; turning it into a per-user GSettings key is a Phase 8d preferences task.
 - **Anytime:** `task WHERE completed_at IS NULL AND scheduled_for IS NULL AND (defer_until IS NULL OR defer_until ≤ today)`
 - **Someday:** `task WHERE completed_at IS NULL AND scheduled_for = '__someday__'` (sentinel)
 - **Upcoming:** `task WHERE completed_at IS NULL AND scheduled_for > today`

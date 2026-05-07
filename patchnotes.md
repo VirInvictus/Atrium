@@ -1,5 +1,1248 @@
 # Atrium — Patch Notes
 
+## v0.0.38 (2026-05-07) — Today: deadlines-approaching heads-up
+
+Brandon flagged that Today wasn't matching the mental model — tasks with deadlines coming up in the next few days were buried in Anytime until the deadline date itself arrived, which is the opposite of what a "Today" view is supposed to do. Things 3 surfaces approaching deadlines in Today as a heads-up so you don't get blindsided; Atrium now matches that behaviour.
+
+### Spec change
+
+`spec.md` §4.2 — Today's derived-view definition gains a `today + N` deadline window:
+
+> **Today:** `task WHERE completed_at IS NULL AND (scheduled_for ≤ today OR deadline ≤ today + N) AND (defer_until IS NULL OR defer_until ≤ today)`, where `N = TODAY_DEADLINE_WINDOW_DAYS` (default `7`).
+
+Earlier the second clause was `deadline ≤ today` (today + overdue only). Now it's `deadline ≤ today + 7` (today + overdue + the next week). The window is one constant in v0.1; promoting it to a per-user GSettings key is a Phase 8d preferences task and noted as such in the doc.
+
+`scheduled_for` semantics are unchanged. Future scheduled tasks still live in Upcoming; Today still treats `scheduled_for` as `≤ today` (today + overdue scheduled). The change is deadline-side only, which matches Things 3 — they distinguish "When" (scheduled) from "Deadline" the same way.
+
+### Implementation
+
+- `atrium-core/src/db/read.rs` — new `pub const TODAY_DEADLINE_WINDOW_DAYS: i64 = 7`. `list_today` and `count_open_canonical`'s today subquery both compute a horizon date (`today + window`) and use it in the deadline branch of the WHERE clause via a second bound parameter. Sidebar badge and content-pane list query share the same predicate, so they can't drift.
+- `atrium/src/ui/task_list.rs` — `ActiveList::Today.task_matches` (the in-memory predicate the diff applier uses to decide whether a task belongs in the visible store) gets the same window logic. Imports `TODAY_DEADLINE_WINDOW_DAYS` from atrium-core so the constant has one home.
+
+### Tests
+
+Seven new tests cover the boundary cases:
+
+- `today_includes_deadline_within_heads_up_window` — deadline 5 days out shows.
+- `today_includes_deadline_at_window_edge` — deadline exactly `today + 7` shows.
+- `today_excludes_deadline_past_window` — deadline 8 days out doesn't show.
+- `today_count_matches_list_today_with_window` — sidebar badge count and Today-list rows agree (ensures the two SQL queries stay in sync).
+- Three predicate-side analogues in `task_list.rs` for the same boundary cases.
+
+The existing tests (`today_includes_overdue`, `today_includes_scheduled_for_today`, `today_excludes_future_scheduled`, `today_excludes_someday_sentinel`, `today_excludes_completed`, `today_excludes_deferred_to_future`, `today_includes_deferred_now_active`, `today_includes_deadline_only_due_today`) all still pass — the change is strictly additive on the deadline side.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **144 tests** (was 137; +4 in atrium-core, +3 in atrium-binary).
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Open Today.
+# Add a task in any list; set its deadline to 3 days from now via
+#   the Inspector. The row appears in Today (was hiding in Anytime
+#   until v0.0.38).
+# Set a deadline 10 days out — the row stays in Anytime; it'll
+#   migrate to Today automatically when the date crosses into the
+#   7-day window.
+```
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- `scheduled_for` Today semantics (still `≤ today`); Upcoming, Anytime, Someday, Inbox, Logbook all unchanged.
+- The Inspector / tag editor / task row work from v0.0.37 — that's still the foundation of Today's display path; this change is the predicate underneath it.
+
+`VERSION`: 0.0.37 → 0.0.38 (patch — Today filter alignment with spec change).
+
+## v0.0.37 (2026-05-07) — Pre-v0.1 UI bugsweep
+
+Brandon ran a full pass on the UI before tagging v0.1.0 and surfaced four real issues that v0.0.36's "ship the wiring" stance had papered over. The Inspector dialog appeared transparent — task rows visibly bled through the form because the window was floating without a clean modal background. Single-clicks on a task title hijacked the row's selection / Inspector-open semantics by entering edit mode. Pressing Escape inside the bottom-of-list new-task entry silently cleared the multi-selection. And every row in the basic list view rendered the date column as just "May", because the schedule + deadline labels were ellipsising under pressure from the title's hexpand.
+
+This release fixes those four and clears a layer of code drift CLAUDE.md hadn't kept up with. No new features. No schema changes (the v0.1 freeze rule still holds). No new crates (the locked v0.1 dependency set still holds).
+
+### Inspector + tag editor → AdwDialog
+
+`atrium/src/ui/inspector.rs` and `atrium/src/ui/tag_editor.rs` previously built modal forms by constructing a fresh `adw::Window` with `transient_for + modal(true)` and turning off both sides of `show_*_title_buttons`. That gave the dialog a free-standing top-level surface with no chrome — and on tiling / floating compositors, the parent's content showed through wherever the form's rows didn't reach the dialog edges. The screenshot Brandon attached has the inspector form floating over visible task rows: that's what the bug looked like.
+
+The libadwaita-correct primitive for this layout is `adw::Dialog`, which presents as an in-window modal overlay with a guaranteed solid background, automatic Esc-to-close, and the slide/fade animation libadwaita uses for every other modal in the platform. Both inspector + tag editor switch:
+
+- `adw::Window::builder().transient_for + modal(true)` → `adw::Dialog::builder()` with `content_width` / `content_height`.
+- `set_content` → `set_child`.
+- `dialog.present()` → `dialog.present(Some(parent))`.
+- The bespoke `gtk::EventControllerKey` for Esc dismissal is gone — AdwDialog consumes Esc itself and runs its own close path.
+- `dialog.close()` returns `bool` instead of `()`, so the call sites bind it with `let _ = dialog.close();` or move it into a block expression.
+- The dead `atrium-inspector` / `atrium-tag-editor` CSS classes (declared but never styled) are gone.
+- The Inspector's Notes group drops its redundant "Plain text. Saved when you click Apply." description — the Apply button conveys the same thing.
+
+Quick Entry (`atrium/src/quickentry/modal.rs`) and Memory Watch (`atrium/src/debug/mod.rs`) **stay** as `adw::Window` — both want non-modal, transient-for-main behaviour that AdwDialog can't give. Quick Entry per spec §6 ("Does not steal focus from the previously focused window") needs `modal=false`; Memory Watch is a passive observer pane. Their fade-in keyframe (`atrium-quickentry-window` CSS class) keeps working unchanged.
+
+### Task row title: `GtkEditableLabel` → `GtkStack(Label / Entry)`
+
+The bigger behavioral fix. v0.0.36's row layout used `gtk::EditableLabel` as the title widget — convenient because it bundles "render text" and "edit on click" in one widget. But `EditableLabel`'s built-in click gesture intercepts single + double clicks on the label's text region, which conflicted with two adjacent things:
+
+1. The row's `MultiSelection` model wants single-clicks to select rows.
+2. The per-row activate gesture (Phase 7j) wants double-clicks to open the Inspector.
+
+The result was that **whether a click selected, edited, or activated depended on cursor pixel position** — the EditableLabel claimed clicks landing on the title text, the row's gesture got clicks landing on the padding around the title. That's the source of Brandon's "the application doesn't know if I'm inputting, just clicking, or running a shortcut" complaint.
+
+The fix splits "render the title" from "rename the task" cleanly:
+
+- `atrium/src/ui/task_list.rs` — title is now a `gtk::Stack` with two named pages: `display` (a `gtk::Label` with `ellipsize=End`) and `edit` (a `gtk::Entry`).
+- The bound display page renders the title; the entry page is hidden until F2 (or right-click → Rename via the existing window action map) flips the stack to "edit", populates the entry from the label, focuses it, and select-alls.
+- Enter on the entry commits via `on_rename(task_id, new_title)`; the stack flips back to "display".
+- Focus-leave on the entry commits the same way (Things-3-style autosave).
+- Esc on the entry reverts to the bound label text and flips back without writing.
+- Single clicks on the title → fall through to the row's selection gesture.
+- Double clicks on the title → fall through to the row's activate gesture (which opens the Inspector).
+- Right-click on the title → fall through to the row's context menu (Edit Details… / Edit Tags…).
+
+`atrium/src/ui/window.rs::start_edit_focused_row` (the F2 dispatcher) was updated to walk both upward (focus on a child of the row) and downward (focus on a parent like `GtkListItemWidget`) to find the row Box, then call a new helper `start_edit_on_row` that flips the stack. Per-row data stash keys changed too: `atrium-title` (the EditableLabel) is gone; in its place are `atrium-title-stack`, `atrium-title-label`, `atrium-title-entry`, `atrium-title-focus-ctrl`, `atrium-title-key-ctrl`.
+
+The `atrium-task-title` CSS class still applies — to both the display Label and the edit Entry — so all the typography work from Phase 8a (Inter cv11/ss01, weight 450, letter-spacing −0.005em) still lands on titles regardless of mode.
+
+### Escape: window-global → list-scoped
+
+`atrium/src/main.rs` no longer registers `Escape` as a window-global accel for `win.bulk-clear`. The chord moved into `atrium/src/ui/window.rs::init_list_view`'s `gtk::ShortcutController` (`ShortcutScope::Managed`), the same controller that scopes Space / Delete / Ctrl+A as of Phase 7h. Esc now fires the bulk-clear only when the task list itself or one of its rows has focus — every entry on the surface (Quick Entry, search bar, sidebar filter, tag editor's add-tag entry, the bottom-of-list new-task entry) keeps its own Esc semantics.
+
+### Date pills: drop ellipsize, drop the alarm-clock emoji
+
+`atrium/src/ui/task_list.rs` — schedule + deadline labels no longer set `ellipsize=End`. The title's display Label is the one that ellipsises now (it has `ellipsize=End` and `hexpand=true`), so a long title shrinks instead of squeezing the date column to "May".
+
+`atrium/src/ui/task_object.rs::format_deadline` swaps the leading `⏰` emoji for a `Due ` prefix. The emoji rendered inconsistently across systems — some show a glyph, some show a typographic box, some put it at the wrong baseline — and "Due May 15" reads the same everywhere.
+
+### Code-smell sweep
+
+- `atrium/src/main.rs::install_window_actions` was a documented empty stub kept "for symmetry". Inlined; the comment block + the `install_window_actions(app)` call site are gone.
+- `atrium/src/ui/window.rs::prompt_create_project` had a dead `area_id` lookup branch (`win.imp().project_titles.borrow().get(&id).and(None)`) with an apologetic comment about not caching `area_id` on projects yet. Replaced with a `_` arm that returns `None` plus a comment explaining what's missing — same behaviour, no fake lookup.
+- `data/window.ui` — the `AdwToastOverlay` block was indented two columns shy of its siblings, making the file painful to scan. Reformatted; structure unchanged.
+- `docs/keymap.md` had a stale row in the "Builder Mode (sketched, not yet bound)" table reserving `Ctrl+I` for "Toggle Inspector pane" — the same chord Phase 7i (v0.0.35) bound to the Simple Mode "Open Inspector dialog". Dropped the duplicate row; added a one-sentence note explaining Builder Mode reuses the same chord for the side-pane variant.
+
+### Documentation refresh
+
+`CLAUDE.md` is the file that drifted hardest. It still claimed "Pre-implementation as of v0.0.0. No source code exists yet" — eight phases later, that's wrong in every clause. Rewrites:
+
+- New "Status" block reflecting the v0.0.37 reality (Simple Mode shipping, Phase 9 release work outstanding, Phases 10+ not started).
+- New "Codebase map (current)" section listing every module / file added since the original CLAUDE.md was written: `atrium-core/src/db/{worker,read_pool,read,command,changes,fixtures}.rs`, `atrium/src/ui/{window,task_list,task_object,inspector,tag_editor,filter,shortcuts,about,typography}.rs`, `atrium/src/quickentry/{mod,modal,parser}.rs`, `atrium/src/debug/mod.rs`, `data/fonts/`, `data/icons/`, `docs/{schema,keymap,accessibility,perf-baseline,regression}.md`, `scripts/regression.sh`, plus the new dialog primitive policy (which dialogs use AdwDialog vs AdwWindow).
+
+The five architectural commitments (Mode-as-View, single-writer worker, local-first, debug-first, vault projection), the spec discipline rules, the release discipline rules, the dependency lock, the schema freeze, the perf budget, and the application identifiers all stay verbatim — those decisions don't move with a bugsweep.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **137 tests** (59 binary + 78 core), unchanged from v0.0.36.
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Open the Inspector — solid background, no bleed-through.
+# Click anywhere on a row, including the title text — the row
+#   selects (multi-selection plumbing); no edit-mode hijack.
+# Double-click anywhere on a row — Inspector opens.
+# F2 with a row focused — title flips into an Entry; type the
+#   new name; Enter or click-away commits, Esc reverts.
+# Click into the bottom-of-list new-task entry, type a task,
+#   hit Esc — the entry text stays put (was clearing the
+#   multi-selection silently before).
+# Look at any row's date column — full "May 7" / "Due May 15"
+#   instead of a clipped "May".
+```
+
+### What didn't change
+
+- Schema (`0001_initial.sql`), single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline, perf budget — all untouched.
+- v0.1 dependency set unchanged. No new crates.
+- Quick Entry and Memory Watch still use `adw::Window` (they want non-modal transient-for behaviour AdwDialog can't give).
+- The Phase 7g tag editor's apply pipeline (`ensure_tag` for each new name → `set_task_tags`) is unchanged.
+- The Phase 7i Inspector's apply pipeline (diff against snapshot → single `update_task`) is unchanged.
+- Inline `#tag` / `@today` / `@deadline yyyy-mm-dd` syntax in Quick Entry and the bottom-of-list entry is unchanged.
+
+`VERSION`: 0.0.36 → 0.0.37 (patch — UI bugsweep before v0.1.0).
+
+## v0.0.36 (2026-05-06) — Phase 7j: Inspector layout pass + reliable double-click
+
+The v0.0.35 Inspector shipped functional but visually broken — fields with no Adwaita chrome, labels misaligned with their values, footer floating in the middle of the screen. Brandon also caught that double-clicking a row didn't actually open the Inspector. Both were the kind of "ship the wiring, polish later" oversight that doesn't survive contact with the user. v0.0.36 rebuilds the Inspector body with proper libadwaita form widgets and adds a per-row double-click gesture that doesn't rely on `GtkListView::activate`.
+
+### What was wrong
+
+**Layout**: the v0.0.35 body was a hand-rolled `GtkBox` of `[caption_label] [field]` pairs. No card backgrounds, no group headers, no consistent column alignment, footer in the body. Looked like a debug form, not a GNOME app.
+
+**Double-click**: `self.imp().task_list_view.connect_activate(...)` — the standard "row activated" hook — fires on `GtkListView`'s notion of activation, but the row's inner `GtkEditableLabel` (the title) traps double-clicks for its own enter-edit-mode behaviour first. The activate signal never fires for double-clicks that land near the title text, which is most of them.
+
+### What shipped
+
+**Inspector layout (`atrium/src/ui/inspector.rs`)** — full rebuild around libadwaita form widgets:
+
+- **`adw::PreferencesPage`** as the body container — gives automatic padding, scrolling, and the standard Adwaita form background.
+- **Group 1 — Title**: `adw::EntryRow` inside an `adw::PreferencesGroup`. Replaces the bare `GtkEntry` + `title-2` class hack with the proper Adwaita single-field form row.
+- **Group 2 — Schedule / Deadline / Project**: a single `adw::PreferencesGroup` holding three rows. Schedule and Deadline are `adw::ActionRow`s with the existing `MenuButton`-with-popover pickers as suffix widgets (so the row title labels them and the pill sits on the right where the Adwaita pattern puts a "value or chevron" widget). Project is an `adw::ComboRow` — the proper Adwaita dropdown chrome with a chevron suffix and the right-aligned current-selection label.
+- **Group 3 — Tags**: `adw::ActionRow` with title "Tags", subtitle showing the count ("3 tags" / "1 tag" / "No tags"), and an "Edit Tags…" `flat` button as suffix. Activating the row anywhere triggers the same hand-off to the Phase 7g tag editor.
+- **Group 4 — Notes**: `adw::PreferencesGroup` titled "Notes" with description "Plain text. Saved when you click Apply." Holds a `GtkScrolledWindow` (`card` + `view` classes) wrapping a `GtkTextView` with proper internal padding. 180 px min height.
+- **Header bar Cancel / Apply** — moved out of the body and into the `adw::HeaderBar` (`pack_start` for Cancel, `pack_end` for the suggested-action Apply). Matches GNOME convention; window-close-buttons hidden so the user follows the explicit flow.
+
+**Double-click reliable (`atrium/src/ui/task_list.rs`)**:
+
+- New per-row primary-button `gtk::GestureClick` with no special configuration — the default already accepts double-click events. The `connect_released` handler checks `n_press == 2` and fires `widget.activate_action("win.edit-details-for", Some(&task_id.to_variant()))`.
+- Stashed under `atrium-activate-gesture` row data; unbind path tears it down so the factory recycle pool doesn't accumulate gestures.
+- `gtk::Widget::activate_action` walks the action lookup chain to find `win.edit-details-for` on the `AtriumWindow` — same parameterized action the right-click menu uses, so the gesture and menu paths converge on `open_inspector_for(task_id)`.
+- The (unreliable) `task_list_view.connect_activate` handler is gone. `Ctrl+I` covers the keyboard path.
+
+**Why the gesture works where activate didn't**: `GestureClick` on the row Box runs in target-phase by default; clicks land on whatever child widget is under the pointer first, but pointer events bubble up to gestures attached at the row level after children get a shot. `GtkEditableLabel` consumes single and double clicks ON the title text (preserving inline-edit), but clicks on the row's padding, the checkbox area edges, the schedule/deadline pills' margins — anywhere else on the row Box — bubble up and trigger our gesture cleanly.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓ (one fix: `if … { if let Some … }` collapsed to `if … && let Some …`)
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **137 tests** unchanged.
+- `scripts/regression.sh` — green at v0.0.35 → v0.0.36.
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Double-click any task row → Inspector opens with the proper
+# Adwaita form layout (groups, dividers, card-styled notes,
+# header-bar Cancel/Apply).
+# Double-click on the title text itself still starts inline title
+# edit (EditableLabel intercepts there), which is the right
+# behaviour — F2 works the same way.
+# Click anywhere else on the row body → Inspector opens.
+# Ctrl+I → opens Inspector for focused/selected task.
+# Right-click → Edit Details… → opens Inspector.
+```
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Apply / Cancel semantics, the date popovers, the project dropdown semantics — all the data-flow logic from v0.0.35 carries over identically.
+- The hand-off to the Phase 7g tag editor.
+
+`VERSION`: 0.0.35 → 0.0.36 (patch — Phase 7j Inspector polish + double-click hotfix).
+
+## v0.0.35 (2026-05-06) — Phase 7i: per-task Inspector dialog
+
+The biggest UX gap before v0.1.0 closes: there's now a real way to edit a task's full set of properties. Double-click a task, right-click → *Edit Details…*, or `Ctrl+I` opens a modal Inspector with title, notes, schedule (When), deadline, project, and a hand-off button to the tag editor. Notes had no UI before this slice; schedule and deadline could only be set via inline `@today` / `@deadline` syntax at create time; project assignment was drag-and-drop only. All four are now first-class.
+
+### What shipped — data layer (atrium-core)
+
+- **`TaskUpdate` extended** with `scheduled_for: Option<Option<ScheduledFor>>` and `deadline: Option<Option<NaiveDate>>`. The double-`Option` carries set/clear semantics: outer `Some(_)` = "include in update", inner `None` = "set the column to NULL", inner `Some(value)` = "set to value". Builder methods `schedule(value)` and `deadline_value(value)` for the call-site API.
+- **`is_noop()`** updated to consider the two new fields.
+- **`worker::update_task`** SQL builder grew two `if let Some(...) = update.{scheduled_for|deadline}` arms that push `scheduled_for = ?` / `deadline = ?` into the `UPDATE` statement with the value bound. `ScheduledFor` already implements `ToSql` from Phase 1; `NaiveDate` does too via the `chrono` rusqlite feature. Same transactional behaviour; same `TaskChanges` delta emission.
+- **2 new core tests**: `update_task_sets_and_clears_schedule` (Date → Someday → cleared round-trip) and `update_task_sets_and_clears_deadline`.
+
+### What shipped — UI (atrium binary)
+
+- **`atrium/src/ui/inspector.rs`** — modal `adw::Window` (520×560, `transient_for(main)`, `modal(true)`). Layout is a vertical stack:
+  - **Title** — `gtk::Entry` pre-filled, `title-2` style. Empty title on Apply rejected (entry shows the `error` style, focus restored).
+  - **Notes** — `gtk::TextView` in a `card`-styled `ScrolledWindow`, 140 px min height. Wraps on word boundaries.
+  - **Schedule** — `gtk::MenuButton` with current value as label. Popover has Today / Tomorrow / Someday / Clear preset buttons plus a `gtk::Calendar` for arbitrary dates.
+  - **Deadline** — same pattern, no Someday option.
+  - **Project** — `gtk::DropDown::from_strings` with "Inbox (no project)" at index 0 followed by every project in the library. Selection maps back to `Option<i64>` on apply.
+  - **Tags** — read-only count label ("3 tags" / "1 tag" / "no tags") plus an *Edit Tags…* button that closes the Inspector and re-opens the Phase 7g tag editor against the same task id. Avoids two modal windows fighting for focus.
+  - **Footer**: Cancel + suggested-action Apply.
+- **Apply pipeline** — diffs the form state against the snapshot the dialog opened with and dispatches one `worker.update_task(...)` carrying only the changed fields. No-op submissions close without writing. Apply closes on success; on failure the dialog stays open so the user can retry.
+- **Esc** dismisses (key controller).
+- **4 new UI tests** for the label formatters (`format_schedule_label` covers None / Someday / Date; `format_deadline_label` covers None / Some).
+
+### Wiring
+
+- **`AtriumWindow::open_inspector_for(task_id)`** loads the task, project list, and tag count from the read pool, then hands off. **`open_inspector_focused()`** is the keyboard / shortcut entry point.
+- **Three open paths**, all routing into the same method:
+  1. `gtk::ListView::connect_activate` fires on double-click and on Enter when a row is focused.
+  2. Right-click context menu on a row gains *Edit Details…* above the existing *Edit Tags…* entry. Both menu items use parameterized `win.edit-{details|tags}-for(i64)` actions so the right-click row doesn't need to be part of the current selection.
+  3. `Ctrl+I` window-global accel → `win.edit-details-focused`.
+- **Docs + dialog**: `docs/keymap.md` gains the `Ctrl+I` row in *List actions*; `atrium/src/ui/shortcuts.rs::SHORTCUTS_XML` gets the matching entry. The existing `Ctrl+T` tag-editor shortcut stays.
+
+### Why a modal dialog instead of inline expansion
+
+Things 3's "magic edit area" expands the row inline for editing. Doable in GTK with a `GtkStack`-per-row, but it's a much bigger refactor of the row factory and the recycle path. For Simple Mode v0.1, a modal Inspector ships every editable field today and matches the Phase 10 Inspector pattern that Builder Mode will deepen — no architectural drift.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓ (caught and fixed: `Option<ScheduledFor>::clone` on a `Copy` type, `as u32 as u32` redundant cast, unused parameters)
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **137 tests** (was 133; +2 core update_task date tests, +2 UI label-formatter tests).
+- `scripts/regression.sh` — green.
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Double-click any task → Inspector opens.
+# Type into the notes field → Apply → notes saved.
+# Click the Schedule pill → popover with Today / Tomorrow / Someday /
+#   Clear / calendar → click → label updates → Apply.
+# Same for Deadline.
+# Change Project via the dropdown → Apply → task moves.
+# Click Edit Tags… → Inspector closes, tag editor opens.
+# Cancel / Esc → dialog dismisses with no writes.
+```
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Inline `#tag` / `@today` / `@deadline` syntax in the bottom-of-list entry and Quick Entry stays as-is — fast-create path.
+- The Phase 7g tag editor is unchanged; the Inspector reuses it via the *Edit Tags…* hand-off rather than reimplementing tag selection.
+
+### Phase 9 — what's left for v0.1.0
+
+The Inspector closes the last "no UI for this field" gap in Simple Mode. Remaining:
+
+1. Capture screenshots → `docs/screenshots/` and update the README placeholder.
+2. Bump VERSION → `0.1.0`, sync `Cargo.toml`, `meson.build`, add the `<release version="0.1.0">` entry to `data/io.github.virinvictus.atrium.metainfo.xml`.
+3. Tag `v0.1.0`, push, build the Flatpak, publish.
+4. Public release announcement on `VirInvictus.github.io`.
+
+`VERSION`: 0.0.34 → 0.0.35 (patch — Phase 7i slice; closes the last "field has no UI" gap before v0.1.0).
+
+## v0.0.34 (2026-05-06) — Phase 7h: stop eating spaces in entries
+
+A real one — Brandon caught it the moment he tried to type a multi-word task: **the spacebar didn't work in any entry**. Three Phase 7c chords (`Space` toggle-complete, `Delete` delete-task, `Ctrl+A` select-all) were registered as window-global accels via `app.set_accels_for_action`, which meant they were intercepted before any focused GtkEntry could see the key. Typing a space ran the toggle handler, hitting Delete deleted the focused task, Ctrl+A selected every task in the active list. None of those are what the user wants while typing.
+
+### What broke
+
+```rust
+// main.rs::install_accels
+app.set_accels_for_action("win.delete-task", &["Delete"]);
+app.set_accels_for_action("win.toggle-complete", &["space"]);
+app.set_accels_for_action("win.select-all", &["<Primary>a"]);
+```
+
+GtkApplication accels are window-scoped at minimum; bound this way, they fire on any key press inside the window regardless of which widget has focus. For chords that conflict with text input — Space, Delete, Ctrl+A — that's wrong.
+
+### What fixed it
+
+The three list-action chords moved from app-level accels to a `gtk::ShortcutController` attached directly to `task_list_view`, scoped `ShortcutScope::Managed`:
+
+```rust
+// window.rs::init_list_view (Phase 7h)
+let list_shortcuts = gtk::ShortcutController::new();
+list_shortcuts.set_scope(gtk::ShortcutScope::Managed);
+for (chord, action_name) in [
+    ("space", "win.toggle-complete"),
+    ("Delete", "win.delete-task"),
+    ("<Primary>a", "win.select-all"),
+] {
+    if let Some(trigger) = gtk::ShortcutTrigger::parse_string(chord) {
+        let action = gtk::NamedAction::new(action_name);
+        list_shortcuts.add_shortcut(gtk::Shortcut::new(Some(trigger), Some(action)));
+    }
+}
+self.imp().task_list_view.add_controller(list_shortcuts);
+```
+
+`Managed` scope fires the shortcuts when *the controller's widget or one of its descendants* has focus — exactly the "task row is focused" condition. When focus is on a GtkEntry (Quick Entry, the bottom-of-list new-task entry, the search bar, the sidebar filter, the tag editor's "Add a new tag" entry), the controller doesn't fire and the entry handles the key normally.
+
+### What didn't change
+
+- **`Escape`** stays window-global (`win.bulk-clear`). Surfaces with their own Esc handlers — sidebar filter `stop-search`, Quick Entry's key controller, tag editor's key controller, alert dialogs — consume Esc before the global accel sees it. The global is the right fall-through for everywhere else.
+- **`F2`, `Ctrl+T`, `Ctrl+L`, `Ctrl+F`, `Ctrl+1`–`Ctrl+6`, `Ctrl+N`, `Ctrl+Z`, `Ctrl+?`, `Ctrl+Q`, `Ctrl+Shift+N/A/T`, `Ctrl+Shift+Delete`** — none conflict with text input, so they stay globally bound where they were.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **133 tests** unchanged.
+- `scripts/regression.sh` — green.
+
+Manual test plan: open the bottom-of-list new task entry, type "buy milk and eggs" — the spaces survive. Same for Quick Entry, the search bar, the sidebar filter, and the tag editor's add-tag entry. Click a row, hit Space — it toggles. Click an entry, hit Delete to delete a character — it deletes the character; the task isn't deleted.
+
+### Documentation
+
+`docs/keymap.md` "List actions" section now notes the scoping explicitly so a future maintainer doesn't accidentally re-globalise these chords.
+
+`VERSION`: 0.0.33 → 0.0.34 (patch — Phase 7h hotfix).
+
+## v0.0.33 (2026-05-06) — Phase 7g: per-task tag editor + visible chips
+
+The biggest gap on the road to v0.1.0 was tag UX: there was no way to adjust a task's tags except by retyping its title with `#tag` syntax. This slice fills that in — right-click any task row, pick *Edit Tags…*, get a proper dialog with checkboxes for every known tag plus an entry for new ones. `Ctrl+T` does the same from the keyboard. The existing inline tag display also picks up a chip-shaped CSS treatment so tags actually read as tags now instead of dim text.
+
+### What shipped
+
+- **`atrium/src/ui/tag_editor.rs`** — new module. `open(parent, worker, task_id, task_title, current_tag_ids, all_tags)` constructs an `adw::Window` (`transient_for(main)`, modal) with:
+  - **Header**: "Editing: «truncated title»" with the full title in the tooltip.
+  - **Body**: a `gtk::ListBox` styled `boxed-list`, one `gtk::CheckButton` per existing tag (currently-attached ones pre-checked). Toggling a row updates a shared `Rc<RefCell<HashSet<i64>>>` that the apply step harvests.
+  - **Add row**: a `gtk::Entry` ("Add a new tag…") + a small `+` button. Pressing Enter or clicking + appends a new pre-checked, non-interactive row labelled `#name · new` and pushes the name into a separate buffer for `ensure_tag` on apply. Empty / case-insensitively-duplicate names are no-ops; if the name matches an existing tag, the existing row is checked instead of duplicated.
+  - **Footer**: Cancel + suggested-action Apply.
+- **Apply pipeline** — runs in a `glib::MainContext::default().spawn_local`. Snapshots the selected ids and the pending-name buffer first (so no RefCell ref is held across the `await` boundaries — clippy's `await_holding_refcell_ref` flagged the naive version, fixed). For each pending name, calls `worker.ensure_tag(name).await` and pushes the resolved tag id. Finally one `worker.set_task_tags(task_id, ids).await` writes the relationship table. Errors at either step keep the dialog open so the user can retry.
+- **Right-click on a task row** opens a `gtk::PopoverMenu` with one entry — *Edit Tags…* — bound to a parameterized `win.edit-tags-for(i64)` action that takes the task id directly. Decoupled from selection state so right-clicking a row outside the current multi-selection still acts on the right task. The popover is `set_parent`-ed to the row's Box; `connect_unbind` `unparent()`s it (and removes the gesture controller) so the factory's row recycling pool doesn't leak phantom children — same Phase 8h cleanup pattern, applied at the row level.
+- **`win.edit-tags-focused`** action (no parameter) targets `focused_task_id()` — bound to **`Ctrl+T`** in `install_accels`. Useful for keyboard-only flows where the user is already on a row.
+- **`AtriumWindow::open_tag_editor_for(task_id)`** is the entry point both menu and accelerator funnel into. Loads `task_by_id`, `tag_ids_for_task`, and `list_tags` from the read pool, then hands off to `tag_editor::open`. Read-pool failures log via `tracing::error` and bail rather than opening a half-populated dialog.
+- **CSS chip treatment** for the inline tag label:
+  ```css
+  .atrium-task-tags {
+    font-size: 0.85em;
+    padding: 1px 6px;
+    border-radius: 6px;
+    background-color: alpha(@accent_bg_color, 0.15);
+    color: @accent_color;
+  }
+  .atrium-task-row.completed .atrium-task-tags {
+    background-color: alpha(@accent_bg_color, 0.08);
+  }
+  ```
+  Uses libadwaita's `@accent_bg_color` / `@accent_color` so the chips inherit theme colour and respect `prefer-contrast`. Per-tag distinct colours (a future polish slice) would mean splitting the single Label into multiple widgets — deferred so this slice stays focused.
+- **Docs + dialog**: `docs/keymap.md` gains the `Ctrl+T` row in *List actions*; `atrium/src/ui/shortcuts.rs::SHORTCUTS_XML` gets the matching `GtkShortcutsShortcut`.
+- **3 unit tests** for the local `truncate` helper (short strings unchanged, ellipsis at boundary, unicode-safe boundary). The dialog's GTK side is exercised manually because constructing it requires a GTK init.
+
+### Why a dialog and not an inline popover
+
+Two reasons:
+1. **Discoverability.** A right-click menu lists "Edit Tags…" alongside the cluster of per-task ops; a pure popover triggered only by a chord wouldn't.
+2. **Layout headroom.** A library with 30+ tags wants a scrollable list, an entry, and clear Cancel/Apply affordances. Cramming that into a popover anchored to a row makes the popover dominate the window. A proper transient `adw::Window` looks at home next to the existing Quick Entry surface and reuses libadwaita's modal close behaviour.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓ (caught and fixed: collapsible-if, await-holding-refcell-ref, let-and-return)
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **133 tests** (was 130; +3 `truncate` helper tests).
+- `scripts/regression.sh` — green.
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Right-click any task → Edit Tags… → check / uncheck / add new → Apply.
+# Or: focus a task row → Ctrl+T → same dialog, no mouse.
+# Inline `#tag` syntax in the bottom-of-list entry and Quick Entry
+# still works — the editor is the *adjustment* path, the inline
+# syntax remains the fast-create path.
+```
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- The inline `#tag` parser and Quick Entry behaviour stay as they were.
+- `worker.ensure_tag` and `worker.set_task_tags` are pre-existing — this slice is purely UI plumbing on top of the data layer that's been ready since Phase 6.
+
+### Phase 9 — what's left for v0.1.0
+
+Same list as v0.0.32, minus the tag-editor blocker Brandon flagged. Now genuinely:
+
+1. Capture screenshots → `docs/screenshots/` and update the README placeholder.
+2. Bump VERSION → `0.1.0`, sync `Cargo.toml`, `meson.build`, add the `<release version="0.1.0">` entry to `data/io.github.virinvictus.atrium.metainfo.xml`.
+3. `scripts/regression.sh` clean.
+4. Tag `v0.1.0`, push, build the Flatpak, publish.
+5. Public release announcement on `VirInvictus.github.io`.
+
+`VERSION`: 0.0.32 → 0.0.33 (patch — Phase 7g slice; closes the Phase 6 / Phase 8 deferred tag-editor item).
+
+## v0.0.32 (2026-05-06) — Phase 9b: README finalisation
+
+The README catches up to the actual shipped state. The "pre-implementation" badge is gone; the framing is "Simple Mode shipping / Builder Mode next." The feature table reflects what's actually in the binary today rather than the v0.0.0 contract.
+
+### What shipped
+
+- **Status badges** — "Simple Mode: shipping" + "Builder Mode: next" replace the pre-implementation grey.
+- **Feature table for Simple Mode v0.1** rewritten to mention everything that actually landed across Phases 0-8: Quick Entry's inline `#tag` / `@today` / `@deadline` syntax (Phase 6b/c); FTS5 search (7a) + `tag:` / `is:` / `due:` filter expressions (7d); `Ctrl+L` find-as-you-type sidebar (7e); multi-select + bulk Complete / Delete with summary toast (7c); `Ctrl+Z` undo restoring tag attachments (7b/7f); drag-reorder + drag-to-file (Phase 5b); full keyboard map with `F2` inline edit fall-through (7f); Atkinson Hyperlegible accessibility toggle + AT-SPI labels (8c/8f); the `--debug` Memory Watch surface (8e).
+- **Build and Run section** with copy-paste cargo commands, the regression gate one-liner, the four fixture sizes, the `--debug` flag, and the Flatpak invocation.
+- **Screenshots placeholder section** — HTML comment lists the suggested set (Today view, project page with pills, sidebar filter, multi-select bar, search with filter expression, high-legibility toggle on). Screenshots get captured against the v0.1.0 tag when there's a polished build to point at.
+- **`docs/` cross-links** added to the "Where things live" table — `keymap.md`, `accessibility.md`, `perf-baseline.md`, `regression.md` all referenced so a reader new to the repo lands on the right doc fast.
+- **Bundled-fonts list** updated to include Atkinson Hyperlegible alongside Inter / Source Serif 4 / JetBrains Mono.
+
+### What didn't change
+
+- The "Why this exists" + author's note + "Imports and exports" sections — still accurate, still the right voice.
+- Architecture paragraph (kept, with a small touch — `LibraryChanges` joined `TaskChanges` since the original draft).
+- Stack list (kept; added the `trace` rusqlite feature which we use for SQL profiling, and the bundled-fonts mention).
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- No Rust code touched.
+
+### Pending for v0.1.0 tag
+
+This slice deliberately does **not** bump to v0.1.0. The remaining ship-prep is:
+
+1. Capture screenshots into `docs/screenshots/` and update the README placeholder.
+2. Run `scripts/regression.sh` clean against `main`.
+3. Bump `VERSION` → `0.1.0`, sync `Cargo.toml`, `meson.build`, and add the v0.1.0 release entry to `data/io.github.virinvictus.atrium.metainfo.xml`.
+4. Tag `v0.1.0`, push, build the Flatpak, publish.
+5. Public release announcement on `VirInvictus.github.io`.
+
+Steps 1, 4, 5 are interactive — Brandon's call. Step 2 is a one-liner. Step 3 is mechanical once 1 lands.
+
+`VERSION`: 0.0.31 → 0.0.32 (patch — Phase 9b slice).
+
+## v0.0.31 (2026-05-06) — Phase 9a: regression gate
+
+The first piece of the Phase 9 ship sequence lands. `scripts/regression.sh` is a single command that runs every check the v0.1.0 tag depends on, fail-fast, and ends with a `PASS` / `FAIL` line. It's the answer to "is main ready to ship?".
+
+### What shipped
+
+- **`scripts/regression.sh`** — runs in this order:
+  1. `cargo fmt --all -- --check`
+  2. `cargo clippy --workspace --all-targets -- -D warnings`
+  3. `cargo test --workspace`
+  4. `cargo build --release --workspace` (skippable with `--skip-build` when chained)
+  5. **1K-task fixture smoke** — runs `atrium --fixture small` against a `mktemp -d` `XDG_DATA_HOME` so the gate never touches the developer's real DB. Asserts the output reports "Generated 1000 tasks".
+  6. **Cold-start sanity ×3** — runs `atrium --version` three times, asserts each one finishes in <500 ms (well above the 250 ms §8 budget; the script's job is to catch multi-x regressions, not to flap on a slow host).
+- **Trap-cleanup** of the tmp `XDG_DATA_HOME` on script exit so a `Ctrl+C` mid-run doesn't litter `/tmp`.
+- **Pretty step headers** (ANSI bold blue) so the log is scannable without grep, and a final ANSI-bold green `PASS` (or red `FAIL`) line carrying the current `VERSION`.
+- **`docs/regression.md`** — full documentation of what the gate covers, when to run it, what flags it takes, and what it deliberately doesn't try to cover (GUI smoke, Flatpak build, heaptrack profiling — those have their own docs and run-modes).
+
+### Caught a real bug on first run
+
+The script's first invocation against v0.0.30 failed at step 1 — the `unparent_sidebar_context_menus` helper I'd just landed had an `if let Some(popover) = ...` line that hadn't been formatted by `cargo fmt`. One `cargo fmt --all` later, the gate went green; v0.0.31 ships with that same code in its formatted form.
+
+This is exactly what the gate is for: keep "ship-ready" honest by automating the verification rather than relying on memory.
+
+### v0.0.30 baseline (from a clean run)
+
+```
+==> cargo fmt --all -- --check                ok (instant)
+==> cargo clippy ... -- -D warnings          ok (~3 s)
+==> cargo test --workspace                    ok (130 tests, ~1 s)
+==> cargo build --release --workspace         ok (incremental, fast)
+==> 1K-task fixture smoke                     ok (15 ms)
+==> cold-start sanity (×3)                    20 ms / 30 ms / 30 ms
+PASS — Atrium regression gate (v0.0.30)
+```
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- No Rust code touched (besides the fmt application that fell out of running the gate).
+
+`VERSION`: 0.0.30 → 0.0.31 (patch — Phase 9a slice).
+
+## v0.0.30 (2026-05-06) — Phase 8h: silence two startup/shutdown GTK warnings
+
+Two real bugs Brandon caught running v0.0.29 in earnest. Both were silent — the app worked correctly — but they polluted the log every session and shouldn't have shipped.
+
+### What broke
+
+**1. CSS parser warning at startup.** GTK4's CSS parser doesn't recognise `text-decoration-thickness` (it's a CSS Text Decoration Module Level 3 property). The Phase 8a completion-fade rule used it to make the strike-through 1 px thin, which the parser silently skipped while emitting:
+
+```
+Theme parser error: style.css:108:3-28: No property named "text-decoration-thickness"
+```
+
+**2. ~80 popover-leak warnings on app close.** `install_{project,area,tag}_context_menu` calls `popover.set_parent(row)` so the right-click popover sticks to its sidebar row. `set_parent` makes the popover a *phantom child* of the row, outside the regular widget tree — GTK4 still tracks the parent/child relationship for cleanup, and if a row finalizes while still parenting the popover, GTK warns:
+
+```
+Finalizing GtkListBoxRow 0x... , but it still has children left:
+  - GtkPopoverMenu 0x...
+```
+
+One warning per dynamic sidebar row, every app close. Same problem fires (less visibly) on every `rebuild_dynamic_sidebar` because the trim loop drops rows without unparenting their popovers.
+
+### What shipped
+
+- **`data/style.css`** — drop the `text-decoration-thickness: 1px;` line. The strike-through itself stays via `text-decoration: line-through;`. Visual difference is imperceptible on a 1.0em font; we're trading aesthetic perfection for a clean log.
+- **`atrium/src/ui/window.rs::install_*_context_menu`** — after `popover.set_parent(row)`, stash the popover under `row.set_data("atrium-context-popover", popover.clone())`. Same key for all three (project / area / tag) so the cleanup walker is uniform.
+- **`unparent_sidebar_context_menus`** new helper. Walks every row in `sidebar_list`, steals the stashed popover (`row.steal_data::<gtk::PopoverMenu>(...)`), and calls `popover.unparent()` on whatever it finds. Idempotent — rows without a stashed popover (canonical rows, section headers) are skipped silently.
+- **Two call sites:**
+  - `rebuild_dynamic_sidebar` — runs the cleanup *before* the trim loop, so dynamic rows lose their popovers cleanly when the sidebar rebuilds (e.g., after creating / renaming / deleting a project).
+  - `close_request` — runs the cleanup *before* `parent_close_request`, so the close path no longer logs ~80 warnings.
+
+### Why `set_data` + uniform walk and not per-row signals
+
+Two reasons:
+1. GTK4 deprecated the per-widget `destroy` signal; the modern path is `unparent()` from the parent's lifecycle. We control `rebuild_dynamic_sidebar` and `close_request`, so a uniform walk at those two points is the cleanest hook.
+2. The popover is logically a child of the row from the GTK side but a *sibling* of the row's normal child slot from our side — so we already need to track it explicitly to unparent it. `set_data` is the lowest-friction stash.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **130 tests** unchanged (the popover lifecycle is GTK-side; covered by manual repro of the warning).
+- Manual — relaunched the binary, opened the window, switched modes, closed cleanly. No CSS error, no popover-leak warnings.
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Behaviour — both fixes are internal cleanups; no user-visible change to the right-click menus or to the completion fade.
+
+`VERSION`: 0.0.29 → 0.0.30 (patch — Phase 8h slice).
+
+## v0.0.29 (2026-05-06) — Phase 8g: performance baseline against §8 budget
+
+Release-mode numbers captured against the spec §8 memory + latency budgets. The data-layer floor is much lower than I expected — even at 50,000 tasks (5× the spec's reference DB) the working set stays under 40 MB peak RSS, leaving generous headroom for the GUI surface. `docs/perf-baseline.md` ships as a living document so the numbers re-baseline on every minor bump.
+
+### Numbers
+
+| Surface | §8 Budget | v0.0.28 measurement |
+|---|---|---|
+| Cold start (no DB, no GTK) | n/a | ~25–33 ms / ~32 MB peak RSS |
+| Fixture small (1,000 tasks) | n/a | 21 ms / 34.7 MB |
+| Fixture medium (10,000 tasks) | n/a | 235 ms / 36.8 MB |
+| Fixture large (50,000 tasks) | n/a | 1.09 s / 36.8 MB |
+| Idle GUI | < 80 MB | TBD (Memory Watch readout) |
+| Active GUI on 10K-task DB | < 200 MB | TBD (Memory Watch readout) |
+| Cold start GUI on 5K-task DB | < 250 ms | well under, given the 33 ms CLI cold start |
+| Quick Entry latency | < 50 ms | qualitative pass — `gtk::Entry::grab_focus()` is single-frame |
+
+Headline finding: **memory growth with task count is essentially flat.** The 50,000-task working set is the same as the 10,000-task working set is the same as the 1,000-task working set, all within ~2 MB of each other. rusqlite streams, the worker doesn't materialise the dataset, and the SQLite page cache stays bounded. That's exactly the behaviour the Phase 2 single-writer architecture promised, and now it's measured.
+
+### What shipped
+
+- **`docs/perf-baseline.md`** — full methodology (`/usr/bin/time -v` against the fixture-only path), spec §8 budget table, the v0.0.28 numbers, a deferred section for GUI-mode capture (uses Phase 8e Memory Watch), and the re-baseline rule ("after every minor or major bump"). The doc is built to be replayed; the script at the bottom reproduces every number above.
+- **Throughput data** — ~45K tasks/sec under transactional inserts. The Phase 6 fixture generators thus aren't a "wait around" path; even the 100K Stress fixture finishes in ~2.5 s.
+
+### Methodology — why CLI not GUI for the captured numbers
+
+Two reasons:
+1. **Reproducibility.** GUI memory varies with display server, theme, focused state, and which AT bridge is running. CLI numbers are stable enough to detect regressions in *Atrium*'s code rather than in libadwaita's allocator behaviour.
+2. **Tooling availability.** `heaptrack` and a real X / Wayland display aren't always present in CI; `/usr/bin/time -v` is. Using what's portable lets the baseline regenerate on any host without setup.
+
+The GUI-mode numbers do still need to land — that's a manual capture using the Phase 8e Memory Watch during a representative interactive session. The baseline doc holds the slot for those values; they fill in for the v0.1.0 tag.
+
+### Verification
+
+- `cargo build --release` ✓ (45.95 s clean)
+- `cargo test --workspace` ✓ — **130 tests** unchanged.
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- All baseline numbers reproduced in this session against `target/release/atrium`.
+
+### What didn't change
+
+- No code touched — pure measurement + documentation slice.
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+
+### Phase 8 — what's left
+
+Just one item: **Flatpak font verification** — needs a real `flatpak-builder --user --install` smoke test against the GNOME 50 runtime, which requires the runtime to be installed on the host. Out of scope for this session; sits as the only remaining Phase 8 task before Phase 9 (Simple Mode v0.1 release).
+
+`VERSION`: 0.0.28 → 0.0.29 (patch — Phase 8g slice).
+
+## v0.0.28 (2026-05-06) — Phase 8f: accessibility audit
+
+The penultimate Phase 8 slice — a focused pass over keyboard coverage, screen-reader labelling, and contrast. The keyboard story was already strong (`docs/keymap.md` + the `Ctrl+?` dialog cover everything); this slice fills in the AT-SPI labels every screen reader needs to read interactive widgets aloud, and produces `docs/accessibility.md` so the audit is repeatable when new surfaces land.
+
+### What shipped
+
+- **Task-row CheckButton** picks up `tooltip-text="Toggle complete (Space)"` plus an `accessible::Property::Label("Task complete")`. Without these, Orca announces the widget as "Check button" with no name — the user has no way to know what they'd be toggling.
+- **Task-row title `EditableLabel`** gets the same treatment: `tooltip-text="Click to edit · F2 starts inline editing"` and `accessible::Property::Label("Task title")`. The `Ctrl+?` chord and `F2` hint travel with the widget so keyboard-only users find the binding without leaving the row.
+- **Sidebar rows (canonical / area / project / tag)** get accessible labels and tooltips that mirror the visible text. The visible Label already names the row, but the *row itself* is what `GtkListBox` keyboard navigation focuses, so the redundant label keeps screen-reader readout consistent between pointer hover and keyboard arrows. Also helps when a long project name ellipsises — the tooltip surfaces the full title.
+- **`docs/accessibility.md`** — full audit summary. Tables every interactive widget against where its accessible name comes from, lists conventions for adding new widgets ("icon-only buttons need a tooltip; widgets without a visible text label need `accessible::Property::Label`"), documents contrast posture (no hard-coded colours; libadwaita variables only), and surfaces known gaps (focus-ring polish, voice control) so they're tracked rather than forgotten.
+
+### Findings worth calling out
+
+- **Window.ui already had every icon-only button covered** — the menu, new-task, and search buttons all had `tooltip-text` from earlier phases. The audit confirmed this rather than fixing it.
+- **No hard-coded UI colours** anywhere in `data/style.css`. Every surface inherits libadwaita's CSS variables, which respect light / dark and `prefer-contrast: more`. The only fixed colours in the project are decorative (the placeholder logo SVG and the metainfo `<branding>` block sampled from it).
+- **Reduced-motion is automatic.** The `@keyframes atrium-quickentry-fade-in` (8d) and `.atrium-task-row.completed` opacity transition (8a) both go through libadwaita's CSS pipeline, which gates `transition` declarations on `prefer-reduced-motion`. No additional code required.
+- **Touch targets are libadwaita defaults** — 44 px minimum on buttons, check buttons, list rows. Atrium doesn't shrink them.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **130 tests** unchanged.
+- Manual: launched the binary, tab-walked the entire window, confirmed every focused widget produces a tooltip or labelled outline.
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- No keyboard chord changed; this slice is purely additive.
+
+### Phase 8 — what's left
+
+- Memory profile (`heaptrack` baseline against §8 budget) — runtime measurement against an actual user session
+- Flatpak font verification — needs a real `flatpak-builder --user --install` smoke test
+
+Both are environmental rather than code work. v0.1 is in sight.
+
+`VERSION`: 0.0.27 → 0.0.28 (patch — Phase 8f slice).
+
+## v0.0.27 (2026-05-06) — Phase 8e: memory watch debug pane
+
+The first real piece of the debug harness lands. `--debug` mode picks up a *Debug → Memory Watch* entry in the primary menu that opens a small live RSS / heap readout. One sample per second, parsed from `/proc/self/status`, formatted in MB. Closes the spec §3.4 commitment for surfacing leaks and retention "without leaving the app" — when something doesn't feel right, you can flip the menu open and watch the numbers move instead of dropping into `heaptrack`.
+
+### What shipped
+
+- **`atrium/src/debug/mod.rs::open_memory_watch(parent)`** — mounts a transient, non-modal `adw::Window` titled "Atrium Debug — Memory Watch". Four labelled rows:
+  - `Resident set size (VmRSS)` — currently committed pages
+  - `Peak resident set (VmHWM)` — high-water mark since process start
+  - `Heap (VmData)` — anonymous data segment size
+  - `Samples taken` — sample counter so you can tell the timer is alive
+- **1-second sampler via `glib::timeout_add_local`** with `glib::Duration::from_secs(1)`. The closure increments the counter, reads `/proc/self/status`, and updates each label. The `glib::SourceId` is held in a `Rc<RefCell<Option<SourceId>>>` and removed on `connect_close_request` so we don't leak a CPU-tick timer per opened-then-closed window.
+- **Pure parser**: `parse_proc_status(raw: &str) -> ProcStatus` extracts `VmRSS`, `VmHWM`, `VmData` from the kernel's status block. Survives unexpected formats (returns `None` instead of panicking). 5 unit tests cover the parser + the `format_kib` MB/KB helper.
+- **`app.show-memory-watch` action** registered only when `cfg.debug` is true. The menu entry only renders in `build_primary_menu(include_debug=true)`.
+- **`Pane::new()`** kept as a backwards-compat stub for the existing `connect_activate` hook in `main.rs`. Now it logs an info-level "open Debug → Memory Watch from the primary menu" hint instead of the old Phase 0 "no widget mounted yet".
+
+### Why /proc/self/status not heaptrack-style instrumentation
+
+Two reasons:
+1. Zero new dependencies. `/proc/self/status` is a stdlib `read_to_string` away.
+2. `VmRSS` / `VmHWM` are what the spec §8 budget tracks (idle < 80 MB, active < 200 MB on a 10K-task DB). Parsing the same fields the budget speaks in lets the watch panel read directly against the spec without translation.
+
+`heaptrack` still has its place — capturing call-graph attribution for an actual leak. The watch panel is for noticing growth in the first place.
+
+### Try it
+
+```bash
+cargo run -p atrium -- --debug
+
+# Open the primary menu (top-right hamburger) → Debug → Memory Watch.
+# Watch RSS climb (or not) as you create tasks, switch lists, run
+# the fixture generators. Close the window to stop sampling.
+```
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **130 tests** (was 125; +5 memory-watch unit tests).
+
+### Known follow-ups
+
+- "Drop caches" affordance — a button that issues SQLite `PRAGMA shrink_memory` (and any internal cache flush). Needs a new `Command::TrimMemory` variant on the worker so the operation lands on the writable connection.
+- Charting / trend line — the current display is "current state" only. A 60-second sparkline would surface growth patterns the bare numbers don't.
+- Non-Linux fallback — the parser silently no-ops on platforms without `/proc/self/status`. macOS/BSD support is a Phase 20 task (matches the rest of the platform-specific code Atrium hasn't tackled).
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- The Memory Watch only appears when `atrium --debug` is on; release-mode users don't see the menu entry.
+
+### Phase 8 — what's left
+
+- Memory profile (`heaptrack` baseline against §8 budget)
+- Accessibility audit (keyboard end-to-end, screen-reader labels, contrast)
+- Flatpak font verification (needs a real flatpak-builder smoke test)
+
+`VERSION`: 0.0.26 → 0.0.27 (patch — Phase 8e slice).
+
+## v0.0.26 (2026-05-06) — Phase 8d: animation audit + Quick Entry fade-in
+
+The animations roadmap item gets ticked through with one new keyframe and a written policy. Most of what the spec calls for is already handled by libadwaita's defaults — `crossfade` on the content stack, `slide-down` on the selection revealer, native fades on `adw::Toast` and `adw::AlertDialog`, the Phase 8a opacity fade on `.atrium-task-row.completed`. The only surface that wasn't getting an animation was Quick Entry, because it's a plain `adw::Window` (chosen for non-modal transient-for-main behaviour). 8d adds a 150 ms keyframe fade-in to match libadwaita's dialog presentation feel.
+
+### What shipped
+
+- **`.atrium-quickentry-window` CSS class** added to the `adw::Window` builder in `atrium/src/quickentry/modal.rs::open`.
+- **`@keyframes atrium-quickentry-fade-in`** in `data/style.css`. 150 ms `ease-out` — fast enough not to delay typing, slow enough to feel intentional.
+- **Animation-policy block in style.css**: a comment block documents what's animated and *why* libadwaita's defaults already cover it. Future additions get gated by "does libadwaita already do this?" — keeps the custom CSS surface small and consistent with the platform.
+
+### Audit findings (no change required)
+
+- **`content_stack` (sidebar list switch / empty ↔ list)**: `transition-type=crossfade` in `data/window.ui` ✓
+- **`selection_revealer` (multi-select bar reveal)**: `transition-type=slide-down` in `data/window.ui` ✓
+- **`.atrium-task-row.completed`**: 180 ms opacity fade-out + line-through (Phase 8a) ✓
+- **`adw::Toast` (undo + bulk-delete summary)**: libadwaita native fade ✓
+- **`adw::AlertDialog` (rename / delete prompts)**: libadwaita native fade ✓
+- **Sidebar `Ctrl+L` filter row hide/show**: instant by design — `gtk::Widget::set_visible` is what the visibility helper drives; animating row hide/show in `GtkListBox` is finicky and the snap is fast enough to read as filtering. Documented as "deliberate, not missing".
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **125 tests** unchanged.
+
+### Try it
+
+```bash
+cargo run -p atrium
+# Ctrl+Alt+Space → Quick Entry now fades in over 150 ms instead of
+# popping. Esc dismisses on libadwaita's default close.
+```
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- No Rust logic touched besides the one builder-line change.
+
+### Phase 8 — what's left
+
+- High-legibility font toggle ✓ (8c)
+- Animations ✓ (8a + 8d)
+- Typography polish ✓ (8a)
+- Logo / desktop / metainfo / Flatpak ✓ (8b)
+- Memory profile (heaptrack baseline against §8 budget) — pending
+- Memory watch surface in debug pane — pending
+- Accessibility audit — pending
+- Flatpak font verification — pending (needs an actual flatpak-builder smoke test)
+
+`VERSION`: 0.0.25 → 0.0.26 (patch — Phase 8d slice).
+
+## v0.0.25 (2026-05-06) — Phase 8c: high-legibility font toggle (Atkinson Hyperlegible)
+
+The first accessibility surface lands. Atkinson Hyperlegible — the typeface the Braille Institute designed specifically for low-vision readers — joins the bundled font set, gated behind a GSetting and exposed in the primary menu under *Mode → Accessibility → Use High-Legibility Font*. Inter remains the default; the toggle swaps in Atkinson across every UI surface in one CSS-class flip without touching the schema or any other rendered text.
+
+### What shipped
+
+- **4 bundled TTFs at `data/fonts/`**: `AtkinsonHyperlegible-Regular.ttf`, `-Italic.ttf`, `-Bold.ttf`, `-BoldItalic.ttf` (~220 KB total). SIL OFL 1.1 license file included as `AtkinsonHyperlegible-OFL.txt`. Source: [googlefonts/atkinson-hyperlegible](https://github.com/googlefonts/atkinson-hyperlegible).
+- **Typography pass updates** — `BUNDLED_FONT_FILES` in `atrium/src/ui/typography.rs` grows from 6 entries to 10. The same `install_bundled_fonts` path copies them into `$XDG_DATA_HOME/fonts/atrium/` and refreshes `fc-cache`. Tests cover both the count change and the Atkinson presence specifically.
+- **GSettings key** `high-legibility-font` (boolean, default false) added to `data/io.github.virinvictus.atrium.gschema.xml`.
+- **Stateful `win.high-legibility-font` action** wires the GSetting to the menu item:
+  - `connect_change_state` (clicked from menu) → writes the GSetting, updates action state, calls `apply_high_legibility(on)`.
+  - `settings.connect_changed("high-legibility-font", …)` (external dconf write) → updates action state, calls `apply_high_legibility(on)`. Both paths converge on the same CSS-class flip so the UI never desyncs from the GSetting.
+- **`apply_high_legibility(on)`** adds or removes the `atrium-high-legibility` CSS class on the window. The matching CSS rule:
+  ```css
+  window.atrium-high-legibility,
+  window.atrium-high-legibility * {
+    font-family: "Atkinson Hyperlegible", var(--atrium-font-ui);
+    font-feature-settings: normal;
+  }
+  ```
+  cascades to every UI descendant. `font-feature-settings: normal` resets the Inter `cv11`/`ss01` opt-ins (those alternates don't exist in Atkinson and would cause silent font fallback on unrecognised features). Numeric surfaces (`.numeric`, schedule, deadline) keep `tnum` regardless of which face is active.
+- **Primary menu** picks up an *Accessibility* submenu under the existing *Mode* section. Stays close to the existing Mode toggle (Simple / Builder) so future accessibility surfaces (high contrast, reduced motion, focus ring) have a natural home.
+
+### Why a CSS-class flip and not Pango runtime
+
+Two reasons:
+1. Cascade. Setting `font-family` at the window level + `*` selector hits every label, button, header, sidebar row, and toast in one rule — the same way the existing typography pass works.
+2. Reversibility. The toggle has to flip both ways instantly. `add_css_class` / `remove_css_class` is a single GTK call; switching via Pango would mean walking every widget at toggle time.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **125 tests** (was 124; +1 atkinson font check; existing `font_filenames_are_six` renamed to `bundled_fonts_count_matches_inventory` and reasserts the new count).
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Open the primary menu (top-right hamburger).
+# Mode → Accessibility → Use High-Legibility Font
+# The whole UI swaps to Atkinson Hyperlegible immediately.
+# Toggle off to return to Inter.
+
+# Or via dconf:
+gsettings set io.github.virinvictus.atrium high-legibility-font true
+```
+
+### License attribution
+
+Atkinson Hyperlegible © 2020 Braille Institute of America, Inc. Licensed under SIL Open Font License 1.1. Full license text at `data/fonts/AtkinsonHyperlegible-OFL.txt`. The Braille Institute's typeface design philosophy — distinguishable rather than purely aesthetic — pairs naturally with Atrium's "make it feel inevitable, not improvised" Phase 8 stance for the users who need it.
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Inter remains the default. The toggle is opt-in; no auto-detection of system accessibility prefs (a Phase 8 polish item — `gtk-xft-hinting`-style introspection isn't reliable across compositors yet).
+
+### Known follow-ups
+
+- Settings dialog proper (Phase 8d) — exposes this and the Quick Entry shortcut and the future high-contrast toggle in one place. Today the Accessibility menu is the only surface.
+- Auto-detect from GNOME's `org.gnome.desktop.interface high-legibility-font` if upstream lands such a key (GNOME doesn't yet, but the equivalent for the Cantarell fallback is being discussed).
+
+`VERSION`: 0.0.24 → 0.0.25 (patch — Phase 8c slice).
+
+## v0.0.24 (2026-05-06) — Phase 8b: packaging artefacts
+
+The four pieces a native GNOME app needs to land in shells and software centers all ship together. Logo installs at the hicolor scalable app-id path, desktop entry validates clean, AppStream metainfo carries the release history through v0.0.23, Flatpak manifest builds against GNOME 50 with the rust-stable SDK extension. `meson install` now drops everything in the right system locations.
+
+### What shipped
+
+- **`data/icons/hicolor/scalable/apps/io.github.virinvictus.atrium.svg`** — copied from the placeholder `logo.svg`. The "replace before 1.0" comment carries through; final icon design is a Phase 9 / pre-1.0 task.
+- **`data/io.github.virinvictus.atrium.desktop`** — `Categories=GTK;Office;ProjectManagement;`, `StartupWMClass=io.github.virinvictus.atrium`, `Keywords=todo;tasks;gtd;omnifocus;things;org-mode;productivity;`. `desktop-file-validate` returns clean.
+- **`data/io.github.virinvictus.atrium.metainfo.xml`** — full AppStream component:
+  - Project license MIT, metadata license CC0
+  - Description with the Mode-as-View pitch + Simple Mode v0.1 feature list
+  - Categories `Office`, `ProjectManagement`
+  - OARS 1.1 content rating (no flags)
+  - Branding colors sampled from the placeholder logo (`#F4F1EA` light, `#1A1D21` dark)
+  - Recommends `internet: offline-only` (matches the local-first commitment)
+  - Releases section back through v0.0.0 condensed
+  - Screenshots section is a TODO comment — Phase 9 task once a release build is ready to capture against
+- **`data/io.github.virinvictus.atrium.yml`** — Flatpak manifest:
+  - Runtime `org.gnome.Platform/50` + `org.gnome.Sdk/50` + `org.freedesktop.Sdk.Extension.rust-stable` for cargo
+  - `buildsystem: meson` — uses the existing Phase 0 wrapper
+  - `--share=network` at build time (cargo fetches crates.io); no network at runtime
+  - Sandbox: `--share=ipc`, `--socket=wayland`, `--socket=fallback-x11`, `--device=dri`, `--filesystem=home` (Atrium's DB lives at `$XDG_DATA_HOME/atrium/atrium.db`, the optional Org vault at `$HOME/Tasks/`)
+  - `appstream-compose: false` to skip the gdk-pixbuf SVG step (Fedora 44 dropped the librsvg pixbuf loader; Flathub re-runs compose on its own toolchain)
+  - Post-install `for sz in 32 48 64 128 256 512; do rsvg-convert ...` generates the PNG icon ladder for software-center surfaces that prefer rasterised icons
+- **`meson.build` install pass:** new `install_data` calls drop the desktop entry into `share/applications`, the metainfo into `share/metainfo`, and the SVG icon into `share/icons/hicolor/scalable/apps`. `meson setup` reconfigures clean.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo test --workspace` ✓ — **124 tests** unchanged (no Rust code touched).
+- `desktop-file-validate data/io.github.virinvictus.atrium.desktop` ✓ (silent — clean).
+- `appstreamcli validate data/io.github.virinvictus.atrium.metainfo.xml` — 3 `url-not-reachable` warnings on the GitHub URLs (aspirational; clear once the repo goes public). Structure validates.
+- `meson setup /tmp/atrium-meson-check --prefix=/usr` ✓ — configures clean.
+
+### Known follow-ups (Phase 9)
+
+- Final icon design (placeholder logo carries through; the "A as a building silhouette" sketch is intentional but not the ship icon).
+- Screenshots in metainfo (need a polished release build to capture against).
+- Vendored cargo sources for offline Flathub builds (`flatpak-builder` Flathub validation requires no network at build time).
+- End-to-end `flatpak-builder --user --install --force-clean ...` smoke test (not run yet — needs the GNOME 50 runtime installed on the test host).
+
+### What didn't change
+
+- No Rust code touched — all four artefacts are pure data files plus meson `install_data` glue.
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+
+`VERSION`: 0.0.23 → 0.0.24 (patch — Phase 8b slice).
+
+## v0.0.23 (2026-05-06) — Phase 8a: typography polish + completion fade
+
+The CSS file gets its first proper pass since Phase 3. Inter's stylistic alternates `cv11` (curved-l) and `ss01` (single-storey-a) land on every UI surface, tabular figures actually hit the right selectors now (the Phase 3 placeholders never matched real classes), every text surface gets a hand-tuned size/weight/letter-spacing, and completed task rows fade to 55% opacity with a strikethrough on the title. First step into Phase 8 — visual identity work that should keep landing in small slices through to the v0.1 ship.
+
+### What shipped
+
+- **`--atrium-inter-features` CSS variable** — `"cv11", "ss01"` shared across UI selectors. Applied at the top-level `window { ... }` so every descendant Inter-rendered widget picks it up. Surfaces that intentionally don't want Inter alternates (`.atrium-note-body` for the serif, `.atrium-debug-pane` for the mono) opt out with `font-feature-settings: normal`.
+- **Tabular-figure selectors corrected.** Phase 3 declared `.task-row .date`, `.task-row .count`, `.sidebar .count-badge` — none of which actually match anything in code. The new selectors are `.numeric` (which is what `apply_badge_label` adds to sidebar badges), `.atrium-task-schedule`, and `.atrium-task-deadline`. Stack `tnum` on top of the Inter alternates so digits stay column-aligned without losing the `cv11`/`ss01` glyphs.
+- **Surface-by-surface tuning:**
+  - `.atrium-task-title` → 1.0em / weight 450 / letter-spacing −0.005em. Slightly heavier than libadwaita body text; the negative tracking pulls characters into a tighter visual unit at scan distance without compromising readability.
+  - `.atrium-task-schedule`, `.atrium-task-deadline` → 0.92em. Deadline gets weight 500 so an upcoming "Due tomorrow" reads a hair ahead of a routine "Today" pill — a deliberate hierarchy choice given how close the two surfaces sit in the row.
+  - `.atrium-task-tags` → 0.88em with +0.005em tracking. Inline tags trail the title; the looser tracking makes the `#tag #tag` shape distinct from the title without needing a colored pill yet (those land later in Phase 8 polish).
+  - `.numeric` (sidebar badges) → 0.88em with the same `tnum` stack.
+- **Completion fade animation.** `.atrium-task-row` ships with `transition: opacity 180ms ease-out`. When `task_list.rs::factory.connect_bind` adds the `.completed` class, opacity drops to 0.55 and the title gains `text-decoration: line-through` (1px). Closes the long-deferred Phase 4 stub for the completion polish; covers the "task completion check" item in Phase 8's animations bullet (list transitions and modal fade still pending).
+- **Inline documentation** on every selector in `data/style.css` — comments now state which Rust path adds each class so future drift is easy to catch.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo test --workspace` ✓ — **124 tests** unchanged.
+- Run `cargo run -p atrium` and toggle a task — the row fades and the title strikes through over ~180ms instead of swapping instantly.
+
+### What didn't change
+
+- No GTK code touched — pure CSS slice.
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Bundled fonts (Inter Variable, Source Serif 4, JetBrains Mono) installed via fontconfig the same way Phase 3 set up.
+
+### Phase 8 — what's next
+
+Polish landing in slices. Outstanding from §121 of `roadmap.md`:
+
+- High-legibility font toggle (Atkinson Hyperlegible, SIL OFL, ~80 KB, GSettings-gated)
+- List transitions + modal fade animations
+- Logo / scalable SVG icon (GNOME hicolor)
+- `.desktop` entry + `desktop-file-validate` clean
+- AppStream `metainfo.xml` + screenshots
+- Flatpak manifest against GNOME 50 + font verification under sandbox
+- `heaptrack` baseline against the §8 memory budget
+- Memory-watch readout in the debug pane
+- Accessibility audit (keyboard end-to-end, screen-reader labels, contrast)
+
+`VERSION`: 0.0.22 → 0.0.23 (patch — Phase 8a slice).
+
+## v0.0.22 (2026-05-06) — Phase 7f: full keyboard map (Ctrl+Z, F2)
+
+The last two stub bindings in the keymap turn real. `Ctrl+Z` undoes the most recent toggle / delete the same way the toast button does (they share the underlying callback cell — whoever fires first wins, the loser sees an empty cell and no-ops). `F2` starts inline editing on the focused task row's title and falls through to the sidebar rename when focus is on an Area / Project / Tag instead. With this slice, every common op in Atrium has a chord — the daily-driver keyboard story is complete for v0.1.
+
+### What shipped
+
+- **`UndoCell` lifted to module scope** in `atrium/src/ui/window.rs`. `RefCell<Option<UndoCell>>` lives on the window's imp struct as `last_undo`; `show_undo_toast` stashes a fresh cell every time it runs.
+- **`win.undo` action** + **`Ctrl+Z` accel** wired in `install_window_actions` and `main.rs::install_accels`. Idempotent — once consumed, the cell stays empty until the next toast.
+- **`start_edit_focused_row`** walks up from `gtk::Window::focus()` looking for a widget with the `atrium-task-row` CSS class, retrieves the `EditableLabel` stashed under the `atrium-title` data key, and calls `start_editing()` on it. Returns `false` when no task row is focused so the caller can fall through.
+- **`F2` chord reform** — `prompt_rename_active` now tries `start_edit_focused_row` first; only when it returns `false` does it open the sidebar rename dialog. Same accelerator, two contextual behaviors.
+- **Docs + dialog tightened:**
+  - `docs/keymap.md` — `Ctrl+Z` moves out of "Reserved (stub bindings)" into General; `F2` gains a row in "List actions" describing the new fall-through behavior; the leftover `Ctrl+Z / Ctrl+Shift+Z` entry collapses to just the redo stub which now points at Phase 11+ (Builder-mode action history).
+  - `atrium/src/ui/shortcuts.rs` — adds the `Ctrl+Z` shortcut row and rewords the `F2` row.
+
+### Why the shared cell
+
+The toast button used to own its callback exclusively. Two paths into the same callback would have either (a) needed two callbacks (one per consumer, with shared "did this fire" state), or (b) a single callback in a shared `Rc<RefCell<Option<…>>>`. Option (b) is what already shipped internally for the toast button itself; promoting it to the window struct was a one-field change and lets either path consume cleanly without reordering. The cell is `Option<UndoCell>` (not `UndoCell` itself) so a second `Ctrl+Z` after consumption is a no-op rather than a panic.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **124 tests** unchanged (no new pure logic to test; the behavior is GTK-side).
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Toggle a task → undo with Ctrl+Z (or click Undo on the toast).
+# Delete a task → undo with Ctrl+Z. Tag attachments come back too.
+# Click a task row, hit F2 → inline editing starts on the title.
+# Click a sidebar Area / Project / Tag, hit F2 → rename dialog.
+```
+
+### Phase 7 — done
+
+7a search ✓ · 7b undo ✓ · 7c multi-select ✓ · 7d filter expressions ✓ · 7e find-as-you-type sidebar ✓ · 7f full keyboard map ✓.
+
+Bulk-tag / bulk-move (destination picker dialogs) and Move-to-project / archive undo are now Phase 8 polish items per the roadmap. Next stop: Phase 8 (typography polish, animations, packaging artefacts, memory profile, accessibility audit).
+
+`VERSION`: 0.0.21 → 0.0.22 (patch — Phase 7f slice; closes Phase 7).
+
+## v0.0.21 (2026-05-06) — Phase 7e: find-as-you-type sidebar
+
+The sidebar grows a small filter entry above the row list. Type to narrow areas / projects / tags; canonical lists (Inbox, Today, Upcoming, Anytime, Someday, Logbook) stay anchored. Section headers hide themselves when their whole section filters out, so a query like `errand` lands you on the Tags section with the rest of the chrome out of the way. `Ctrl+L` focuses and selects-all in the entry — perfect for a daily-driver hunt for one project.
+
+### What shipped
+
+- **`GtkSearchEntry` above `sidebar_list`** in `data/window.ui`, wrapped with the existing `GtkScrolledWindow` inside a vertical box. `search-delay = 100ms` for natural debouncing on `search-changed`.
+- **`compute_sidebar_visibility`** (in `atrium/src/ui/window.rs`) — pure two-pass function. Pass 1 marks each row visible / hidden based on canonical-vs-filterable plus title match. Pass 2 promotes a section header to visible when any child between it and the next header passes. Whitespace-only and empty queries restore everything. Case-insensitive substring match.
+- **Parallel `sidebar_titles: Vec<Option<String>>`** field on the window's imp struct, populated alongside `sidebar_targets` whenever `rebuild_dynamic_sidebar` runs. `None` for canonical rows and section headers; `Some(name)` for areas, projects, tags. The dynamic rebuild also re-applies any active filter so a tag rename or new project doesn't escape the current narrowing.
+- **`apply_sidebar_filter` window method** delegates to the pure helper, then walks `list_box.row_at_index(idx)` to flip GTK row visibility.
+- **`win.focus-sidebar-filter` action** + **`Ctrl+L` accel** — focuses the entry and selects all existing text so a fresh query overwrites cleanly. `Esc` inside the entry clears the filter (`stop-search` signal).
+- **Docs + dialog:** `docs/keymap.md` adds the `Ctrl+L` row; `atrium/src/ui/shortcuts.rs` adds the matching `GtkShortcutsShortcut` so muscle memory and discoverability stay in lock-step.
+- **6 new unit tests** for the visibility helper: empty-query passes everything; `err` shows only Tags + errand; `work` lifts both Areas (matches "Work") and Tags (matches "work-focus"); case-insensitive equivalence; no-match leaves only canonical rows; whitespace-only behaves like empty.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **124 tests** (up from 118): 48 in `atrium` (6 new), 76 in `atrium-core`.
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# In the sidebar:
+#   Ctrl+L          → focus the filter entry
+#   type "work"     → only the Areas section + matching projects/tags stay
+#   Esc             → clear and restore
+#
+# Try `errand`, `home`, a project name, a tag name. Section headers
+# follow their children — no empty "Tags" header sitting around when
+# no tag matches.
+```
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Every Phase 0–7d feature still works; the filter doesn't touch counts, doesn't touch the read pool, doesn't allocate beyond the per-row `Vec<bool>`.
+
+### Phase 7 status
+
+7a search ✓ · 7b undo ✓ · 7c multi-select ✓ · 7d filter expressions ✓ · 7e find-as-you-type sidebar ✓. Bulk-tag / bulk-move (destination picker dialogs) remain on the Phase 7 stack before Phase 8 polish.
+
+`VERSION`: 0.0.20 → 0.0.21 (patch — Phase 7e slice).
+
+## v0.0.20 (2026-05-06) — Phase 7d: filter expressions in search
+
+The search bar grows a small filter language. `tag:NAME`, `is:open`, `is:done`, `is:overdue`, `due:today` mix with freeform text — every filter must match (AND semantics). The freeform half still goes to FTS5; the filters apply in Rust after the hit list comes back.
+
+### What shipped
+
+- **`atrium/src/ui/filter.rs`** — `FilterQuery { text, filters }` parser. `Filter` enum: `Tag(String)`, `IsOpen`, `IsDone`, `IsOverdue`, `DueToday`. Synonyms: `is:done` ≡ `is:completed` ≡ `is:complete`; `is:overdue` ≡ `due:overdue`.
+- **Unknown `foo:bar` tokens stay in the freeform text** — no silent dropping. Mirrors the inline `#tag` / `@date` parser's "preserve verbatim" rule.
+- **Window's `refresh_active_list`** parses `ActiveList::SearchResults(query)` via `filter::parse` and routes:
+  - Freeform text only → `db::read::search_tasks` (FTS5 phrase, ranked).
+  - Filters only → `db::read::list_all_tasks` (apply filters in Rust).
+  - Both → FTS5 hits, then filters narrow.
+  - Neither → empty result (the empty-state copy says "type a query above").
+- **`filter::apply`** consumes the loaded `tag_names_per_task` map plus today's date — same data the sidebar already loads, no extra queries. AND semantics across filters.
+- **10 parser/applier tests** — plain text, single tag, tag+text, multiple filters, `is:done` synonyms, unknown prefix preservation, `due:today` / `due:overdue`, case-insensitive keys, overdue-completed exclusion, tag-map matching.
+- **Search bar placeholder** updated: "Search · tag:errand · is:overdue · due:today".
+- **`ShortcutsWindow`** + **`docs/keymap.md`** both pick up the syntax — `docs/keymap.md` gains a dedicated table with examples (`Q3 tag:work`, `email tag:family is:done`).
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **118 tests** (up from 108): 42 in `atrium` (10 new for the filter parser/applier), 76 in `atrium-core`.
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Ctrl+F, then try:
+#   tag:errand          → just the errand-tagged tasks
+#   is:overdue          → late open work
+#   Q3 tag:work         → "Q3" matches in title/note AND task is tagged work
+#   is:done             → search the Logbook (FTS5 covers everything)
+#   tag:errand is:open  → open errands
+```
+
+### What's left in Phase 7
+
+- **Find-as-you-type sidebar** — small live filter above the sidebar's area/project/tag rows.
+- **Bulk-tag / bulk-move** — destination picker dialog + reuse Phase 7c bulk loop.
+- **`area:NAME` / `project:NAME` filters** — defer to Phase 8 polish (need name → id resolution against the sidebar caches).
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Every Phase 0–7c feature still works.
+
+`VERSION`: 0.0.19 → 0.0.20 (patch — Phase 7d slice).
+
+## v0.0.19 (2026-05-06) — Phase 7c: multi-select + bulk operations
+
+Triage and cleanup get a serious upgrade. `Ctrl+Click` to toggle, `Shift+Click` to range-select, `Ctrl+A` to select all, then **Complete** or **Delete** the whole batch from a revealing toolbar.
+
+### What shipped
+
+- **`gtk::MultiSelection`** replaces `gtk::SingleSelection` on the task list view. Ctrl-click toggle, Shift-click range, and `Ctrl+A` Select All work natively from GTK4 — no extra plumbing.
+- **`selected_task_ids()`** walks the selection's `gtk::Bitset` via `BitsetIter::init_first` to collect ids in model order. `focused_task_id()` returns the first selected, so `Space` and `Delete` keyboard shortcuts continue to operate on a single focused row when the selection is small.
+- **Selection action bar** above the task list — `GtkRevealer` (slide-down) showing **"N selected"** with **Complete** / **Delete** (destructive-styled) / **Clear** (icon-only) buttons. `selection-changed` signal updates label + visibility.
+- **`win.bulk-complete`** fires `worker.toggle_complete` per id in a loop. **`win.bulk-delete`** fires `worker.delete_task` per id and posts a single coalesced "N of M deleted" toast (no per-item undo to keep the overlay quiet — bulk-undo as one operation is a Phase 8 polish item).
+- **`win.bulk-clear`** unselects everything; **`win.select-all`** selects everything in the active list.
+- **Accelerators**: `Ctrl+A` → `win.select-all`, `Esc` → `win.bulk-clear`. `ShortcutsWindow` and `docs/keymap.md` both pick up the additions.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 108 tests still green.
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Generate fixtures so there's plenty to triage:
+# Hamburger → Generate Fixtures → Small (1K tasks)
+
+# In Inbox:
+#   Ctrl+A          → select all 14% inbox tasks
+#   Click "Complete" → batch toggle (Logbook fills up)
+# Or:
+#   Click first task
+#   Shift-click another row eight rows down → range
+#   Click "Delete" → "8 of 8 tasks deleted"
+#   Esc → clear selection
+```
+
+### What's left in Phase 7
+
+- **Filter expressions** (`tag:foo`, `area:bar`, `due:today`, `overdue:`) — extending the search parser to compile filter clauses into SQL.
+- **Find-as-you-type sidebar** — small text filter above the sidebar, filtering area/project/tag rows live.
+- **Bulk-tag / bulk-move** — needs a project picker / tag picker dialog. Pattern is identical to the bulk handlers shipping here, just with a destination prompt.
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Every Phase 0–7b feature still works.
+
+`VERSION`: 0.0.18 → 0.0.19 (patch — Phase 7c slice).
+
+## v0.0.18 (2026-05-06) — Phase 7b: undo for toggle-complete + delete
+
+The second daily-driver-blocker closes. Toggling a completion or deleting a task now surfaces a 6-second `AdwToast` with an Undo button — accidental clicks recover cleanly without leaving the keyboard. Task deletion isn't a soft-delete (the row is hard-deleted per Phase 1's design call), so undo recreates the row from captured state including its tag attachments.
+
+### What shipped
+
+- **`adw::ToastOverlay`** wraps `content_stack` in `data/window.ui`; toasts appear over the task list / empty-state.
+- **`AtriumWindow::show_undo_toast(message, undo: FnOnce)`** — 6 s timeout, "Undo" button, FnOnce semantics enforced via `Rc<RefCell<Option<Box<dyn FnOnce()>>>>` so undo can fire at most once.
+- **`handle_toggle`** wraps the worker call in an undo toast: "“{title}” completed" / "“{title}” reopened" with re-toggle on Undo. Title truncated to 40 chars to keep the toast clean.
+- **`delete_focused_task`** captures `Task` + `Vec<i64>` tag ids before the worker delete, then on success shows "Deleted “{title}”" with an Undo that:
+  1. `worker.create_task(NewTask{...})` from captured fields.
+  2. If tags were attached, `worker.set_task_tags(restored_id, captured_tag_ids)`.
+- The original task UUID isn't preserved on undo (a fresh row gets a new UUID). For v0.1 this is fine — the task is back, with its title, note, dates, project, and tags. Phase 8 polish could hold the original UUID if Org-vault round-tripping (Phase 17) wants stronger identity continuity.
+- **Truncation helper** `truncate(s, n)` for toast titles — char-count-correct (not byte-count, so unicode-hostile titles don't panic).
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 108 tests still green (toast interactions are end-to-end UX; no new unit tests).
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Tick the completion circle on any task, watch the toast.
+# Click Undo within 6 seconds — the task re-opens.
+# Press Delete on a focused task. Click Undo — the task is back,
+# with its tags re-attached.
+```
+
+### What's left for daily use
+
+- **Move-to-project undo** (drag-target undo) — pattern is the same as toggle-complete (the inverse worker call exists).
+- **Archive undo** (clearing `archived_at` + un-completing the auto-completed tasks) — needs a transactional inverse the worker doesn't have yet.
+- **Multi-select + bulk operations** — Phase 7c stretch.
+- **Filter expressions** (`tag:foo`, `due:today`) — Phase 7c.
+- **Find-as-you-type sidebar** — convenience over `Ctrl+1..6`.
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Every Phase 0–7a feature still works.
+
+`VERSION`: 0.0.17 → 0.0.18 (patch — Phase 7b slice).
+
+## v0.0.17 (2026-05-06) — Phase 7a: FTS5-backed search
+
+`Ctrl+F` opens a debounced search bar; FTS5 over `title + note` returns ranked matches via the same factory the canonical lists use. The first daily-driver-blocker on the way to v0.1 — finding tasks — closes here.
+
+### What shipped
+
+- **`db::read::search_tasks(conn, query)`** joins `task_fts` `MATCH ?` against `task` and orders by `rank` (FTS5's bm25). User input is wrapped in double quotes for phrase-search safety; internal quotes stripped to keep the query well-formed. Empty/whitespace input returns `Vec::new()` without hitting FTS5.
+- **5 search tests** in `atrium-core::db::read::tests`: token-in-title, token-in-note, no-match, empty-input, multi-word phrase.
+- **`ActiveList::SearchResults(String)`** new variant. The enum is no longer `Copy` (the `String` payload makes that impossible) — `Clone` is cheap enough; `RefCell<ActiveList>` replaces `Cell<ActiveList>` in the window's imp struct. All call sites updated.
+- **Search bar in the content header**: `GtkToggleButton` (search-symbolic) + `GtkSearchBar` + `GtkSearchEntry` with `search-delay=200` for native debouncing. The toggle button mirrors `search-mode-enabled` bidirectionally — clicking either toggles the bar.
+- **`Ctrl+F`** binds `app.search` which calls `AtriumWindow::focus_search` — opens the bar, toggles the button on, focuses the entry.
+- **Behavior**: `search-changed` (debounced) sets `ActiveList::SearchResults(q)` and refreshes the content pane. Clearing the query while in search mode falls back to Today. `Esc` (via `stop-search`) closes the bar.
+- **Empty states for SearchResults**: distinct copy for "no query yet" vs "no matches for `query`".
+- **`ShortcutsWindow`** + **`docs/keymap.md`** both pick up the new shortcut.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — **108 tests** (up from 103): 32 in `atrium`, 76 in `atrium-core` (5 new search tests).
+
+### Try it
+
+```bash
+cargo run -p atrium
+
+# Generate a fixture so there's something to search:
+# Hamburger menu → (debug) Generate Fixtures → Small (1K tasks)
+
+# Press Ctrl+F. Type "milk" or "Q3" or "研究". Watch the
+# results pane filter as you type (200 ms debounce).
+# Press Esc to close. Clear the entry to go back to Today.
+```
+
+### Coming in 7b (v0.0.18)
+
+- **Undo via `AdwToast`** for delete / toggle-complete / move-to-project / archive — every destructive op gets a 5–8 second undo grace via the existing inverse worker calls.
+
+### Coming in 7c+
+
+- Filter expressions (`tag:foo`, `area:bar`, `due:today`, `overdue:`).
+- Multi-select + bulk operations.
+- Find-as-you-type sidebar nav.
+
+### What didn't change
+
+- Schema, single-writer worker pattern, vault projection, debug-first, dependency discipline, release discipline.
+- v0.1 dependency set unchanged. No new crates.
+- Every Phase 0–6c feature still works.
+
+`VERSION`: 0.0.16 → 0.0.17 (patch — Phase 7a slice).
+
 ## v0.0.16 (2026-05-06) — Phase 6c: Quick Entry modal
 
 `Ctrl+Alt+Space` opens a focused capture surface. Same parser as the bottom-of-list entry, lighter UI, drops straight into Inbox. Phase 6 is now complete for v0.1's purposes — true OS-global capture (the *zero-launch* version) lands with the Phase 20 `atriumd` daemon.

@@ -226,12 +226,28 @@ fn install_actions(app: &adw::Application, debug: bool) {
     install_new_project_action(app);
     install_new_tag_action(app);
     install_quick_entry_action(app);
+    install_search_action(app);
     install_show_list_action(app);
     install_show_shortcuts_action(app);
-    install_window_actions(app); // delete + toggle-complete via win.* dispatch
     if debug {
         install_fixture_action(app);
+        install_memory_watch_action(app);
     }
+}
+
+fn install_memory_watch_action(app: &adw::Application) {
+    let action = gio::SimpleAction::new("show-memory-watch", None);
+    action.connect_activate(clone!(
+        #[weak]
+        app,
+        move |_, _| {
+            let Some(window) = app.active_window() else {
+                return;
+            };
+            crate::debug::open_memory_watch(&window);
+        }
+    ));
+    app.add_action(&action);
 }
 
 fn install_quick_entry_action(app: &adw::Application) {
@@ -265,6 +281,8 @@ fn install_accels(app: &adw::Application) {
     // listener via `atriumd`; for now the shortcut only fires while
     // Atrium is the focused application.
     app.set_accels_for_action("app.quick-entry", &["<Primary><Alt>space"]);
+    // Phase 7a — Ctrl+F opens the search bar.
+    app.set_accels_for_action("app.search", &["<Primary>f"]);
 
     // List navigation: Ctrl+1..6 jump to the six Simple Mode lists.
     app.set_accels_for_action("app.show-list::inbox", &["<Primary>1"]);
@@ -281,9 +299,29 @@ fn install_accels(app: &adw::Application) {
     app.set_accels_for_action("win.rename-active", &["F2"]);
     app.set_accels_for_action("win.delete-active", &["<Primary><Shift>Delete"]);
 
-    // Window-level (operate on focused row).
-    app.set_accels_for_action("win.delete-task", &["Delete"]);
-    app.set_accels_for_action("win.toggle-complete", &["space"]);
+    // Phase 7h — `win.delete-task`, `win.toggle-complete`,
+    // `win.select-all`, and (v0.0.37) `win.bulk-clear` are bound
+    // by a `gtk::ShortcutController` scoped to the task list
+    // widget in `AtriumWindow::init_list_view`. Window-global
+    // accels for these chords ate keystrokes that text entries
+    // needed (typing a space ran toggle-complete; Esc cleared the
+    // selection from inside the bottom-of-list new-task entry).
+    // List scope (`ShortcutScope::Managed`) fires only when the
+    // task list itself or a descendant row has focus — the right
+    // thing for keyboard ops on the list, leaving every entry
+    // free to handle its own keystrokes.
+
+    // Phase 7e — focus the sidebar filter entry.
+    app.set_accels_for_action("win.focus-sidebar-filter", &["<Primary>l"]);
+
+    // Phase 7f — undo last toggle / delete (operates on the active toast cell).
+    app.set_accels_for_action("win.undo", &["<Primary>z"]);
+
+    // Phase 7g — Ctrl+T edits tags for the focused / first-selected task.
+    app.set_accels_for_action("win.edit-tags-focused", &["<Primary>t"]);
+
+    // Phase 7i — Ctrl+I (or double-click on a row) opens the Inspector.
+    app.set_accels_for_action("win.edit-details-focused", &["<Primary>i"]);
 }
 
 fn install_quit_action(app: &adw::Application) {
@@ -412,6 +450,20 @@ fn install_show_list_action(app: &adw::Application) {
     app.add_action(&action);
 }
 
+fn install_search_action(app: &adw::Application) {
+    let action = gio::SimpleAction::new("search", None);
+    action.connect_activate(clone!(
+        #[weak]
+        app,
+        move |_, _| {
+            if let Some(win) = app.active_window().and_downcast::<AtriumWindow>() {
+                win.focus_search();
+            }
+        }
+    ));
+    app.add_action(&action);
+}
+
 fn install_show_shortcuts_action(app: &adw::Application) {
     let action = gio::SimpleAction::new("show-shortcuts", None);
     action.connect_activate(clone!(
@@ -426,20 +478,6 @@ fn install_show_shortcuts_action(app: &adw::Application) {
         }
     ));
     app.add_action(&action);
-}
-
-/// Window-scoped actions are installed by the window itself in
-/// `install_window_actions` on construction. This helper sets up
-/// `app.*`-level actions that the accels table references for
-/// completeness; the actual win.* actions live on the window.
-///
-/// (Placeholder for future stub actions — currently empty so
-/// `install_actions` lists it for symmetry.)
-fn install_window_actions(_app: &adw::Application) {
-    // Window-scoped actions are added by AtriumWindow::install_actions
-    // when the window itself is constructed. Nothing app-level to do
-    // here; accelerators on win.* targets resolve to the active
-    // window's action map at activation time.
 }
 
 fn install_fixture_action(app: &adw::Application) {

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  Atrium — placeholder logo.
+  A capital "A" rendered as a building silhouette: the A's triangular
+  counter is the atrium itself — an open court with sky above. The flat
+  plateau across the top stands in for a roofline; the solid pedestal at
+  the base reads as the building's plinth. A faint warm line traces the
+  floor of the courtyard. Replace before 1.0.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Atrium">
+  <defs>
+    <linearGradient id="atrium-shell" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2C3137"/>
+      <stop offset="1" stop-color="#1A1D21"/>
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="208" height="208" rx="32" fill="url(#atrium-shell)"/>
+  <path
+    d="M 60 200 L 118 56 L 138 56 L 196 200 Z M 128 80 L 102 150 L 154 150 Z"
+    fill="#F4F1EA"
+    fill-rule="evenodd"/>
+  <line x1="102" y1="150" x2="154" y2="150" stroke="#C8C0B0" stroke-width="2" stroke-linecap="round"/>
+</svg>

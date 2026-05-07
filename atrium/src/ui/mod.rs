@@ -10,7 +10,10 @@
 //! Quick Entry modal; Phase 10 the Inspector pane.
 
 pub mod about;
+pub mod filter;
+pub mod inspector;
 pub mod shortcuts;
+pub mod tag_editor;
 pub mod task_list;
 pub mod task_object;
 pub mod typography;

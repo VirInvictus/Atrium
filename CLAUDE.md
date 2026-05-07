@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-**Pre-implementation as of v0.0.0.** No source code exists yet. The repository currently holds the contract (`spec.md`, `roadmap.md`), public framing (`README.md`), release notes (`patchnotes.md`), and metadata (`VERSION`, `LICENSE`, `logo.svg`). Phase 0 (Cargo skeleton, CI, scaffolding) begins after design sign-off.
+**Simple Mode shipping (v0.0.37, May 2026).** Phases 0–8 are landed: workspace scaffolding, schema + single-writer worker, application shell, Inbox/Today/all six canonical lists, areas + projects + tags, Quick Entry, FTS5 search + filter expressions, multi-select + undo, Inspector + tag editor dialogs, sidebar find-as-you-type, full keyboard map, typography + accessibility (Atkinson Hyperlegible), debug-pane Memory Watch, regression script. Phase 9 (release-tag work, README screenshots, Flatpak publish) is what stands between today and `v0.1.0`. Phases 10+ (Builder Mode) have not started.
 
-Until code lands, the work in this directory is almost entirely **editing the contract**. Treat that with care — see "Spec discipline" below.
+Code exists. Edit it like any working codebase — but most of the spec / roadmap / patchnotes discipline below still applies, since v0.1.0 hasn't been tagged yet.
 
 ## Authoritative documents
 
@@ -123,3 +123,70 @@ Features that miss budget get gated or revised. If a proposed approach has obvio
 When implementing the data layer, **`~/.gitrepos/Viaduct/`** is the reference for the single-writer SQLite worker pattern (Brandon ports the same discipline here, no WebKit). The README explicitly acknowledges this. Look at Viaduct's queue, command enum, and `TaskChanges`-equivalent delta type before designing Atrium's.
 
 `~/.gitrepos/Hermitage/` and `~/.gitrepos/Framework/` are the other native GTK4/libadwaita apps in the portfolio — useful for cross-checking GTK idioms, Flatpak manifest shape, and AppStream metainfo conventions.
+
+## Codebase map (current)
+
+The workspace split adopted in v0.0.3 mirrors the Phase 20 `atriumd` daemon plan and the post-1.0 TUI plan — the data layer must be reusable from multiple frontends.
+
+```
+atrium-core/                          ← headless library
+├── src/lib.rs                        ← re-exports
+├── src/paths.rs                      ← XDG path helpers, APP_ID
+├── src/error.rs                      ← thiserror hierarchy
+├── src/domain/                       ← Task / Project / Area / Tag / ScheduledFor types
+└── src/db/
+    ├── worker.rs                     ← single-writer task; spawn_worker
+    ├── read_pool.rs                  ← read-only connection pool
+    ├── read.rs                       ← list_inbox / list_today / search / counts
+    ├── command.rs                    ← Command enum (Create/Update/Toggle/Delete/…)
+    ├── changes.rs                    ← TaskChanges, LibraryChanges deltas
+    ├── fixtures.rs                   ← --fixture stress generators
+    └── migrations/0001_initial.sql   ← OmniFocus superset (locked through v0.1)
+
+atrium/                               ← GTK binary
+├── build.rs                          ← compiles GSettings schema for cargo-only runs
+├── src/main.rs                       ← Application, CLI flags, accels, action wiring
+├── src/error.rs
+├── src/ui/
+│   ├── mod.rs
+│   ├── window.rs                     ← AtriumWindow (composite template)
+│   ├── task_list.rs                  ← row factory, ActiveList, apply_changes
+│   ├── task_object.rs                ← AtriumTask glib::Object wrapper
+│   ├── inspector.rs                  ← per-task Inspector (AdwDialog, Phase 7i)
+│   ├── tag_editor.rs                 ← per-task tag editor (AdwDialog, Phase 7g)
+│   ├── filter.rs                     ← search-bar filter expressions (Phase 7d)
+│   ├── shortcuts.rs                  ← Ctrl+? / F1 dialog
+│   ├── about.rs                      ← AdwAboutDialog
+│   └── typography.rs                 ← bundled font install + CSS load
+├── src/quickentry/
+│   ├── mod.rs
+│   ├── modal.rs                      ← Quick Entry modal (adw::Window, fade-in)
+│   └── parser.rs                     ← #tag / @today / @deadline parser
+└── src/debug/mod.rs                  ← Memory Watch + /proc/self/status sampler
+
+data/                                 ← installed assets
+├── window.ui                         ← composite template
+├── style.css                         ← typography + per-surface tweaks
+├── fonts/                            ← Inter + Source Serif 4 + JetBrains Mono + Atkinson Hyperlegible
+├── icons/hicolor/scalable/apps/io.github.virinvictus.atrium.svg
+├── io.github.virinvictus.atrium.gschema.xml
+├── io.github.virinvictus.atrium.desktop
+├── io.github.virinvictus.atrium.metainfo.xml
+└── io.github.virinvictus.atrium.yml  ← Flatpak manifest
+
+docs/                                 ← long-form references
+├── schema.md                         ← per-column rationale + ER diagram
+├── keymap.md                         ← canonical written shortcut map
+├── accessibility.md                  ← Phase 8f audit findings + conventions
+├── perf-baseline.md                  ← release-mode RSS baseline (Phase 8g)
+└── regression.md                     ← Phase 9a regression-script doc
+
+scripts/regression.sh                 ← ship-gate: fmt → clippy → test → smoke
+```
+
+The dialog primitives standardised in the v0.0.37 bugsweep:
+
+- **Inspector** + **Tag editor** are `adw::Dialog` (in-window modal overlay; `present(parent)` / `close()`).
+- **Quick Entry** stays an `adw::Window` (`modal=false`, `transient_for(main)`, fade-in keyframe) — the spec wants it to *not* steal grab from previously-focused windows; AdwDialog always grabs.
+- **Memory Watch** stays an `adw::Window` for the same reason (non-modal observer pane).
+- **Confirmations** use `adw::AlertDialog`.

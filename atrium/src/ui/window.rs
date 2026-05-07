@@ -19,6 +19,7 @@
 
 use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use adw::prelude::*;
 use adw::subclass::prelude::*;
@@ -38,6 +39,12 @@ use crate::ui::task_list::{
     ActiveList, TagMap, apply_changes, build_factory, replace_store_with_tags, sort_by_position,
 };
 
+/// Shared cell used by both the undo toast button and the `Ctrl+Z`
+/// accel (Phase 7f). The inner `Option` is the still-alive callback
+/// (consumed by whichever path fires first); the outer level lets
+/// the cell be replaced wholesale every time `show_undo_toast` runs.
+type UndoCell = Rc<RefCell<Option<Box<dyn FnOnce()>>>>;
+
 mod imp {
     use super::*;
 
@@ -51,6 +58,8 @@ mod imp {
         #[template_child]
         pub sidebar_list: TemplateChild<gtk::ListBox>,
         #[template_child]
+        pub sidebar_filter: TemplateChild<gtk::SearchEntry>,
+        #[template_child]
         pub content_page: TemplateChild<adw::NavigationPage>,
         #[template_child]
         pub content_stack: TemplateChild<gtk::Stack>,
@@ -62,9 +71,21 @@ mod imp {
         pub new_task_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub new_task_entry: TemplateChild<gtk::Entry>,
+        #[template_child]
+        pub search_button: TemplateChild<gtk::ToggleButton>,
+        #[template_child]
+        pub search_bar: TemplateChild<gtk::SearchBar>,
+        #[template_child]
+        pub search_entry: TemplateChild<gtk::SearchEntry>,
+        #[template_child]
+        pub toast_overlay: TemplateChild<adw::ToastOverlay>,
+        #[template_child]
+        pub selection_revealer: TemplateChild<gtk::Revealer>,
+        #[template_child]
+        pub selection_label: TemplateChild<gtk::Label>,
 
         pub debug_enabled: Cell<bool>,
-        pub active_list: Cell<ActiveList>,
+        pub active_list: RefCell<ActiveList>,
         pub store: RefCell<Option<gio::ListStore>>,
         pub worker: OnceCell<WorkerHandle>,
         pub read_pool: OnceCell<ReadPool>,
@@ -73,6 +94,11 @@ mod imp {
         /// header rows (e.g., "Areas", "Unfiled"); `Some(active)`
         /// dispatches to that list when the row is activated.
         pub sidebar_targets: RefCell<Vec<Option<ActiveList>>>,
+        /// Aligned with `sidebar_targets`. Holds the user-visible label
+        /// for filterable rows (areas, projects, tags). `None` for
+        /// canonical rows (always visible) and section headers (which
+        /// follow their children's visibility). Phase 7e.
+        pub sidebar_titles: RefCell<Vec<Option<String>>>,
         /// Project / area title caches populated when the sidebar is
         /// built; consulted by `set_active_list` to resolve the
         /// content-pane title for `Project(id)` / `Area(id)`.
@@ -99,6 +125,12 @@ mod imp {
         /// the sidebar is built. `set_active_list` consults it for
         /// `Tag(id)` content-pane titles.
         pub tag_titles: RefCell<HashMap<i64, String>>,
+
+        /// Shared "most recent undo" callback. `show_undo_toast`
+        /// stashes a fresh cell here so that either the toast button
+        /// *or* the `Ctrl+Z` accel can take it (whoever fires first
+        /// wins; the loser sees an empty cell and no-ops). Phase 7f.
+        pub last_undo: RefCell<Option<UndoCell>>,
     }
 
     #[glib::object_subclass]
@@ -119,7 +151,7 @@ mod imp {
     impl ObjectImpl for AtriumWindow {
         fn constructed(&self) {
             self.parent_constructed();
-            self.active_list.set(ActiveList::Today);
+            self.active_list.replace(ActiveList::Today);
 
             let obj = self.obj();
             obj.bind_window_state();
@@ -127,13 +159,18 @@ mod imp {
             obj.build_sidebar();
             obj.init_list_view();
             obj.wire_new_task_entry();
+            obj.wire_search_bar();
             obj.install_window_actions();
         }
     }
     impl WidgetImpl for AtriumWindow {}
     impl WindowImpl for AtriumWindow {
         fn close_request(&self) -> Propagation {
-            self.obj().save_window_state();
+            let obj = self.obj();
+            obj.save_window_state();
+            // Phase 8h — clean up phantom-child popovers before the
+            // rows finalize, so GTK doesn't log a warning per row.
+            obj.unparent_sidebar_context_menus();
             self.parent_close_request()
         }
     }
@@ -156,7 +193,7 @@ const CANONICAL_LISTS: &[ActiveList] = &[
     ActiveList::Logbook,
 ];
 
-fn icon_for(list: ActiveList) -> &'static str {
+fn icon_for(list: &ActiveList) -> &'static str {
     match list {
         ActiveList::Inbox => "inbox-symbolic",
         ActiveList::Today => "starred-symbolic",
@@ -167,6 +204,7 @@ fn icon_for(list: ActiveList) -> &'static str {
         ActiveList::Project(_) => "view-list-bullet-symbolic",
         ActiveList::Area(_) => "folder-symbolic",
         ActiveList::Tag(_) => "tag-outline-symbolic",
+        ActiveList::SearchResults(_) => "system-search-symbolic",
     }
 }
 
@@ -222,6 +260,12 @@ impl AtriumWindow {
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
         popover.set_has_arrow(false);
         popover.set_parent(row);
+        // Phase 8h — stash the popover so we can `unparent()` it
+        // before the row finalizes; otherwise GTK warns about a
+        // ListBoxRow being torn down with a still-attached child.
+        unsafe {
+            row.set_data("atrium-context-popover", popover.clone());
+        }
 
         let gesture = gtk::GestureClick::new();
         gesture.set_button(gtk::gdk::BUTTON_SECONDARY);
@@ -245,6 +289,12 @@ impl AtriumWindow {
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
         popover.set_has_arrow(false);
         popover.set_parent(row);
+        // Phase 8h — stash the popover so we can `unparent()` it
+        // before the row finalizes; otherwise GTK warns about a
+        // ListBoxRow being torn down with a still-attached child.
+        unsafe {
+            row.set_data("atrium-context-popover", popover.clone());
+        }
 
         let gesture = gtk::GestureClick::new();
         gesture.set_button(gtk::gdk::BUTTON_SECONDARY);
@@ -268,6 +318,12 @@ impl AtriumWindow {
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
         popover.set_has_arrow(false);
         popover.set_parent(row);
+        // Phase 8h — stash the popover so we can `unparent()` it
+        // before the row finalizes; otherwise GTK warns about a
+        // ListBoxRow being torn down with a still-attached child.
+        unsafe {
+            row.set_data("atrium-context-popover", popover.clone());
+        }
 
         let gesture = gtk::GestureClick::new();
         gesture.set_button(gtk::gdk::BUTTON_SECONDARY);
@@ -319,19 +375,44 @@ impl AtriumWindow {
         // Phase 4 baseline — canonical rows. `attach_data_layer`
         // appends area/project rows once the read pool is available.
         let mut targets: Vec<Option<ActiveList>> = Vec::new();
+        let mut titles: Vec<Option<String>> = Vec::new();
         let mut badges: Vec<gtk::Label> = Vec::new();
         for active in CANONICAL_LISTS {
-            let (row, badge) = build_canonical_row(*active);
+            let (row, badge) = build_canonical_row(active);
             // Inbox is special — accept dropped tasks to unfile them.
             if matches!(active, ActiveList::Inbox) {
                 self.install_drop_target_for_project(&row, None);
             }
             list_box.append(&row);
-            targets.push(Some(*active));
+            targets.push(Some(active.clone()));
+            // Canonical rows are always visible regardless of filter —
+            // tracked as None so `apply_sidebar_filter` skips them.
+            titles.push(None);
             badges.push(badge);
         }
         self.imp().sidebar_targets.replace(targets);
+        self.imp().sidebar_titles.replace(titles);
         self.imp().canonical_badges.replace(badges);
+
+        // Phase 7e: filter entry above the list. Emits `search-changed`
+        // with the native `search-delay` (100 ms) so we can debounce
+        // for free.
+        self.imp().sidebar_filter.connect_search_changed(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |entry| {
+                win.apply_sidebar_filter(&entry.text());
+            }
+        ));
+        // Esc inside the entry clears the filter.
+        self.imp().sidebar_filter.connect_stop_search(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |entry| {
+                entry.set_text("");
+                win.apply_sidebar_filter("");
+            }
+        ));
 
         // Pre-select Today (index 1).
         if let Some(today_row) = list_box.row_at_index(1) {
@@ -343,7 +424,7 @@ impl AtriumWindow {
             self,
             move |_, row| {
                 let idx = row.index() as usize;
-                if let Some(Some(active)) = win.imp().sidebar_targets.borrow().get(idx).copied() {
+                if let Some(Some(active)) = win.imp().sidebar_targets.borrow().get(idx).cloned() {
                     win.set_active_list(active);
                 }
             }
@@ -355,7 +436,7 @@ impl AtriumWindow {
             move |list| {
                 if let Some(row) = list.selected_row() {
                     let idx = row.index() as usize;
-                    if let Some(Some(active)) = win.imp().sidebar_targets.borrow().get(idx).copied()
+                    if let Some(Some(active)) = win.imp().sidebar_targets.borrow().get(idx).cloned()
                     {
                         win.set_active_list(active);
                     }
@@ -436,6 +517,14 @@ impl AtriumWindow {
         };
         let list_box = self.imp().sidebar_list.clone();
 
+        // Phase 8h — unparent any context-menu popovers stashed on
+        // dynamic rows before we drop them. `set_parent(row)` makes
+        // the popover a phantom child of the row outside the normal
+        // child slot; if the row finalizes still parented, GTK warns
+        // ~"Finalizing GtkListBoxRow … but it still has children
+        // left: GtkPopoverMenu".
+        self.unparent_sidebar_context_menus();
+
         // Trim back to just the canonical rows. CANONICAL_LISTS.len()
         // is the cutoff — anything past that is from a previous build.
         while list_box
@@ -449,7 +538,11 @@ impl AtriumWindow {
 
         // Reset targets to just the canonical Some(...) entries.
         let mut targets: Vec<Option<ActiveList>> =
-            CANONICAL_LISTS.iter().map(|a| Some(*a)).collect();
+            CANONICAL_LISTS.iter().map(|a| Some(a.clone())).collect();
+        // Parallel titles vec — None for the canonical rows
+        // (always-visible), then None for section headers, Some(name)
+        // for filterable area/project/tag rows. Phase 7e.
+        let mut titles: Vec<Option<String>> = vec![None; CANONICAL_LISTS.len()];
 
         let areas = match pool.with(atrium_core::db::read::list_areas) {
             Ok(a) => a,
@@ -492,11 +585,13 @@ impl AtriumWindow {
         if !areas.is_empty() {
             list_box.append(&build_section_header("Areas"));
             targets.push(None);
+            titles.push(None);
             for area in &areas {
                 let (row, badge) = build_area_row(area);
                 self.install_area_context_menu(&row, area.id);
                 list_box.append(&row);
                 targets.push(Some(ActiveList::Area(area.id)));
+                titles.push(Some(area.title.clone()));
                 area_badges.insert(area.id, badge);
                 if let Some(area_projects) = by_area.get(&Some(area.id)) {
                     for project in area_projects {
@@ -505,6 +600,7 @@ impl AtriumWindow {
                         self.install_project_context_menu(&row, project.id);
                         list_box.append(&row);
                         targets.push(Some(ActiveList::Project(project.id)));
+                        titles.push(Some(project.title.clone()));
                         project_badges.insert(project.id, badge);
                     }
                 }
@@ -517,12 +613,14 @@ impl AtriumWindow {
         {
             list_box.append(&build_section_header("Unfiled"));
             targets.push(None);
+            titles.push(None);
             for project in unfiled {
                 let (row, badge) = build_project_row(project, false);
                 self.install_drop_target_for_project(&row, Some(project.id));
                 self.install_project_context_menu(&row, project.id);
                 list_box.append(&row);
                 targets.push(Some(ActiveList::Project(project.id)));
+                titles.push(Some(project.title.clone()));
                 project_badges.insert(project.id, badge);
             }
         }
@@ -538,12 +636,14 @@ impl AtriumWindow {
         if !tags.is_empty() {
             list_box.append(&build_section_header("Tags"));
             targets.push(None);
+            titles.push(None);
             for tag in &tags {
                 tag_titles.insert(tag.id, tag.name.clone());
                 let (row, badge) = build_tag_row(tag);
                 self.install_tag_context_menu(&row, tag.id);
                 list_box.append(&row);
                 targets.push(Some(ActiveList::Tag(tag.id)));
+                titles.push(Some(tag.name.clone()));
                 tag_badges.insert(tag.id, badge);
             }
         }
@@ -551,17 +651,38 @@ impl AtriumWindow {
         self.imp().tag_badges.replace(tag_badges);
 
         self.imp().sidebar_targets.replace(targets);
+        self.imp().sidebar_titles.replace(titles);
         self.refresh_dynamic_badges();
+
+        // Re-apply any active filter so the freshly-built rows respect
+        // it (e.g., a tag rename that lands while a filter is typed).
+        let query = self.imp().sidebar_filter.text().to_string();
+        if !query.is_empty() {
+            self.apply_sidebar_filter(&query);
+        }
     }
 
     fn init_list_view(&self) {
         let store = gio::ListStore::new::<crate::ui::task_object::AtriumTask>();
         self.imp().store.replace(Some(store.clone()));
 
-        let selection = gtk::SingleSelection::new(Some(store.clone()));
-        selection.set_autoselect(false);
-        selection.set_can_unselect(true);
+        // Phase 7c — MultiSelection enables Ctrl+Click toggle,
+        // Shift+Click range, and `Ctrl+A` Select All out of the box.
+        // Single-row interactions (Space toggle, Delete) still work
+        // because `selected_task_ids` returns the first item when
+        // exactly one is selected.
+        let selection = gtk::MultiSelection::new(Some(store.clone()));
         self.imp().task_list_view.set_model(Some(&selection));
+
+        // Show / hide the bulk action bar as the selection size changes.
+        let win_weak = self.downgrade();
+        selection.connect_selection_changed(move |sel, _, _| {
+            let Some(win) = win_weak.upgrade() else {
+                return;
+            };
+            let n = sel.selection().size();
+            win.update_selection_bar(n as i64);
+        });
 
         // Factory wires interactions back into the window via weak
         // refs so handlers don't extend the window's lifetime.
@@ -588,6 +709,46 @@ impl AtriumWindow {
         };
         let factory = build_factory(on_toggle, on_rename, on_reorder);
         self.imp().task_list_view.set_factory(Some(&factory));
+
+        // Phase 7j — double-click is handled by a per-row gesture
+        // installed in `task_list::build_factory`; relying on
+        // `GtkListView::connect_activate` was unreliable because the
+        // inner `GtkEditableLabel` (the title) traps double-clicks
+        // for inline editing before the list-view sees them.
+
+        // Phase 7h — list-scoped chords. `Space` (toggle complete),
+        // `Delete` (delete focused task), and `Ctrl+A` (select all)
+        // used to be window-global accels, which meant typing a
+        // space in any GtkEntry on the surface (Quick Entry,
+        // bottom-of-list new-task entry, search bar, sidebar
+        // filter, tag editor, …) ran toggle-complete instead of
+        // inserting the space character. Scoping the controller to
+        // the task list with `ShortcutScope::Managed` fires the
+        // shortcuts only when focus is on the list or one of its
+        // descendant rows; entries elsewhere see the keys
+        // unmodified and do their normal text input.
+        let list_shortcuts = gtk::ShortcutController::new();
+        list_shortcuts.set_scope(gtk::ShortcutScope::Managed);
+        for (chord, action_name) in [
+            ("space", "win.toggle-complete"),
+            ("Delete", "win.delete-task"),
+            ("<Primary>a", "win.select-all"),
+            // v0.0.37 — Esc was a window-global accel for
+            // `win.bulk-clear`, which meant typing in the
+            // bottom-of-list new-task entry and hitting Esc
+            // silently cleared the multi-selection. Scoping it to
+            // the list lets entries (Quick Entry, search bar,
+            // sidebar filter, tag editor, new-task) keep their own
+            // Esc semantics.
+            ("Escape", "win.bulk-clear"),
+        ] {
+            if let Some(trigger) = gtk::ShortcutTrigger::parse_string(chord) {
+                let action = gtk::NamedAction::new(action_name);
+                let shortcut = gtk::Shortcut::new(Some(trigger), Some(action));
+                list_shortcuts.add_shortcut(shortcut);
+            }
+        }
+        self.imp().task_list_view.add_controller(list_shortcuts);
     }
 
     /// Push the worker handle / read pool into the window after the
@@ -617,10 +778,10 @@ impl AtriumWindow {
     }
 
     pub fn set_active_list(&self, active: ActiveList) {
-        if self.imp().active_list.get() == active {
+        if self.imp().active_list.borrow().clone() == active {
             return;
         }
-        self.imp().active_list.set(active);
+        self.imp().active_list.replace(active.clone());
         self.imp().content_page.set_title(&self.title_for(active));
         self.refresh_active_list();
     }
@@ -657,7 +818,7 @@ impl AtriumWindow {
     }
 
     pub fn active_list(&self) -> ActiveList {
-        self.imp().active_list.get()
+        self.imp().active_list.borrow().clone()
     }
 
     pub fn refresh_active_list(&self) {
@@ -674,16 +835,31 @@ impl AtriumWindow {
         let active = self.active_list();
         let today = Local::now().date_naive();
 
-        let result: Result<Vec<Task>, _> = pool.with(|conn| match active {
+        let result: Result<Vec<Task>, _> = pool.with(|conn| match &active {
             ActiveList::Inbox => atrium_core::db::read::list_inbox(conn),
             ActiveList::Today => atrium_core::db::read::list_today(conn, today),
             ActiveList::Upcoming => atrium_core::db::read::list_upcoming(conn, today),
             ActiveList::Anytime => atrium_core::db::read::list_anytime(conn, today),
             ActiveList::Someday => atrium_core::db::read::list_someday(conn),
             ActiveList::Logbook => atrium_core::db::read::list_logbook(conn),
-            ActiveList::Project(id) => atrium_core::db::read::list_project(conn, id),
-            ActiveList::Area(id) => atrium_core::db::read::list_area(conn, id),
-            ActiveList::Tag(id) => atrium_core::db::read::list_tasks_with_tag(conn, id),
+            ActiveList::Project(id) => atrium_core::db::read::list_project(conn, *id),
+            ActiveList::Area(id) => atrium_core::db::read::list_area(conn, *id),
+            ActiveList::Tag(id) => atrium_core::db::read::list_tasks_with_tag(conn, *id),
+            ActiveList::SearchResults(query) => {
+                // Phase 7d: parse out filter expressions (`tag:foo`,
+                // `is:overdue`, etc.) before hitting FTS5; filters
+                // apply in Rust after the hit list comes back.
+                let parsed = crate::ui::filter::parse(query);
+                if parsed.text.is_empty() {
+                    if parsed.filters.is_empty() {
+                        Ok(Vec::new())
+                    } else {
+                        atrium_core::db::read::list_all_tasks(conn)
+                    }
+                } else {
+                    atrium_core::db::read::search_tasks(conn, &parsed.text)
+                }
+            }
         });
 
         match result {
@@ -691,6 +867,12 @@ impl AtriumWindow {
                 let tag_map: TagMap = pool
                     .with(atrium_core::db::read::tag_names_per_task)
                     .unwrap_or_default();
+                let tasks = if let ActiveList::SearchResults(q) = &active {
+                    let parsed = crate::ui::filter::parse(q);
+                    crate::ui::filter::apply(tasks, &parsed.filters, &tag_map, today)
+                } else {
+                    tasks
+                };
                 replace_store_with_tags(&store, &tasks, &tag_map);
                 sort_by_position(&store);
             }
@@ -732,7 +914,7 @@ impl AtriumWindow {
     fn select_sidebar_row_for(&self, active: ActiveList) {
         let targets = self.imp().sidebar_targets.borrow();
         for (i, t) in targets.iter().enumerate() {
-            if *t == Some(active)
+            if t.as_ref() == Some(&active)
                 && let Some(row) = self.imp().sidebar_list.row_at_index(i as i32)
             {
                 self.imp().sidebar_list.select_row(Some(&row));
@@ -766,17 +948,17 @@ impl AtriumWindow {
         let status = self.imp().content_status.clone();
 
         if store.n_items() == 0 {
-            let (title, description) = self.empty_state_copy(active);
+            let (title, description) = self.empty_state_copy(&active);
             status.set_title(&title);
             status.set_description(Some(&description));
-            status.set_icon_name(Some(icon_for(active)));
+            status.set_icon_name(Some(icon_for(&active)));
             stack.set_visible_child_name("empty");
         } else {
             stack.set_visible_child_name("list");
         }
     }
 
-    fn empty_state_copy(&self, active: ActiveList) -> (String, String) {
+    fn empty_state_copy(&self, active: &ActiveList) -> (String, String) {
         match active {
             ActiveList::Inbox => (
                 "Inbox is empty".into(),
@@ -803,16 +985,24 @@ impl AtriumWindow {
                 "Completed tasks accumulate here, newest first.".into(),
             ),
             ActiveList::Project(_) => (
-                format!("{} is empty", self.title_for(active)),
+                format!("{} is empty", self.title_for(active.clone())),
                 "Add tasks to this project from the entry below.".into(),
             ),
             ActiveList::Area(_) => (
-                format!("{} is empty", self.title_for(active)),
+                format!("{} is empty", self.title_for(active.clone())),
                 "No open tasks across this area's projects.".into(),
             ),
             ActiveList::Tag(_) => (
-                format!("{} is empty", self.title_for(active)),
+                format!("{} is empty", self.title_for(active.clone())),
                 "No open tasks bear this tag.".into(),
+            ),
+            ActiveList::SearchResults(q) if q.trim().is_empty() => (
+                "Search".into(),
+                "Type a query above to find tasks by title or note.".into(),
+            ),
+            ActiveList::SearchResults(q) => (
+                format!("No matches for “{q}”"),
+                "Search covers task titles and notes (FTS5).".into(),
             ),
         }
     }
@@ -820,14 +1010,35 @@ impl AtriumWindow {
     /// Toggle handler — fires the worker call. The worker emits a
     /// `TaskChanges` delta which the bridge applies; we don't update
     /// the model here.
-    fn handle_toggle(&self, id: i64, _want: bool) {
+    fn handle_toggle(&self, id: i64, want_completed: bool) {
         let Some(worker) = self.worker() else {
             warn!("worker not attached; toggle ignored");
             return;
         };
+        let win_weak = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
-            if let Err(e) = worker.toggle_complete(id).await {
-                error!(?e, id, "toggle_complete failed");
+            match worker.toggle_complete(id).await {
+                Ok(task) => {
+                    let Some(win) = win_weak.upgrade() else {
+                        return;
+                    };
+                    let message = if task.is_completed() {
+                        format!("“{}” completed", truncate(&task.title, 40))
+                    } else {
+                        format!("“{}” reopened", truncate(&task.title, 40))
+                    };
+                    let worker_for_undo = worker.clone();
+                    win.show_undo_toast(&message, move || {
+                        let worker = worker_for_undo;
+                        glib::MainContext::default().spawn_local(async move {
+                            if let Err(e) = worker.toggle_complete(id).await {
+                                error!(?e, id, "undo toggle_complete failed");
+                            }
+                        });
+                    });
+                    let _ = want_completed;
+                }
+                Err(e) => error!(?e, id, "toggle_complete failed"),
             }
         });
     }
@@ -980,16 +1191,68 @@ impl AtriumWindow {
         });
     }
 
-    /// Delete handler — operates on the focused list row.
+    /// Delete handler — operates on the focused list row. Captures
+    /// the full task state + tag attachments before delete so the
+    /// undo toast can recreate the row. Cascade-deleted subtasks are
+    /// lost (parent_id chains aren't recovered) — accepting that for
+    /// v0.1; Phase 8 polish could capture the full subtree.
     pub fn delete_focused_task(&self) {
         let Some(id) = self.focused_task_id() else {
             return;
         };
         let Some(worker) = self.worker() else { return };
+        let Some(pool) = self.read_pool() else { return };
+
+        let task = match pool.with(|c| atrium_core::db::read::task_by_id(c, id)) {
+            Ok(Some(t)) => t,
+            _ => return,
+        };
+        let tag_ids = pool
+            .with(|c| atrium_core::db::read::tag_ids_for_task(c, id))
+            .unwrap_or_default();
+
+        let win_weak = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
             if let Err(e) = worker.delete_task(id).await {
                 error!(?e, id, "delete_task failed");
+                return;
             }
+            let Some(win) = win_weak.upgrade() else {
+                return;
+            };
+            let title = task.title.clone();
+            let worker_for_undo = worker.clone();
+            win.show_undo_toast(
+                &format!("Deleted “{}”", truncate(&title, 40)),
+                move || {
+                    let worker = worker_for_undo;
+                    let task = task.clone();
+                    let tag_ids = tag_ids.clone();
+                    glib::MainContext::default().spawn_local(async move {
+                        let new = atrium_core::NewTask {
+                            title: task.title,
+                            note: task.note,
+                            project_id: task.project_id,
+                            parent_id: task.parent_id,
+                            scheduled_for: task.scheduled_for,
+                            deadline: task.deadline,
+                            defer_until: task.defer_until,
+                            estimated_minutes: task.estimated_minutes,
+                            repeat_rule: task.repeat_rule,
+                        };
+                        match worker.create_task(new).await {
+                            Ok(restored) => {
+                                if !tag_ids.is_empty()
+                                    && let Err(e) = worker.set_task_tags(restored.id, tag_ids).await
+                                {
+                                    error!(?e, "undo set_task_tags failed");
+                                }
+                            }
+                            Err(e) => error!(?e, "undo create_task failed"),
+                        }
+                    });
+                },
+            );
         });
     }
 
@@ -1007,15 +1270,343 @@ impl AtriumWindow {
     }
 
     fn focused_task_id(&self) -> Option<i64> {
-        let model = self.imp().task_list_view.model()?;
-        let selection = model.downcast_ref::<gtk::SingleSelection>()?;
-        let pos = selection.selected();
-        if pos == gtk::INVALID_LIST_POSITION {
-            return None;
+        self.selected_task_ids().first().copied()
+    }
+
+    /// All task ids currently selected in the active list. Order
+    /// matches the model (low index → high index).
+    fn selected_task_ids(&self) -> Vec<i64> {
+        let Some(model) = self.imp().task_list_view.model() else {
+            return Vec::new();
+        };
+        let Some(selection) = model.downcast_ref::<gtk::MultiSelection>() else {
+            return Vec::new();
+        };
+        let bitset = selection.selection();
+        let mut out = Vec::new();
+        if let Some((mut iter, first)) = gtk::BitsetIter::init_first(&bitset) {
+            let mut pos = first;
+            loop {
+                if let Some(obj) = selection.item(pos)
+                    && let Some(t) = obj.downcast_ref::<crate::ui::task_object::AtriumTask>()
+                {
+                    out.push(t.id());
+                }
+                match iter.next() {
+                    Some(next_pos) => pos = next_pos,
+                    None => break,
+                }
+            }
         }
-        let obj = selection.item(pos)?;
-        let task = obj.downcast_ref::<crate::ui::task_object::AtriumTask>()?;
-        Some(task.id())
+        out
+    }
+
+    fn update_selection_bar(&self, n: i64) {
+        let revealer = self.imp().selection_revealer.clone();
+        let label = self.imp().selection_label.clone();
+        if n == 0 {
+            revealer.set_reveal_child(false);
+        } else {
+            label.set_label(&format!("{n} selected",));
+            revealer.set_reveal_child(true);
+        }
+    }
+
+    /// Bulk handlers — fire individual worker calls in a loop. We
+    /// suppress per-item undo toasts to avoid spamming the overlay
+    /// with N toasts; bulk-undo as a single coalesced operation is a
+    /// Phase 8 polish item.
+    pub fn bulk_complete_selection(&self) {
+        let ids = self.selected_task_ids();
+        if ids.is_empty() {
+            return;
+        }
+        let Some(worker) = self.worker() else {
+            return;
+        };
+        glib::MainContext::default().spawn_local(async move {
+            for id in ids {
+                if let Err(e) = worker.toggle_complete(id).await {
+                    error!(?e, id, "bulk toggle_complete failed");
+                }
+            }
+        });
+        self.clear_selection();
+    }
+
+    pub fn bulk_delete_selection(&self) {
+        let ids = self.selected_task_ids();
+        if ids.is_empty() {
+            return;
+        }
+        let Some(worker) = self.worker() else {
+            return;
+        };
+        let count = ids.len();
+        let win_weak = self.downgrade();
+        glib::MainContext::default().spawn_local(async move {
+            let mut deleted = 0;
+            for id in ids {
+                if let Err(e) = worker.delete_task(id).await {
+                    error!(?e, id, "bulk delete_task failed");
+                } else {
+                    deleted += 1;
+                }
+            }
+            if let Some(win) = win_weak.upgrade() {
+                let toast = adw::Toast::new(&format!(
+                    "{deleted} of {count} task{} deleted",
+                    if count == 1 { "" } else { "s" }
+                ));
+                toast.set_timeout(4);
+                win.imp().toast_overlay.add_toast(toast);
+            }
+        });
+        self.clear_selection();
+    }
+
+    pub fn clear_selection(&self) {
+        let Some(model) = self.imp().task_list_view.model() else {
+            return;
+        };
+        if let Some(sel) = model.downcast_ref::<gtk::MultiSelection>() {
+            sel.unselect_all();
+        }
+    }
+
+    pub fn select_all_visible(&self) {
+        let Some(model) = self.imp().task_list_view.model() else {
+            return;
+        };
+        if let Some(sel) = model.downcast_ref::<gtk::MultiSelection>() {
+            sel.select_all();
+        }
+    }
+
+    /// Open the per-task Inspector dialog (Phase 7i). Loads the
+    /// task, the project list, and the current tag count from the
+    /// read pool, then hands off to `ui::inspector::open`. The
+    /// "Edit Tags…" button on the inspector closes that dialog and
+    /// re-routes through `open_tag_editor_for` so we don't have
+    /// two modal windows fighting for focus.
+    pub fn open_inspector_for(&self, task_id: i64) {
+        let Some(pool) = self.read_pool() else {
+            return;
+        };
+        let Some(worker) = self.worker() else {
+            return;
+        };
+        let task = match pool.with(|conn| atrium_core::db::read::task_by_id(conn, task_id)) {
+            Ok(Some(t)) => t,
+            Ok(None) => {
+                error!(task_id, "inspector: task not found");
+                return;
+            }
+            Err(e) => {
+                error!(?e, task_id, "inspector: task_by_id failed");
+                return;
+            }
+        };
+        let projects = pool
+            .with(atrium_core::db::read::list_projects)
+            .unwrap_or_default();
+        let tag_count = pool
+            .with(|conn| atrium_core::db::read::tag_ids_for_task(conn, task_id))
+            .unwrap_or_default()
+            .len();
+        let win_weak = self.downgrade();
+        let on_edit_tags = move |id: i64| {
+            if let Some(win) = win_weak.upgrade() {
+                win.open_tag_editor_for(id);
+            }
+        };
+        crate::ui::inspector::open(self, worker, task, projects, tag_count, on_edit_tags);
+    }
+
+    /// `Ctrl+I` shortcut + double-click activate entry point —
+    /// operates on the focused / first-selected task. No-op when
+    /// nothing is selected.
+    pub fn open_inspector_focused(&self) {
+        if let Some(id) = self.focused_task_id() {
+            self.open_inspector_for(id);
+        }
+    }
+
+    /// Open the per-task tag editor for `task_id` (Phase 7g).
+    /// Loads the current tag set + the full tag library from the
+    /// read pool, then hands off to `ui::tag_editor::open` which
+    /// owns the dialog lifecycle and dispatches the apply call.
+    pub fn open_tag_editor_for(&self, task_id: i64) {
+        let Some(pool) = self.read_pool() else {
+            return;
+        };
+        let Some(worker) = self.worker() else {
+            return;
+        };
+        let task = match pool.with(|conn| atrium_core::db::read::task_by_id(conn, task_id)) {
+            Ok(Some(t)) => t,
+            Ok(None) => {
+                error!(task_id, "tag editor: task not found");
+                return;
+            }
+            Err(e) => {
+                error!(?e, task_id, "tag editor: task_by_id failed");
+                return;
+            }
+        };
+        let current_tag_ids = pool
+            .with(|conn| atrium_core::db::read::tag_ids_for_task(conn, task_id))
+            .unwrap_or_default();
+        let all_tags = pool
+            .with(atrium_core::db::read::list_tags)
+            .unwrap_or_default();
+        crate::ui::tag_editor::open(self, worker, task_id, task.title, current_tag_ids, all_tags);
+    }
+
+    /// `Ctrl+T` shortcut + right-click menu entry point — operates
+    /// on the focused / first-selected task. No-op if nothing is
+    /// selected.
+    pub fn edit_tags_focused(&self) {
+        if let Some(id) = self.focused_task_id() {
+            self.open_tag_editor_for(id);
+        }
+    }
+
+    fn wire_search_bar(&self) {
+        let bar = self.imp().search_bar.clone();
+        let entry = self.imp().search_entry.clone();
+        let button = self.imp().search_button.clone();
+
+        // Hook the toggle button to the search bar's search-mode.
+        button
+            .bind_property("active", &bar, "search-mode-enabled")
+            .sync_create()
+            .bidirectional()
+            .build();
+
+        // search-changed fires after `search-delay` ms (set in .ui).
+        // We use it as our debounced input.
+        entry.connect_search_changed(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |entry| {
+                let q = entry.text().to_string();
+                if q.trim().is_empty() {
+                    // If search bar is open and user cleared the
+                    // text, fall back to Today rather than rendering
+                    // empty results.
+                    if matches!(win.active_list(), ActiveList::SearchResults(_)) {
+                        win.set_active_list(ActiveList::Today);
+                        win.select_sidebar_row_for(ActiveList::Today);
+                    }
+                    return;
+                }
+                win.set_active_list(ActiveList::SearchResults(q));
+            }
+        ));
+
+        // Esc inside the entry closes the bar.
+        entry.connect_stop_search(clone!(
+            #[weak]
+            bar,
+            #[weak]
+            button,
+            move |_| {
+                bar.set_search_mode(false);
+                button.set_active(false);
+            }
+        ));
+    }
+
+    /// Public action target — `Ctrl+F` opens the search bar and
+    /// focuses the entry.
+    pub fn focus_search(&self) {
+        self.imp().search_bar.set_search_mode(true);
+        self.imp().search_button.set_active(true);
+        self.imp().search_entry.grab_focus();
+    }
+
+    /// Show a toast with an Undo button. The undo closure runs at
+    /// most once — whichever of the toast button or the `Ctrl+Z`
+    /// accel (Phase 7f) fires first consumes it. Default 6 s timeout.
+    /// Phase 7b's daily-driver safety net.
+    pub fn show_undo_toast<F: FnOnce() + 'static>(&self, message: &str, undo: F) {
+        let toast = adw::Toast::new(message);
+        toast.set_button_label(Some("Undo"));
+        toast.set_timeout(6);
+        let cell: UndoCell = Rc::new(RefCell::new(Some(Box::new(undo))));
+        // Share the cell with the window so `win.undo` (Ctrl+Z) can
+        // take from the same slot.
+        self.imp().last_undo.replace(Some(cell.clone()));
+        let cell_for_button = cell.clone();
+        toast.connect_button_clicked(move |t| {
+            if let Some(f) = cell_for_button.borrow_mut().take() {
+                f();
+            }
+            t.dismiss();
+        });
+        self.imp().toast_overlay.add_toast(toast);
+    }
+
+    /// Walk every sidebar row and unparent any stashed context-menu
+    /// popover. Idempotent — rows without a stashed popover (the
+    /// canonical rows, section headers) are skipped. Phase 8h fix
+    /// for the "Finalizing GtkListBoxRow … but it still has children
+    /// left" GTK warning. Called from `rebuild_dynamic_sidebar`
+    /// before the remove-rows loop, and from `close_request` so the
+    /// app close path is also clean.
+    fn unparent_sidebar_context_menus(&self) {
+        let list_box = self.imp().sidebar_list.clone();
+        let mut idx = 0;
+        while let Some(row) = list_box.row_at_index(idx) {
+            unsafe {
+                if let Some(popover) = row.steal_data::<gtk::PopoverMenu>("atrium-context-popover")
+                {
+                    popover.unparent();
+                }
+            }
+            idx += 1;
+        }
+    }
+
+    /// Add or remove the `atrium-high-legibility` CSS class on the
+    /// window. The matching selector in `data/style.css` swaps the
+    /// UI font family to Atkinson Hyperlegible. Phase 8c.
+    fn apply_high_legibility(&self, on: bool) {
+        if on {
+            self.add_css_class("atrium-high-legibility");
+        } else {
+            self.remove_css_class("atrium-high-legibility");
+        }
+    }
+
+    /// If a task row holds focus (or is the ancestor / focus-target
+    /// inside the list view), flip its title stack into edit mode
+    /// and return `true`. Used by F2 (Phase 7f) so the same chord
+    /// that renames a sidebar item also opens the title editor on
+    /// the focused task row. Replaces the v0.0.36 EditableLabel-based
+    /// path; the stack's "edit" page is a plain GtkEntry that we
+    /// populate from the bound display label and focus + select-all.
+    fn start_edit_focused_row(&self) -> bool {
+        let Some(focused) = self.focus() else {
+            return false;
+        };
+        if let Some(row) = find_task_row(&focused) {
+            return start_edit_on_row(&row);
+        }
+        false
+    }
+
+    /// Invoke the most recent undo callback, if any is still alive.
+    /// Bound to `Ctrl+Z` via `win.undo`. Idempotent — once consumed,
+    /// the cell stays empty until the next `show_undo_toast`.
+    pub fn invoke_last_undo(&self) {
+        let cell_opt = self.imp().last_undo.borrow().clone();
+        if let Some(cell) = cell_opt
+            && let Some(f) = cell.borrow_mut().take()
+        {
+            f();
+        }
     }
 
     fn wire_new_task_entry(&self) {
@@ -1084,6 +1675,172 @@ impl AtriumWindow {
             move |_, _| win.archive_active_project()
         ));
         self.add_action(&archive);
+
+        // Phase 7c — bulk action surfaces.
+        let bulk_complete = gio::SimpleAction::new("bulk-complete", None);
+        bulk_complete.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.bulk_complete_selection()
+        ));
+        self.add_action(&bulk_complete);
+
+        let bulk_delete = gio::SimpleAction::new("bulk-delete", None);
+        bulk_delete.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.bulk_delete_selection()
+        ));
+        self.add_action(&bulk_delete);
+
+        let bulk_clear = gio::SimpleAction::new("bulk-clear", None);
+        bulk_clear.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.clear_selection()
+        ));
+        self.add_action(&bulk_clear);
+
+        let select_all = gio::SimpleAction::new("select-all", None);
+        select_all.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.select_all_visible()
+        ));
+        self.add_action(&select_all);
+
+        // Phase 8c — high-legibility font toggle. Stateful boolean
+        // action backed by the `high-legibility-font` GSetting. Both
+        // directions sync: clicking the menu item flips the GSetting,
+        // and an external dconf write (or an initial preset) flows
+        // back into the action state + CSS class.
+        let settings = self.settings();
+        let initial_hl = settings.boolean("high-legibility-font");
+        self.apply_high_legibility(initial_hl);
+        let hl_action =
+            gio::SimpleAction::new_stateful("high-legibility-font", None, &initial_hl.to_variant());
+        hl_action.connect_change_state(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |action, value| {
+                let Some(value) = value else { return };
+                let on = value.get::<bool>().unwrap_or(false);
+                let _ = win.settings().set_boolean("high-legibility-font", on);
+                action.set_state(value);
+                win.apply_high_legibility(on);
+            }
+        ));
+        self.add_action(&hl_action);
+        // Listen for external GSetting changes (dconf-editor, another
+        // process) so the action state and CSS class stay coherent.
+        settings.connect_changed(
+            Some("high-legibility-font"),
+            clone!(
+                #[weak(rename_to = win)]
+                self,
+                #[strong]
+                hl_action,
+                move |s, _key| {
+                    let on = s.boolean("high-legibility-font");
+                    hl_action.set_state(&on.to_variant());
+                    win.apply_high_legibility(on);
+                }
+            ),
+        );
+
+        // Phase 7i — Ctrl+I (or row right-click → Edit Details…)
+        // opens the Inspector dialog for the focused / first-selected
+        // task.
+        let edit_details = gio::SimpleAction::new("edit-details-focused", None);
+        edit_details.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.open_inspector_focused()
+        ));
+        self.add_action(&edit_details);
+        let edit_details_for =
+            gio::SimpleAction::new("edit-details-for", Some(&i64::static_variant_type()));
+        edit_details_for.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, parameter| {
+                let Some(target) = parameter else { return };
+                let Some(id) = target.get::<i64>() else {
+                    return;
+                };
+                win.open_inspector_for(id);
+            }
+        ));
+        self.add_action(&edit_details_for);
+
+        // Phase 7g — Ctrl+T (or row right-click) opens the tag
+        // editor for the focused / first-selected task.
+        let edit_tags = gio::SimpleAction::new("edit-tags-focused", None);
+        edit_tags.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.edit_tags_focused()
+        ));
+        self.add_action(&edit_tags);
+
+        // Phase 7g — parameterized variant for the row context menu,
+        // which knows the task id at popover-build time. Keeps the
+        // menu working even when the right-click row isn't part of
+        // the current selection.
+        let edit_tags_for =
+            gio::SimpleAction::new("edit-tags-for", Some(&i64::static_variant_type()));
+        edit_tags_for.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, parameter| {
+                let Some(target) = parameter else { return };
+                let Some(id) = target.get::<i64>() else {
+                    return;
+                };
+                win.open_tag_editor_for(id);
+            }
+        ));
+        self.add_action(&edit_tags_for);
+
+        // Phase 7f — Ctrl+Z invokes the most recent undo callback.
+        let undo = gio::SimpleAction::new("undo", None);
+        undo.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.invoke_last_undo()
+        ));
+        self.add_action(&undo);
+
+        // Phase 7e — focus the sidebar filter (Ctrl+L).
+        let focus_sidebar_filter = gio::SimpleAction::new("focus-sidebar-filter", None);
+        focus_sidebar_filter.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| {
+                let entry = win.imp().sidebar_filter.clone();
+                entry.grab_focus();
+                entry.select_region(0, -1);
+            }
+        ));
+        self.add_action(&focus_sidebar_filter);
+    }
+
+    /// Apply a substring filter against area / project / tag rows.
+    /// Canonical lists are always visible; a section header is visible
+    /// iff at least one row in its section passes the filter. An empty
+    /// query restores everything. Phase 7e.
+    pub fn apply_sidebar_filter(&self, query: &str) {
+        let targets = self.imp().sidebar_targets.borrow().clone();
+        let titles = self.imp().sidebar_titles.borrow().clone();
+        let list_box = self.imp().sidebar_list.clone();
+
+        let visible = compute_sidebar_visibility(query, CANONICAL_LISTS.len(), &targets, &titles);
+
+        for (idx, v) in visible.iter().enumerate() {
+            if let Some(row) = list_box.row_at_index(idx as i32) {
+                row.set_visible(*v);
+            }
+        }
     }
 
     /// Prompt for an area name and create it. Used by the
@@ -1113,13 +1870,15 @@ impl AtriumWindow {
                 return;
             };
             let Some(worker) = win.worker() else { return };
+            // We currently only track project→area lookup well
+            // enough to default new projects when the user is on
+            // an Area row. From a Project row the new project
+            // lands unfiled — caching project→area would let us
+            // inherit the parent area, but the project_titles map
+            // doesn't carry that yet. Picked up when sidebar caches
+            // grow to include area_id alongside title.
             let area_id = match win.active_list() {
                 ActiveList::Area(id) => Some(id),
-                ActiveList::Project(id) => {
-                    // If the user is in a project, default the new
-                    // project to the same area.
-                    win.imp().project_titles.borrow().get(&id).and(None) // We don't cache area_id on projects yet — leave unfiled.
-                }
                 _ => None,
             };
             let new = if let Some(aid) = area_id {
@@ -1134,6 +1893,12 @@ impl AtriumWindow {
     }
 
     fn prompt_rename_active(&self) {
+        // Phase 7f — F2 prefers in-list inline editing when the task
+        // list has focus. Falls through to the sidebar rename for
+        // Area / Project / Tag when the focus lives elsewhere.
+        if self.start_edit_focused_row() {
+            return;
+        }
         let active = self.active_list();
         let win = self.clone();
         match active {
@@ -1354,7 +2119,7 @@ impl AtriumWindow {
     /// for Phase 5b's CRUD pass.
     pub fn show_list_at(&self, idx: usize) {
         if let Some(active) = CANONICAL_LISTS.get(idx) {
-            self.set_active_list(*active);
+            self.set_active_list(active.clone());
             if let Some(row) = self.imp().sidebar_list.row_at_index(idx as i32) {
                 self.imp().sidebar_list.select_row(Some(&row));
             }
@@ -1386,6 +2151,15 @@ pub(crate) fn build_primary_menu(include_debug: bool) -> gio::Menu {
     mode_submenu.append(Some("Simple"), Some("app.mode::simple"));
     mode_submenu.append(Some("Builder"), Some("app.mode::builder"));
     mode_section.append_submenu(Some("Mode"), &mode_submenu);
+    // Phase 8c — accessibility toggle. Stateful win action backed by
+    // the `high-legibility-font` GSetting; the menu surfaces it as a
+    // checkable item.
+    let accessibility_submenu = gio::Menu::new();
+    accessibility_submenu.append(
+        Some("Use High-Legibility Font"),
+        Some("win.high-legibility-font"),
+    );
+    mode_section.append_submenu(Some("Accessibility"), &accessibility_submenu);
     menu.append_section(None, &mode_section);
 
     if include_debug {
@@ -1398,6 +2172,9 @@ pub(crate) fn build_primary_menu(include_debug: bool) -> gio::Menu {
         fixture_submenu.append(Some("Large (50K tasks)"), Some("app.fixture::large"));
         fixture_submenu.append(Some("Stress (100K tasks)"), Some("app.fixture::stress"));
         debug_submenu.append_submenu(Some("Generate Fixtures"), &fixture_submenu);
+
+        // Phase 8e — live RSS / heap readout against the spec §8 budget.
+        debug_submenu.append(Some("Memory Watch"), Some("app.show-memory-watch"));
 
         debug_section.append_submenu(Some("Debug"), &debug_submenu);
         menu.append_section(None, &debug_section);
@@ -1464,14 +2241,21 @@ async fn prompt_confirm_destructive(
     response.as_str() == "destroy"
 }
 
-fn build_canonical_row(active: ActiveList) -> (gtk::ListBoxRow, gtk::Label) {
+fn truncate(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        s.to_string()
+    } else {
+        let head: String = s.chars().take(max_chars).collect();
+        format!("{head}…")
+    }
+}
+
+fn build_canonical_row(active: &ActiveList) -> (gtk::ListBoxRow, gtk::Label) {
     sidebar_row(icon_for(active), active.canonical_title(), 8)
 }
 
 fn build_area_row(area: &Area) -> (gtk::ListBoxRow, gtk::Label) {
-    let (row, badge) = sidebar_row(icon_for(ActiveList::Area(area.id)), &area.title, 8);
-    // The label inside the row gets a `heading` class so areas read
-    // bolder than projects.
+    let (row, badge) = sidebar_row(icon_for(&ActiveList::Area(area.id)), &area.title, 8);
     if let Some(label) = row
         .child()
         .and_downcast::<gtk::Box>()
@@ -1487,14 +2271,14 @@ fn build_area_row(area: &Area) -> (gtk::ListBoxRow, gtk::Label) {
 fn build_project_row(project: &Project, indented: bool) -> (gtk::ListBoxRow, gtk::Label) {
     let margin = if indented { 24 } else { 8 };
     sidebar_row(
-        icon_for(ActiveList::Project(project.id)),
+        icon_for(&ActiveList::Project(project.id)),
         &project.title,
         margin,
     )
 }
 
 fn build_tag_row(tag: &Tag) -> (gtk::ListBoxRow, gtk::Label) {
-    sidebar_row(icon_for(ActiveList::Tag(tag.id)), &tag.name, 8)
+    sidebar_row(icon_for(&ActiveList::Tag(tag.id)), &tag.name, 8)
 }
 
 fn build_section_header(label: &str) -> gtk::ListBoxRow {
@@ -1541,6 +2325,14 @@ fn sidebar_row(icon: &str, label: &str, margin_start: i32) -> (gtk::ListBoxRow, 
     row_box.append(&badge);
 
     let row = gtk::ListBoxRow::builder().child(&row_box).build();
+    // Accessibility (Phase 8f): name the row for screen readers.
+    // The visible Label already announces its text, but the row
+    // itself is what `gtk::ListBox` keyboard navigation lands on,
+    // so a redundant label keeps SR readout consistent across
+    // pointer + keyboard interaction. Tooltips repeat the same
+    // text — useful when the label ellipsises.
+    row.set_tooltip_text(Some(label));
+    row.update_property(&[gtk::accessible::Property::Label(label)]);
     (row, badge)
 }
 
@@ -1552,6 +2344,110 @@ fn apply_badge_label(badge: &gtk::Label, count: i64) {
     } else {
         badge.set_visible(false);
     }
+}
+
+/// Walk up from `start` to find an `atrium-task-row` ancestor; if
+/// nothing is found upward, walk down through `start`'s children
+/// (the focused widget might be a `GtkListItemWidget` whose child
+/// is our row Box). Returns the first match, or `None`.
+fn find_task_row(start: &gtk::Widget) -> Option<gtk::Widget> {
+    let mut current = start.clone();
+    loop {
+        if current.has_css_class("atrium-task-row") {
+            return Some(current);
+        }
+        match current.parent() {
+            Some(p) => current = p,
+            None => break,
+        }
+    }
+    fn walk(w: &gtk::Widget) -> Option<gtk::Widget> {
+        if w.has_css_class("atrium-task-row") {
+            return Some(w.clone());
+        }
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            if let Some(found) = walk(&c) {
+                return Some(found);
+            }
+            child = c.next_sibling();
+        }
+        None
+    }
+    walk(start)
+}
+
+/// Flip the row's title stack into edit mode, populate the entry
+/// from the bound display label, and grab + select-all on the
+/// entry. Returns true on success, false if the row's stack /
+/// label / entry data isn't present (e.g., a row factory recycle
+/// where unbind has already run).
+fn start_edit_on_row(row: &gtk::Widget) -> bool {
+    unsafe {
+        let stack = row
+            .data::<gtk::Stack>("atrium-title-stack")
+            .map(|p| p.as_ref().clone());
+        let label = row
+            .data::<gtk::Label>("atrium-title-label")
+            .map(|p| p.as_ref().clone());
+        let entry = row
+            .data::<gtk::Entry>("atrium-title-entry")
+            .map(|p| p.as_ref().clone());
+        if let (Some(stack), Some(label), Some(entry)) = (stack, label, entry) {
+            entry.set_text(&label.label());
+            stack.set_visible_child_name("edit");
+            entry.grab_focus();
+            entry.select_region(0, -1);
+            return true;
+        }
+    }
+    false
+}
+
+/// Pure visibility computation for the sidebar filter (Phase 7e).
+/// Inputs are aligned with `sidebar_targets` / `sidebar_titles`:
+///   - `query`: the user's current filter string (case-insensitive).
+///   - `canonical_count`: number of always-visible rows at the head.
+///   - `targets[i] == None` marks a section header.
+///   - `titles[i]` holds the user-visible label for filterable rows
+///     (None for canonical and section headers).
+///
+/// Returns one bool per row. Header rows lift to `true` when any
+/// child between them and the next header passes the filter.
+fn compute_sidebar_visibility(
+    query: &str,
+    canonical_count: usize,
+    targets: &[Option<ActiveList>],
+    titles: &[Option<String>],
+) -> Vec<bool> {
+    let needle = query.trim().to_ascii_lowercase();
+    let mut visible: Vec<bool> = Vec::with_capacity(targets.len());
+    for (idx, target) in targets.iter().enumerate() {
+        if idx < canonical_count {
+            visible.push(true);
+        } else if target.is_none() {
+            // Section header — provisional false; pass 2 promotes it
+            // when one of its children passes.
+            visible.push(false);
+        } else {
+            let label = titles.get(idx).and_then(|t| t.as_ref());
+            let v = needle.is_empty()
+                || label.is_some_and(|s| s.to_ascii_lowercase().contains(&needle));
+            visible.push(v);
+        }
+    }
+
+    let mut last_header: Option<usize> = None;
+    for idx in canonical_count..targets.len() {
+        if targets[idx].is_none() {
+            last_header = Some(idx);
+        } else if visible[idx]
+            && let Some(h) = last_header
+        {
+            visible[h] = true;
+        }
+    }
+    visible
 }
 
 #[cfg(test)]
@@ -1578,5 +2474,93 @@ mod tests {
         assert!(CANONICAL_LISTS.contains(&ActiveList::Inbox));
         assert!(CANONICAL_LISTS.contains(&ActiveList::Today));
         assert!(CANONICAL_LISTS.contains(&ActiveList::Logbook));
+    }
+
+    // Build a fake sidebar layout: 2 canonical, then "Areas" header
+    // + 2 areas, then "Tags" header + 2 tags. (We use 2 canonical
+    // instead of 6 to keep the fixtures small; the helper takes the
+    // canonical count as a parameter.)
+    fn fake_sidebar() -> (Vec<Option<ActiveList>>, Vec<Option<String>>) {
+        let targets = vec![
+            Some(ActiveList::Inbox),    // 0
+            Some(ActiveList::Today),    // 1
+            None,                       // 2 — Areas header
+            Some(ActiveList::Area(10)), // 3 — "Work"
+            Some(ActiveList::Area(11)), // 4 — "Home"
+            None,                       // 5 — Tags header
+            Some(ActiveList::Tag(20)),  // 6 — "errand"
+            Some(ActiveList::Tag(21)),  // 7 — "work-focus"
+        ];
+        let titles = vec![
+            None,
+            None,
+            None,
+            Some("Work".into()),
+            Some("Home".into()),
+            None,
+            Some("errand".into()),
+            Some("work-focus".into()),
+        ];
+        (targets, titles)
+    }
+
+    #[test]
+    fn empty_query_shows_everything() {
+        let (t, n) = fake_sidebar();
+        let v = compute_sidebar_visibility("", 2, &t, &n);
+        assert_eq!(v, vec![true; 8]);
+    }
+
+    #[test]
+    fn filter_matches_one_section_hides_other_header() {
+        let (t, n) = fake_sidebar();
+        let v = compute_sidebar_visibility("err", 2, &t, &n);
+        // canonical kept; Areas hidden (no match); errand visible,
+        // work-focus hidden; Tags header lifted.
+        assert_eq!(v[0..2], [true, true]);
+        assert!(!v[2]); // Areas header
+        assert!(!v[3] && !v[4]); // areas
+        assert!(v[5]); // Tags header
+        assert!(v[6] && !v[7]);
+    }
+
+    #[test]
+    fn filter_promotes_header_when_any_child_matches() {
+        let (t, n) = fake_sidebar();
+        let v = compute_sidebar_visibility("work", 2, &t, &n);
+        // "Work" area matches → Areas header lifts.
+        // "work-focus" tag matches → Tags header lifts.
+        assert!(v[2]); // Areas header
+        assert!(v[3]); // Work
+        assert!(!v[4]); // Home
+        assert!(v[5]); // Tags header
+        assert!(!v[6]); // errand
+        assert!(v[7]); // work-focus
+    }
+
+    #[test]
+    fn filter_is_case_insensitive() {
+        let (t, n) = fake_sidebar();
+        let lower = compute_sidebar_visibility("home", 2, &t, &n);
+        let upper = compute_sidebar_visibility("HOME", 2, &t, &n);
+        let mixed = compute_sidebar_visibility("HoMe", 2, &t, &n);
+        assert_eq!(lower, upper);
+        assert_eq!(lower, mixed);
+        assert!(lower[4]); // "Home"
+    }
+
+    #[test]
+    fn no_match_leaves_only_canonical_visible() {
+        let (t, n) = fake_sidebar();
+        let v = compute_sidebar_visibility("zzzzz", 2, &t, &n);
+        assert_eq!(v[0..2], [true, true]);
+        assert!(v[2..].iter().all(|b| !b));
+    }
+
+    #[test]
+    fn whitespace_query_treated_as_empty() {
+        let (t, n) = fake_sidebar();
+        let v = compute_sidebar_visibility("   ", 2, &t, &n);
+        assert_eq!(v, vec![true; 8]);
     }
 }

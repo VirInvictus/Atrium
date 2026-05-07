@@ -1,0 +1,89 @@
+# Flatpak manifest for Atrium.
+#
+# Build:
+#   flatpak-builder --user --install --force-clean build-dir \
+#     data/io.github.virinvictus.atrium.yml
+#
+# Run:
+#   flatpak run io.github.virinvictus.atrium
+#
+# Targets the GNOME 50 runtime + the rust-stable SDK extension for
+# cargo. The build pipeline is meson → cargo via the Phase 0 Meson
+# wrapper (`meson.build` at the project root), which runs cargo and
+# installs the binary + GSettings schema + bundled fonts + style.css
+# alongside the desktop / icon / metainfo data files we install
+# directly here.
+#
+# The vendored-cargo-sources approach for offline Flathub builds
+# isn't wired yet — Phase 9 task. For local developer builds the
+# default `--share=network` flatpak-builder permission lets cargo
+# fetch from crates.io.
+---
+app-id: io.github.virinvictus.atrium
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: atrium
+
+# Skip flatpak-builder's appstreamcli-compose pass — librsvg's pixbuf
+# loader isn't reliably present on modern Fedora hosts (GTK4 renders
+# SVG natively without it). Flathub re-runs compose against its own
+# toolchain at submission time so this is harmless locally.
+appstream-compose: false
+
+# Build-time PATH/CARGO env so the rust-stable extension is visible.
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
+  env:
+    CARGO_HOME: /run/build/atrium/cargo
+
+# Sandbox permissions — minimal. Display + DRI for GTK4/Wayland;
+# home for $XDG_DATA_HOME / $XDG_CONFIG_HOME / $XDG_CACHE_HOME so
+# Atrium's SQLite DB at $XDG_DATA_HOME/atrium/atrium.db lives where
+# the user expects. The optional Org vault default is $HOME/Tasks/,
+# also covered by --filesystem=home. Network is intentionally absent
+# — Atrium is local-first per spec §3.
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=home
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - /share/doc
+  - '*.la'
+  - '*.a'
+
+modules:
+
+  - name: atrium
+    buildsystem: meson
+    config-opts:
+      - --buildtype=release
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/atrium/cargo
+    sources:
+      - type: dir
+        path: ..
+    post-install:
+      # Pre-render PNG sizes from the master SVG so software centers
+      # and the GNOME shell get rasterised icons without depending on
+      # gdk-pixbuf's librsvg loader at runtime. GTK4 itself is happy
+      # with the SVG, but Flathub validators prefer the PNG ladder.
+      - |
+        for sz in 32 48 64 128 256 512; do
+          mkdir -p ${FLATPAK_DEST}/share/icons/hicolor/${sz}x${sz}/apps
+          rsvg-convert -w ${sz} -h ${sz} \
+            data/icons/hicolor/scalable/apps/io.github.virinvictus.atrium.svg \
+            -o ${FLATPAK_DEST}/share/icons/hicolor/${sz}x${sz}/apps/io.github.virinvictus.atrium.png
+        done

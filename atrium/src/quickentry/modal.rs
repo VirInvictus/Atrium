@@ -30,6 +30,7 @@ pub fn open(parent: &impl IsA<gtk::Window>, worker: Option<WorkerHandle>) {
         .default_width(480)
         .default_height(120)
         .resizable(false)
+        .css_classes(["atrium-quickentry-window"])
         .build();
 
     let toolbar = adw::ToolbarView::new();

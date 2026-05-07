@@ -1,41 +1,176 @@
-/* Atrium — base stylesheet (Phase 3 foundation).
+/* Atrium — base stylesheet.
  *
- * Builds on libadwaita's CSS variables; later phases (4, 8) refine
- * type sizes, weights, and per-surface spacing. The Phase 3 baseline
- * sets the bundled font families and turns tabular figures on for
- * numeric contexts so badges and date columns don't dance.
+ * Builds on libadwaita's CSS variables. Phase 3 set the bundled font
+ * families and turned tabular figures on for numeric contexts; Phase 8a
+ * adds the surface-by-surface type pass — Inter OpenType features
+ * (cv11 / ss01) on UI labels, hand-tuned sizes/weights/leading per
+ * surface, and a fade-on-completed transition for task rows.
+ *
+ * Selectors track the actual CSS classes added in code:
+ *   .atrium-task-row           — task row container Box (task_list.rs)
+ *   .atrium-task-title         — task title EditableLabel
+ *   .atrium-task-tags          — inline tag-names-csv Label
+ *   .atrium-task-schedule      — schedule pill (Today / Tomorrow / …)
+ *   .atrium-task-deadline      — deadline pill (Due …)
+ *   .atrium-task-row.completed — completed task row (set in factory bind)
+ *   .numeric                   — sidebar count badges (window.rs)
  */
 
 :root {
   --atrium-font-ui:    "Inter", "Inter Variable", system-ui, sans-serif;
   --atrium-font-serif: "Source Serif 4", "Source Serif Pro", serif;
   --atrium-font-mono:  "JetBrains Mono", "JetBrainsMono", monospace;
+
+  /* Inter looks best with these alternates: cv11 = curved-l (kills the
+   * straight stick that reads like an I), ss01 = single-storey-a
+   * (cleaner at small sizes). Bundled into one variable so the same
+   * settings land on every UI surface that opts in. */
+  --atrium-inter-features: "cv11", "ss01";
 }
 
 window {
   font-family: var(--atrium-font-ui);
+  font-feature-settings: var(--atrium-inter-features);
 }
 
-/* Tabular figures everywhere we display counts or dates so digits
- * keep their column when values change. */
-.numeric,
-.task-row .date,
-.task-row .count,
-.sidebar .count-badge {
+/* Phase 8c — high-legibility accessibility toggle. The class is
+ * applied to the window (and inherits down) when the
+ * `high-legibility-font` GSetting is enabled; Atkinson Hyperlegible
+ * was designed by the Braille Institute to maximise inter-character
+ * distinguishability for low-vision readers. The OpenType-feature
+ * variable falls back to `normal` so we don't accidentally request
+ * cv11/ss01 (Inter glyphs) on Atkinson. */
+window.atrium-high-legibility,
+window.atrium-high-legibility * {
+  font-family: "Atkinson Hyperlegible", var(--atrium-font-ui);
+  font-feature-settings: normal;
+}
+/* Sidebar count badges + numeric pills still want tabular figures
+ * regardless of which UI face is in play. */
+window.atrium-high-legibility .numeric,
+window.atrium-high-legibility .atrium-task-schedule,
+window.atrium-high-legibility .atrium-task-deadline {
   font-feature-settings: "tnum";
   font-variant-numeric: tabular-nums;
 }
 
+/* Tabular figures everywhere we display counts or dates so digits
+ * keep their column when values change. Stacks on top of the Inter
+ * alternates; CSS merges feature settings declared on the same
+ * cascade level. */
+.numeric,
+.atrium-task-schedule,
+.atrium-task-deadline {
+  font-feature-settings: var(--atrium-inter-features), "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+/* Task-row title: slightly heavier than libadwaita's default body so
+ * scanning a long list doesn't strain. The `editing` state of
+ * EditableLabel falls back to GTK's default editable styling. */
+.atrium-task-title {
+  font-size: 1.0em;
+  font-weight: 450;
+  letter-spacing: -0.005em;
+}
+
+/* Schedule + deadline pills sit to the right of the title in the
+ * same row. They need to read as secondary information. dim-label is
+ * already applied in code; this nudges the size and gives deadline
+ * a subtle weight bump so "Due tomorrow" jumps a hair more than
+ * "Today". */
+.atrium-task-schedule,
+.atrium-task-deadline {
+  font-size: 0.92em;
+}
+.atrium-task-deadline {
+  font-weight: 500;
+}
+
+/* Inline tag display ("#errand #work-focus") trails the title.
+ * Phase 7g lifted this from a single dim caption to a chip-shaped
+ * accent — visible enough to read at a glance, not loud enough to
+ * compete with the title. The label is one widget rendering the
+ * full `#tag #tag` string (per-tag widgets defer to a future slice
+ * that wants different colours per tag); padding + radius are CSS
+ * so we don't have to thread a Box through the factory. The
+ * `.dim-label` class added in code is removed visually here by the
+ * elevated colour. */
+.atrium-task-tags {
+  font-size: 0.85em;
+  letter-spacing: 0.005em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background-color: alpha(@accent_bg_color, 0.15);
+  color: @accent_color;
+}
+/* When the row is completed, blend the chip back into the row
+ * fade so it doesn't visually outshout the dimmed title. */
+.atrium-task-row.completed .atrium-task-tags {
+  background-color: alpha(@accent_bg_color, 0.08);
+}
+
+/* Completion fade. The .completed class is toggled in
+ * task_list.rs::factory.connect_bind. The transition lands on the
+ * row so child labels inherit. */
+.atrium-task-row {
+  transition: opacity 180ms ease-out;
+}
+.atrium-task-row.completed {
+  opacity: 0.55;
+}
+.atrium-task-row.completed .atrium-task-title {
+  text-decoration: line-through;
+}
+
+/* Sidebar count badges: dim-label + numeric in code; tighten the
+ * size and tabular-figure them so the values stay aligned column-
+ * wise as they change. */
+.numeric {
+  font-size: 0.88em;
+  font-feature-settings: var(--atrium-inter-features), "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+/* Phase 8d — animation audit & Quick Entry fade-in.
+ *
+ * Animation policy: match libadwaita timings rather than override
+ * them. The platform's defaults already cover most surfaces:
+ *   - content_stack (window.ui)             crossfade (libadwaita)
+ *   - selection_revealer (window.ui)        slide-down (libadwaita)
+ *   - .atrium-task-row.completed            opacity 180ms (Phase 8a)
+ *   - adw::Toast (undo + bulk summary)      libadwaita defaults
+ *   - adw::AlertDialog (rename / delete)    libadwaita defaults
+ *
+ * Atrium adds custom transitions only where libadwaita's defaults
+ * don't apply. Quick Entry uses a plain adw::Window (not adw::Dialog)
+ * because we want non-modal, transient-for-main behaviour — which
+ * means we lose the dialog presentation animation. We add a 150 ms
+ * opacity fade-in via a keyframe so the modal appears smoothly. */
+
+@keyframes atrium-quickentry-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+window.atrium-quickentry-window {
+  animation: atrium-quickentry-fade-in 150ms ease-out;
+}
+
 /* Note bodies use the serif. The selector lands in Phase 4 with the
- * actual editor; declared here as a foundation. */
+ * actual editor; declared here as a foundation. The serif intentionally
+ * doesn't pick up cv11/ss01 — those are Inter-only. */
 .atrium-note-body {
   font-family: var(--atrium-font-serif);
+  font-feature-settings: normal;
   font-size: 1.05em;
   line-height: 1.55;
 }
 
-/* Debug pane / SQL trace surface use the monospace. */
+/* Debug pane / SQL trace surface use the monospace. JetBrains Mono
+ * doesn't need cv11/ss01; explicit `normal` keeps it from inheriting. */
 .atrium-debug-pane,
 .atrium-debug-pane * {
   font-family: var(--atrium-font-mono);
+  font-feature-settings: normal;
 }

@@ -33,6 +33,24 @@ const SHORTCUTS_XML: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
             </child>
             <child>
               <object class="GtkShortcutsShortcut">
+                <property name="title">Search · text · tag:NAME · is:open|done|overdue · due:today</property>
+                <property name="accelerator">&lt;Primary&gt;f</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title">Filter sidebar (find-as-you-type)</property>
+                <property name="accelerator">&lt;Primary&gt;l</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title">Undo last toggle / delete</property>
+                <property name="accelerator">&lt;Primary&gt;z</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
                 <property name="title">Show keyboard shortcuts</property>
                 <property name="accelerator">&lt;Primary&gt;question F1</property>
               </object>
@@ -103,6 +121,30 @@ const SHORTCUTS_XML: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
                 <property name="accelerator">Delete</property>
               </object>
             </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title">Select all in active list</property>
+                <property name="accelerator">&lt;Primary&gt;a</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title">Clear selection</property>
+                <property name="accelerator">Escape</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title">Edit tags for focused task</property>
+                <property name="accelerator">&lt;Primary&gt;t</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title">Open Inspector (full editor) — also double-click a row</property>
+                <property name="accelerator">&lt;Primary&gt;i</property>
+              </object>
+            </child>
           </object>
         </child>
 
@@ -123,7 +165,7 @@ const SHORTCUTS_XML: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
             </child>
             <child>
               <object class="GtkShortcutsShortcut">
-                <property name="title">Rename active project / area</property>
+                <property name="title">Edit focused row / rename active project / area</property>
                 <property name="accelerator">F2</property>
               </object>
             </child>

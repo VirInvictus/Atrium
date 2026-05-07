@@ -124,7 +124,11 @@ fn format_schedule(s: &Option<ScheduledFor>) -> String {
 }
 
 fn format_deadline(d: Option<chrono::NaiveDate>) -> String {
-    d.map(|d| format!("⏰ {}", d.format("%b %-d")))
+    // The earlier alarm-clock emoji rendered inconsistently across
+    // systems (some show it as a glyph, some as a typographic box,
+    // some at the wrong baseline). A "Due " prefix reads the same
+    // everywhere and lines up with the existing typography pass.
+    d.map(|d| format!("Due {}", d.format("%b %-d")))
         .unwrap_or_default()
 }
 

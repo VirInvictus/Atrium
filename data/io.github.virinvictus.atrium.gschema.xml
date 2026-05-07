@@ -49,5 +49,17 @@
         across versions. GTK accelerator syntax — e.g. "&lt;Control&gt;n".
       </description>
     </key>
+
+    <key name="high-legibility-font" type="b">
+      <default>false</default>
+      <summary>Use the high-legibility font (Atkinson Hyperlegible)</summary>
+      <description>
+        When enabled, swaps the UI font from Inter to Atkinson
+        Hyperlegible — a typeface designed by the Braille Institute
+        for low-vision readers, with high inter-letter distinguish-
+        ability. Bundled (SIL OFL 1.1) so the toggle works with no
+        system fonts required. Phase 8c.
+      </description>
+    </key>
   </schema>
 </schemalist>

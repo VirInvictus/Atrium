@@ -30,6 +30,14 @@ const BUNDLED_FONT_FILES: &[&str] = &[
     "SourceSerif4Variable-Italic.ttf",
     "JetBrainsMono-Variable.ttf",
     "JetBrainsMono-Variable-Italic.ttf",
+    // Phase 8c — Atkinson Hyperlegible for the optional
+    // high-legibility accessibility toggle. Bundled regular/italic
+    // and bold/bold-italic; ~220 KB total. SIL OFL 1.1 © Braille
+    // Institute of America, Inc.
+    "AtkinsonHyperlegible-Regular.ttf",
+    "AtkinsonHyperlegible-Italic.ttf",
+    "AtkinsonHyperlegible-Bold.ttf",
+    "AtkinsonHyperlegible-BoldItalic.ttf",
 ];
 
 /// Copy the bundled TTFs into the user fonts directory and refresh
@@ -188,8 +196,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn font_filenames_are_six() {
-        assert_eq!(BUNDLED_FONT_FILES.len(), 6);
+    fn bundled_fonts_count_matches_inventory() {
+        // Inter (R+I) + Source Serif 4 (R+I) + JetBrains Mono (R+I)
+        // + Atkinson Hyperlegible (R+I+B+BI) = 10 files.
+        assert_eq!(BUNDLED_FONT_FILES.len(), 10);
+    }
+
+    #[test]
+    fn atkinson_hyperlegible_is_bundled() {
+        assert!(
+            BUNDLED_FONT_FILES
+                .iter()
+                .any(|f| f.starts_with("AtkinsonHyperlegible"))
+        );
     }
 
     #[test]

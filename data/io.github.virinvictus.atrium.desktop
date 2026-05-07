@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Atrium
+GenericName=Task Manager
+Comment=Local-first GTD task manager — Things 3 clarity, OmniFocus depth
+Exec=atrium
+Icon=io.github.virinvictus.atrium
+Terminal=false
+Type=Application
+StartupNotify=true
+StartupWMClass=io.github.virinvictus.atrium
+Categories=GTK;Office;ProjectManagement;
+Keywords=todo;tasks;gtd;omnifocus;things;org-mode;productivity;

@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.virinvictus.atrium</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Atrium</name>
+  <summary>Local-first GTD task manager with a native GNOME design</summary>
+
+  <description>
+    <p>
+      Atrium is a native GNOME task manager that fuses Things 3 clarity with
+      OmniFocus depth via a mode switch over a shared local-first data store.
+      Pick Simple Mode for what-am-I-doing-right-now; switch to Builder Mode
+      when you want full GTD review, deferral, sequential projects, and
+      forecast. Same data, two surfaces, no migration.
+    </p>
+    <p>
+      Storage is one SQLite file at $XDG_DATA_HOME/atrium/atrium.db, written
+      by a single dedicated worker thread so the UI never blocks on I/O. The
+      schema is the OmniFocus superset on day one — Simple Mode hides the
+      Builder fields, it doesn't lack them. An optional Org-mode vault
+      mirrors the database as round-trippable .org files so your data stays
+      portable to Emacs, Logseq, or a pile of files in a git repo.
+    </p>
+    <p>Simple Mode features (v0.1):</p>
+    <ul>
+      <li>Inbox · Today · Upcoming · Anytime · Someday · Logbook</li>
+      <li>Areas → Projects → Tasks hierarchy with multi-tag</li>
+      <li>Distinct When (scheduled-for) and Deadline dates</li>
+      <li>Quick Entry global modal (Ctrl+Alt+Space)</li>
+      <li>FTS5-backed search with filter expressions (tag:, is:, due:)</li>
+      <li>Multi-select bulk operations with undo (Ctrl+Z)</li>
+      <li>Find-as-you-type sidebar filter (Ctrl+L)</li>
+      <li>Keyboard-first — every common op bindable, mouse optional</li>
+      <li>Drag-reorder rows; drag tasks onto projects to file them</li>
+      <li>Local-first — no network, no telemetry, no accounts</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.virinvictus.atrium.desktop</launchable>
+  <icon type="stock">io.github.virinvictus.atrium</icon>
+
+  <url type="homepage">https://github.com/VirInvictus/Atrium</url>
+  <url type="bugtracker">https://github.com/VirInvictus/Atrium/issues</url>
+  <url type="vcs-browser">https://github.com/VirInvictus/Atrium</url>
+
+  <developer id="io.github.virinvictus">
+    <name>Brandon LaRocque</name>
+  </developer>
+
+  <provides>
+    <binary>atrium</binary>
+  </provides>
+
+  <categories>
+    <category>Office</category>
+    <category>ProjectManagement</category>
+  </categories>
+
+  <keywords>
+    <keyword>todo</keyword>
+    <keyword>tasks</keyword>
+    <keyword>gtd</keyword>
+    <keyword>omnifocus</keyword>
+    <keyword>things</keyword>
+    <keyword>org-mode</keyword>
+    <keyword>productivity</keyword>
+  </keywords>
+
+  <recommends>
+    <display_length compare="ge">768</display_length>
+    <internet>offline-only</internet>
+  </recommends>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+
+  <content_rating type="oars-1.1"/>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#F4F1EA</color>
+    <color type="primary" scheme_preference="dark">#1A1D21</color>
+  </branding>
+
+  <!-- TODO: add <screenshots> section once a release build is ready to
+       capture against. Phase 9 task. -->
+
+  <releases>
+    <release version="0.0.38" date="2026-05-07">
+      <description>
+        <p>Today filter widens to include upcoming-deadline heads-up.
+           Spec §4.2 picks up a `today + N` deadline window (default
+           7 days), so a task with a deadline approaching surfaces in
+           Today before it's actually due — the behaviour Things 3
+           users expect. Earlier versions left future-deadlined tasks
+           buried in Anytime until the deadline date arrived.</p>
+      </description>
+    </release>
+    <release version="0.0.37" date="2026-05-07">
+      <description>
+        <p>UI bugsweep before v0.1.0. Inspector + tag editor switch from
+           free-standing windows to in-window AdwDialogs (the v0.0.36 form
+           rendered as a transparent overlay because the parent window
+           bled through). Task rows replace GtkEditableLabel with a
+           Label/Entry stack so single-clicks on the title no longer
+           hijack the row's selection / Inspector-open path. Esc moves
+           from a window-global accel onto the task list's shortcut
+           controller — typing in any entry no longer silently clears
+           the multi-selection. Date pills stop ellipsising (no more
+           "May" rows). Documentation refresh in CLAUDE.md and keymap.md.</p>
+      </description>
+    </release>
+    <release version="0.0.23" date="2026-05-06">
+      <description>
+        <p>Phase 8a — typography polish + completion fade. Inter cv11/ss01 on
+           UI labels, tabular figures audit, surface-by-surface size/weight
+           pass, opacity fade for completed task rows.</p>
+      </description>
+    </release>
+    <release version="0.0.22" date="2026-05-06">
+      <description>
+        <p>Phase 7f — full keyboard map. Ctrl+Z invokes the active undo
+           toast; F2 starts inline editing on the focused task row.</p>
+      </description>
+    </release>
+    <release version="0.0.21" date="2026-05-06">
+      <description>
+        <p>Phase 7e — find-as-you-type sidebar. GtkSearchEntry above the row
+           list filters areas, projects, and tags; Ctrl+L focuses it.</p>
+      </description>
+    </release>
+    <release version="0.0.20" date="2026-05-06">
+      <description>
+        <p>Phase 7d — search filter expressions. tag:, is:, due: clauses mix
+           with freeform text in the search bar.</p>
+      </description>
+    </release>
+    <release version="0.0.19" date="2026-05-06">
+      <description>
+        <p>Phase 7c — multi-select with Ctrl+Click / Shift+Click / Ctrl+A,
+           bulk Complete and Delete actions.</p>
+      </description>
+    </release>
+    <release version="0.0.18" date="2026-05-06">
+      <description>
+        <p>Phase 7b — undo for toggle-complete and delete-task via 6 s
+           AdwToast.</p>
+      </description>
+    </release>
+    <release version="0.0.17" date="2026-05-06">
+      <description>
+        <p>Phase 7a — FTS5-backed search bar (Ctrl+F).</p>
+      </description>
+    </release>
+    <release version="0.0.0" date="2026-05-04">
+      <description>
+        <p>Pre-implementation — the contract, public framing, and metadata
+           land before any code. Phases 0 through 6 wire up the workspace,
+           data layer, UI shell, and Simple Mode core (Inbox/Today, Areas,
+           Projects, Tags, Quick Entry).</p>
+      </description>
+    </release>
+  </releases>
+</component>

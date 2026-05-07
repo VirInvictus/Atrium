@@ -55,18 +55,37 @@ pub fn count_tasks(conn: &Connection) -> Result<i64, DbError> {
     Ok(conn.query_row("SELECT count(*) FROM task", [], |r| r.get(0))?)
 }
 
+/// Heads-up window for upcoming deadlines surfaced in Today (spec
+/// §4.2). A task with a deadline within `today + N` days appears in
+/// Today even before that deadline arrives, matching Things 3's
+/// "deadlines approaching" behaviour. The window stays at one
+/// constant for v0.1; turning it into a GSettings key is a Phase 8d
+/// preferences task.
+pub const TODAY_DEADLINE_WINDOW_DAYS: i64 = 7;
+
 /// Today list per spec §4.2:
 ///
-/// > `task WHERE completed_at IS NULL AND (scheduled_for ≤ today OR
-/// > deadline ≤ today) AND (defer_until IS NULL OR defer_until ≤ today)`
+/// > `task WHERE completed_at IS NULL`
+/// > `  AND ( scheduled_for ≤ today`
+/// > `        OR deadline ≤ today + TODAY_DEADLINE_WINDOW_DAYS )`
+/// > `  AND ( defer_until IS NULL OR defer_until ≤ today )`
 ///
 /// The `scheduled_for != '__someday__'` clause is the implementation
 /// detail that keeps the Someday sentinel out of Today: ISO date
 /// strings sort lexicographically, but `__someday__` starts with
 /// underscores (`0x5F`) which compare *less than* any digit, so a
 /// naive `scheduled_for <= ?today` would otherwise match it.
+///
+/// The `deadline ≤ today + window` clause is the v0.0.38 Things-3
+/// alignment: deadlines approaching surface as a heads-up so the
+/// user isn't blindsided. Earlier versions used `deadline ≤ today`,
+/// which left a future-deadlined task buried in Anytime until its
+/// deadline date arrived.
 pub fn list_today(conn: &Connection, today: NaiveDate) -> Result<Vec<Task>, DbError> {
     let today_str = today.format("%Y-%m-%d").to_string();
+    let horizon_str = (today + chrono::Duration::days(TODAY_DEADLINE_WINDOW_DAYS))
+        .format("%Y-%m-%d")
+        .to_string();
     let sql = format!(
         "SELECT {TASK_COLUMNS} FROM task \
          WHERE completed_at IS NULL \
@@ -74,13 +93,13 @@ pub fn list_today(conn: &Connection, today: NaiveDate) -> Result<Vec<Task>, DbEr
                  (scheduled_for IS NOT NULL \
                     AND scheduled_for != '__someday__' \
                     AND scheduled_for <= ?1) \
-                 OR (deadline IS NOT NULL AND deadline <= ?1) \
+                 OR (deadline IS NOT NULL AND deadline <= ?2) \
                ) \
            AND (defer_until IS NULL OR defer_until <= ?1) \
          ORDER BY position"
     );
     let mut stmt = conn.prepare_cached(&sql)?;
-    let rows = stmt.query_map(params![today_str], task_from_row)?;
+    let rows = stmt.query_map(params![today_str, horizon_str], task_from_row)?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
 }
@@ -220,6 +239,9 @@ pub fn count_open_canonical(
         |r| r.get(0),
     )?;
 
+    let horizon_str = (today + chrono::Duration::days(TODAY_DEADLINE_WINDOW_DAYS))
+        .format("%Y-%m-%d")
+        .to_string();
     let today_count: i64 = conn.query_row(
         "SELECT count(*) FROM task \
          WHERE completed_at IS NULL \
@@ -227,10 +249,10 @@ pub fn count_open_canonical(
                  (scheduled_for IS NOT NULL \
                     AND scheduled_for != '__someday__' \
                     AND scheduled_for <= ?1) \
-                 OR (deadline IS NOT NULL AND deadline <= ?1) \
+                 OR (deadline IS NOT NULL AND deadline <= ?2) \
                ) \
            AND (defer_until IS NULL OR defer_until <= ?1)",
-        params![today_str],
+        params![today_str, horizon_str],
         |r| r.get(0),
     )?;
 
@@ -365,6 +387,41 @@ pub fn list_tags(conn: &Connection) -> Result<Vec<Tag>, DbError> {
     let sql = format!("SELECT {TAG_COLUMNS} FROM tag ORDER BY name");
     let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map([], tag_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+/// FTS5-backed search over `task.title` + `task.note`. Returns
+/// matches ranked by `bm25` (FTS5's default — closer to the top means
+/// stronger relevance). Phase 7a's "recency × relevance" requirement
+/// from spec §4.3 lands as a follow-up multiplier; this is the
+/// pure-relevance base.
+///
+/// `query` is wrapped in double quotes so user input is treated as a
+/// phrase search by default — we don't expose FTS5's `OR`/`NOT`
+/// operators yet (that's Phase 7c filter expressions). Internal
+/// double quotes in the user input are stripped to keep the wrapping
+/// well-formed.
+pub fn search_tasks(conn: &Connection, query: &str) -> Result<Vec<Task>, DbError> {
+    let cleaned: String = query.chars().filter(|c| *c != '"').collect();
+    if cleaned.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let phrase = format!("\"{}\"", cleaned.trim());
+
+    let task_cols = TASK_COLUMNS
+        .split(", ")
+        .map(|c| format!("t.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT {task_cols} FROM task t \
+         JOIN task_fts ON task_fts.rowid = t.id \
+         WHERE task_fts MATCH ?1 \
+         ORDER BY rank",
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map(params![phrase], task_from_row)?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
 }
@@ -628,6 +685,114 @@ mod tests {
         );
         let rows = list_today(&conn, today()).unwrap();
         assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn today_includes_deadline_within_heads_up_window() {
+        // Spec §4.2 (v0.0.38) — a deadline N days in the future
+        // surfaces in Today as a heads-up. With today = 2026-05-15
+        // and the 7-day window, a deadline of 2026-05-20 (5 days
+        // out) should appear.
+        let conn = fresh_conn();
+        insert_task(
+            &conn,
+            "a",
+            "approaching",
+            None,
+            Some("2026-05-20"),
+            None,
+            None,
+        );
+        let rows = list_today(&conn, today()).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "approaching");
+    }
+
+    #[test]
+    fn today_includes_deadline_at_window_edge() {
+        // Boundary: today + TODAY_DEADLINE_WINDOW_DAYS days exactly
+        // is *included* (≤ horizon). 2026-05-15 + 7 = 2026-05-22.
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "edge", None, Some("2026-05-22"), None, None);
+        let rows = list_today(&conn, today()).unwrap();
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn today_excludes_deadline_past_window() {
+        // 8 days out: outside the heads-up window, lives in Anytime
+        // until it crosses into the window.
+        let conn = fresh_conn();
+        insert_task(
+            &conn,
+            "a",
+            "far future",
+            None,
+            Some("2026-05-23"),
+            None,
+            None,
+        );
+        assert!(list_today(&conn, today()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn today_count_matches_list_today_with_window() {
+        // The sidebar badge query (`count_open_canonical.today`) and
+        // the Today list query must agree about who's in Today —
+        // they share the same predicate, so a bug in one shows up
+        // here as a count mismatch.
+        let conn = fresh_conn();
+        insert_task(
+            &conn,
+            "a",
+            "scheduled today",
+            Some("2026-05-15"),
+            None,
+            None,
+            None,
+        );
+        insert_task(&conn, "b", "overdue", Some("2026-05-10"), None, None, None);
+        insert_task(
+            &conn,
+            "c",
+            "deadline today",
+            None,
+            Some("2026-05-15"),
+            None,
+            None,
+        );
+        insert_task(
+            &conn,
+            "d",
+            "deadline 5d",
+            None,
+            Some("2026-05-20"),
+            None,
+            None,
+        );
+        insert_task(
+            &conn,
+            "e",
+            "deadline 10d",
+            None,
+            Some("2026-05-25"),
+            None,
+            None,
+        );
+        insert_task(
+            &conn,
+            "f",
+            "future scheduled",
+            Some("2026-05-25"),
+            None,
+            None,
+            None,
+        );
+
+        let rows = list_today(&conn, today()).unwrap();
+        let counts = count_open_canonical(&conn, today()).unwrap();
+        assert_eq!(rows.len() as i64, counts.today);
+        assert_eq!(rows.len(), 4); // a, b, c, d — not e (10d out) or f (future scheduled)
     }
 
     // ── Anytime ────────────────────────────────────────────────────
@@ -903,6 +1068,66 @@ mod tests {
 
         let counts = count_open_per_area(&conn).unwrap();
         assert_eq!(counts.get(&area).copied(), Some(2));
+    }
+
+    // ── Search (Phase 7a) ──────────────────────────────────────────
+
+    #[test]
+    fn search_finds_token_in_title() {
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "buy milk and bread", None, None, None, None);
+        insert_task(&conn, "b", "call dentist", None, None, None, None);
+        let rows = search_tasks(&conn, "milk").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].uuid, "a");
+    }
+
+    #[test]
+    fn search_finds_token_in_note() {
+        let conn = fresh_conn();
+        conn.execute(
+            "INSERT INTO task (uuid, title, note, position) VALUES ('a', 'Email someone', 'about Q3 project review', 1.0)",
+            [],
+        )
+        .unwrap();
+        let rows = search_tasks(&conn, "Q3").unwrap();
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn search_returns_empty_for_no_match() {
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "buy milk", None, None, None, None);
+        let rows = search_tasks(&conn, "zzz_no_match").unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn search_handles_empty_input() {
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "buy milk", None, None, None, None);
+        let rows = search_tasks(&conn, "").unwrap();
+        assert!(rows.is_empty());
+        let rows = search_tasks(&conn, "   ").unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn search_finds_phrase() {
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "buy milk and bread", None, None, None, None);
+        insert_task(
+            &conn,
+            "b",
+            "milk delivery scheduled",
+            None,
+            None,
+            None,
+            None,
+        );
+        let rows = search_tasks(&conn, "buy milk").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].uuid, "a");
     }
 
     #[test]

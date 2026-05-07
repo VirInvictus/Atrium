@@ -570,6 +570,14 @@ impl Worker {
             sets.push("project_id = ?");
             bound.push(Box::new(project_id));
         }
+        if let Some(schedule) = update.scheduled_for {
+            sets.push("scheduled_for = ?");
+            bound.push(Box::new(schedule));
+        }
+        if let Some(deadline) = update.deadline {
+            sets.push("deadline = ?");
+            bound.push(Box::new(deadline));
+        }
         bound.push(Box::new(update.id));
 
         let sql = format!("UPDATE task SET {} WHERE id = ?", sets.join(", "));
@@ -929,6 +937,65 @@ mod tests {
         let changes = changes_rx.recv().await.unwrap();
         assert_eq!(changes.updated.len(), 1);
         assert_eq!(changes.updated[0].title, "second");
+    }
+
+    #[tokio::test]
+    async fn update_task_sets_and_clears_schedule() {
+        use crate::domain::ScheduledFor;
+        let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+        let task = handle
+            .create_task(NewTask::inbox("schedule me"))
+            .await
+            .unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+
+        // Set to a specific date.
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap();
+        let scheduled = handle
+            .update_task(TaskUpdate::new(task.id).schedule(Some(ScheduledFor::Date(date))))
+            .await
+            .unwrap();
+        assert_eq!(scheduled.scheduled_for, Some(ScheduledFor::Date(date)));
+        let _ = changes_rx.recv().await.unwrap();
+
+        // Move to Someday.
+        let someday = handle
+            .update_task(TaskUpdate::new(task.id).schedule(Some(ScheduledFor::Someday)))
+            .await
+            .unwrap();
+        assert_eq!(someday.scheduled_for, Some(ScheduledFor::Someday));
+        let _ = changes_rx.recv().await.unwrap();
+
+        // Clear it back to Inbox-equivalent.
+        let cleared = handle
+            .update_task(TaskUpdate::new(task.id).schedule(None))
+            .await
+            .unwrap();
+        assert_eq!(cleared.scheduled_for, None);
+    }
+
+    #[tokio::test]
+    async fn update_task_sets_and_clears_deadline() {
+        let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+        let task = handle
+            .create_task(NewTask::inbox("by friday"))
+            .await
+            .unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 6, 5).unwrap();
+        let with_dl = handle
+            .update_task(TaskUpdate::new(task.id).deadline_value(Some(date)))
+            .await
+            .unwrap();
+        assert_eq!(with_dl.deadline, Some(date));
+        let _ = changes_rx.recv().await.unwrap();
+
+        let cleared = handle
+            .update_task(TaskUpdate::new(task.id).deadline_value(None))
+            .await
+            .unwrap();
+        assert_eq!(cleared.deadline, None);
     }
 
     #[tokio::test]
