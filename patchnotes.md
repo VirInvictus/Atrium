@@ -1,5 +1,56 @@
 # Atrium — Patch Notes
 
+## v0.1.15 (2026-05-07) — Listen to GtkListView::activate for fast double-clicks
+
+Brandon's v0.1.14 trace showed slow double-clicks working but **fast** ones registering only as a single click:
+
+> "When I double click really fast, it's only show one response in the output log."
+
+The trace confirmed only one `n_press=1` released event reached our row-level gesture for fast doubles. Triple-clicks and slower doubles fired multiple released events fine.
+
+### Root cause
+
+GtkListView wires its own internal `GtkGestureClick` to fire the `activate` signal on double-click (with `single-click-activate=false`). On a fast double-click — clicks within `gtk-double-click-time` — that internal gesture **claims the event sequence**, which prevents our row-level gesture from seeing the second click's release. GTK's gesture-claim mechanism is the documented way for nested gestures to coordinate, and ListView always wins for double-click activation.
+
+The per-row gesture's Capture phase fires correctly *during* the first click; the second click's release never reaches us because by then ListView's gesture has claimed the sequence.
+
+### Fix
+
+`atrium/src/ui/window.rs::init_list_view` adds:
+
+```rust
+self.imp().task_list_view.connect_activate(move |_lv, _pos| {
+    let Some(win) = win_weak.upgrade() else { return };
+    glib::idle_add_local_once(move || {
+        win.start_edit_focused_row();
+    });
+});
+```
+
+This listens to *exactly* the signal GtkListView fires after claiming a fast double-click. After GTK's selection logic settles (idle defer, same pattern as the row gesture), we grab focus on the entry via `start_edit_focused_row` — which uses the row that GTK has already focused for us as part of its activate flow.
+
+### Two paths now cover the spectrum
+
+- **Fast doubles** (clicks within `gtk-double-click-time` ~250–400 ms): handled by `GtkListView::activate`. GTK claims the sequence; we listen to its activate signal.
+- **Slow doubles** (clicks outside the GTK threshold but within our 800 ms time-window): handled by the per-row Capture-phase gesture. GTK's internal gesture sees them as separate single clicks, doesn't claim, our row-level handler matches them.
+
+### Why the per-row gesture stays
+
+Some users (Brandon included) genuinely double-click slowly enough that GTK's window expires between clicks. Our 800 ms window catches those. Without it, slow doubles wouldn't fire at all.
+
+### Tracing
+
+Both paths emit debug logs (`row activate-gesture released …` and `list_view activate signal`), so the next bug report tells us which path failed.
+
+### Verification
+
+- `cargo build --workspace` ✓
+- `cargo clippy --workspace --all-targets -- -D warnings` ✓
+- `cargo fmt --all --check` ✓
+- `cargo test --workspace` ✓ — 168 tests unchanged.
+
+`VERSION`: 0.1.14 → 0.1.15 (patch — fast double-click fix via GtkListView::activate).
+
 ## v0.1.14 (2026-05-07) — Defer edit-start to idle so the editor stays open
 
 The v0.1.13 trace was the smoking gun:

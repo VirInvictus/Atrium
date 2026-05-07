@@ -803,11 +803,42 @@ impl AtriumWindow {
         let factory = build_factory(on_toggle, on_rename, on_reorder);
         self.imp().task_list_view.set_factory(Some(&factory));
 
-        // Phase 7j — double-click is handled by a per-row gesture
-        // installed in `task_list::build_factory`; relying on
-        // `GtkListView::connect_activate` was unreliable because the
-        // inner `GtkEditableLabel` (the title) traps double-clicks
-        // for inline editing before the list-view sees them.
+        // v0.1.15 — listen to GtkListView::activate as the canonical
+        // double-click signal. The per-row Capture-phase gesture in
+        // `build_factory` works for slow double-clicks (clicks
+        // outside `gtk-double-click-time`), but for *fast* doubles
+        // GtkListView's internal click gesture claims the event
+        // sequence to fire its own `activate` signal, which prevents
+        // our row-level gesture from seeing the second release.
+        // Listening here covers exactly that case.
+        //
+        // The handler defers to an idle callback for the same reason
+        // the row-level gesture does: GtkListView's selection focus
+        // dance has to settle before we grab focus on the entry, or
+        // our grab gets undone immediately.
+        let win_weak_for_activate = self.downgrade();
+        self.imp()
+            .task_list_view
+            .connect_activate(move |_lv, _pos| {
+                tracing::debug!("list_view activate signal");
+                let Some(win) = win_weak_for_activate.upgrade() else {
+                    return;
+                };
+                glib::idle_add_local_once(move || {
+                    let did_edit = win.start_edit_focused_row();
+                    tracing::debug!(
+                        did_edit,
+                        "list_view activate: start_edit_focused_row (idle)"
+                    );
+                });
+            });
+
+        // (Phase 7j note: relying on `connect_activate` *alone* was
+        // unreliable when the row's title was a `GtkEditableLabel`
+        // that hijacked double-clicks. v0.0.37 replaced that with a
+        // `GtkStack(Label/Entry)` setup, so `activate` is now safe
+        // to listen to. Per-row gesture stays in place to handle
+        // double-clicks slower than `gtk-double-click-time`.)
 
         // Phase 7h — list-scoped chords. `Space` (toggle complete),
         // `Delete` (delete focused task), and `Ctrl+A` (select all)
@@ -2111,7 +2142,7 @@ impl AtriumWindow {
     /// the focused task row. Replaces the v0.0.36 EditableLabel-based
     /// path; the stack's "edit" page is a plain GtkEntry that we
     /// populate from the bound display label and focus + select-all.
-    fn start_edit_focused_row(&self) -> bool {
+    pub fn start_edit_focused_row(&self) -> bool {
         let Some(focused) = self.focus() else {
             return false;
         };

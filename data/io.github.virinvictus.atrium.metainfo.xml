@@ -90,6 +90,19 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.1.15" date="2026-05-07">
+      <description>
+        <p>Fix: fast double-clicks now reliably trigger inline title
+           edit. GtkListView's internal click gesture was claiming
+           the event sequence on fast doubles to fire its own
+           activate signal, which blocked our row-level gesture
+           from seeing the second release. Now listening to
+           GtkListView::activate directly so the path GTK uses
+           internally for double-click activation is the path we
+           use too. The per-row gesture stays in place to catch
+           slower doubles that fall outside GTK's window.</p>
+      </description>
+    </release>
     <release version="0.1.14" date="2026-05-07">
       <description>
         <p>Fix: double-click → inline title edit was firing the
