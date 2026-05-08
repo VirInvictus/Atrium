@@ -714,3 +714,340 @@ fn format_rows_human_truncates_long_titles() {
     // exceed 60 visible chars.
     assert!(out.contains("…"));
 }
+
+// ── SQL fast-path ↔ in-memory eval parity ───────────────────────
+//
+// The SQL translator is the v0.5.3 perf optimization: queries that
+// translate cleanly to SQL run at the database layer instead of
+// pulling every row into memory. The translator's "all-or-nothing"
+// rule makes this safe in principle — anything that can't be
+// expressed in SQL falls back to the in-memory evaluator. These
+// tests are the empirical safety net: same fixture, same query,
+// both paths must return the same id set. If the SQL path and the
+// in-memory path ever disagree, this is the alarm bell.
+
+mod sql_parity {
+    use atrium_core::db::{self, read};
+    use atrium_search::{EvalContext, evaluate};
+    use chrono::NaiveDate;
+    use rusqlite::{Connection, params};
+    use std::collections::{HashMap, HashSet};
+    use std::path::Path;
+
+    fn fresh_conn() -> Connection {
+        // `:memory:` keeps each test isolated and dodges the need
+        // to plumb a temp dir; db::open accepts it (the helper
+        // skips create_dir_all for the literal ":memory:" path).
+        db::open(Path::new(":memory:")).unwrap()
+    }
+
+    fn today() -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 5, 15).unwrap()
+    }
+
+    /// Seed a small mixed-shape fixture: completed and open tasks,
+    /// a few with deadlines / scheduled dates / defer dates / tags
+    /// / repeat rules. Ids are autoincrement; we read them back at
+    /// the end so the parity tests can compare id sets without
+    /// caring about the exact id values.
+    fn seed_mixed_fixture(conn: &Connection) {
+        // Tags.
+        conn.execute(
+            "INSERT INTO tag (uuid, name) VALUES \
+             ('tag-work', 'work'), ('tag-home', 'home'), ('tag-urgent', 'urgent')",
+            [],
+        )
+        .unwrap();
+        let work_id: i64 = conn
+            .query_row("SELECT id FROM tag WHERE name='work'", [], |r| r.get(0))
+            .unwrap();
+        let urgent_id: i64 = conn
+            .query_row("SELECT id FROM tag WHERE name='urgent'", [], |r| r.get(0))
+            .unwrap();
+
+        // Tasks with assorted shapes — see test names below for what
+        // each row exercises. Tuple = (uuid, title, scheduled_for,
+        // deadline, defer_until, completed_at, repeat_rule).
+        #[allow(clippy::type_complexity)]
+        let rows: &[(
+            &str,
+            &str,
+            Option<&str>,
+            Option<&str>,
+            Option<&str>,
+            Option<&str>,
+            Option<&str>,
+        )] = &[
+            ("u1", "Buy milk", None, None, None, None, None),
+            (
+                "u2",
+                "Pay invoice",
+                None,
+                Some("2026-05-14"),
+                None,
+                None,
+                None,
+            ),
+            (
+                "u3",
+                "Stand-up meeting",
+                Some("2026-05-15"),
+                None,
+                None,
+                None,
+                None,
+            ),
+            (
+                "u4",
+                "Old task",
+                None,
+                None,
+                None,
+                Some("2026-05-10T08:00:00.000Z"),
+                None,
+            ),
+            (
+                "u5",
+                "Quarterly review",
+                None,
+                Some("2026-05-22"),
+                None,
+                None,
+                None,
+            ),
+            (
+                "u6",
+                "Future planning",
+                Some("2026-06-01"),
+                None,
+                None,
+                None,
+                None,
+            ),
+            (
+                "u7",
+                "Weekly report",
+                None,
+                Some("2026-05-15"),
+                None,
+                None,
+                Some("RRULE:FREQ=WEEKLY"),
+            ),
+            (
+                "u8",
+                "Deferred decision",
+                None,
+                None,
+                Some("2026-06-15"),
+                None,
+                None,
+            ),
+        ];
+
+        for (i, row) in rows.iter().enumerate() {
+            let pos = (i + 1) as f64;
+            conn.execute(
+                "INSERT INTO task \
+                 (uuid, title, scheduled_for, deadline, defer_until, completed_at, repeat_rule, position) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                params![row.0, row.1, row.2, row.3, row.4, row.5, row.6, pos],
+            )
+            .unwrap();
+        }
+
+        // Tag attachments. (task_id, tag_id) — note ids are
+        // autoincremented so we look up by uuid.
+        let attach = |uuid: &str, tag_id: i64| {
+            let task_id: i64 = conn
+                .query_row("SELECT id FROM task WHERE uuid = ?", params![uuid], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            conn.execute(
+                "INSERT INTO task_tag (task_id, tag_id) VALUES (?, ?)",
+                params![task_id, tag_id],
+            )
+            .unwrap();
+        };
+        attach("u1", work_id);
+        attach("u2", work_id);
+        attach("u6", urgent_id);
+    }
+
+    /// Run `query` against `conn` through both paths and return the
+    /// (sql_path_ids, in_memory_ids) pair as `HashSet<i64>` so the
+    /// caller asserts equality independent of ordering.
+    fn ids_from_both_paths(conn: &Connection, query: &str) -> (HashSet<i64>, HashSet<i64>) {
+        let parsed = atrium_search::parse(query).unwrap();
+
+        // In-memory path.
+        let tag_names = read::tag_names_per_task(conn).unwrap_or_default();
+        let project_titles = HashMap::new();
+        let project_areas = HashMap::new();
+        let area_titles = HashMap::new();
+        let ctx = EvalContext::new(
+            today(),
+            &tag_names,
+            &project_titles,
+            &project_areas,
+            &area_titles,
+        );
+        let mut all = read::list_all_tasks(conn).unwrap();
+        all.retain(|t| evaluate(&parsed.expr, t, &ctx));
+        let in_memory: HashSet<i64> = all.iter().map(|t| t.id).collect();
+
+        // SQL path — only valid when try_translate returns Some.
+        let sql_path: HashSet<i64> =
+            if let Some(clause) = atrium_search::try_translate(&parsed.expr, today()) {
+                let params: Vec<rusqlite::types::Value> = clause
+                    .params
+                    .iter()
+                    .map(|p| match p {
+                        atrium_search::SqlValue::Text(s) => rusqlite::types::Value::Text(s.clone()),
+                        atrium_search::SqlValue::Int(n) => rusqlite::types::Value::Integer(*n),
+                        atrium_search::SqlValue::Date(d) => {
+                            rusqlite::types::Value::Text(d.format("%Y-%m-%d").to_string())
+                        }
+                    })
+                    .collect();
+                read::list_tasks_matching(conn, &clause.sql, &params)
+                    .unwrap()
+                    .iter()
+                    .map(|t| t.id)
+                    .collect()
+            } else {
+                // No SQL path available — copy the in-memory set so the
+                // test doesn't fail on the assert; a sibling test
+                // confirms that try_translate returned None for the
+                // un-translatable shapes.
+                in_memory.clone()
+            };
+        (sql_path, in_memory)
+    }
+
+    fn assert_paths_agree(query: &str) {
+        let conn = fresh_conn();
+        seed_mixed_fixture(&conn);
+        let (sql_ids, mem_ids) = ids_from_both_paths(&conn, query);
+        assert_eq!(
+            sql_ids, mem_ids,
+            "SQL path and in-memory path disagreed on `{query}`: \
+             sql={sql_ids:?}, mem={mem_ids:?}"
+        );
+    }
+
+    #[test]
+    fn parity_open_only() {
+        assert_paths_agree("is:open");
+    }
+
+    #[test]
+    fn parity_done_only() {
+        assert_paths_agree("is:done");
+    }
+
+    #[test]
+    fn parity_overdue() {
+        assert_paths_agree("is:overdue");
+    }
+
+    #[test]
+    fn parity_repeating() {
+        assert_paths_agree("is:repeating");
+    }
+
+    #[test]
+    fn parity_deferred() {
+        assert_paths_agree("is:deferred");
+    }
+
+    #[test]
+    fn parity_tagged() {
+        assert_paths_agree("is:tagged");
+    }
+
+    #[test]
+    fn parity_bare_text_substring() {
+        assert_paths_agree("invoice");
+    }
+
+    #[test]
+    fn parity_title_substring() {
+        assert_paths_agree("title:meeting");
+    }
+
+    #[test]
+    fn parity_tag_substring() {
+        assert_paths_agree("tag:work");
+    }
+
+    #[test]
+    fn parity_tag_exact() {
+        assert_paths_agree("tag:=work");
+    }
+
+    #[test]
+    fn parity_due_today() {
+        assert_paths_agree("due:today");
+    }
+
+    #[test]
+    fn parity_due_thisweek() {
+        assert_paths_agree("due:thisweek");
+    }
+
+    #[test]
+    fn parity_due_gt_today() {
+        assert_paths_agree("due:>today");
+    }
+
+    #[test]
+    fn parity_due_range() {
+        assert_paths_agree("due:2026-05-01..2026-05-31");
+    }
+
+    #[test]
+    fn parity_compound_and() {
+        assert_paths_agree("is:open AND tag:work");
+    }
+
+    #[test]
+    fn parity_compound_or() {
+        assert_paths_agree("tag:work OR tag:urgent");
+    }
+
+    #[test]
+    fn parity_negation() {
+        assert_paths_agree("NOT tag:work");
+    }
+
+    #[test]
+    fn parity_complex_compound() {
+        assert_paths_agree("is:open AND (tag:work OR is:overdue)");
+    }
+
+    // Sanity: the fall-back shapes are translator-rejected, so
+    // ids_from_both_paths fakes the SQL set from the in-memory set.
+    // We assert that try_translate genuinely returned None — that's
+    // the contract.
+
+    #[test]
+    fn falls_back_for_regex() {
+        let parsed = atrium_search::parse("tag:~wo").unwrap();
+        assert!(atrium_search::try_translate(&parsed.expr, today()).is_none());
+    }
+
+    #[test]
+    fn falls_back_for_fuzzy() {
+        let parsed = atrium_search::parse("tag:?wrok").unwrap();
+        assert!(atrium_search::try_translate(&parsed.expr, today()).is_none());
+    }
+
+    #[test]
+    fn falls_back_for_is_today() {
+        // is:today is composite (mirrors list_today's deadline
+        // window etc.); deferred from v1 SQL translation.
+        let parsed = atrium_search::parse("is:today").unwrap();
+        assert!(atrium_search::try_translate(&parsed.expr, today()).is_none());
+    }
+}

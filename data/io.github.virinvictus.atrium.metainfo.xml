@@ -90,6 +90,26 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.5.3" date="2026-05-08">
+      <description>
+        <p>SQL-translation evaluator for the Calibre-style search
+           expression language — the fourth v0.6.x carryover off
+           the deferred list. Queries that map cleanly onto SQL
+           (boolean composition, bare text, state predicates,
+           title/note/tag matches, date comparisons / ranges,
+           numeric estimated comparisons) now execute at the
+           SQLite layer instead of pulling every row into memory.
+           Anything not yet expressible in SQL — regex
+           (<code>tag:~</code>), fuzzy (<code>tag:?</code>),
+           sequential-project state, the composite
+           <code>is:today</code> / <code>is:upcoming</code>
+           family — falls back to the in-memory evaluator. The
+           two paths are pinned to identical behaviour by 21
+           parity integration tests. Atrium-cli wires the
+           fast-path for v1; the GUI search-bar follows in a
+           sibling patch.</p>
+      </description>
+    </release>
     <release version="0.5.2" date="2026-05-08">
       <description>
         <p>FTS5 bm25 + recency ranking on bare-text searches —

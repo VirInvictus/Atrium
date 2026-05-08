@@ -48,10 +48,12 @@
 //! string → re-parsed AST that matches the first.
 
 mod ast;
+mod dates;
 mod eval;
 mod lex;
 mod parse;
 mod rank;
+mod sql_translate;
 
 #[cfg(test)]
 mod tests;
@@ -62,3 +64,4 @@ pub use ast::{
 pub use eval::{EvalContext, evaluate};
 pub use parse::{ParseError, parse};
 pub use rank::{blend_relevance, collect_text_terms};
+pub use sql_translate::{SqlClause, SqlValue, try_translate};

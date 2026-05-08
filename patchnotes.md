@@ -1,5 +1,29 @@
 # Atrium — Patch Notes
 
+## v0.5.3 (2026-05-08) — SQL-translation evaluator (atrium-cli)
+
+The fourth v0.6.x carryover. The Calibre-style search expression
+language now executes at the SQLite layer instead of pulling every
+row into memory and filtering in Rust — for queries that translate
+cleanly. The translator's "all-or-nothing" rule keeps semantics
+unchanged: anything that can't be expressed in SQL (regex match
+modifiers, fuzzy matches, sequential-project state, the composite
+`is:today` family) falls back to the in-memory evaluator. The two
+paths are pinned to identical behaviour by 21 parity integration
+tests in atrium-cli.
+
+The win matters most at the 100K-task scale (spec §8 perf budget).
+A search that previously loaded 100K rows + iterated them in Rust
+now lets SQLite's query planner do the work using its existing
+indexes. Wired into atrium-cli for v1; the GUI search-bar +
+saved-Perspective wiring follows in a sibling patch.
+
+- **`atrium-search::sql_translate`.** New module. `try_translate(&Expr, today) -> Option<SqlClause>` walks the parsed AST and emits a SQL `WHERE` fragment + parameter list when every node maps cleanly to SQL. Returns `None` for any subtree containing `MatchKind::Regex`, `MatchKind::Fuzzy`, `State::Available`/`Queued`, `State::Today`/`Inbox`/`Upcoming`/`Anytime`/`Someday` (composite list-membership), `State::InArea`/`Archived`, `Field::Project`/`Area` (deferred — would need joins), or any unsupported `Field`/`MatchKind` combination. 21 unit tests.
+- **`atrium-search::dates`.** Extracted from `eval.rs` so the SQL translator and the in-memory evaluator share the same date-keyword arithmetic (`today`, `thisweek`, `5daysago`, …). Single source of truth — no drift possible between paths.
+- **`atrium-core::db::read::list_tasks_matching`.** New helper that runs a pre-built SQL `WHERE` fragment + bound params against the `task` table and decodes the resulting rows. Plain `prepare` (not `prepare_cached`) since the WHERE clause varies per query — caching would unboundedly grow the per-connection statement cache.
+- **`atrium-cli::filtered_tasks`.** New private helper consumed by `run_search` and `resolve_matching_tasks`. Calls `try_translate` first; on `Some`, executes via `list_tasks_matching`; on `None`, falls back to the existing `list_all_tasks` + in-memory `evaluate` path. Same input expression → same task ID set on both paths.
+- **Parity tests.** 21 cross-validation tests in `atrium-cli/src/tests.rs::sql_parity` seed a small mixed-shape fixture (open + done + overdue + scheduled + deferred + repeating + tagged tasks), run a battery of expressions through both paths, and assert identical id sets. Includes negative tests confirming `try_translate` correctly rejects regex / fuzzy / `is:today`.
+
 ## v0.5.2 (2026-05-08) — FTS5 bm25 + recency ranking on bare-text searches
 
 The third v0.6.x carryover off the deferred list. Bare-text searches

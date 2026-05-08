@@ -16,12 +16,13 @@
 
 use std::collections::HashMap;
 
-use chrono::{Datelike, Duration, NaiveDate};
+use chrono::{Duration, NaiveDate};
 use regex::Regex;
 
 use atrium_core::domain::{ScheduledFor, Task};
 
-use super::ast::{Comparator, DateKeyword, Expr, Field, MatchKind, State, Value};
+use super::ast::{Comparator, Expr, Field, MatchKind, State, Value};
+use super::dates::{compare_date, value_to_range};
 
 /// Read-only context the evaluator needs to resolve fields like
 /// `area:` and tag matches. Built once per query in the window-side
@@ -326,7 +327,7 @@ fn match_compare(
     ctx: &EvalContext<'_>,
 ) -> bool {
     if let Some(d) = field_date_value(task, field) {
-        let (lo, hi) = value_to_date_range(value, ctx.today);
+        let (lo, hi) = value_to_range(value, ctx.today);
         return compare_date(d, lo, hi, comp);
     }
     if let Some(n) = field_numeric_value(task, field)
@@ -347,8 +348,8 @@ fn match_range(
     let Some(d) = field_date_value(task, field) else {
         return false;
     };
-    let (low_lo, _) = value_to_date_range(low, ctx.today);
-    let (_, high_hi) = value_to_date_range(high, ctx.today);
+    let (low_lo, _) = value_to_range(low, ctx.today);
+    let (_, high_hi) = value_to_range(high, ctx.today);
     d >= low_lo && d <= high_hi
 }
 
@@ -375,97 +376,10 @@ fn field_numeric_value(task: &Task, field: Field) -> Option<i64> {
     }
 }
 
-/// Convert a search value into a `(low, high)` date range. A literal
-/// or `today`/`yesterday`/`tomorrow` collapses to a single-day range
-/// (low == high). The `thisweek`/`thismonth`/etc. families expand to
-/// the appropriate window. The comparator then operates against the
-/// range bounds.
-fn value_to_date_range(value: &Value, today: NaiveDate) -> (NaiveDate, NaiveDate) {
-    match value {
-        Value::Date(d) => (*d, *d),
-        Value::DateKeyword(k) => keyword_to_range(*k, today),
-        // Numeric or text without a date → fold to today; the caller
-        // gets a no-match because no real task date will land on the
-        // wrong shape.
-        _ => (today, today),
-    }
-}
-
-fn keyword_to_range(k: DateKeyword, today: NaiveDate) -> (NaiveDate, NaiveDate) {
-    match k {
-        DateKeyword::Today => (today, today),
-        DateKeyword::Yesterday => {
-            let d = today - Duration::days(1);
-            (d, d)
-        }
-        DateKeyword::Tomorrow => {
-            let d = today + Duration::days(1);
-            (d, d)
-        }
-        DateKeyword::ThisWeek => week_bounds(today, 0),
-        DateKeyword::LastWeek => week_bounds(today, -1),
-        DateKeyword::NextWeek => week_bounds(today, 1),
-        DateKeyword::ThisMonth => month_bounds(today, 0),
-        DateKeyword::LastMonth => month_bounds(today, -1),
-        DateKeyword::NextMonth => month_bounds(today, 1),
-        DateKeyword::ThisYear => {
-            let lo = NaiveDate::from_ymd_opt(today.year(), 1, 1).unwrap_or(today);
-            let hi = NaiveDate::from_ymd_opt(today.year(), 12, 31).unwrap_or(today);
-            (lo, hi)
-        }
-        DateKeyword::DaysAgo(n) => {
-            let d = today - Duration::days(n as i64);
-            (d, d)
-        }
-        DateKeyword::DaysOut(n) => {
-            let d = today + Duration::days(n as i64);
-            (d, d)
-        }
-    }
-}
-
-/// ISO Mon-start week. `offset_weeks` lets us shift to last/next.
-fn week_bounds(today: NaiveDate, offset_weeks: i32) -> (NaiveDate, NaiveDate) {
-    let weekday = today.weekday().num_days_from_monday() as i64;
-    let monday = today - Duration::days(weekday) + Duration::weeks(offset_weeks as i64);
-    let sunday = monday + Duration::days(6);
-    (monday, sunday)
-}
-
-fn month_bounds(today: NaiveDate, offset_months: i32) -> (NaiveDate, NaiveDate) {
-    let mut y = today.year();
-    let mut m = today.month() as i32 + offset_months;
-    while m < 1 {
-        m += 12;
-        y -= 1;
-    }
-    while m > 12 {
-        m -= 12;
-        y += 1;
-    }
-    let m = m as u32;
-    let lo = NaiveDate::from_ymd_opt(y, m, 1).unwrap_or(today);
-    let hi_month = if m == 12 { 1 } else { m + 1 };
-    let hi_year = if m == 12 { y + 1 } else { y };
-    let hi = NaiveDate::from_ymd_opt(hi_year, hi_month, 1)
-        .map(|d| d - Duration::days(1))
-        .unwrap_or(today);
-    (lo, hi)
-}
-
-fn compare_date(d: NaiveDate, lo: NaiveDate, hi: NaiveDate, comp: Comparator) -> bool {
-    // For range-valued keywords (this/last week, etc.), `Eq` means
-    // "in the range"; the others compare against the appropriate
-    // bound.
-    match comp {
-        Comparator::Eq => d >= lo && d <= hi,
-        Comparator::Ne => d < lo || d > hi,
-        Comparator::Lt => d < lo,
-        Comparator::Le => d <= hi,
-        Comparator::Gt => d > hi,
-        Comparator::Ge => d >= lo,
-    }
-}
+// Date-range helpers (`keyword_to_range`, `week_bounds`,
+// `month_bounds`, `compare_date`, `value_to_range`) live in
+// `super::dates` so the SQL translator can produce the same range
+// arithmetic without duplicating the rules. See `dates.rs`.
 
 fn compare_number(n: i64, target: i64, comp: Comparator) -> bool {
     match comp {

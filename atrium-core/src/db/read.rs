@@ -519,6 +519,41 @@ pub fn list_perspectives(conn: &Connection) -> Result<Vec<Perspective>, DbError>
         .map_err(Into::into)
 }
 
+/// Run a pre-built SQL `WHERE` fragment against the `task` table.
+/// Used by the SQL-translation evaluator (`atrium-search`) — the
+/// caller composes the fragment + bound params, this helper just
+/// executes it and decodes rows.
+///
+/// Each row is selected with the standard `TASK_COLUMNS` set so the
+/// resulting `Vec<Task>` is interchangeable with output from
+/// `list_all_tasks`. Ordering is `t.position` so the post-query
+/// in-memory rank/sort steps see a deterministic input.
+///
+/// `where_sql` is bound *literally* into the prepared statement —
+/// the caller is responsible for ensuring it came from
+/// `atrium_search::try_translate` (or an equally-trusted source)
+/// rather than user input. `params` are bound positionally and
+/// match the `?N` placeholders inside `where_sql`.
+pub fn list_tasks_matching(
+    conn: &Connection,
+    where_sql: &str,
+    params: &[rusqlite::types::Value],
+) -> Result<Vec<Task>, DbError> {
+    let task_cols = TASK_COLUMNS
+        .split(", ")
+        .map(|c| format!("t.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!("SELECT {task_cols} FROM task t WHERE {where_sql} ORDER BY t.position");
+    // Plain `prepare` rather than `prepare_cached` — the WHERE
+    // fragment varies per query, so caching would unboundedly grow
+    // the per-connection statement cache.
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(params), task_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
 /// FTS5-backed search over `task.title` + `task.note`. Returns
 /// matches ranked by `bm25` (FTS5's default — closer to the top means
 /// stronger relevance). Phase 7a's "recency × relevance" requirement

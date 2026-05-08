@@ -236,8 +236,7 @@ fn run_search(conn: &Connection, expression: &str, format: Format) -> CliResult<
     let today = Local::now().date_naive();
     let ctx_data = ContextData::load(conn)?;
     let ctx = ctx_data.eval_context(today);
-    let mut tasks = read::list_all_tasks(conn).map_err(CliError::from)?;
-    tasks.retain(|t| evaluate(&parsed.expr, t, &ctx));
+    let mut tasks = filtered_tasks(conn, &parsed.expr, today, &ctx)?;
     if !parsed.sorts.is_empty() {
         sort_tasks(&mut tasks, &parsed.sorts, &ctx_data);
     } else {
@@ -251,6 +250,43 @@ fn run_search(conn: &Connection, expression: &str, format: Format) -> CliResult<
     }
     print_tasks(&tasks, &ctx_data, format);
     Ok(())
+}
+
+/// Filter the full task set against `expr`. Uses the SQL-translation
+/// fast-path when `atrium_search::try_translate` succeeds (every
+/// node maps to SQL); otherwise falls back to loading every row
+/// and running the in-memory evaluator. Both paths return the
+/// same set — verified by an integration test pair in atrium-core.
+fn filtered_tasks(
+    conn: &Connection,
+    expr: &atrium_search::Expr,
+    today: NaiveDate,
+    ctx: &EvalContext<'_>,
+) -> CliResult<Vec<Task>> {
+    if let Some(clause) = atrium_search::try_translate(expr, today) {
+        let params = sql_params_to_rusqlite(&clause.params);
+        return read::list_tasks_matching(conn, &clause.sql, &params).map_err(CliError::from);
+    }
+    let mut tasks = read::list_all_tasks(conn).map_err(CliError::from)?;
+    tasks.retain(|t| evaluate(expr, t, ctx));
+    Ok(tasks)
+}
+
+/// Convert atrium-search's wire-level `SqlValue` to rusqlite's
+/// `Value`. Kept on the CLI side rather than in atrium-search so
+/// the search engine doesn't pull in rusqlite — only call sites
+/// that actually execute SQL need the conversion.
+fn sql_params_to_rusqlite(params: &[atrium_search::SqlValue]) -> Vec<rusqlite::types::Value> {
+    params
+        .iter()
+        .map(|p| match p {
+            atrium_search::SqlValue::Text(s) => rusqlite::types::Value::Text(s.clone()),
+            atrium_search::SqlValue::Int(n) => rusqlite::types::Value::Integer(*n),
+            atrium_search::SqlValue::Date(d) => {
+                rusqlite::types::Value::Text(d.format("%Y-%m-%d").to_string())
+            }
+        })
+        .collect()
 }
 
 /// Reorder `tasks` in-place by FTS5 bm25 + recency when the parsed
@@ -766,9 +802,7 @@ fn resolve_matching_tasks(read_conn: &Connection, expr: &str) -> CliResult<Vec<T
     let today = Local::now().date_naive();
     let ctx_data = ContextData::load(read_conn)?;
     let ctx = ctx_data.eval_context(today);
-    let mut tasks = read::list_all_tasks(read_conn).map_err(CliError::from)?;
-    tasks.retain(|t| atrium_search::evaluate(&parsed.expr, t, &ctx));
-    Ok(tasks)
+    filtered_tasks(read_conn, &parsed.expr, today, &ctx)
 }
 
 fn print_single_row(task: &Task, row: &Row, format: Format) {
