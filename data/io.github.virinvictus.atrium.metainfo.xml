@@ -90,6 +90,21 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.15" date="2026-05-08">
+      <description>
+        <p>Two debug-surface bugfixes from a v0.6.14 eyes-on
+           test. The Memory Watch dialog had no visible body
+           / background — labels appeared to float against
+           the desktop because adw::Window with an
+           AdwToolbarView content slot wasn't painting its
+           @window_bg_color. CSS fix. And the Debug → Generate
+           Fixtures menu action wrote rows but never told the
+           GUI to re-read; the sidebar stayed empty until the
+           user re-launched the binary. The action now
+           refreshes the window after the spawn_blocking
+           write completes.</p>
+      </description>
+    </release>
     <release version="0.6.14" date="2026-05-08">
       <description>
         <p>Patch D, reframed — visible row separators and a

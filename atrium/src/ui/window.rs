@@ -678,7 +678,12 @@ impl AtriumWindow {
     /// Append the Areas / Projects sections to the sidebar after the
     /// read pool is attached. Idempotent — clears any previously-added
     /// non-canonical rows first.
-    fn rebuild_dynamic_sidebar(&self) {
+    /// Rebuild the dynamic sidebar (areas / projects / tags /
+    /// perspectives + the top-tier extras) from the read pool.
+    /// Public so the debug fixture-generation action in `main.rs`
+    /// can poke the window to re-read the database after a
+    /// fresh fixture insert.
+    pub fn rebuild_dynamic_sidebar(&self) {
         // Refresh counts first so the canonical rows we rebuild use
         // current values.
         self.refresh_counts();

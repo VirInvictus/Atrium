@@ -497,29 +497,47 @@ fn install_show_shortcuts_action(app: &adw::Application) {
 
 fn install_fixture_action(app: &adw::Application) {
     let action = gio::SimpleAction::new("fixture", Some(glib::VariantTy::STRING));
-    action.connect_activate(|_, parameter| {
-        let Some(target) = parameter else { return };
-        let Some(value) = target.get::<String>() else {
-            return;
-        };
-        let Some(scale) = FixtureScale::parse(&value) else {
-            warn!(scale = %value, "unknown fixture scale");
-            return;
-        };
-        info!(?scale, "queuing fixture generation");
-        runtime().spawn(async move {
-            let result = tokio::task::spawn_blocking(move || {
-                let db_path = atrium_core::db_path();
-                generate_fixtures(&db_path, scale)
-            })
-            .await;
-            match result {
-                Ok(Ok(summary)) => info!(?summary, "fixture generation complete"),
-                Ok(Err(e)) => error!(?e, "fixture generation failed"),
-                Err(e) => error!(?e, "fixture spawn_blocking panicked"),
-            }
-        });
-    });
+    action.connect_activate(clone!(
+        #[weak]
+        app,
+        move |_, parameter| {
+            let Some(target) = parameter else { return };
+            let Some(value) = target.get::<String>() else {
+                return;
+            };
+            let Some(scale) = FixtureScale::parse(&value) else {
+                warn!(scale = %value, "unknown fixture scale");
+                return;
+            };
+            info!(?scale, "queuing fixture generation");
+            // v0.6.15 — run the DB write off the main thread via
+            // gio::spawn_blocking (so the UI doesn't freeze on a
+            // ~30 ms generate at small scale, ~150 ms at medium),
+            // then resume on the main thread to poke the window
+            // into rebuilding. Without that refresh the sidebar
+            // stays at its old contents because the worker's
+            // connection cached its view before the new rows
+            // landed.
+            let db_path = atrium_core::db_path();
+            glib::MainContext::default().spawn_local(async move {
+                let result = gio::spawn_blocking(move || generate_fixtures(&db_path, scale)).await;
+                match result {
+                    Ok(Ok(summary)) => {
+                        info!(?summary, "fixture generation complete");
+                        if let Some(window) = app.active_window()
+                            && let Ok(atrium_window) =
+                                window.downcast::<crate::ui::window::AtriumWindow>()
+                        {
+                            atrium_window.rebuild_dynamic_sidebar();
+                            atrium_window.refresh_active_list();
+                        }
+                    }
+                    Ok(Err(e)) => error!(?e, "fixture generation failed"),
+                    Err(e) => error!(?e, "fixture spawn_blocking panicked"),
+                }
+            });
+        }
+    ));
     app.add_action(&action);
 }
 

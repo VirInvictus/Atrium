@@ -1,5 +1,53 @@
 # Atrium — Patch Notes
 
+## v0.6.15 (2026-05-08) — Memory Watch background + Debug → Generate Fixtures fix
+
+Two real bugs Brandon surfaced testing v0.6.14:
+
+- **Memory Watch dialog had no visible body / background.** Labels
+  appeared to float against the system desktop. `adw::Window` with
+  an `AdwToolbarView` content slot doesn't auto-paint a window
+  background on every theme — the toolbar's content slot is
+  transparent and the window underneath wasn't rendering its
+  `@window_bg_color`. CSS fix: explicit
+  `window.atrium-debug-pane { background-color: @window_bg_color }`.
+  The class was already on the window for the monospace font; we
+  reused it.
+
+- **Debug menu's *Generate Fixtures* did nothing visible.** The
+  action handler was opening a fresh writable connection, writing
+  rows directly, but never told the GUI to re-read. The worker's
+  read pool kept showing the old cached state, so the sidebar /
+  list looked exactly the same after the user clicked. Brandon
+  worked around it by running fixture generation via the CLI,
+  which spins a fresh process and starts cold. The fix is to
+  queue a `rebuild_dynamic_sidebar` + `refresh_active_list` after
+  the spawn_blocking write completes — the read pool then
+  re-queries the DB and the new rows appear.
+
+Code:
+
+- `data/style.css` — one CSS rule binds `@window_bg_color` to the
+  Memory Watch window class.
+
+- `atrium/src/ui/window.rs` — `rebuild_dynamic_sidebar` was
+  private; promoted to `pub` so the binary's debug action handler
+  can call it.
+
+- `atrium/src/main.rs` — `install_fixture_action` rewritten. The
+  DB write now runs via `gio::spawn_blocking` (off the main
+  thread; ~30 ms small / ~150 ms medium so a UI freeze would be
+  visible), and on completion the closure resumes on the GTK main
+  thread to call the window's refresh methods. The previous code
+  used `runtime().spawn` (tokio) and tried to capture the
+  `adw::Application`, which isn't `Send` — the rewrite uses
+  glib's main-context-local spawn which avoids the Send
+  requirement entirely.
+
+This closes the two bugs from the v0.6.14 screenshot. The
+soft-accent + screenshot-cleanup arc is still done; this is just
+the fixture/debug surface catching up.
+
 ## v0.6.14 (2026-05-08) — Patch D (reframed): visible row separators + recurrence icon
 
 The original Patch D was "day-band grouping in the main task list."

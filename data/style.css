@@ -321,6 +321,16 @@ window.atrium-quickentry-window {
   font-feature-settings: normal;
 }
 
+/* v0.6.15 — Memory Watch window had no visible background or body
+ * surface; the labels appeared to float against the system desktop.
+ * adw::Window doesn't auto-apply a window-bg paint when its content
+ * is an AdwToolbarView whose content slot is transparent. Setting
+ * the window background explicitly fixes it without relying on the
+ * theme's auto-treatment. */
+window.atrium-debug-pane {
+  background-color: @window_bg_color;
+}
+
 /* v0.3.0 — tag colour palette. The `prompt_for_tag` swatch row uses
  * one ToggleButton per palette colour; the `.atrium-swatch-*` class
  * supplies the background. Same hex values are used by the inline
