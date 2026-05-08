@@ -104,12 +104,22 @@ pub fn generate(conn: &mut Connection, scale: FixtureScale) -> Result<FixtureSum
 
     let tx = conn.transaction()?;
 
-    // Areas
+    // Areas — v0.6.11 cycles each fixture area through the
+    // six-swatch palette so the per-area accent stripe (Slice B2)
+    // demonstrates itself without the user having to set colours
+    // manually. The colours match the constants in
+    // `atrium/src/ui/window.rs::TAG_COLORS` (kept in lockstep
+    // because the swatches are the picker the user sees).
     let mut area_ids = Vec::with_capacity(scale.area_count());
     for i in 0..scale.area_count() {
         tx.execute(
-            "INSERT INTO area (uuid, title, position) VALUES (?, ?, ?)",
-            params![Uuid::new_v4().to_string(), area_title(i), (i + 1) as f64],
+            "INSERT INTO area (uuid, title, color, position) VALUES (?, ?, ?, ?)",
+            params![
+                Uuid::new_v4().to_string(),
+                area_title(i),
+                Some(swatch_color(i)),
+                (i + 1) as f64
+            ],
         )?;
         area_ids.push(tx.last_insert_rowid());
     }
@@ -136,12 +146,22 @@ pub fn generate(conn: &mut Connection, scale: FixtureScale) -> Result<FixtureSum
         project_ids.push(tx.last_insert_rowid());
     }
 
-    // Tags — mix of plain ASCII, cyrillic, japanese, and emoji-prefixed.
+    // Tags — mix of plain ASCII, cyrillic, japanese. v0.6.11
+    // cycles each tag through the six-swatch palette (skipping
+    // the leading "None" entry) so the Pango-coloured pill
+    // rendering (v0.3.0) gets exercised across the visual range.
+    // Without this every fixture tag rendered with the default
+    // (orange-ish) tint, which made the colour palette look
+    // monotone in screenshots.
     let mut tag_ids = Vec::with_capacity(scale.tag_count());
     for i in 0..scale.tag_count() {
         tx.execute(
-            "INSERT INTO tag (uuid, name) VALUES (?, ?)",
-            params![Uuid::new_v4().to_string(), tag_name(i)],
+            "INSERT INTO tag (uuid, name, color) VALUES (?, ?, ?)",
+            params![
+                Uuid::new_v4().to_string(),
+                tag_name(i),
+                Some(swatch_color(i + 1)) // +1 staggers from areas
+            ],
         )?;
         tag_ids.push(tx.last_insert_rowid());
     }
@@ -286,8 +306,15 @@ fn project_title(i: usize) -> String {
 }
 
 fn task_title(i: usize) -> String {
+    // v0.6.11 — dropped the leading 🛒 / ⏰ emoji on Buy / Reminder
+    // titles. Those characters were title text from the fixture
+    // generator masquerading as derived state — a real "this is a
+    // recurring reminder" cue should come from `repeat_rule`,
+    // not from the title literal. The title set still varies
+    // enough (CJK, Cyrillic, long-wrap, empty placeholder, plain)
+    // to exercise rendering edge cases.
     match i % 9 {
-        0 => format!("Buy {} 🛒", supply_word(i)),
+        0 => format!("Buy {}", supply_word(i)),
         1 => format!("Review PR #{}", i + 1000),
         2 => format!("研究プロジェクト {}", i),
         3 => format!("Email João about Q{}", (i % 4) + 1),
@@ -296,7 +323,7 @@ fn task_title(i: usize) -> String {
              list-row layout when text exceeds a reasonable terminal column count #{}",
             i
         ),
-        5 => format!("⏰ Reminder: {} #{}", reminder_action(i), i),
+        5 => format!("Reminder: {} #{}", reminder_action(i), i),
         6 => format!("Файл переименовать {}", i),
         7 => format!("[empty placeholder {}]", i),
         _ => format!("Task #{}", i),
@@ -328,6 +355,24 @@ fn tag_name(i: usize) -> String {
         3 => format!("urgent-{}", i),
         _ => format!("home-{}", i),
     }
+}
+
+/// v0.6.11 — six-swatch palette mirror. Kept hex-for-hex aligned
+/// with `atrium/src/ui/window.rs::TAG_COLORS` (the picker the user
+/// sees) so a fixture area / tag styled here looks identical to
+/// one the user picked manually. Cycles by index — fixture data
+/// reading the same swatch row in the picker is a feature, not a
+/// coincidence.
+fn swatch_color(i: usize) -> &'static str {
+    const PALETTE: &[&str] = &[
+        "#3584e4", // Blue
+        "#33d17a", // Green
+        "#e5a50a", // Yellow
+        "#ff7800", // Orange
+        "#e01b24", // Red
+        "#9141ac", // Purple
+    ];
+    PALETTE[i % PALETTE.len()]
 }
 
 #[cfg(test)]

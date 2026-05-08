@@ -90,6 +90,26 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.11" date="2026-05-08">
+      <description>
+        <p>Screenshot-driven cleanup, Patch A — eight quick
+           wins that ship together because each touches one
+           file. Inspector "Defer until: Available now"
+           rephrased to "Not deferred"; the Builder
+           subsection rename to "Schedule depth"; "Inbox"
+           project chip suppressed when already viewing
+           Inbox; window title reflects the active view
+           ("Atrium · Today" etc.); fixture areas + tags
+           cycle through the six-swatch palette so the
+           per-area stripe and Pango tag pills demonstrate
+           themselves without manual setup; emoji prefixes
+           dropped from fixture-generated titles (those
+           were title text masquerading as derived state);
+           main-content AdwClamp bumped from 720 → 960 px
+           to reclaim the dead zone on wide windows with
+           the inspector pane visible.</p>
+      </description>
+    </release>
     <release version="0.6.10" date="2026-05-08">
       <description>
         <p>Soft-accent pass — adds a thin layer of accent

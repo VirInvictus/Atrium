@@ -347,9 +347,12 @@ where
     notes_view.add_controller(notes_focus);
 
     // ── Builder-only fields ──────────────────────────────────────
+    // The pane only renders in Builder Mode, so an "exposed only in
+    // Builder" subtitle reads as redundant noise. v0.6.11 dropped
+    // the subtitle entirely and renamed the section to a verb
+    // phrase that describes what the fields do.
     let builder_group = adw::PreferencesGroup::builder()
-        .title("Builder")
-        .description("Fields exposed only in Builder Mode.")
+        .title("Schedule depth")
         .build();
 
     // estimated_minutes — Phase 11 wires the dispatch. SpinRow

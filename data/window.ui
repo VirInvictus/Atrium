@@ -433,14 +433,19 @@
                                            AdwClamp so the rows don't stretch into
                                            runway on wide windows — Things-3-style
                                            paper-list calm without forging shadows.
-                                           720 px is the max width; below that the
-                                           list takes the available space. -->
+                                           v0.6.11 bumped the max from 720 → 960:
+                                           the original cap left a visible dead
+                                           zone on wide windows when the inspector
+                                           pane was visible flush-right (sidebar +
+                                           main + inspector + clamp-induced gap).
+                                           960 reclaims that space without losing
+                                           the calm paper-list feel. -->
                                       <object class="GtkScrolledWindow">
                                         <property name="hscrollbar-policy">never</property>
                                         <property name="vexpand">true</property>
                                         <property name="child">
                                           <object class="AdwClamp">
-                                            <property name="maximum-size">720</property>
+                                            <property name="maximum-size">960</property>
                                             <property name="child">
                                               <object class="GtkListView" id="task_list_view">
                                                 <property name="show-separators">true</property>

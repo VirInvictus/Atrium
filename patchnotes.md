@@ -1,5 +1,24 @@
 # Atrium — Patch Notes
 
+## v0.6.11 (2026-05-08) — screenshot-issue cleanup, Patch A (eight quick wins)
+
+First patch off the screenshot-driven issue list logged in v0.6.10.
+Eight tightly-scoped low-risk fixes that ship together because each
+touches one file and the visual benefit is immediate. The harder
+items (state-aware row treatment, Notes placeholder, day-band
+grouping) follow in their own patches.
+
+- **Inspector "Defer until: Available now" → "Not deferred."** "Available now" read as a status (every undeferred task is "available now"), not the date-shaped fact the row promises. The new copy treats the absence of a defer date as a date-shaped value.
+- **Inspector "Builder" subsection rename.** The pane only renders in Builder Mode, so the "Fields exposed only in Builder Mode" subtitle was redundant noise. Title now reads *Schedule depth*; subtitle dropped.
+- **"Inbox" project chip suppressed on the Inbox view.** Every row on that view is in Inbox by definition; the chip just duplicated what the page header said.
+- **Window title reflects the active view** — `Atrium · Today` / `Atrium · Inbox` / `Atrium · Q3 plans`. The window-level title shows in window managers, alt-tab overlays, and screencast picker UIs; the bare `Atrium` was a brand sticker, not a context cue.
+- **Fixture areas get colours from the six-swatch palette.** Per-area accent stripes (Slice B2, v0.5.0) were invisible in `--fixture small` because no fixture area had a colour set. Now they cycle through the palette, demonstrating the feature without manual setup.
+- **Fixture tags get colours from the same palette** (staggered by one entry from areas). Pango-coloured tag pills (v0.3.0) had been monotone in screenshots because the fixture left every tag colour-less.
+- **Fixture cleanup: drop emoji prefixes** on `Buy {item}` / `Reminder: …` titles. Those characters were title text masquerading as derived state; a real "this is a recurring reminder" cue should come from `repeat_rule`, not a literal emoji in the title. (The derived recurrence-icon bit lands in Patch C.)
+- **`AdwClamp` max-content-size 720 → 960.** Slice B1's 720 px cap left a visible dead zone on wide windows when the inspector pane was visible flush-right (sidebar + main + inspector + the centered clamp's gap). 960 reclaims that space without losing the paper-list calm.
+
+This is one focused commit per the four-patch screenshot-cleanup plan logged in v0.6.10. Patch B is state-aware row treatment (overdue red, today amber, upcoming accent), Patch C is the Notes placeholder + recurrence icon, Patch D is day-band grouping in the main task list.
+
 ## v0.6.10 (2026-05-08) — soft-accent pass: warmth without obnoxiousness
 
 The default Adwaita dark theme reads as a uniform grey wall when an

@@ -569,11 +569,14 @@ pub(crate) fn format_deadline_label(value: Option<&NaiveDate>) -> String {
     }
 }
 
-/// Phase 11 — defer-until label. Same shape as deadline; the empty
-/// state copy differs ("Available now" reads better than "No defer").
+/// Phase 11 — defer-until label. Same shape as deadline; v0.6.11
+/// rephrased the empty state from "Available now" (which read as a
+/// status, not a date — confusing because every undeferred task is
+/// "available now") to "Not deferred" so the absence of a date
+/// reads as a date-shaped fact.
 pub(crate) fn format_defer_label(value: Option<&NaiveDate>) -> String {
     match value {
-        None => "Available now".to_string(),
+        None => "Not deferred".to_string(),
         Some(d) => d.format("%a · %b %-d, %Y").to_string(),
     }
 }

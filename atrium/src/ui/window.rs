@@ -1258,9 +1258,14 @@ impl AtriumWindow {
             return;
         }
         self.imp().active_list.replace(active.clone());
-        self.imp()
-            .content_page
-            .set_title(&self.title_for(active.clone()));
+        let view_title = self.title_for(active.clone());
+        self.imp().content_page.set_title(&view_title);
+        // v0.6.11 — surface the active view in the window title so
+        // it reads "Atrium · Today" / "Atrium · Inbox" / etc. The
+        // window-level title shows in window managers, alt-tab
+        // overlays, and screencast picker UIs; "Atrium" alone read
+        // as a brand sticker not a context cue.
+        self.set_title(Some(&format!("Atrium · {view_title}")));
         self.refresh_active_list();
 
         // Phase 10 — project extras revealer follows the selection.
@@ -1413,6 +1418,11 @@ impl AtriumWindow {
             ActiveList::Area(_) => ContextMode::ProjectOnly,
             _ => ContextMode::AreaAndProject,
         };
+        // v0.6.11 — when the active list IS Inbox, suppress the
+        // "Inbox" no-project chip. Every row on that view is
+        // already in Inbox by definition; the chip just duplicates
+        // what the page header says.
+        let suppress_inbox_chip = matches!(active, ActiveList::Inbox);
         move |task: &Task| -> String {
             if matches!(mode, ContextMode::Suppressed) {
                 return String::new();
@@ -1424,7 +1434,11 @@ impl AtriumWindow {
                 // a missing chip means "Inbox". Render it
                 // explicitly. ProjectOnly views (Area pages) keep
                 // the empty render — there's no project to name and
-                // the heading already names the area.
+                // the heading already names the area. v0.6.11
+                // adds: suppress on the Inbox view itself.
+                if suppress_inbox_chip {
+                    return String::new();
+                }
                 let inbox = match mode {
                     ContextMode::AreaAndProject => "Inbox".to_string(),
                     _ => String::new(),
