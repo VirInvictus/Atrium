@@ -449,6 +449,50 @@ fn eval_scheduled_today() {
     assert!(!match_simple(&r2.expr, &t, d(2026, 5, 15)));
 }
 
+// Repro for the v0.5.0 bug report: `due:today` in the search bar
+// returned nothing even when tasks with deadline = today existed.
+// Locked in as a regression test once we identify the cause.
+#[test]
+fn eval_due_today_bare_keyword() {
+    let mut today_task = dummy_task(1);
+    today_task.deadline = Some(d(2026, 5, 15));
+    let mut tomorrow_task = dummy_task(2);
+    tomorrow_task.deadline = Some(d(2026, 5, 16));
+    let mut yesterday_task = dummy_task(3);
+    yesterday_task.deadline = Some(d(2026, 5, 14));
+    let mut no_deadline_task = dummy_task(4);
+    no_deadline_task.deadline = None;
+    let today = d(2026, 5, 15);
+
+    let r = parse("due:today").unwrap();
+    assert!(
+        match_simple(&r.expr, &today_task, today),
+        "due:today must match a task with deadline == today"
+    );
+    assert!(
+        !match_simple(&r.expr, &tomorrow_task, today),
+        "due:today must not match a task with deadline == tomorrow"
+    );
+    assert!(
+        !match_simple(&r.expr, &yesterday_task, today),
+        "due:today must not match a task with deadline == yesterday"
+    );
+    assert!(
+        !match_simple(&r.expr, &no_deadline_task, today),
+        "due:today must not match a task with no deadline"
+    );
+}
+
+// And the alias path — `deadline:today` is the explicit form Calibre
+// users might reach for first.
+#[test]
+fn eval_deadline_alias_today() {
+    let mut t = dummy_task(1);
+    t.deadline = Some(d(2026, 5, 15));
+    let r = parse("deadline:today").unwrap();
+    assert!(match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
 // ── Display / round-trip ─────────────────────────────────────────
 
 #[test]

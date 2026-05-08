@@ -142,6 +142,87 @@ mod tests {
         assert_eq!(out[0].id, 1);
     }
 
+    // v0.5.0 — locking in the binary-side behaviour for `due:today`,
+    // since Brandon flagged it as not working in the search bar.
+    // The atrium-core unit tests already cover the parse + eval path
+    // in isolation; this test exercises the *full* binary integration
+    // (parse → context-build → apply against a Vec<Task>) so any
+    // regression in the shim layer surfaces here too.
+    #[test]
+    fn apply_due_today_matches_only_deadline_today() {
+        let mut today_task = dummy_task(1);
+        today_task.deadline = Some(d(2026, 5, 15));
+        let mut tomorrow_task = dummy_task(2);
+        tomorrow_task.deadline = Some(d(2026, 5, 16));
+        let mut no_deadline_task = dummy_task(3);
+        no_deadline_task.deadline = None;
+        // Scheduled-for-today but no deadline: must NOT match `due:today`.
+        // `due:` is exact match on the `deadline` column; `scheduled:`
+        // is the equivalent on `scheduled_for`. The two are distinct
+        // fields and the search expression keeps that distinction.
+        let mut scheduled_only_task = dummy_task(4);
+        scheduled_only_task.scheduled_for = Some(atrium_core::ScheduledFor::Date(d(2026, 5, 15)));
+
+        let q = parse("due:today");
+        let out = apply(
+            vec![
+                today_task,
+                tomorrow_task,
+                no_deadline_task,
+                scheduled_only_task,
+            ],
+            &q,
+            d(2026, 5, 15),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(out.len(), 1, "only the deadline=today task should match");
+        assert_eq!(out[0].id, 1);
+    }
+
+    // Calibre's "comparison form" — `due:>today`, `due:<=today`, etc.
+    // Locks in the comparator semantics: strict and inclusive bounds
+    // both work as documented.
+    #[test]
+    fn apply_due_comparison_to_today() {
+        let mut overdue = dummy_task(1);
+        overdue.deadline = Some(d(2026, 5, 10));
+        let mut today_task = dummy_task(2);
+        today_task.deadline = Some(d(2026, 5, 15));
+        let mut future = dummy_task(3);
+        future.deadline = Some(d(2026, 5, 20));
+
+        let today = d(2026, 5, 15);
+        let tasks = vec![overdue.clone(), today_task.clone(), future.clone()];
+
+        let after = apply(
+            tasks.clone(),
+            &parse("due:>today"),
+            today,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(after.iter().map(|t| t.id).collect::<Vec<_>>(), vec![3]);
+
+        let on_or_before = apply(
+            tasks.clone(),
+            &parse("due:<=today"),
+            today,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(
+            on_or_before.iter().map(|t| t.id).collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+    }
+
     #[test]
     fn empty_expr_passes_tasks_through_unchanged() {
         let t = vec![dummy_task(1), dummy_task(2)];
