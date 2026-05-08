@@ -1,5 +1,69 @@
 # Atrium — Patch Notes
 
+## v0.6.10 (2026-05-08) — soft-accent pass: warmth without obnoxiousness
+
+The default Adwaita dark theme reads as a uniform grey wall when an
+app fills it edge-to-edge with content. v0.6.10 layers a thin
+accent-warmth pass across six surfaces — barely perceptible per
+rule, additive across the window — so the eye picks up structure
+without any single surface screaming. Everything uses libadwaita's
+named colour tokens (`@accent_color`, `@warning_color`,
+`@success_color`, etc.), so light / dark / high-contrast themes
+stay in lockstep.
+
+What got tinted:
+
+- **Sidebar background.** A diagonal accent-color gradient at 2.5%
+  → 0% alpha. Almost invisible on its own, but it gives the
+  sidebar a subtle directional cue that separates it from the
+  main content without a hard divider.
+- **Header bars.** Whisper of accent on the leading 35% (4% alpha
+  fading to 0). The bar is otherwise a uniform grey strap; this
+  hints at the accent without covering any controls.
+- **Page title in the header bar.** "Today", "Inbox", "Agenda",
+  etc. now render at weight 600 with a hair of letter-spacing.
+  The page identity reads as a *headline* rather than just a
+  label.
+- **Sidebar count badges.** Those "131 / 75 / 178" numbers next to
+  Inbox / Today / Upcoming are no longer plain grey — each picks
+  up its row's canonical accent (Inbox → blue, Today → yellow,
+  Upcoming → green, etc.) at the same alpha as the icon tint, so
+  badge and icon read as a kindred set.
+- **Sidebar section headers.** "AREAS" / "PERSPECTIVES" / "TAGS"
+  pick up a hint of `@accent_color` so they nudge away from pure
+  grey toward the accent's hue.
+- **Sidebar selection.** Selected row uses a softer accent-tinged
+  background (12% alpha) instead of the system's stark selected
+  state. The canonical icon tint stays readable when the row is
+  selected.
+- **Inspector pane group headings.** "Title" / "Schedule" / "Tags"
+  / "Notes" / "Builder" pick up an accent-warmth tint so the
+  inspector reads as a curated detail panel rather than a cold
+  form.
+- **Task row hover.** Replaces v0.6.6's instant grey hover with an
+  instant accent-tinged hover. Same speed (no transition — drag
+  motion stays cheap), warmer hue.
+
+This is a CSS-only patch. No code changes, no schema changes, no
+tests touched. The "Brandon ran v0.6.9 and surfaced two warnings"
+flow from the previous patch is unchanged — log is still quiet.
+
+What's *not* in this patch (called out in the screenshot
+analysis but deferred to follow-up patches):
+
+- State-aware status circles (red for overdue, amber for today,
+  etc.) — needs a code-side CSS class per row state.
+- State-aware date column (the "May 1" / "May 2" text picking up
+  red on past-due, accent on today). Same shape — code-side
+  per-row class.
+- Inspector "Defer until: Available now" rephrasing — the value
+  reads as a status, not a date.
+- "Inbox" project chip on no-project tasks — duplicates the
+  canonical-list selection signal.
+- AdwClamp-induced dead zone on wide windows — the inspector
+  pane lives flush against the right edge while the main task
+  column is centered with empty space on either side.
+
 ## v0.6.9 (2026-05-08) — fix two startup-log warnings
 
 Brandon ran the v0.6.8 binary and surfaced two real warnings in

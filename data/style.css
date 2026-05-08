@@ -490,3 +490,99 @@ window.atrium-quickentry-window {
  * element — GTK4's CSS doesn't render `::after` on label widgets
  * the way browser CSS does. Adjust spacing on the parent box if
  * the layout needs more breathing room. */
+
+/* ============================================================================
+ * v0.6.10 — soft-accent pass.
+ *
+ * The default Adwaita dark theme reads as a uniform grey wall when an
+ * app fills it edge-to-edge with content. These rules add a thin
+ * layer of accent warmth — barely perceptible per-rule, additive
+ * across surfaces — so the eye picks up structure without any single
+ * surface screaming for attention. Everything here uses libadwaita's
+ * named colour tokens (@accent_color, @warning_color, @success_color,
+ * etc.) so light / dark / high-contrast themes stay in lockstep.
+ * ============================================================================ */
+
+/* Sidebar gets a hair of accent warmth. The diagonal gradient is
+ * almost invisible on its own; what it does is separate the sidebar
+ * from the main content so the eye knows where one ends and the
+ * other begins, without forcing a hard divider. */
+listview.navigation-sidebar,
+.navigation-sidebar {
+  background-image: linear-gradient(
+    160deg,
+    alpha(@accent_color, 0.025) 0%,
+    alpha(@accent_color, 0) 60%
+  );
+}
+
+/* Header bars pick up a whisper of accent on the leading edge.
+ * Same idea — the bar is otherwise a uniform grey strap; the
+ * gradient gives a directional cue without covering any controls. */
+headerbar {
+  background-image: linear-gradient(
+    to right,
+    alpha(@accent_color, 0.04),
+    alpha(@accent_color, 0) 35%
+  );
+}
+
+/* The page title in the header bar — "Today", "Inbox", "Agenda",
+ * etc. By default Adwaita renders it with a quiet weight. Bumping
+ * the weight a notch and letter-spacing a hair gives the page
+ * identity more presence without changing the type ramp. */
+headerbar > windowhandle .title {
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+/* Sidebar count badges — turn the dim grey numbers into accent
+ * pills that match the canonical row tint. Each rule below picks up
+ * the parent row's accent class and colours its descendant `.numeric`
+ * label. Alpha matches the icon-tint convention so badge and icon
+ * read as a kindred set. */
+.atrium-canonical-inbox    .numeric { color: alpha(@blue_3, 0.85); }
+.atrium-canonical-today    .numeric { color: alpha(@yellow_5, 0.95); }
+.atrium-canonical-upcoming .numeric { color: alpha(@green_4, 0.85); }
+.atrium-canonical-someday  .numeric { color: alpha(@purple_3, 0.85); }
+.atrium-canonical-logbook  .numeric { color: alpha(@purple_2, 0.75); }
+.atrium-canonical-agenda   .numeric { color: alpha(@warning_color, 0.85); }
+.atrium-canonical-forecast .numeric { color: alpha(@accent_color, 0.85); }
+.atrium-canonical-review   .numeric { color: alpha(@success_color, 0.85); }
+
+/* Sidebar section labels ("AREAS" / "PERSPECTIVES" / "TAGS") pick
+ * up a hint of accent warmth. The existing dim-label class keeps
+ * them quiet; this rule just nudges them away from pure grey toward
+ * the accent's hue. */
+.atrium-sidebar-section {
+  color: alpha(@accent_color, 0.7);
+}
+
+/* Selected row in the sidebar gets a softer, accent-tinged
+ * background instead of the system's stark blue. Adwaita's
+ * `:selected` styling on rows is already accent-derived, but the
+ * default alpha is high enough to dominate the row's icon tint.
+ * Tone it down so the canonical accent on the icon stays readable
+ * even when the row is selected. */
+listview.navigation-sidebar > row:selected,
+.navigation-sidebar > row:selected {
+  background: alpha(@accent_color, 0.12);
+  color: @window_fg_color;
+}
+
+/* Inspector-pane header treatment — the "Title" / "Schedule" /
+ * "Tags" preference-group labels. v0.3.0 added the card treatment;
+ * this rule warms the group titles so the inspector reads as a
+ * curated detail panel rather than a cold form. */
+.atrium-inspector-pane preferencesgroup > box > label.heading {
+  color: alpha(@accent_color, 0.8);
+}
+
+/* Task row — slightly warmer hover than v0.6.6's instant grey.
+ * Same instant timing (no transition), just a hue that hints at
+ * the accent rather than pure card_shade. Subtle enough that the
+ * row content stays the eye's anchor. */
+.atrium-task-row:hover,
+.atrium-task-row:hover .atrium-task-title {
+  background-color: alpha(@accent_color, 0.06);
+}
