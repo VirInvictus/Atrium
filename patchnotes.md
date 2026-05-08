@@ -1,5 +1,35 @@
 # Atrium — Patch Notes
 
+## v0.6.3 (2026-05-08) — kanban drag-drop between columns
+
+The kanban is no longer read-only. Drag a task row to a different
+column → the task's tag set is rewritten so the kanban grouper
+buckets it under the new column on the next refresh:
+
+- The leftmost configured-column tag in the task's current set
+  is removed (that was the source column).
+- The destination column's tag is added if not already present.
+- Non-column tags pass through unchanged.
+- Dropping on the trailing "Other" column just removes the
+  source column tag — the task lands in Other for not matching
+  any configured column.
+
+The tag-set-rewrite logic is `atrium_core::move_to_column` —
+pure-Rust, no GUI dependencies, eight unit tests cover the
+combinatorial cases (move-to-column, move-to-other, move-to-same,
+non-column passthrough, no-source, case-insensitive,
+no-duplicate-on-existing, leftmost-only-removal).
+
+The GUI side is plain GTK4 DnD: each row registers a
+`gtk::DragSource` carrying the task id, each column card a
+`gtk::DropTarget` accepting `i64`. The drop callback walks the
+task's current tag names through `move_to_column`, then
+dispatches `worker.ensure_tag` for each new name and
+`worker.set_task_tags` to install the result. No-op short-circuit
+when the new tag list is set-equal (case-insensitive) to the old
+one — covers the common "drop on the same column" case without a
+worker round-trip.
+
 ## v0.6.2 (2026-05-08) — perspective renderer-config dialog
 
 Closes the v0.6.0 gap that the only way to make a Perspective

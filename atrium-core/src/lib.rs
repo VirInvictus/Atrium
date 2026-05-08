@@ -28,5 +28,6 @@ pub use error::{CoreError, DbError, DomainError};
 pub use paths::{APP_ID, cache_dir, data_dir, db_path};
 pub use render::{
     BoardAxis, BoardConfig, Column, OTHER_COLUMN_LABEL, Renderer, RendererError, group_into_board,
+    move_to_column,
 };
 pub use repeat::{RepeatMode, RepeatRule};

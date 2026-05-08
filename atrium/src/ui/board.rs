@@ -30,11 +30,23 @@ use std::collections::HashMap;
 
 use adw::prelude::*;
 use atrium_core::{Column, ScheduledFor, Task, WorkerHandle};
+use gtk::gdk;
 use gtk::glib;
+use gtk::glib::clone;
 use gtk::pango;
 use tracing::error;
 
 use super::task_list::{TagPillMap, format_tag_names};
+
+/// Drop destination — either one of the configured columns (carry the
+/// column's tag name verbatim so the move helper can use it as a
+/// case-preserved tag) or the trailing `Other` bucket. Public so the
+/// window-side callback closure can pattern-match on it.
+#[derive(Debug, Clone)]
+pub enum DropDestination {
+    Column(String),
+    Other,
+}
 
 /// Build the board page widget. Returns a horizontally-scrolling
 /// container with one column per configured kanban column plus the
@@ -47,14 +59,19 @@ use super::task_list::{TagPillMap, format_tag_names};
 /// a read-only state cue (same shape as v0.6.0).
 ///
 /// `on_row_click` is the per-row click callback (open in Inspector).
-pub fn build_page<F: Fn(i64) + 'static + Clone>(
+pub fn build_page<F, D>(
     perspective_name: &str,
     columns: &[Column<'_>],
     tag_pills: &TagPillMap,
     project_titles: &HashMap<i64, String>,
     worker: Option<WorkerHandle>,
     on_row_click: F,
-) -> gtk::Widget {
+    on_drop: D,
+) -> gtk::Widget
+where
+    F: Fn(i64) + 'static + Clone,
+    D: Fn(i64, DropDestination) + 'static + Clone,
+{
     let outer = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(8)
@@ -100,6 +117,7 @@ pub fn build_page<F: Fn(i64) + 'static + Clone>(
             project_titles,
             worker.clone(),
             on_row_click.clone(),
+            on_drop.clone(),
         ));
     }
 
@@ -115,13 +133,18 @@ pub fn build_page<F: Fn(i64) + 'static + Clone>(
     outer.upcast()
 }
 
-fn build_column<F: Fn(i64) + 'static + Clone>(
+fn build_column<F, D>(
     col: &Column<'_>,
     tag_pills: &TagPillMap,
     project_titles: &HashMap<i64, String>,
     worker: Option<WorkerHandle>,
     on_row_click: F,
-) -> gtk::Widget {
+    on_drop: D,
+) -> gtk::Widget
+where
+    F: Fn(i64) + 'static + Clone,
+    D: Fn(i64, DropDestination) + 'static + Clone,
+{
     let card = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(8)
@@ -201,6 +224,26 @@ fn build_column<F: Fn(i64) + 'static + Clone>(
         .build();
 
     card.append(&body_scroller);
+
+    // v0.6.3 — drop target for drag-drop between columns. Each card
+    // accepts an i64 task id; the on_drop callback is responsible
+    // for the tag-set rewrite via the worker.
+    let destination = if col.label == atrium_core::OTHER_COLUMN_LABEL {
+        DropDestination::Other
+    } else {
+        DropDestination::Column(col.label.clone())
+    };
+    let drop_target = gtk::DropTarget::new(i64::static_type(), gdk::DragAction::MOVE);
+    let drop_cb = on_drop.clone();
+    drop_target.connect_drop(move |_, value, _, _| {
+        let Ok(task_id) = value.get::<i64>() else {
+            return false;
+        };
+        drop_cb(task_id, destination.clone());
+        true
+    });
+    card.add_controller(drop_target);
+
     card.upcast()
 }
 
@@ -211,6 +254,8 @@ fn build_row<F: Fn(i64) + 'static>(
     worker: Option<WorkerHandle>,
     on_row_click: F,
 ) -> gtk::Widget {
+    // Rows are drag *sources* only; the matching drop target lives
+    // on the parent column card so the destination is unambiguous.
     let row = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(2)
@@ -286,6 +331,19 @@ fn build_row<F: Fn(i64) + 'static>(
         }
     });
     row.add_controller(click);
+
+    // v0.6.3 — drag source. Emits the task id so a column-level drop
+    // target can route it through the move helper. We don't attach
+    // a custom drag icon here (default uses the row widget's
+    // snapshot) — same idiom as the forecast page's drag rows.
+    let drag = gtk::DragSource::new();
+    drag.set_actions(gdk::DragAction::MOVE);
+    drag.connect_prepare(clone!(
+        #[strong]
+        task_id,
+        move |_, _, _| Some(gdk::ContentProvider::for_value(&task_id.to_value()))
+    ));
+    row.add_controller(drag);
 
     row.upcast()
 }

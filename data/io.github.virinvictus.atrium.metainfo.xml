@@ -90,6 +90,21 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.3" date="2026-05-08">
+      <description>
+        <p>Kanban drag-drop between columns. The kanban is no
+           longer read-only — drag a task row from one column
+           to another and its tag set is rewritten so the
+           grouper buckets it under the new column. The
+           rewrite removes the source column tag, adds the
+           destination column tag (if not already present),
+           and preserves any non-column tags. Dropping on the
+           trailing "Other" column just removes the source
+           column tag. Pure-Rust tag-rewrite logic in
+           atrium-core (eight unit tests) so the GUI stays
+           a thin GTK4 DnD adapter on top.</p>
+      </description>
+    </release>
     <release version="0.6.2" date="2026-05-08">
       <description>
         <p>Perspective renderer dialog — closes the v0.6.0 gap

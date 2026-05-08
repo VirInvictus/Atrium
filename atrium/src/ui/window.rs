@@ -2567,9 +2567,9 @@ impl AtriumWindow {
         // Click → open the task in the Inspector. Reuses the
         // already-wired `win.edit-details-for(i64)` action that the
         // regular list and the keyboard shortcut both go through.
-        let weak = self.downgrade();
+        let weak_click = self.downgrade();
         let on_click = move |task_id: i64| {
-            let Some(window) = weak.upgrade() else {
+            let Some(window) = weak_click.upgrade() else {
                 return;
             };
             // Disambiguate: WidgetExt::activate_action walks up the
@@ -2582,6 +2582,53 @@ impl AtriumWindow {
             );
         };
 
+        // v0.6.3 — drag-drop between columns. Each card on the
+        // board is a drop target; on a drop we recompute the task's
+        // tag set with `atrium_core::move_to_column` and dispatch
+        // ensure_tag + set_task_tags through the worker. The pool
+        // and worker are re-fetched per drop so the closure stays
+        // a plain Fn (no captured borrows of cell-borrowed maps).
+        let cfg_for_drop = cfg.clone();
+        let weak_drop = self.downgrade();
+        let on_drop = move |task_id: i64, dest: crate::ui::board::DropDestination| {
+            let Some(window) = weak_drop.upgrade() else {
+                return;
+            };
+            let Some(worker) = window.worker() else {
+                return;
+            };
+            let Some(pool) = window.read_pool() else {
+                return;
+            };
+            let map = pool
+                .with(atrium_core::db::read::tag_names_per_task)
+                .unwrap_or_default();
+            let current = map.get(&task_id).cloned().unwrap_or_default();
+            let dest_str: Option<String> = match dest {
+                crate::ui::board::DropDestination::Column(n) => Some(n),
+                crate::ui::board::DropDestination::Other => None,
+            };
+            let new_names =
+                atrium_core::move_to_column(&current, &cfg_for_drop, dest_str.as_deref());
+            // Skip the worker round-trip when nothing actually
+            // changed (drop on the same column the task is in).
+            if tag_lists_equal_case_insensitive(&current, &new_names) {
+                return;
+            }
+            glib::MainContext::default().spawn_local(async move {
+                let mut ids: Vec<i64> = Vec::with_capacity(new_names.len());
+                for name in new_names {
+                    match worker.ensure_tag(name).await {
+                        Ok(t) => ids.push(t.id),
+                        Err(e) => warn!(?e, "kanban move ensure_tag failed"),
+                    }
+                }
+                if let Err(e) = worker.set_task_tags(task_id, ids).await {
+                    error!(?e, task_id, "kanban move set_task_tags failed");
+                }
+            });
+        };
+
         let widget = crate::ui::board::build_page(
             &perspective.name,
             &columns,
@@ -2589,6 +2636,7 @@ impl AtriumWindow {
             &project_titles,
             worker,
             on_click,
+            on_drop,
         );
         self.imp().board_host.set_child(Some(&widget));
         Ok(())
@@ -3963,6 +4011,22 @@ async fn prompt_configure_renderer_dialog(
         // List renderer needs no config — clear renderer_config.
         Some(("list".into(), None))
     }
+}
+
+/// True when two tag-name lists hold the same set under case-
+/// insensitive comparison. Used by the kanban drop handler to skip
+/// a worker round-trip when the user dropped a task on the same
+/// column it was already in (the move helper round-trips column
+/// tags, so the lists end up identical modulo order).
+fn tag_lists_equal_case_insensitive(a: &[String], b: &[String]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut a_lower: Vec<String> = a.iter().map(|s| s.to_ascii_lowercase()).collect();
+    let mut b_lower: Vec<String> = b.iter().map(|s| s.to_ascii_lowercase()).collect();
+    a_lower.sort();
+    b_lower.sort();
+    a_lower == b_lower
 }
 
 /// Confirm a destructive action via `AdwAlertDialog`. Returns `true`

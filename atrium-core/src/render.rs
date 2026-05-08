@@ -164,6 +164,60 @@ pub struct Column<'a> {
 /// "uncategorized" tint in the column header).
 pub const OTHER_COLUMN_LABEL: &str = "Other";
 
+/// Compute the new tag list when a task is dragged from its current
+/// kanban column to a destination. The "current column" is the
+/// task's leftmost-matching tag against `cfg.columns` (the same
+/// rule [`group_into_board`] uses to bucket); that's the tag we
+/// remove. The destination column's tag is appended when not
+/// already in the list.
+///
+/// `destination = Some(name)` drops into a configured column;
+/// `destination = None` drops into the trailing "Other" bucket
+/// (just remove the source column tag, don't add anything).
+///
+/// Non-column tags pass through unchanged. If the task has no
+/// column-matching tags (it was in "Other"), nothing is removed.
+/// If the destination is the same column the task was already in,
+/// the function is a no-op (case-insensitive).
+///
+/// Returns the new tag list. Does not mutate `current_tags`.
+pub fn move_to_column(
+    current_tags: &[String],
+    cfg: &BoardConfig,
+    destination: Option<&str>,
+) -> Vec<String> {
+    let lc_columns: Vec<String> = cfg.columns.iter().map(|c| c.to_ascii_lowercase()).collect();
+    let lc_current: Vec<String> = current_tags
+        .iter()
+        .map(|t| t.to_ascii_lowercase())
+        .collect();
+    // Find the leftmost configured column whose name appears in the
+    // task's current tag set — that's the "source" tag we strip.
+    let source_lc: Option<String> = lc_columns
+        .iter()
+        .find(|col| lc_current.iter().any(|t| &t == col))
+        .cloned();
+
+    let mut result: Vec<String> = current_tags
+        .iter()
+        .filter(|t| {
+            source_lc
+                .as_ref()
+                .is_none_or(|src| &t.to_ascii_lowercase() != src)
+        })
+        .cloned()
+        .collect();
+
+    if let Some(dest) = destination {
+        let dest_lc = dest.to_ascii_lowercase();
+        if !result.iter().any(|t| t.to_ascii_lowercase() == dest_lc) {
+            result.push(dest.to_string());
+        }
+    }
+
+    result
+}
+
 /// Group `tasks` into kanban columns per `cfg`. The trailing
 /// `"Other"` column holds anything that didn't match a configured
 /// column; its presence is unconditional so the user always sees
@@ -419,6 +473,97 @@ mod tests {
         };
         let json = cfg.to_json().unwrap();
         assert_eq!(json, r#"{"axis":"tag","columns":["todo"]}"#);
+    }
+
+    // ── move_to_column ─────────────────────────────────
+
+    fn names(s: &[&str]) -> Vec<String> {
+        s.iter().map(|n| (*n).to_string()).collect()
+    }
+
+    #[test]
+    fn move_to_real_column_removes_source_and_adds_destination() {
+        // Task in "doing" → drop on "done". Result: `[done]`.
+        let cur = names(&["doing"]);
+        let out = move_to_column(&cur, &cfg(&["todo", "doing", "done"]), Some("done"));
+        assert_eq!(out, vec!["done".to_string()]);
+    }
+
+    #[test]
+    fn move_to_other_just_removes_source() {
+        let cur = names(&["doing"]);
+        let out = move_to_column(&cur, &cfg(&["todo", "doing", "done"]), None);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn move_to_same_column_is_a_noop_modulo_order() {
+        // Task tagged "doing" + "extra" in column "doing", dropped
+        // back on "doing". The source-removal then destination-add
+        // round-trips the column tag; non-column tags pass through.
+        let cur = names(&["doing", "extra"]);
+        let out = move_to_column(&cur, &cfg(&["todo", "doing", "done"]), Some("doing"));
+        // Order-insensitive equivalence: same multiset.
+        let mut sorted_out = out.clone();
+        sorted_out.sort();
+        let mut expected = vec!["doing".to_string(), "extra".to_string()];
+        expected.sort();
+        assert_eq!(sorted_out, expected);
+    }
+
+    #[test]
+    fn move_preserves_non_column_tags() {
+        // Task with `[urgent, doing]` dragged from doing → done.
+        // Result: `[urgent, done]` (urgent passes through).
+        let cur = names(&["urgent", "doing"]);
+        let out = move_to_column(&cur, &cfg(&["todo", "doing", "done"]), Some("done"));
+        let mut sorted = out.clone();
+        sorted.sort();
+        let mut exp = vec!["urgent".to_string(), "done".to_string()];
+        exp.sort();
+        assert_eq!(sorted, exp);
+    }
+
+    #[test]
+    fn move_with_no_source_just_adds_destination() {
+        // Task previously in "Other" (no column tags) dragged to
+        // "doing". Nothing to remove; just append.
+        let cur = names(&["urgent"]);
+        let out = move_to_column(&cur, &cfg(&["todo", "doing", "done"]), Some("doing"));
+        let mut sorted = out.clone();
+        sorted.sort();
+        let mut exp = vec!["urgent".to_string(), "doing".to_string()];
+        exp.sort();
+        assert_eq!(sorted, exp);
+    }
+
+    #[test]
+    fn move_is_case_insensitive() {
+        // Configured columns are mixed-case; task tags are mixed-case;
+        // both sides match without surface-form mattering.
+        let cur = names(&["Doing"]);
+        let out = move_to_column(&cur, &cfg(&["TODO", "DOING", "DONE"]), Some("done"));
+        // Output preserves the destination string the user passed in.
+        assert_eq!(out, vec!["done".to_string()]);
+    }
+
+    #[test]
+    fn move_destination_already_present_does_not_duplicate() {
+        // Task tagged `[doing, done]`. Drop on "done". Result:
+        // `[done]` — `doing` removed (source), `done` already there.
+        let cur = names(&["doing", "done"]);
+        let out = move_to_column(&cur, &cfg(&["todo", "doing", "done"]), Some("done"));
+        assert_eq!(out, vec!["done".to_string()]);
+    }
+
+    #[test]
+    fn move_only_removes_leftmost_column_match() {
+        // Task tagged `[doing, done]` in `[todo, doing, done]`
+        // bucketed by `doing` (leftmost). Drop on Other: only
+        // `doing` is removed; `done` stays.
+        let cur = names(&["doing", "done"]);
+        let out = move_to_column(&cur, &cfg(&["todo", "doing", "done"]), None);
+        assert_eq!(out, vec!["done".to_string()]);
     }
 
     #[test]
