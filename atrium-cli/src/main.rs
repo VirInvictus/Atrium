@@ -53,6 +53,27 @@ use output::{Row, format_row, format_rows, format_task_detail};
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() -> ExitCode {
+    // Reset SIGPIPE to the OS default so a closed stdout (the pipe
+    // into `head`, `head -c 1`, etc.) terminates us cleanly instead
+    // of panicking on the next println. Rust installs SIG_IGN at
+    // startup, which is why the default behaviour is the panic.
+    // Done inline (without the libc crate) to keep our dependency
+    // surface small — the symbol is part of every Unix libc.
+    #[cfg(unix)]
+    {
+        unsafe extern "C" {
+            fn signal(signum: i32, handler: usize) -> usize;
+        }
+        const SIGPIPE: i32 = 13;
+        const SIG_DFL: usize = 0;
+        // SAFETY: signal() is async-signal-safe and SIG_DFL is the
+        // canonical default-handler sentinel. We set it once at
+        // startup, before any other thread or signal can race.
+        unsafe {
+            signal(SIGPIPE, SIG_DFL);
+        }
+    }
+
     let raw: Vec<String> = std::env::args().skip(1).collect();
     match args::parse(&raw) {
         Ok(args) => run(args),

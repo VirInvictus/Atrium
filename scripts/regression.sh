@@ -128,13 +128,17 @@ CLI=(target/release/atrium-cli --db "$CLI_DB")
 "${CLI[@]}" search 'is:open AND tag:?wrok'           >/dev/null || fail "search fuzzy failed"
 
 # JSON output is a valid JSON array — sanity check the formatter
-# without forcing a python / jq dependency. Capture the full
-# output and use bash substring expansion rather than piping to
-# `head -c 1`, which would close the pipe early and trip Rust's
-# default panic-on-broken-pipe behaviour. (The broken-pipe issue
-# is real but separate; tracked as a v0.6.x follow-up.)
-JSON_OUT="$("${CLI[@]}" --json list all)"
-[[ "${JSON_OUT:0:1}" == "[" ]] || fail "atrium-cli --json list all did not emit a JSON array"
+# without forcing a python / jq dependency. Piping into `head -c 1`
+# also exercises the broken-pipe path: Rust's default stdout
+# panics when the pipe closes early; atrium-cli resets SIGPIPE to
+# SIG_DFL at startup so it exits cleanly. We disable pipefail
+# locally because the producer's SIGPIPE death (exit 141) is the
+# *correct* Unix behaviour and not a regression — only the byte
+# value matters here.
+set +o pipefail
+FIRST_BYTE="$("${CLI[@]}" --json list all | head -c 1)"
+set -o pipefail
+[[ "$FIRST_BYTE" == "[" ]] || fail "atrium-cli --json list all did not emit a JSON array"
 
 # Write path — add → info → search-finds-it → complete → delete.
 ADDED_ROW="$("${CLI[@]}" add 'CLI regression smoke' --tag regression-smoke)"

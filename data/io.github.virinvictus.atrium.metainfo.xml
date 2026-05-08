@@ -90,6 +90,37 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.5.1" date="2026-05-08">
+      <description>
+        <p>Patch release. Three small, coupled fixes the v0.5.0
+           ship-gate hadn't been wide enough to catch:
+           the atrium-cli runtime nesting panic on every write
+           subcommand (Cannot start a runtime from within a runtime),
+           a broken-pipe panic when piping output into
+           <code>head</code> or other early-closing consumers,
+           and a regression-script step that exercises
+           atrium-cli end-to-end against a fixture database
+           so the next ship-gate catches the same shape of bug.</p>
+      </description>
+    </release>
+    <release version="0.5.0" date="2026-05-08">
+      <description>
+        <p>A meaty minor — fifteen post-v0.4.0 patches rolled
+           together into one shippable boundary.
+           Phase 15.5 deferred-list closed: state predicates,
+           <code>sort:</code> modifier, fuzzy <code>?</code> match,
+           search history, and an operator-reference popover.
+           Architectural extraction: the search engine now lives
+           as its own workspace crate <code>atrium-search</code>,
+           and a complete headless CLI <code>atrium-cli</code>
+           ships alongside the GTK binary — every non-GUI surface
+           is now exercisable from the shell.
+           Phase 15.75 visual polish (partial): visual rhythm
+           pass, per-area accent stripes, canonical-list icon
+           tinting, About-dialog icon resolution.
+           Closes the v0.4.0 deferred bug list.</p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-05-07">
       <description>
         <p>Phase 15.5 — Calibre-powered search. The search bar's

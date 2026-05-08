@@ -1,5 +1,13 @@
 # Atrium — Patch Notes
 
+## v0.5.1 (2026-05-08) — atrium-cli runtime fix + ship-gate smoke + broken-pipe fix
+
+A focused patch with three small, coupled fixes that the v0.5.0 ship-gate hadn't been wide enough to catch.
+
+- **atrium-cli runtime nesting fix.** `with_writer` previously called `Handle::current().block_on(...)` from inside an outer `runtime.block_on(...)`, which is a "Cannot start a runtime from within a runtime" panic the moment any write subcommand ran. Reshaped to spawn the worker inside `block_on` and exit, then pass `&Runtime` to each `run_X` so subsequent `block_on`s run outside async context. The worker future stays alive on the runtime; each `handle.foo()` awaits a single mpsc round-trip. No behavioural change at the user level — the panic was hit by every write path.
+- **Ship-gate end-to-end smoke for atrium-cli.** `scripts/regression.sh` step 5.5 exercises every read subcommand, every search-operator class shipped at v0.5.0, the JSON formatter (now via `head -c 1` to also exercise the broken-pipe path), the add → info → search → edit → complete → delete write round-trip, and the bulk `delete --where` dry-run / `--force` flow. Closes the architectural commitment that every non-GUI surface stays CLI-testable — without this step, the runtime nesting panic would have shipped silently in v0.5.0.
+- **Broken-pipe behaviour.** Rust's default-installed SIGPIPE handler is `SIG_IGN`, which means a `println!` to a closed stdout panics on the next write. Atrium-cli now resets SIGPIPE to `SIG_DFL` at startup (inline `unsafe extern fn signal` so we don't add a `libc` dep) — pipes into `head`, `head -c N`, `q`-pressed pagers, etc. now exit cleanly instead of dumping a Rust panic message onto the user's terminal.
+
 ## v0.5.0 (2026-05-08) — atrium-cli, search engine evolution, Phase 15.75 visual polish
 
 A meaty minor — this release rolls together fifteen post-v0.4.0 patches into one shippable boundary. Three threads finished and one started:
