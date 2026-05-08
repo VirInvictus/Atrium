@@ -1,5 +1,38 @@
 # Atrium — Patch Notes
 
+## v0.6.2 (2026-05-08) — perspective renderer-config dialog
+
+Closes the v0.6.0 gap that the only way to make a Perspective
+render as a kanban was direct SQL or the test fixture. Right-
+clicking a Perspective row in the sidebar now exposes a
+"Configure renderer…" item that opens an `AdwAlertDialog`:
+
+- Two radio toggles: **List** (default flat task list) /
+  **Board** (kanban columns).
+- When Board is selected, a comma-separated entry takes the
+  column list — pre-populated with the existing columns when
+  editing an already-configured board.
+- Save → writes `perspective.renderer` and
+  `perspective.renderer_config` via the worker.
+  `apply_library_changes` re-renders the active perspective
+  immediately, so the column layout appears without needing
+  a sidebar refresh.
+
+What's also in the patch:
+
+- **`BoardConfig::to_json` / `BoardConfig::from_json`.** The
+  GUI dialog uses these to round-trip the JSON shape without
+  pulling `serde_json` into the GTK binary. Pinned by two
+  unit tests — one for the round-trip, one for the exact
+  emitted shape so a future serde derive tweak can't silently
+  rename the JSON keys.
+
+The CLI doesn't yet have a board-renderer setter (the v0.5.4
+`atrium-cli kanban NAME` only renders an *existing* board). A
+sibling patch will add `atrium-cli perspective …` for the
+write side; for now, perspective creation/config from the
+shell is "edit the DB directly or use the GUI dialog."
+
 ## v0.6.1 (2026-05-08) — kanban polish: row metadata + interactive checkbox
 
 The first polish pass on the v0.6.0 kanban. Two gaps closed:

@@ -465,6 +465,10 @@ impl AtriumWindow {
     fn install_perspective_context_menu(&self, row: &gtk::ListBoxRow, perspective_id: i64) {
         let menu = gio::Menu::new();
         menu.append(Some("Rename"), Some("win.rename-active"));
+        menu.append(
+            Some("Configure renderer\u{2026}"),
+            Some("win.configure-renderer"),
+        );
         menu.append(Some("Delete"), Some("win.delete-active"));
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
         popover.set_has_arrow(false);
@@ -3009,6 +3013,17 @@ impl AtriumWindow {
         ));
         self.add_action(&del_active);
 
+        // v0.6.2 (Slice D1 GUI) — configure the active Perspective's
+        // renderer (`list` ↔ `board`) and, when board, its column
+        // list. No-op when the active list isn't a Perspective.
+        let configure_renderer = gio::SimpleAction::new("configure-renderer", None);
+        configure_renderer.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.prompt_configure_renderer()
+        ));
+        self.add_action(&configure_renderer);
+
         // Phase 14 — save the current search bar query as a named
         // perspective. Only fires when the active list is
         // SearchResults; otherwise no-ops with a debug log.
@@ -3557,6 +3572,35 @@ impl AtriumWindow {
         });
     }
 
+    /// v0.6.2 (Slice D1 GUI) — configure the active Perspective's
+    /// renderer (`list` ↔ `board`) and, when board, its column list.
+    /// Surfaces from the perspective row's right-click context menu.
+    /// No-op when the active list isn't a Perspective.
+    fn prompt_configure_renderer(&self) {
+        let ActiveList::Perspective(id) = self.active_list() else {
+            debug!("configure-renderer: not on a Perspective");
+            return;
+        };
+        let perspective = self.imp().perspective_meta.borrow().get(&id).cloned();
+        let Some(perspective) = perspective else {
+            return;
+        };
+        let win = self.clone();
+        glib::MainContext::default().spawn_local(async move {
+            let Some((renderer, config)) =
+                prompt_configure_renderer_dialog(&win, &perspective).await
+            else {
+                return;
+            };
+            let Some(worker) = win.worker() else { return };
+            let mut update = atrium_core::PerspectiveUpdate::new(id).renderer(renderer);
+            update = update.renderer_config(config);
+            if let Err(e) = worker.update_perspective(update).await {
+                error!(?e, id, "update_perspective (renderer) failed");
+            }
+        });
+    }
+
     fn archive_active_project(&self) {
         let ActiveList::Project(id) = self.active_list() else {
             debug!("archive-active-project: not on a project view");
@@ -3814,6 +3858,110 @@ async fn prompt_for_text(
         if text.is_empty() { None } else { Some(text) }
     } else {
         None
+    }
+}
+
+/// v0.6.2 — perspective renderer configuration dialog. Pick `List`
+/// or `Board`; when `Board`, edit the comma-separated column list
+/// in a single text entry. Returns `(renderer, config_json)` on
+/// confirm, `None` on cancel. The config_json is `None` for List
+/// or for an empty Board (no columns picked yet); `Some(json)` for
+/// a Board with at least one column.
+async fn prompt_configure_renderer_dialog(
+    parent: &impl IsA<gtk::Widget>,
+    perspective: &atrium_core::Perspective,
+) -> Option<(String, Option<String>)> {
+    // Existing values for sane defaults.
+    let is_board = perspective.renderer.eq_ignore_ascii_case("board");
+    let existing_cols: Vec<String> = perspective
+        .renderer_config
+        .as_deref()
+        .and_then(|json| atrium_core::BoardConfig::from_json(json).ok())
+        .map(|cfg| cfg.columns)
+        .unwrap_or_default();
+    let existing_cols_text = existing_cols.join(", ");
+
+    // Form layout — a vertical Box holding the two radio toggles
+    // and the columns entry. The entry's sensitive-state is bound
+    // to the Board radio.
+    let form = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .build();
+
+    let list_radio = gtk::CheckButton::builder()
+        .label("List \u{2014} flat task list (default)")
+        .active(!is_board)
+        .build();
+    let board_radio = gtk::CheckButton::builder()
+        .label("Board \u{2014} columns by tag")
+        .active(is_board)
+        .build();
+    board_radio.set_group(Some(&list_radio));
+    form.append(&list_radio);
+    form.append(&board_radio);
+
+    // Columns entry, only sensitive when Board is selected. Comma-
+    // separated for now; an editable list-row UI is a polish item.
+    let columns_label = gtk::Label::builder()
+        .label("Columns (comma-separated tag names):")
+        .halign(gtk::Align::Start)
+        .build();
+    columns_label.add_css_class("dim-label");
+    form.append(&columns_label);
+
+    let columns_entry = gtk::Entry::builder()
+        .placeholder_text("todo, doing, done")
+        .text(&existing_cols_text)
+        .activates_default(true)
+        .build();
+    columns_entry.set_sensitive(is_board);
+    form.append(&columns_entry);
+
+    // Wire the radios → entry sensitivity.
+    let entry_clone = columns_entry.clone();
+    board_radio.connect_active_notify(move |btn| {
+        entry_clone.set_sensitive(btn.is_active());
+    });
+
+    let dialog = adw::AlertDialog::new(
+        Some(&format!("Configure renderer for “{}”", perspective.name)),
+        None,
+    );
+    dialog.set_extra_child(Some(&form));
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("ok", "Save");
+    dialog.set_default_response(Some("ok"));
+    dialog.set_close_response("cancel");
+    dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+
+    let response = dialog.choose_future(parent).await;
+    if response.as_str() != "ok" {
+        return None;
+    }
+    if board_radio.is_active() {
+        let raw = columns_entry.text().to_string();
+        let columns: Vec<String> = raw
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if columns.is_empty() {
+            // No columns picked — store as Board with NULL config so
+            // the kanban renders only the trailing "Other" bucket.
+            // The caller's `Renderer::from_columns` rejects NULL on
+            // Board, so we instead fall back to List in that case.
+            return Some(("list".into(), None));
+        }
+        let cfg = atrium_core::BoardConfig {
+            axis: atrium_core::BoardAxis::Tag,
+            columns,
+        };
+        let json = cfg.to_json().ok();
+        Some(("board".into(), json))
+    } else {
+        // List renderer needs no config — clear renderer_config.
+        Some(("list".into(), None))
     }
 }
 

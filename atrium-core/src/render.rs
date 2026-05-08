@@ -64,6 +64,26 @@ pub struct BoardConfig {
     pub columns: Vec<String>,
 }
 
+impl BoardConfig {
+    /// Serialise to the JSON shape the schema stores in
+    /// `perspective.renderer_config`. Centralising this here keeps
+    /// the GUI / CLI from having to import `serde_json` or hand-roll
+    /// JSON; the round-trip with `Renderer::from_columns` stays
+    /// pinned by the parsing tests above.
+    pub fn to_json(&self) -> Result<String, RendererError> {
+        serde_json::to_string(self).map_err(|e| RendererError::InvalidJson(e.to_string()))
+    }
+
+    /// Parse from the same JSON shape `to_json` produces. Skips
+    /// the validation step that `Renderer::from_columns` runs
+    /// (empty-columns rejection); use this when you want the raw
+    /// config to populate an editing dialog and the validation is
+    /// the dialog's job.
+    pub fn from_json(s: &str) -> Result<Self, RendererError> {
+        serde_json::from_str(s).map_err(|e| RendererError::InvalidJson(e.to_string()))
+    }
+}
+
 /// Grouping axis for a board renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -375,6 +395,30 @@ mod tests {
         let cols = group_into_board(&tasks, &cfg(&["todo"]), &map);
         let ids: Vec<i64> = cols[0].tasks.iter().map(|t| t.id).collect();
         assert_eq!(ids, vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn board_config_to_json_round_trips_through_from_json() {
+        let original = BoardConfig {
+            axis: BoardAxis::Tag,
+            columns: vec!["todo".into(), "doing".into(), "done".into()],
+        };
+        let json = original.to_json().unwrap();
+        let parsed = BoardConfig::from_json(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn board_config_to_json_emits_compact_shape() {
+        // The exact shape that the GUI dialog and atrium-cli kanban
+        // both depend on; pinning it keeps a future serde derive
+        // tweak from accidentally rewording the field names.
+        let cfg = BoardConfig {
+            axis: BoardAxis::Tag,
+            columns: vec!["todo".into()],
+        };
+        let json = cfg.to_json().unwrap();
+        assert_eq!(json, r#"{"axis":"tag","columns":["todo"]}"#);
     }
 
     #[test]

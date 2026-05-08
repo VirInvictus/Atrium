@@ -90,6 +90,18 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.2" date="2026-05-08">
+      <description>
+        <p>Perspective renderer dialog — closes the v0.6.0 gap
+           that the only way to make a Perspective render as a
+           kanban was direct SQL or the test fixture. Right-
+           clicking a Perspective row in the sidebar now opens
+           a "Configure renderer…" dialog: pick List or Board,
+           edit the column list (comma-separated tag names),
+           save. The active perspective re-renders immediately
+           when the worker emits the library-changes delta.</p>
+      </description>
+    </release>
     <release version="0.6.1" date="2026-05-08">
       <description>
         <p>Kanban polish — board rows now show a metadata line
