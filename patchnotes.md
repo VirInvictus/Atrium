@@ -1,5 +1,51 @@
 # Atrium — Patch Notes
 
+## v0.6.6 (2026-05-08) — kanban drag-drop CPU mitigation
+
+Two targeted optimisations to address the CPU spike Brandon
+reported during kanban drag operations:
+
+- **Drop the hover transition on board / agenda task rows.**
+  v0.6.1 added a `transition: background-color 120ms ease-out`
+  on `.atrium-board-task-row` (and Agenda inherited the same
+  pattern). During a drag, the cursor crosses many rows in
+  succession; each crossing fired a 120ms CSS animation
+  producing continuous repaint work and a visible CPU spike.
+  The hover background still applies — it's just instant now,
+  so there's no per-frame paint cost.
+
+- **SQL fast-path on board refresh.** v0.5.3 added the SQL
+  translation evaluator to atrium-cli; v0.6.6 wires it into
+  the GUI's `refresh_board_page`. When the perspective's
+  filter expression translates cleanly to SQL (most do — the
+  fixture's `is:open` does), we now load only the matching
+  task rows from SQLite instead of pulling every row and
+  filtering in Rust on every drop. At 1000-task scale that
+  cuts the per-drop work meaningfully; at 10K+ it'll
+  dominate. Falls back to the in-memory evaluator for
+  expressions the translator doesn't yet cover (regex /
+  fuzzy / composite is:today / etc.).
+
+What's also in the patch:
+
+- **`atrium_core::SqlBindValue` enum.** Pulled the binding
+  conversion out of atrium-cli's local helper and into a
+  proper public type on atrium-core. The atrium GUI binary
+  now bridges to it without needing a direct rusqlite dep.
+  `From<atrium_search::SqlValue> for atrium_core::SqlBindValue`
+  lives in atrium-search so call sites just say `.into()`.
+- **`filter::sort_tasks_by_specs`.** Tiny re-export of the
+  sort-spec helper so the SQL fast-path in window.rs can
+  apply explicit `sort:` modifiers without re-running the
+  full `filter::apply` pipeline.
+
+If the CPU spike persists after this patch, the next move is
+either (a) profile with `tracing` spans around the rebuild
+to find the dominant cost, or (b) coalesce/debounce
+TaskChanges-driven refreshes so rapid drops only trigger one
+rebuild at the end. Both are clean follow-ups for a fresh
+session.
+
 ## v0.6.5 (2026-05-08) — atrium-cli perspective write side
 
 Closes the gap that the only way to create or convert a saved

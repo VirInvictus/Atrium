@@ -19,6 +19,7 @@ pub mod repeat;
 pub mod test_support;
 
 pub use db::changes::{LibraryChanges, TaskChanges};
+pub use db::read::SqlBindValue;
 pub use db::worker::{WorkerHandle, spawn as spawn_worker};
 pub use domain::{
     Area, AreaUpdate, Heading, NewArea, NewPerspective, NewProject, NewTag, NewTask, Perspective,

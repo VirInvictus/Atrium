@@ -68,7 +68,10 @@ pub struct SqlClause {
 
 /// Wire-level value for parameter binding. Kept dep-free (no
 /// rusqlite types here) so the search crate stays GUI/storage
-/// agnostic. The caller maps these to its driver's bind types.
+/// agnostic. The caller maps these to its driver's bind types —
+/// the `From<SqlValue> for atrium_core::SqlBindValue` impl below
+/// covers the common rusqlite path so binaries don't have to
+/// know about either side.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SqlValue {
     Text(String),
@@ -76,6 +79,22 @@ pub enum SqlValue {
     /// Date bound as `YYYY-MM-DD` text — matches the column storage
     /// shape (`scheduled_for`, `deadline`, `defer_until`).
     Date(NaiveDate),
+}
+
+impl From<SqlValue> for atrium_core::SqlBindValue {
+    fn from(value: SqlValue) -> Self {
+        match value {
+            SqlValue::Text(s) => atrium_core::SqlBindValue::Text(s),
+            SqlValue::Int(n) => atrium_core::SqlBindValue::Int(n),
+            SqlValue::Date(d) => atrium_core::SqlBindValue::Date(d),
+        }
+    }
+}
+
+impl From<&SqlValue> for atrium_core::SqlBindValue {
+    fn from(value: &SqlValue) -> Self {
+        value.clone().into()
+    }
 }
 
 /// Try to translate `expr` into a SQL `WHERE` fragment.

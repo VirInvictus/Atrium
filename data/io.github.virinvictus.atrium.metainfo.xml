@@ -90,6 +90,23 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.6" date="2026-05-08">
+      <description>
+        <p>Kanban drag-drop CPU mitigation. Two targeted
+           optimisations: dropped the
+           <code>transition: background-color 120ms</code> on
+           board / agenda task rows (each cursor-crossed row
+           was firing a CSS animation during drag motion,
+           producing continuous repaint work), and wired the
+           v0.5.3 SQL translation evaluator into the GUI's
+           board refresh path so the per-drop rebuild loads
+           only matching rows instead of pulling every task
+           and filtering in Rust. At 10K+ tasks the SQL
+           fast-path dominates; at fixture scale it's a
+           measurable but smaller win. The hover background
+           still applies — it's just instant now.</p>
+      </description>
+    </release>
     <release version="0.6.5" date="2026-05-08">
       <description>
         <p>atrium-cli perspective write side — closes the gap

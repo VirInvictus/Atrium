@@ -132,6 +132,14 @@ fn blended_score(task: &Task, scores: &HashMap<i64, f64>, today: NaiveDate, half
 /// Stable-sort `tasks` by the configured sorts in primary-first
 /// order. Tasks lacking the sort field always sink to the end of
 /// the list regardless of direction (NULLs-last convention).
+/// Stable-sort `tasks` by the configured sorts in primary-first
+/// order. Public so the SQL fast-path in `window.rs` can apply
+/// explicit sort modifiers without going through the full
+/// `apply` pipeline.
+pub fn sort_tasks_by_specs(tasks: &mut [Task], sorts: &[SortSpec]) {
+    sort_tasks(tasks, sorts);
+}
+
 fn sort_tasks(tasks: &mut [Task], sorts: &[SortSpec]) {
     tasks.sort_by(|a, b| {
         for spec in sorts {

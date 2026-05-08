@@ -519,6 +519,29 @@ pub fn list_perspectives(conn: &Connection) -> Result<Vec<Perspective>, DbError>
         .map_err(Into::into)
 }
 
+/// Wire-level value for the SQL fast-path's bound parameters.
+/// Mirrors `atrium_search::SqlValue` so binaries don't have to
+/// know about `rusqlite::types::Value` directly. `From<atrium_search::SqlValue>`
+/// lives over in `atrium-search/src/sql_translate.rs`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SqlBindValue {
+    Text(String),
+    Int(i64),
+    /// Date bound as `YYYY-MM-DD` text — matches the column storage
+    /// shape (`scheduled_for`, `deadline`, `defer_until`, etc.).
+    Date(NaiveDate),
+}
+
+impl SqlBindValue {
+    fn to_rusqlite(&self) -> rusqlite::types::Value {
+        match self {
+            Self::Text(s) => rusqlite::types::Value::Text(s.clone()),
+            Self::Int(n) => rusqlite::types::Value::Integer(*n),
+            Self::Date(d) => rusqlite::types::Value::Text(d.format("%Y-%m-%d").to_string()),
+        }
+    }
+}
+
 /// Run a pre-built SQL `WHERE` fragment against the `task` table.
 /// Used by the SQL-translation evaluator (`atrium-search`) — the
 /// caller composes the fragment + bound params, this helper just
@@ -537,8 +560,9 @@ pub fn list_perspectives(conn: &Connection) -> Result<Vec<Perspective>, DbError>
 pub fn list_tasks_matching(
     conn: &Connection,
     where_sql: &str,
-    params: &[rusqlite::types::Value],
+    params: &[SqlBindValue],
 ) -> Result<Vec<Task>, DbError> {
+    let bound: Vec<rusqlite::types::Value> = params.iter().map(|p| p.to_rusqlite()).collect();
     let task_cols = TASK_COLUMNS
         .split(", ")
         .map(|c| format!("t.{c}"))
@@ -549,7 +573,7 @@ pub fn list_tasks_matching(
     // fragment varies per query, so caching would unboundedly grow
     // the per-connection statement cache.
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(rusqlite::params_from_iter(params), task_from_row)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(bound), task_from_row)?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
 }

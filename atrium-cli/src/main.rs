@@ -273,29 +273,12 @@ fn filtered_tasks(
     ctx: &EvalContext<'_>,
 ) -> CliResult<Vec<Task>> {
     if let Some(clause) = atrium_search::try_translate(expr, today) {
-        let params = sql_params_to_rusqlite(&clause.params);
+        let params: Vec<atrium_core::SqlBindValue> = clause.params.iter().map(Into::into).collect();
         return read::list_tasks_matching(conn, &clause.sql, &params).map_err(CliError::from);
     }
     let mut tasks = read::list_all_tasks(conn).map_err(CliError::from)?;
     tasks.retain(|t| evaluate(expr, t, ctx));
     Ok(tasks)
-}
-
-/// Convert atrium-search's wire-level `SqlValue` to rusqlite's
-/// `Value`. Kept on the CLI side rather than in atrium-search so
-/// the search engine doesn't pull in rusqlite — only call sites
-/// that actually execute SQL need the conversion.
-fn sql_params_to_rusqlite(params: &[atrium_search::SqlValue]) -> Vec<rusqlite::types::Value> {
-    params
-        .iter()
-        .map(|p| match p {
-            atrium_search::SqlValue::Text(s) => rusqlite::types::Value::Text(s.clone()),
-            atrium_search::SqlValue::Int(n) => rusqlite::types::Value::Integer(*n),
-            atrium_search::SqlValue::Date(d) => {
-                rusqlite::types::Value::Text(d.format("%Y-%m-%d").to_string())
-            }
-        })
-        .collect()
 }
 
 /// Reorder `tasks` in-place by FTS5 bm25 + recency when the parsed

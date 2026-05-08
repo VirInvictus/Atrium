@@ -427,10 +427,15 @@ window.atrium-quickentry-window {
   border-bottom: 1px solid alpha(@borders, 0.35);
   padding-bottom: 6px;
 }
+/* v0.6.6 — board rows: no transition timing on the hover state.
+ * The transition was animating background-color over 120ms, which
+ * during a drag (cursor crosses many rows) produces continuous
+ * CSS animation work and a visible CPU spike. Instant hover keeps
+ * the visual cue without the per-frame paint cost. Same change
+ * applied to .atrium-agenda-task-row below. */
 .atrium-board-task-row {
   border-radius: 6px;
   padding: 4px 6px;
-  transition: background-color 120ms ease-out;
 }
 .atrium-board-task-row:hover {
   background-color: alpha(@card_shade_color, 0.08);
@@ -463,7 +468,6 @@ window.atrium-quickentry-window {
 .atrium-agenda-task-row {
   border-radius: 6px;
   padding: 4px 6px;
-  transition: background-color 120ms ease-out;
 }
 .atrium-agenda-task-row:hover {
   background-color: alpha(@card_shade_color, 0.08);

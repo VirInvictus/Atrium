@@ -1079,17 +1079,8 @@ mod sql_parity {
         // SQL path — only valid when try_translate returns Some.
         let sql_path: HashSet<i64> =
             if let Some(clause) = atrium_search::try_translate(&parsed.expr, today()) {
-                let params: Vec<rusqlite::types::Value> = clause
-                    .params
-                    .iter()
-                    .map(|p| match p {
-                        atrium_search::SqlValue::Text(s) => rusqlite::types::Value::Text(s.clone()),
-                        atrium_search::SqlValue::Int(n) => rusqlite::types::Value::Integer(*n),
-                        atrium_search::SqlValue::Date(d) => {
-                            rusqlite::types::Value::Text(d.format("%Y-%m-%d").to_string())
-                        }
-                    })
-                    .collect();
+                let params: Vec<atrium_core::SqlBindValue> =
+                    clause.params.iter().map(Into::into).collect();
                 read::list_tasks_matching(conn, &clause.sql, &params)
                     .unwrap()
                     .iter()

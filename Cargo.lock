@@ -40,7 +40,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "atrium"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "anyhow",
  "atrium-core",
@@ -56,7 +56,7 @@ dependencies = [
 
 [[package]]
 name = "atrium-cli"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "atrium-core",
  "atrium-search",
@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "atrium-core"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -85,7 +85,7 @@ dependencies = [
 
 [[package]]
 name = "atrium-search"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "atrium-core",
  "chrono",

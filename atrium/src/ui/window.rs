@@ -2589,7 +2589,14 @@ impl AtriumWindow {
         };
         // Same load shape as the list-renderer perspective path —
         // run the saved filter expression, apply sorts / bm25 /
-        // SQL fast-path, then group.
+        // SQL fast-path, then group. v0.6.6 — use the SQL
+        // translation evaluator (shipped at v0.5.3) to push the
+        // filter to SQLite when expressible. At fixture scale
+        // (~1000 tasks, ~870 open) the in-memory path was loading
+        // every row + iterating in Rust on every drop. The SQL
+        // path lets us skip both the round-trip cost and the
+        // per-row evaluator work for the 80% of expressions that
+        // translate cleanly.
         let parsed = crate::ui::filter::parse(&perspective.filter_expr);
         let today = Local::now().date_naive();
         let tag_map: HashMap<i64, Vec<String>> = pool
@@ -2598,18 +2605,39 @@ impl AtriumWindow {
         let project_titles = self.imp().project_titles.borrow().clone();
         let project_areas = self.project_areas_map();
         let area_titles = self.imp().area_titles.borrow().clone();
-        let tasks = pool
-            .with(atrium_core::db::read::list_all_tasks)
-            .unwrap_or_default();
-        let mut filtered = crate::ui::filter::apply(
-            tasks,
-            &parsed,
-            today,
-            &tag_map,
-            &project_titles,
-            &project_areas,
-            &area_titles,
-        );
+        let mut filtered: Vec<atrium_core::Task> = if let Some(expr) = &parsed.expr
+            && let Some(clause) = atrium_search::try_translate(expr, today)
+        {
+            // SQL fast-path: load only the matching rows. Saves the
+            // load-everything + iterate-in-Rust cost on every drop.
+            let params: Vec<atrium_core::SqlBindValue> =
+                clause.params.iter().map(Into::into).collect();
+            pool.with(|conn| atrium_core::db::read::list_tasks_matching(conn, &clause.sql, &params))
+                .unwrap_or_default()
+        } else {
+            // Fallback: load all + in-memory filter (regex / fuzzy
+            // / composite is:today / etc. that the translator
+            // doesn't yet cover).
+            let tasks = pool
+                .with(atrium_core::db::read::list_all_tasks)
+                .unwrap_or_default();
+            crate::ui::filter::apply(
+                tasks,
+                &parsed,
+                today,
+                &tag_map,
+                &project_titles,
+                &project_areas,
+                &area_titles,
+            )
+        };
+        // Apply explicit `sort:` modifiers when present. Mirrors
+        // what filter::apply would have done on the fallback path.
+        if !parsed.sorts.is_empty() {
+            // sort_tasks lives on filter::apply's path; the SQL
+            // path skips it. Re-sort here so both paths agree.
+            crate::ui::filter::sort_tasks_by_specs(&mut filtered, &parsed.sorts);
+        }
         // bm25 ranking still applies inside a board's rows when the
         // saved expression has bare text and no explicit sort.
         if parsed.sorts.is_empty()
