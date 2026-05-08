@@ -309,9 +309,36 @@ where
         .right_margin(10)
         .build();
     notes_view.add_css_class("atrium-note-body");
+
+    // v0.6.13 (Patch C) — placeholder text for the Notes TextView.
+    // GtkTextView doesn't have a native placeholder property, so we
+    // overlay a Label that's visible only when the buffer is empty.
+    // `set_can_target(false)` keeps the label transparent to clicks
+    // — the underlying TextView still gets focus when the user
+    // clicks anywhere on the surface.
+    let notes_placeholder = gtk::Label::builder()
+        .label("What / why / next step — autosaves on focus-out")
+        .halign(gtk::Align::Start)
+        .valign(gtk::Align::Start)
+        .margin_top(14)
+        .margin_start(14)
+        .build();
+    notes_placeholder.add_css_class("dim-label");
+    notes_placeholder.set_can_target(false);
+    notes_placeholder.set_visible(task.note.is_empty());
+
+    let notes_overlay = gtk::Overlay::builder().child(&notes_view).build();
+    notes_overlay.add_overlay(&notes_placeholder);
+
+    // Hide the placeholder the moment the buffer has any text.
+    let placeholder_for_changed = notes_placeholder.clone();
+    notes_buffer.connect_changed(move |b| {
+        placeholder_for_changed.set_visible(b.char_count() == 0);
+    });
+
     let notes_scroll = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&notes_view)
+        .child(&notes_overlay)
         .min_content_height(160)
         .build();
     notes_scroll.add_css_class("card");

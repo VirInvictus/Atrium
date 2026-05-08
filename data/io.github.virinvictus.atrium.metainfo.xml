@@ -90,6 +90,18 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.13" date="2026-05-08">
+      <description>
+        <p>Patch C — Inspector Notes placeholder. The Notes
+           field used to be a blank dark rectangle; first-run
+           users had no way to know it was editable. v0.6.13
+           adds a placeholder hint ("What / why / next step —
+           autosaves on focus-out") that disappears the
+           moment the user types. Standard GTK4 overlay-Label
+           idiom; autosave-on-focus-out behaviour is
+           unchanged.</p>
+      </description>
+    </release>
     <release version="0.6.12" date="2026-05-08">
       <description>
         <p>Patch B — state-aware row treatment. The biggest

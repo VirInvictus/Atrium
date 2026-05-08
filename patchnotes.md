@@ -1,5 +1,37 @@
 # Atrium — Patch Notes
 
+## v0.6.13 (2026-05-08) — Patch C: Inspector Notes placeholder
+
+Small focused patch off the screenshot-cleanup arc. The Inspector
+pane's Notes field used to be a blank dark rectangle — first-run
+users had no way to know it was editable. v0.6.13 adds a
+placeholder hint that disappears the moment the user types.
+
+GtkTextView doesn't have a native placeholder property the way
+GtkEntry does, so the implementation is the standard GTK4 idiom:
+overlay a `GtkLabel` (set to `set_can_target(false)` so clicks
+pass through to the underlying TextView) inside a `GtkOverlay`
+that wraps the TextView. The label's visibility tracks the
+buffer's character count — visible when zero, hidden otherwise —
+via `connect_changed`. The TextBuffer's autosave-on-focus-out
+behaviour is unchanged.
+
+Placeholder text reads "What / why / next step — autosaves on
+focus-out" so users who haven't read the docs (most of them, most
+of the time) understand both *what kind of content* belongs in
+the field and *when their input will be saved*.
+
+The recurrence icon piece originally bundled with this patch
+(#9b — derive an icon from `repeat_rule`) was deferred — issue
+#9 was really about the fixture's emoji-prefixed titles, which
+Patch A already fixed. The derived recurrence icon is a polish
+"would be nice" rather than a screenshot-bug, so it can wait
+for a real use case to push it.
+
+Patch D (day-band grouping in the main task list — Today /
+Tomorrow / This Week / Later headers between rows) is the last
+one in the four-patch arc.
+
 ## v0.6.12 (2026-05-08) — Patch B: state-aware row treatment
 
 The biggest visual win in the screenshot-cleanup arc. Each row now
