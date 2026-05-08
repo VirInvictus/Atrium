@@ -151,8 +151,8 @@ impl ActiveList {
     /// not carried on the `Task` struct (the area's project membership
     /// in particular). Returning `false` here means the diff applier
     /// won't add a newly-arriving task to those views — the next list
-    /// refresh picks them up. Acceptable for Phase 5a; Phase 5c will
-    /// revisit with a smarter applier when drag-to-project lands.
+    /// refresh picks them up. Acceptable: drag-to-project / move
+    /// flows trigger a full list refresh anyway.
     pub fn task_matches(&self, task: &Task, today: NaiveDate) -> bool {
         match self {
             Self::Inbox => task.completed_at.is_none() && task.project_id.is_none(),

@@ -90,6 +90,24 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.8" date="2026-05-08">
+      <description>
+        <p>v0.6.x cleanup pass — end-of-session maintenance.
+           Eleven patches shipped since the v0.5.0 line and
+           the contract docs lagged behind. spec.md, roadmap.md,
+           and README.md now reflect what actually shipped:
+           Slice D end-to-end (kanban renderer + Agenda
+           canonical page), FTS5 bm25 + recency ranking,
+           SQL-translation evaluator, sidebar top-tier reorg.
+           spec.md adds three new subsections (§4.4 Bm25, §4.5
+           SQL-translation, §4.6 Perspective renderers) without
+           renumbering the existing tail. roadmap.md Phase
+           15.75 rewritten as a "what shipped where" map.
+           Plus small code hygiene — dead arguments removed,
+           stale Phase-X-will-do comments cleaned. Workspace
+           clippy clean; ship-gate green.</p>
+      </description>
+    </release>
     <release version="0.6.7" date="2026-05-08">
       <description>
         <p>Sidebar reorganisation. Agenda / Forecast / Review

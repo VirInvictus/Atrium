@@ -390,7 +390,7 @@ fn run_perspective(
 ) -> CliResult<()> {
     match sub {
         PerspectiveSub::Create { name, args } => {
-            run_perspective_create(runtime, handle, read_conn, &name, &args, format)
+            run_perspective_create(runtime, handle, &name, &args, format)
         }
         PerspectiveSub::Edit { name, args } => {
             run_perspective_edit(runtime, handle, read_conn, &name, &args, format)
@@ -404,7 +404,6 @@ fn run_perspective(
 fn run_perspective_create(
     runtime: &tokio::runtime::Runtime,
     handle: &atrium_core::WorkerHandle,
-    read_conn: &Connection,
     name: &str,
     args: &PerspectiveArgs,
     format: Format,
@@ -432,7 +431,7 @@ fn run_perspective_create(
     let p = runtime
         .block_on(async { handle.create_perspective(new).await })
         .map_err(CliError::from)?;
-    print_perspective_after_write(read_conn, &p, format);
+    print_perspective_after_write(&p, format);
     Ok(())
 }
 
@@ -471,13 +470,13 @@ fn run_perspective_edit(
     if update.is_noop() {
         // Nothing to do — print the existing row so the user gets
         // a confirmation that they referred to the right one.
-        print_perspective_after_write(read_conn, &perspective, format);
+        print_perspective_after_write(&perspective, format);
         return Ok(());
     }
     let p = runtime
         .block_on(async { handle.update_perspective(update).await })
         .map_err(CliError::from)?;
-    print_perspective_after_write(read_conn, &p, format);
+    print_perspective_after_write(&p, format);
     Ok(())
 }
 
@@ -492,7 +491,7 @@ fn run_perspective_delete(
     runtime
         .block_on(async { handle.delete_perspective(perspective.id).await })
         .map_err(CliError::from)?;
-    print_perspective_after_write(read_conn, &perspective, format);
+    print_perspective_after_write(&perspective, format);
     Ok(())
 }
 
@@ -597,11 +596,7 @@ fn parse_columns(raw: Option<&str>) -> CliResult<Vec<String>> {
 /// Print a single perspective row after a write. Re-uses the
 /// existing `print_perspectives` plumbing so the output schema
 /// matches `list perspectives`.
-fn print_perspective_after_write(
-    _read_conn: &Connection,
-    p: &atrium_core::Perspective,
-    format: Format,
-) {
+fn print_perspective_after_write(p: &atrium_core::Perspective, format: Format) {
     output::print_perspectives(std::slice::from_ref(p), format);
 }
 

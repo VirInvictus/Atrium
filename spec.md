@@ -1,6 +1,6 @@
 # Atrium — Application Specification
 
-**Version:** 0.5.0 (Phase 15.5+15.75 partial — Calibre search expression language, atrium-search + atrium-cli workspace crates, per-area accent + canonical-list colour, full task CRUD from the shell)
+**Version:** 0.6.7 (Phase 15.75 complete — Slice D shipped end-to-end: kanban Perspective renderer with drag-drop + GUI editing dialog + atrium-cli `kanban` / `perspective` write side, Agenda canonical page, FTS5 bm25 ranking, SQL-translation evaluator, sidebar top-tier reorganisation)
 **Target:** GNOME 50+, GTK4 ≥ 4.16, libadwaita ≥ 1.7
 **Language:** Rust (2024 Edition)
 **Build System:** Cargo / Meson wrapper for Flatpak packaging
@@ -298,9 +298,48 @@ The expression text — exactly what the user typed — is what's stored in `per
 
 ### 4.4 FTS5
 
-`task_fts` virtual table indexes `title` + `note`. Triggers keep it in sync on INSERT/UPDATE/DELETE. Search is `Ctrl+F` debounced 200 ms, ranks by recency × relevance.
+`task_fts` virtual table indexes `title` + `note`. Triggers keep it in sync on INSERT/UPDATE/DELETE. Search is `Ctrl+F` debounced 200 ms.
 
-### 4.5 Migrations
+**Bm25 + recency ranking (v0.5.2).** When the search expression contains bare-text terms (`Expr::Text` nodes) and the user hasn't pinned a `sort:` modifier, results rank by FTS5's `bm25` blended with a 30-day half-life recency factor:
+
+```text
+score = (|bm25| / (1 + |bm25|)) + 0.25 · 2^(-Δd / 30)
+```
+
+The relevance term is the saturating mapping `|bm25| / (1 + |bm25|)` — keeps relevance on a stable [0, 1) scale regardless of FTS5's per-DB magnitudes. The recency factor is a quarter-weight tiebreaker so freshly-touched matches edge out lukewarm older ones without dominating the ranking. Both `atrium_search::collect_text_terms` and `blend_relevance` are pure helpers; `atrium-core::db::read::bm25_for_terms` is the DB-side query; `atrium/ui/filter::rank_by_bm25_recency` and `atrium-cli::run_search` are the consumers.
+
+### 4.5 SQL-translation evaluator
+
+The Calibre-style search expression engine has two execution paths:
+
+- **In-memory path.** `atrium_search::evaluate(&Expr, &Task, &EvalContext)` walks the AST against an already-loaded `Vec<Task>`. Handles every operator the grammar exposes — including the SQL-incompatible ones (regex, fuzzy, sequential-project state).
+- **SQL path (v0.5.3).** `atrium_search::try_translate(&Expr, today) -> Option<SqlClause>` walks the same AST and emits a SQL `WHERE` fragment + parameter list when *every* node maps cleanly. Returns `None` for any subtree the translator can't safely express; the call site falls back to the in-memory path.
+
+The "all-or-nothing" rule keeps semantics in lockstep — there's no shape where SQL and in-memory paths could disagree silently. An in-tree parity-test battery (`atrium-cli/src/tests.rs::sql_parity`, 21 cases) seeds a mixed fixture and asserts both paths return the same id set across every operator class the translator covers, plus negative tests confirming `try_translate` correctly rejects regex / fuzzy / `is:today`.
+
+Coverage as of v0.5.3: boolean composition (AND / OR / NOT / Pass), bare text → `LOWER(title|note) LIKE ?`, state predicates (`open`, `done`, `overdue`, `scheduled`, `deadline`, `deferred`, `repeating`, `inproject`, `tagged`), field-scoped substring/exact on `title:` / `note:` / `tag:`, `repeats:true|false`, date comparisons + ranges on `due` / `scheduled` / `defer` / `created` / `modified` / `completed`, numeric comparison on `estimated:`. Falls back: regex, fuzzy, `Available` / `Queued`, the composite `is:today / is:inbox / is:upcoming / is:anytime / is:someday`, `Field::Project|Area`. The fall-back set is doable in future patches; the "all-or-nothing" guarantee is the current backstop.
+
+### 4.6 Perspective renderers (Slice D)
+
+`perspective.renderer` (TEXT, default `'list'`) and `perspective.renderer_config` (TEXT, JSON, NULL by default) shipped at v0.5.0 (Slice A). v0.5.4 → v0.6.6 wired up the second renderer, `'board'` (kanban):
+
+```json
+// renderer = "board"
+{ "axis": "tag", "columns": ["todo", "doing", "done"] }
+```
+
+**Locked rules (`atrium-core::render`, v0.5.4):**
+
+- **Leftmost-match-wins.** A task with multiple column-matching tags shows up only in the leftmost matching column. Kanban is a state view — a task is in *one* state at a time.
+- **"Other" trailing column.** Tasks that don't match any configured column always appear in a final `"Other"` bucket. Keeps the kanban honest about coverage; users tighten the perspective filter if they want a tighter view.
+- **Case-insensitive tag matching** mirrors the rest of the search engine.
+- **Drag-drop tag rewrite (`move_to_column`).** Dragging a task to a different column removes the leftmost configured-column tag from the task's tag set and adds the destination column's tag. Non-column tags pass through unchanged.
+
+The schema field is plain TEXT — future renderers (`'agenda'`, `'matrix'`, etc.) can land without a column-type migration. The Phase 10 Mode-as-View commitment (§3.1) holds: switching renderers never touches stored task data; it only changes how the existing rows are shown.
+
+`atrium-cli kanban NAME` and `atrium-cli perspective <create|edit|delete>` provide the matching shell surface. `BoardConfig::{to_json,from_json}` round-trips the config without forcing the GUI binary to take a direct serde_json dependency.
+
+### 4.7 Migrations
 
 Schema versioned via SQLite `user_version` PRAGMA. Migrations live in `src/db/migrations/<NNNN>_*.sql`.
 
@@ -349,12 +388,17 @@ Adds, all wired end-to-end as of v0.2.0:
 
 - **Forecast** — calendar-axis layout of next 30 days, drag-to-reschedule (Phase 12).
 - **Review** — projects with stale `last_reviewed_at` surface here, oldest first; per-card *Mark Reviewed* button stamps the timestamp (Phase 13).
-- **Perspectives** — saved filter expressions stored as `perspective` rows, surfaced in the sidebar's Builder section. *Save Search as Perspective…* in the primary menu captures the current search bar query (Phase 14, v0.1.17).
+- **Perspectives** — saved filter expressions stored as `perspective` rows, surfaced in the sidebar above Areas. *Save Search as Perspective…* in the primary menu captures the current search bar query (Phase 14, v0.1.17). v0.6.7 reorganisation moved the Perspectives section out from under a "Builder" header to its current spot between the top-tier group and Areas. v0.6.2 added a *Configure renderer…* dialog on the Perspective row's right-click menu — switches a perspective between the default `'list'` renderer and the `'board'` (kanban) renderer (§4.6).
+- **Kanban board renderer (Slice D1, v0.5.4 → v0.6.6).** When a saved Perspective has `renderer = 'board'`, it shows as a horizontal column layout instead of a flat list — one column per configured tag, plus a trailing "Other" bucket for non-matching tasks. Drag-drop between columns rewrites the task's tag set (`atrium_core::move_to_column`). Per-column scroll for tall lists; horizontal scroll across the board when wider than viewport. Click any row → opens in Inspector. Interactive completion checkbox.
 - **Inspector pane** — right-side `AdwOverlaySplitView` companion, autosaves every field on focus-out / Enter (Phase 10).
 - **Defer dates + sequential projects** — `defer_until` excludes from Today/Anytime; sequential rendering dims rows past the first incomplete one (Phase 11).
 - **Repeat rules** — full RFC 5545 RRULE with three Org-style completion modes (Cumulative default, Next-from-completion, Basic). Editor in the Inspector pane; worker regenerates the next instance on completion. Schema-side, `repeat_mode` was added via `0003_repeat_mode.sql` — the first migration to alter an existing table, allowed because v0.2.0 ends the v0.1 freeze (Phase 15).
 
-The widget tree is the same; Inspector and Forecast are added as sibling content pages, the sidebar gains a Perspectives section, and the task editor's collapsed/expanded fieldset grows. **No DB work happens on mode switch.** Verified by `tests/mode_flip_snapshot.rs`.
+**Mode-agnostic additions (Slice D2 + v0.6.7 reorganisation):**
+
+- **Agenda (v0.6.4).** Org-mode-style "everything you should think about right now" canonical page. Five chronological sections — Overdue / Today / Tomorrow / This Week / Next Week — that classify open tasks by their most-imminent date. Tasks without a time anchor or scheduled past Next Week don't appear. Surfaces in *both* Simple and Builder modes (it's a pure read view with no Builder-only concepts). Sidebar entry sits in the top tier alongside Inbox / Today / etc. with a warning-red accent on its alarm-clock icon.
+
+The widget tree is the same; Inspector and Forecast / Agenda / Review are added as sibling content pages, the sidebar gains a Perspectives section + the kanban board page where applicable, and the task editor's collapsed/expanded fieldset grows. **No DB work happens on mode switch.** Verified by `tests/mode_flip_snapshot.rs`.
 
 ### 5.3 Mode Switch
 

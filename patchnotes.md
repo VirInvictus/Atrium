@@ -1,5 +1,31 @@
 # Atrium — Patch Notes
 
+## v0.6.8 (2026-05-08) — v0.6.x cleanup pass: docs catch-up + small code hygiene
+
+End-of-session maintenance pass. Eleven v0.6.x releases shipped
+since the v0.5.0 line (atrium-cli runtime fix → broken-pipe fix →
+FTS5 bm25 → SQL-translation evaluator → Slice D foundation →
+kanban GUI → kanban polish → renderer-config dialog → drag-drop →
+Agenda canonical page → atrium-cli perspective write side →
+kanban CPU mitigation → sidebar top-tier reorg). The contract
+docs (`spec.md`, `roadmap.md`, `README.md`) lagged behind the
+patches; this release brings them back into alignment per the
+"Spec discipline" rule in `CLAUDE.md`.
+
+What's in the patch:
+
+- **`spec.md`** — version header bumped from 0.5.0 to 0.6.7 with a one-line summary of what 0.6.x delivered. Three new sections added without renumbering the existing tail: §4.4 (FTS5) gains a "Bm25 + recency ranking" subsection documenting the saturating-relevance + half-life math; §4.5 (SQL-translation evaluator) describes the all-or-nothing translation rule, the parity-test backstop, and the current coverage / fall-back set; §4.6 (Perspective renderers) documents the `'list'` / `'board'` axis and the Slice D locked rules (leftmost-match-wins, "Other" trailing column, case-insensitive matching, `move_to_column` drag-rewrite). The original §4.5 (Migrations) renumbers to §4.7. §5.2 (Builder Mode) gains a description of the kanban board renderer; new "Mode-agnostic additions" subsection covers Agenda + the v0.6.7 sidebar reorganisation.
+- **`roadmap.md`** — Phase 15.75 rewritten to reflect what actually shipped. All seven previously-deferred items are now `[x]`-checked with their landing versions (Slice C v0.5.0 → v0.6.0, Slice D v0.5.4 → v0.6.5, FTS5 bm25 v0.5.2, SQL pushdown v0.5.3, sidebar reorg v0.6.7, CLI bulk operations v0.4.6, regression-script integration v0.5.x). Each line traces the actual code paths so the roadmap reads as a "what shipped where" map rather than a planning document.
+- **`README.md`** — landing paragraph extended with a v0.6.x summary covering Slice D, FTS5 bm25, the SQL-translation evaluator, and the sidebar reorg. The detailed feature surface in the lower sections still describes v0.5.0 capabilities accurately, so a full README rewrite isn't due until the next major.
+- **Code hygiene.** `print_perspective_after_write` had a dead `&Connection` parameter (introduced when refactoring perspective output); dropped it and the now-unused parameter through `run_perspective_create`. Two stale "Phase X will" promise comments updated — the SQL-translation comment in `window.rs::refresh_active_list` no longer claims "Stage 3 will add" (Stage 3 shipped at v0.5.3), and `task_list::ActiveList::task_matches`'s old "Phase 5c will revisit" promise is now an accurate description of the current behaviour.
+- **Workspace clippy clean.** `cargo clippy --workspace --all-targets -- -D warnings` reports zero warnings.
+- **Regression-script ship gate green at v0.6.8.**
+
+What's *not* in this patch (deliberately deferred — these are larger surgeries that warrant their own changes):
+
+- `atrium/src/ui/window.rs` is at ~5000 lines. A `ui::sidebar` extraction is the obvious next refactor target; the composite-template wiring couples a lot to it though, so it's a careful surgery not a quick cleanup.
+- The list-renderer Perspective path in `refresh_active_list` doesn't yet use the SQL fast-path (only the board path does, as of v0.6.6). Adding it is the same shape but the sort-spec / bm25 plumbing needs to align.
+
 ## v0.6.7 (2026-05-08) — sidebar reorganisation: Agenda / Forecast / Review join the top tier
 
 The "Builder" sidebar header is gone. Agenda / Forecast / Review

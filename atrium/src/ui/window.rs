@@ -1558,10 +1558,14 @@ impl AtriumWindow {
             // every refresh.
             self.surface_filter_warnings(&parsed);
             // v0.4.0 — load the full task set and let the search
-            // evaluator filter in Rust. Stage 3 will add SQL
-            // translation for the subset of expressions SQLite can
-            // express; until then the in-memory path covers
-            // everything (regex, complex tag predicates, etc.).
+            // evaluator filter in Rust. The SQL fast-path
+            // (`atrium_search::try_translate`, shipped v0.5.3 and
+            // wired into `refresh_board_page` at v0.6.6) is a
+            // future optimisation here too: when the saved filter
+            // translates cleanly we could load only the matching
+            // rows. The list-renderer perspective path also has to
+            // run sort-spec / bm25 ranking, so the integration is
+            // a bit more involved than the board path was.
             let tasks = pool.with(atrium_core::db::read::list_all_tasks);
             match tasks {
                 Ok(tasks) => {
