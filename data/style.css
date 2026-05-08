@@ -142,6 +142,14 @@ window.atrium-high-legibility .atrium-task-deadline {
   transition: opacity 180ms ease-out, background-color 120ms ease-out,
               box-shadow 120ms ease-out;
   border-radius: 6px;
+  /* v0.5.0 (Slice B2) — every row reserves 3 px on the left for a
+   * per-area accent stripe. Default colour is transparent so rows
+   * without an area-coloured project still align with the row chrome
+   * — the .atrium-area-accent-{color} classes (added by the row
+   * factory based on the task's resolved area colour) just override
+   * border-left-color, no layout shift between accented and non-
+   * accented rows. */
+  border-left: 3px solid transparent;
 }
 .atrium-task-row:hover {
   background-color: alpha(@accent_bg_color, 0.10);
@@ -340,11 +348,27 @@ window.atrium-quickentry-window {
 /* Tag dot in the sidebar tag-row — replaces the default tag icon
  * for tags that have a colour set. Same swatch classes apply to the
  * fill; the base class gives it a circular shape and a soft
- * fallback for unknown hex values. */
+ * fallback for unknown hex values. v0.5.0 (Slice B2) extends the
+ * pattern to area sidebar rows when they carry a colour — same
+ * dot, same class. */
 .atrium-tag-dot {
   border-radius: 50%;
   background: alpha(@accent_color, 0.5);
 }
+
+/* v0.5.0 (Slice B2) — per-area accent stripe on task rows. Each
+ * task row whose project is filed under a coloured area picks up
+ * one of the six area-accent classes; the class swaps the row's
+ * left-border colour from transparent to the area's hex (at 0.7
+ * alpha so it doesn't shout through dark mode). The hex values
+ * mirror the swatch palette in TAG_COLORS so the picker's
+ * selection lands on the row identically. */
+.atrium-task-row.atrium-area-accent-blue   { border-left-color: alpha(#3584e4, 0.7); }
+.atrium-task-row.atrium-area-accent-green  { border-left-color: alpha(#33d17a, 0.7); }
+.atrium-task-row.atrium-area-accent-yellow { border-left-color: alpha(#e5a50a, 0.7); }
+.atrium-task-row.atrium-area-accent-orange { border-left-color: alpha(#ff7800, 0.7); }
+.atrium-task-row.atrium-area-accent-red    { border-left-color: alpha(#e01b24, 0.7); }
+.atrium-task-row.atrium-area-accent-purple { border-left-color: alpha(#9141ac, 0.7); }
 
 /* v0.3.0 — sidebar section headers ("Areas", "Tags", "Builder",
  * "Perspectives"). Adds a subtle top border to mark the section

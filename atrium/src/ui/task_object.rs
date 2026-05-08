@@ -56,6 +56,14 @@ mod imp {
         /// project views.
         #[property(get, set)]
         pub queued: Cell<bool>,
+        /// v0.5.0 (Slice B2) — hex colour of the area the task's
+        /// project belongs to (e.g., `"#3584e4"`), or empty when
+        /// the task is unfiled, the project has no area, or the
+        /// area has no colour. The row factory reads this to apply
+        /// the matching `.atrium-area-accent-{color}` CSS class for
+        /// the 3 px left-border stripe.
+        #[property(get, set)]
+        pub area_color: RefCell<String>,
     }
 
     #[glib::object_subclass]

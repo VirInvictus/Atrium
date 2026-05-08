@@ -117,6 +117,7 @@ fn connect_startup(app: &adw::Application) {
         let installed = ui::typography::install_bundled_fonts();
         info!(font_files_present = installed, "typography ready");
         ui::typography::apply_bundled_stylesheet();
+        ui::typography::register_icon_search_paths();
     });
 }
 

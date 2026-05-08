@@ -124,6 +124,11 @@ mod imp {
         /// content-pane title for `Project(id)` / `Area(id)`.
         pub project_titles: RefCell<HashMap<i64, String>>,
         pub area_titles: RefCell<HashMap<i64, String>>,
+        /// v0.5.0 (Slice B2) — per-area colour cache (hex strings or
+        /// None). The Edit Area dialog reads it for picker pre-select;
+        /// the row factory consults it (resolved through `project_meta`'s
+        /// `area_id`) to paint the 3 px area-accent stripe on each row.
+        pub area_colors: RefCell<HashMap<i64, Option<String>>>,
 
         /// Open-task count caches (Phase 5c). Refreshed alongside the
         /// sidebar from `read::count_open_*`; the sidebar consumes
@@ -695,13 +700,16 @@ impl AtriumWindow {
         // Cache titles for content-pane resolution.
         let mut project_titles: HashMap<i64, String> = HashMap::new();
         let mut area_titles: HashMap<i64, String> = HashMap::new();
+        let mut area_colors: HashMap<i64, Option<String>> = HashMap::new();
         for a in &areas {
             area_titles.insert(a.id, a.title.clone());
+            area_colors.insert(a.id, a.color.clone());
         }
         for p in &projects {
             project_titles.insert(p.id, p.title.clone());
         }
         self.imp().area_titles.replace(area_titles);
+        self.imp().area_colors.replace(area_colors);
         self.imp().project_titles.replace(project_titles);
 
         // Group projects by area_id for nesting.
@@ -1335,6 +1343,32 @@ impl AtriumWindow {
             .collect()
     }
 
+    /// v0.5.0 (Slice B2) — area-accent resolver. Returns a closure
+    /// that takes a `Task` and yields the hex string of the area
+    /// the task's project belongs to (or empty if unfiled / no
+    /// area / no colour). The row factory mirrors the resulting
+    /// hex to one of the `.atrium-area-accent-{color}` CSS classes
+    /// for the row's left-border stripe.
+    fn build_area_color_resolver(&self) -> impl Fn(&Task) -> String + use<> {
+        let project_areas: HashMap<i64, Option<i64>> = self
+            .imp()
+            .project_meta
+            .borrow()
+            .iter()
+            .map(|(id, p)| (*id, p.area_id))
+            .collect();
+        let area_colors: HashMap<i64, Option<String>> = self.imp().area_colors.borrow().clone();
+        move |task: &Task| -> String {
+            let Some(pid) = task.project_id else {
+                return String::new();
+            };
+            let Some(Some(aid)) = project_areas.get(&pid).copied() else {
+                return String::new();
+            };
+            area_colors.get(&aid).cloned().flatten().unwrap_or_default()
+        }
+    }
+
     fn build_context_resolver(&self, active: &ActiveList) -> impl Fn(&Task) -> String + use<> {
         let project_titles = self.imp().project_titles.borrow().clone();
         let area_titles = self.imp().area_titles.borrow().clone();
@@ -1471,7 +1505,15 @@ impl AtriumWindow {
                         &self.imp().area_titles.borrow(),
                     );
                     let context_for = self.build_context_resolver(&active);
-                    replace_store_with_tags_seq(&store, &tasks, &tag_pills, false, context_for);
+                    let area_color_for = self.build_area_color_resolver();
+                    replace_store_with_tags_seq(
+                        &store,
+                        &tasks,
+                        &tag_pills,
+                        false,
+                        context_for,
+                        area_color_for,
+                    );
                     sort_by_position(&store);
                 }
                 Err(e) => {
@@ -1550,7 +1592,15 @@ impl AtriumWindow {
                     _ => false,
                 };
                 let context_for = self.build_context_resolver(&active);
-                replace_store_with_tags_seq(&store, &tasks, &tag_pills, sequential, context_for);
+                let area_color_for = self.build_area_color_resolver();
+                replace_store_with_tags_seq(
+                    &store,
+                    &tasks,
+                    &tag_pills,
+                    sequential,
+                    context_for,
+                    area_color_for,
+                );
                 sort_by_position(&store);
             }
             Err(e) => {
@@ -1651,6 +1701,7 @@ impl AtriumWindow {
             _ => false,
         };
         let context_for = self.build_context_resolver(&active);
+        let area_color_for = self.build_area_color_resolver();
         crate::ui::task_list::apply_changes_seq(
             &store,
             changes,
@@ -1659,6 +1710,7 @@ impl AtriumWindow {
             &tag_pills,
             sequential,
             context_for,
+            area_color_for,
         );
         self.update_empty_state(&store);
         // Phase 5c: any task delta might have moved a count.
@@ -2807,22 +2859,20 @@ impl AtriumWindow {
     }
 
     /// Prompt for an area name and create it. Used by the
-    /// `app.new-area` action.
+    /// `app.new-area` action. v0.5.0 (Slice B2) — the prompt grows
+    /// the same six-swatch colour picker tags use, so an area can
+    /// carry an optional accent that paints a 3 px stripe down the
+    /// left of every task row filed under it.
     pub fn prompt_create_area(&self) {
         let win = self.clone();
         glib::MainContext::default().spawn_local(async move {
-            let Some(title) = prompt_for_text(&win, "New Area", "Area name", "", "Create").await
+            let Some((title, color)) =
+                prompt_for_named_color(&win, "New Area", "Area name", "", None, "Create").await
             else {
                 return;
             };
             let Some(worker) = win.worker() else { return };
-            if let Err(e) = worker
-                .create_area(NewArea {
-                    title,
-                    ..Default::default()
-                })
-                .await
-            {
+            if let Err(e) = worker.create_area(NewArea { title, color }).await {
                 error!(?e, "create_area failed");
             }
         });
@@ -2872,21 +2922,32 @@ impl AtriumWindow {
         let win = self.clone();
         match active {
             ActiveList::Area(id) => {
-                let current = self
+                let current_name = self
                     .imp()
                     .area_titles
                     .borrow()
                     .get(&id)
                     .cloned()
                     .unwrap_or_default();
+                let current_color = self.imp().area_colors.borrow().get(&id).cloned().flatten();
                 glib::MainContext::default().spawn_local(async move {
-                    let Some(title) =
-                        prompt_for_text(&win, "Rename Area", "Area name", &current, "Rename").await
+                    let Some((title, color)) = prompt_for_named_color(
+                        &win,
+                        "Edit Area",
+                        "Area name",
+                        &current_name,
+                        current_color.as_deref(),
+                        "Save",
+                    )
+                    .await
                     else {
                         return;
                     };
                     let Some(worker) = win.worker() else { return };
-                    if let Err(e) = worker.update_area(AreaUpdate::new(id).title(title)).await {
+                    if let Err(e) = worker
+                        .update_area(AreaUpdate::new(id).title(title).color(color))
+                        .await
+                    {
                         error!(?e, id, "update_area failed");
                     }
                 });
@@ -2925,9 +2986,10 @@ impl AtriumWindow {
                     .unwrap_or_default();
                 let current_color = self.imp().tag_colors.borrow().get(&id).cloned().flatten();
                 glib::MainContext::default().spawn_local(async move {
-                    let Some((name, color)) = prompt_for_tag(
+                    let Some((name, color)) = prompt_for_named_color(
                         &win,
                         "Edit Tag",
+                        "Tag name",
                         &current_name,
                         current_color.as_deref(),
                         "Save",
@@ -3105,7 +3167,8 @@ impl AtriumWindow {
     pub fn prompt_create_tag(&self) {
         let win = self.clone();
         glib::MainContext::default().spawn_local(async move {
-            let Some((name, color)) = prompt_for_tag(&win, "New Tag", "", None, "Create").await
+            let Some((name, color)) =
+                prompt_for_named_color(&win, "New Tag", "Tag name", "", None, "Create").await
             else {
                 return;
             };
@@ -3291,20 +3354,24 @@ const TAG_COLORS: &[(&str, Option<&str>)] = &[
     ("Purple", Some("#9141ac")),
 ];
 
-/// Promp for a tag name + colour. Returns `Some((name, color))` on
+/// Prompt for a name + colour. Returns `Some((name, color))` on
 /// confirmation; `None` on cancel or empty name. The `color_initial`
 /// is matched against the palette; unrecognised colours fall back to
 /// "None" in the picker (the underlying value is preserved through
 /// the rename if the user doesn't change the picker selection).
-async fn prompt_for_tag(
+///
+/// v0.5.0 (Slice B2) generalised over `placeholder` so the same
+/// six-swatch picker drives both tag and area new/rename flows.
+async fn prompt_for_named_color(
     parent: &impl IsA<gtk::Widget>,
     heading: &str,
+    placeholder: &str,
     name_initial: &str,
     color_initial: Option<&str>,
     confirm_label: &str,
 ) -> Option<(String, Option<String>)> {
     let entry = gtk::Entry::builder()
-        .placeholder_text("Tag name")
+        .placeholder_text(placeholder)
         .text(name_initial)
         .activates_default(true)
         .build();
@@ -3455,6 +3522,28 @@ fn build_area_row(area: &Area) -> (gtk::ListBoxRow, gtk::Label) {
         .and_downcast::<gtk::Label>()
     {
         label.add_css_class("heading");
+    }
+    // v0.5.0 (Slice B2) — when the area has a colour, swap the
+    // leading folder icon for a coloured dot. Same pattern as
+    // `build_tag_row`'s tag-colour dot. Areas without a colour keep
+    // the folder symbol so the sidebar still reads at a glance.
+    if let Some(hex) = area.color.as_deref()
+        && let Some(row_box) = row.child().and_downcast::<gtk::Box>()
+        && let Some(icon) = row_box.first_child().and_downcast::<gtk::Image>()
+    {
+        let dot = gtk::Box::builder()
+            .width_request(12)
+            .height_request(12)
+            .valign(gtk::Align::Center)
+            .halign(gtk::Align::Center)
+            .tooltip_text(hex)
+            .build();
+        dot.add_css_class("atrium-tag-dot");
+        if let Some(class) = swatch_class_for_hex(hex) {
+            dot.add_css_class(class);
+        }
+        row_box.insert_child_after(&dot, Some(&icon));
+        row_box.remove(&icon);
     }
     (row, badge)
 }

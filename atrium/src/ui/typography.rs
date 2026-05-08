@@ -191,6 +191,63 @@ fn stylesheet_path() -> Option<PathBuf> {
     None
 }
 
+/// Register an icon-theme search path so the AdwAboutDialog (and any
+/// other surface looking up `io.github.virinvictus.atrium` by name)
+/// finds the bundled SVG. In installed builds (`meson install`) the
+/// icon already lands in `$datadir/icons/hicolor/scalable/apps/` —
+/// the system icon theme's default search path covers it. In `cargo
+/// run` development the icon never gets registered with the theme,
+/// so the About dialog falls back to a generic glyph. This function
+/// patches both paths: it walks the same env / compile-time fallbacks
+/// the stylesheet loader uses, plus a `CARGO_MANIFEST_DIR`-relative
+/// dev-mode fallback.
+pub fn register_icon_search_paths() {
+    let Some(display) = gdk::Display::default() else {
+        warn!("no GDK display available; icon paths not registered");
+        return;
+    };
+    let theme = gtk::IconTheme::for_display(&display);
+    let mut added = 0;
+    for candidate in candidate_icon_dirs() {
+        if candidate.exists() {
+            theme.add_search_path(&candidate);
+            debug!(path = %candidate.display(), "icon search path registered");
+            added += 1;
+        }
+    }
+    if added == 0 {
+        warn!("no icon search path resolved; About dialog may fall back to a generic glyph");
+    } else {
+        info!(added, "icon search paths registered");
+    }
+}
+
+fn candidate_icon_dirs() -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    // 1. Runtime env override.
+    if let Ok(d) = std::env::var("ATRIUM_DATADIR")
+        && let Some(parent) = Path::new(&d).parent()
+    {
+        out.push(parent.join("icons"));
+    }
+    // 2. Compile-time install path. Meson sets ATRIUM_DATADIR to
+    //    `$datadir/atrium`; we want `$datadir/icons`, hence parent.
+    if let Some(d) = compile_time_datadir()
+        && let Some(parent) = d.parent()
+    {
+        out.push(parent.to_path_buf().join("icons"));
+    }
+    // 3. Cargo-run dev fallback. CARGO_MANIFEST_DIR for the binary
+    //    crate is `<project_root>/atrium`; we want `<project_root>/
+    //    data/icons`.
+    if let Some(d) = option_env!("CARGO_MANIFEST_DIR")
+        && let Some(parent) = Path::new(d).parent()
+    {
+        out.push(parent.join("data").join("icons"));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

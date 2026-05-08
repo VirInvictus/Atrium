@@ -25,6 +25,49 @@ use crate::ui::task_object::AtriumTask;
 /// `apply_changes` to populate row pills. `HashMap<task_id, tag_names>`.
 pub type TagMap = HashMap<i64, Vec<String>>;
 
+/// v0.5.0 (Slice B2) — list of every CSS class the area-accent
+/// renderer might apply to a task row. Used by `apply_area_accent`
+/// to clear stale classes before applying a new one (recycled rows
+/// can carry the previous task's accent).
+const AREA_ACCENT_CLASSES: &[&str] = &[
+    "atrium-area-accent-blue",
+    "atrium-area-accent-green",
+    "atrium-area-accent-yellow",
+    "atrium-area-accent-orange",
+    "atrium-area-accent-red",
+    "atrium-area-accent-purple",
+];
+
+/// Map a stored area-colour hex back to one of the named area-accent
+/// classes declared in `style.css`. Returns `None` for hex values
+/// outside the palette — callers fall through to "no accent" rather
+/// than rendering an arbitrary stripe colour.
+fn area_accent_class_for_hex(hex: &str) -> Option<&'static str> {
+    match hex {
+        "#3584e4" => Some("atrium-area-accent-blue"),
+        "#33d17a" => Some("atrium-area-accent-green"),
+        "#e5a50a" => Some("atrium-area-accent-yellow"),
+        "#ff7800" => Some("atrium-area-accent-orange"),
+        "#e01b24" => Some("atrium-area-accent-red"),
+        "#9141ac" => Some("atrium-area-accent-purple"),
+        _ => None,
+    }
+}
+
+/// Replace the row's current area-accent class with the one matching
+/// `hex` (or none if `hex` is empty / unrecognised). Always clears
+/// every accent class first to handle row recycling cleanly.
+fn apply_area_accent(row: &gtk::Box, hex: &str) {
+    for class in AREA_ACCENT_CLASSES {
+        row.remove_css_class(class);
+    }
+    if !hex.is_empty()
+        && let Some(class) = area_accent_class_for_hex(hex)
+    {
+        row.add_css_class(class);
+    }
+}
+
 /// v0.3.0 — pill-shape tag map: per-task list of `(name, optional
 /// hex colour)`. The renderer uses this; `TagMap` (name-only) stays
 /// for the filter evaluator's substring-matching path.
@@ -408,6 +451,19 @@ where
             }
         });
 
+        // v0.5.0 (Slice B2) — area-accent stripe. The window-side
+        // resolver writes `area_color` (hex string, empty for none)
+        // before the row binds; we mirror it to the matching
+        // `.atrium-area-accent-{color}` CSS class. The notify hook
+        // keeps the class in step when a task moves between projects
+        // (and thus possibly a different area colour) via the diff
+        // applier.
+        apply_area_accent(&row, &task.area_color());
+        let row_for_accent = row.clone();
+        let area_color_handler = task.connect_area_color_notify(move |t| {
+            apply_area_accent(&row_for_accent, &t.area_color());
+        });
+
         // Wire the user-input handlers. `connect_*_notify` fires on
         // *any* property change including programmatic ones, so we
         // gate by comparing against the model — only fire the worker
@@ -491,6 +547,7 @@ where
             row.set_data("atrium-queued-handler", queued_handler);
             row.set_data("atrium-tags-handler", tags_handler);
             row.set_data("atrium-context-handler", context_handler);
+            row.set_data("atrium-area-color-handler", area_color_handler);
             row.set_data("atrium-task-obj", task.clone());
             row.set_data("atrium-check", check.clone());
             row.set_data("atrium-title-stack", title_stack.clone());
@@ -685,8 +742,14 @@ where
                 task.disconnect(handler);
             }
             if let (Some(task), Some(handler)) = (
-                task_obj,
+                task_obj.clone(),
                 row.steal_data::<glib::SignalHandlerId>("atrium-context-handler"),
+            ) {
+                task.disconnect(handler);
+            }
+            if let (Some(task), Some(handler)) = (
+                task_obj,
+                row.steal_data::<glib::SignalHandlerId>("atrium-area-color-handler"),
             ) {
                 task.disconnect(handler);
             }
@@ -758,14 +821,16 @@ where
 /// The caller is the only thing that knows whether the active list
 /// is a sequential project view, so this is a parameter rather
 /// than a global.
-pub fn replace_store_with_tags_seq<F>(
+pub fn replace_store_with_tags_seq<F, G>(
     store: &gio::ListStore,
     tasks: &[Task],
     tag_pills: &TagPillMap,
     sequential: bool,
     context_for: F,
+    area_color_for: G,
 ) where
     F: Fn(&Task) -> String,
+    G: Fn(&Task) -> String,
 {
     store.remove_all();
     let queued = compute_queued_state(tasks, sequential);
@@ -776,6 +841,7 @@ pub fn replace_store_with_tags_seq<F>(
             let pills = tag_pills.get(&t.id).cloned().unwrap_or_default();
             let obj = AtriumTask::from_task_with_tags(t, &pills);
             obj.set_context_label(context_for(t));
+            obj.set_area_color(area_color_for(t));
             obj.set_queued(*q);
             obj.upcast()
         })
@@ -821,7 +887,13 @@ pub fn compute_queued_state(tasks: &[Task], sequential: bool) -> Vec<bool> {
 /// promotes the next row to "available" — the recompute makes the
 /// dim/undim transition land in the same frame as the bound
 /// `completed` flip.
-pub fn apply_changes_seq<F>(
+// v0.5.0 (Slice B2) — eight parameters is past clippy's default
+// threshold but each one is genuinely independent state the diff
+// applier consults per-update; bundling them into a context struct
+// trades a clippy warning for an indirection that doesn't make the
+// call site clearer.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_changes_seq<F, G>(
     store: &gio::ListStore,
     changes: &TaskChanges,
     active: ActiveList,
@@ -829,8 +901,10 @@ pub fn apply_changes_seq<F>(
     tag_pills: &TagPillMap,
     sequential: bool,
     context_for: F,
+    area_color_for: G,
 ) where
     F: Fn(&Task) -> String,
+    G: Fn(&Task) -> String,
 {
     // Created — append rows that belong here.
     for task in &changes.created {
@@ -838,6 +912,7 @@ pub fn apply_changes_seq<F>(
             let pills = tag_pills.get(&task.id).cloned().unwrap_or_default();
             let obj = AtriumTask::from_task_with_tags(task, &pills);
             obj.set_context_label(context_for(task));
+            obj.set_area_color(area_color_for(task));
             store.append(&obj);
         }
     }
@@ -857,6 +932,10 @@ pub fn apply_changes_seq<F>(
                     // task may have moved to a different project,
                     // which slides it under a different area.
                     obj.set_context_label(context_for(task));
+                    // Sync the area-accent stripe — same reasoning as
+                    // the context chip; a project move can change
+                    // which area the row paints.
+                    obj.set_area_color(area_color_for(task));
                 }
             }
             (Some(i), false) => {
@@ -866,6 +945,7 @@ pub fn apply_changes_seq<F>(
                 let pills = tag_pills.get(&task.id).cloned().unwrap_or_default();
                 let obj = AtriumTask::from_task_with_tags(task, &pills);
                 obj.set_context_label(context_for(task));
+                obj.set_area_color(area_color_for(task));
                 store.append(&obj);
             }
             (None, false) => {}
