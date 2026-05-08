@@ -219,6 +219,27 @@ pub fn generate(conn: &mut Connection, scale: FixtureScale) -> Result<FixtureSum
         }
     }
 
+    // Slice D fixture — one board-renderer perspective so the
+    // kanban subcommand has something to render against `--fixture
+    // small`. Uses three tag-prefix columns that overlap the tag
+    // pool (tag-0, urgent-3, home-4) so each column gets at least
+    // a handful of matches.
+    let board_uuid = Uuid::new_v4().to_string();
+    tx.execute(
+        "INSERT INTO perspective \
+         (uuid, name, icon, filter_expr, renderer, renderer_config, position) \
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        params![
+            board_uuid,
+            "Fixture Board",
+            "view-grid-symbolic",
+            "is:open",
+            "board",
+            r#"{"axis":"tag","columns":["tag-0","urgent-3","home-4"]}"#,
+            10.0_f64,
+        ],
+    )?;
+
     tx.commit()?;
 
     let summary = FixtureSummary {

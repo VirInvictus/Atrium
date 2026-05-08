@@ -190,7 +190,33 @@ if [[ "$REMAINING_JSON" != "[]" ]]; then
   fail "atrium-cli delete --where --force left rows behind: $REMAINING_JSON"
 fi
 
-echo "  atrium-cli: 17 read commands + write round-trip + bulk dry-run + bulk force all OK"
+# Slice D — kanban subcommand renders the seeded board perspective.
+# `--fixture small` seeds a "Fixture Board" perspective with three
+# tag columns so this exercise has something to render against.
+"${CLI[@]}" kanban Fixture Board >/dev/null \
+  || fail "atrium-cli kanban Fixture Board (tsv) failed"
+"${CLI[@]}" --human kanban Fixture Board >/dev/null \
+  || fail "atrium-cli kanban Fixture Board (human) failed"
+KANBAN_JSON="$("${CLI[@]}" --json kanban Fixture Board)"
+case "$KANBAN_JSON" in
+  *'"perspective":"Fixture Board"'*) : ;;
+  *) fail "atrium-cli --json kanban did not include perspective field" ;;
+esac
+# Trying to render a list-renderer perspective as a kanban must
+# error (exit non-zero) with a clear message.
+set +e
+ERR="$("${CLI[@]}" kanban Weekly Review 2>&1)"
+RC=$?
+set -e
+if [[ "$RC" -eq 0 ]]; then
+  fail "atrium-cli kanban on a list-renderer perspective should fail"
+fi
+case "$ERR" in
+  *"is a list, not a board"*) : ;;
+  *) fail "atrium-cli kanban error message changed: $ERR" ;;
+esac
+
+echo "  atrium-cli: 17 read commands + write round-trip + bulk dry-run + bulk force + kanban all OK"
 
 # 6. Cold-start sanity (×3). Median should comfortably beat the
 #    spec §8 250 ms budget for the GUI cold start. The CLI --version

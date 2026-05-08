@@ -90,6 +90,21 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.5.4" date="2026-05-08">
+      <description>
+        <p>Slice D1 foundation — saved Perspectives can render
+           as kanban boards. v0.5.4 ships the headless engine:
+           a renderer parser, a tag-axis grouping helper, and
+           a complete <code>atrium-cli kanban NAME</code>
+           subcommand that exercises the renderer end-to-end
+           from the shell. The GUI consumer lands in v0.6.0.
+           Three locked rules keep the kanban tight:
+           leftmost-match-wins per task, an unconditional
+           "Other" trailing column for tasks that don't match
+           any configured column, and case-insensitive tag
+           matching to mirror the rest of the search engine.</p>
+      </description>
+    </release>
     <release version="0.5.3" date="2026-05-08">
       <description>
         <p>SQL-translation evaluator for the Calibre-style search

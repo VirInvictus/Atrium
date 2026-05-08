@@ -76,6 +76,10 @@ WRITE SUBCOMMANDS:
                       delete; without it, prints the would-be-
                       deleted rows and exits with status 2 so a
                       script can review-then-confirm.
+    kanban NAME       render a saved Perspective as a kanban board
+                      (Slice D, v0.5.4). NAME is matched case-
+                      insensitively against perspective.name; the
+                      perspective's renderer must be 'board'.
 
 EXAMPLES:
     atrium-cli list today
@@ -150,6 +154,13 @@ pub enum Subcommand {
     Delete {
         target: TargetSpec,
         force: bool,
+    },
+    /// `kanban NAME` — render a saved Perspective as a kanban board
+    /// (Slice D1, v0.5.4). NAME is matched case-insensitively against
+    /// `perspective.name`. The perspective's `renderer` must be
+    /// `"board"`; otherwise the subcommand errors.
+    Kanban {
+        name: String,
     },
 }
 
@@ -347,6 +358,17 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
         "delete" | "rm" => {
             let (target, force) = parse_target_and_flags(&raw[i..], true, &mut args)?;
             Subcommand::Delete { target, force }
+        }
+        "kanban" | "board" => {
+            // Same shape as `capture` — collect the rest of argv as
+            // the perspective name (so multi-word names don't need
+            // quoting) and honour any trailing format flags.
+            let (name, trailing) = collect_expression_and_flags(&raw[i..]);
+            apply_trailing_flags(&trailing, &mut args)?;
+            if name.trim().is_empty() {
+                return Err("kanban requires a perspective name".into());
+            }
+            Subcommand::Kanban { name }
         }
         other => return Err(format!("unknown subcommand: {other}")),
     });

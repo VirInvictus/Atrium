@@ -12,6 +12,7 @@ pub mod domain;
 pub mod error;
 pub mod paths;
 pub mod quick_entry;
+pub mod render;
 pub mod repeat;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -25,4 +26,7 @@ pub use domain::{
 };
 pub use error::{CoreError, DbError, DomainError};
 pub use paths::{APP_ID, cache_dir, data_dir, db_path};
+pub use render::{
+    BoardAxis, BoardConfig, Column, OTHER_COLUMN_LABEL, Renderer, RendererError, group_into_board,
+};
 pub use repeat::{RepeatMode, RepeatRule};

@@ -129,6 +129,9 @@ fn run(args: args::Args) -> ExitCode {
         Subcommand::Delete { target, force } => with_writer(&db_path, |rt, handle, conn| {
             run_delete(rt, handle, conn, target, force, args.format)
         }),
+        Subcommand::Kanban { name } => {
+            with_readonly(&db_path, |conn| run_kanban(conn, &name, args.format))
+        }
     }
 }
 
@@ -330,6 +333,131 @@ fn blended_score(task: &Task, scores: &HashMap<i64, f64>, today: NaiveDate, half
     let bm25 = scores.get(&task.id).copied().unwrap_or(0.0);
     let days = (today - task.modified_at.date_naive()).num_days();
     atrium_search::blend_relevance(bm25, days, half_life)
+}
+
+/// Slice D1 (v0.5.4) — render a saved Perspective whose
+/// `renderer = "board"` as a kanban. Resolves the perspective by
+/// case-insensitive name match, parses `renderer_config`, runs the
+/// stored filter expression to load matching tasks, and prints
+/// each grouped column. Errors with a clear message when the named
+/// perspective is missing or its renderer is `"list"`.
+fn run_kanban(conn: &Connection, name: &str, format: Format) -> CliResult<()> {
+    let perspectives = read::list_perspectives(conn).map_err(CliError::from)?;
+    let needle = name.trim().to_ascii_lowercase();
+    let perspective = perspectives
+        .iter()
+        .find(|p| p.name.to_ascii_lowercase() == needle)
+        .or_else(|| {
+            perspectives
+                .iter()
+                .find(|p| p.name.to_ascii_lowercase().contains(&needle))
+        })
+        .ok_or_else(|| CliError::Args(format!("no perspective matches: {name}")))?;
+    let renderer = atrium_core::Renderer::from_columns(
+        &perspective.renderer,
+        perspective.renderer_config.as_deref(),
+    )
+    .map_err(|e| CliError::Args(format!("perspective `{}`: {e}", perspective.name)))?;
+    let cfg = match renderer {
+        atrium_core::Renderer::Board(cfg) => cfg,
+        atrium_core::Renderer::List => {
+            return Err(CliError::Args(format!(
+                "perspective `{}` is a list, not a board (set renderer=\"board\")",
+                perspective.name
+            )));
+        }
+    };
+    // Run the stored filter expression to get the candidate task
+    // set. Same code path as the search subcommand — uses the SQL
+    // fast-path when translatable, falls back to in-memory eval.
+    let parsed = atrium_search::parse(&perspective.filter_expr)
+        .map_err(|e| CliError::Search(format!("{e:?}")))?;
+    if !parsed.warnings.is_empty() {
+        for w in &parsed.warnings {
+            eprintln!("warning: unrecognised token: {w}");
+        }
+    }
+    let today = Local::now().date_naive();
+    let ctx_data = ContextData::load(conn)?;
+    let ctx = ctx_data.eval_context(today);
+    let mut tasks = filtered_tasks(conn, &parsed.expr, today, &ctx)?;
+    if !parsed.sorts.is_empty() {
+        sort_tasks(&mut tasks, &parsed.sorts, &ctx_data);
+    }
+    let tag_names = read::tag_names_per_task(conn).unwrap_or_default();
+    let columns = atrium_core::group_into_board(&tasks, &cfg, &tag_names);
+    print_board(&perspective.name, &columns, &ctx_data, format);
+    Ok(())
+}
+
+/// Render a kanban board to stdout. JSON emits one object per
+/// column with a nested rows array; TSV labels each column with
+/// `# label` and prints rows underneath; human output column-headers
+/// each block + indents the rows for skim-readability.
+fn print_board(
+    perspective_name: &str,
+    columns: &[atrium_core::Column<'_>],
+    ctx: &ContextData,
+    format: Format,
+) {
+    match format {
+        Format::Json => {
+            let payload: Vec<serde_json::Value> = columns
+                .iter()
+                .map(|c| {
+                    let rows: Vec<Row> = c.tasks.iter().map(|t| build_row(t, ctx)).collect();
+                    serde_json::json!({
+                        "label": c.label,
+                        "tasks": rows,
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string(&serde_json::json!({
+                    "perspective": perspective_name,
+                    "columns": payload,
+                }))
+                .unwrap_or_else(|_| "{}".into())
+            );
+        }
+        Format::Tsv => {
+            for col in columns {
+                println!(
+                    "# {}\t({} task{})",
+                    col.label,
+                    col.tasks.len(),
+                    if col.tasks.len() == 1 { "" } else { "s" }
+                );
+                let rows: Vec<Row> = col.tasks.iter().map(|t| build_row(t, ctx)).collect();
+                if !rows.is_empty() {
+                    print!("{}", output::format_rows(&rows));
+                }
+                println!();
+            }
+        }
+        Format::Human => {
+            println!("Board: {perspective_name}");
+            println!();
+            for col in columns {
+                println!(
+                    "── {} ── ({} task{})",
+                    col.label,
+                    col.tasks.len(),
+                    if col.tasks.len() == 1 { "" } else { "s" }
+                );
+                if col.tasks.is_empty() {
+                    println!("    (empty)");
+                } else {
+                    let rows: Vec<Row> = col.tasks.iter().map(|t| build_row(t, ctx)).collect();
+                    for row in &rows {
+                        println!("    {}  {}", row.status, row.title);
+                    }
+                }
+                println!();
+            }
+        }
+    }
 }
 
 fn run_list(conn: &Connection, name: &str, format: Format) -> CliResult<()> {

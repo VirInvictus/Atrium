@@ -1,5 +1,38 @@
 # Atrium — Patch Notes
 
+## v0.5.4 (2026-05-08) — Slice D1 foundation (kanban renderer + atrium-cli)
+
+The first slice of Slice D — saved Perspectives can now render as
+kanban boards. v0.5.4 ships the *headless* foundation: parser,
+grouping engine, and a complete CLI consumer; v0.6.0 will land the
+GUI rendering on top of these pieces.
+
+The kanban contract is small and opinionated:
+
+- **Schema reused.** `perspective.renderer = "board"` plus
+  `perspective.renderer_config = '{"axis":"tag","columns":["…"]}'`.
+  These columns shipped at v0.5.0 (Slice A); this is what they're
+  *for*.
+- **Leftmost match wins.** A task with multiple matching tags
+  appears in only the leftmost matching column. Kanban is a state
+  view — a task is in *one* state at a time.
+- **"Other" trailing column.** Tasks that don't match any
+  configured column always appear in a final `"Other"` bucket so
+  the kanban stays honest about coverage. Users who want a
+  tighter view tighten the perspective filter (e.g.,
+  `is:open AND tag:true`).
+- **Case-insensitive tag matching.** Mirrors the rest of the
+  search-engine tag rules.
+
+What landed:
+
+- **`atrium-core::render` module.** New file. `Renderer::from_columns(renderer, config_json)` parses the `(renderer, renderer_config)` pair into a typed `Renderer` enum. `group_into_board(tasks, &cfg, &tag_names_per_task)` walks a task list and emits one `Column<'_>` per configured column plus the trailing `Other`. 17 unit tests cover parsing rejection (unknown axis, blank columns, missing config, unknown kind), grouping rules (untagged → Other, leftmost-wins, case-insensitive, input-order preservation, empty input).
+- **`atrium-cli kanban NAME`.** New subcommand. Resolves a perspective by case-insensitive name (exact first, substring fallback), parses its renderer_config, runs the perspective's filter expression through the v0.5.3 SQL fast-path / in-memory eval, groups by tag, and prints columns. TSV / JSON / `--human` formats. Errors clearly when the perspective is missing or its renderer is `"list"` instead of `"board"`.
+- **Fixture board perspective.** `--fixture small` seeds a `"Fixture Board"` perspective with three tag columns (`tag-0`, `urgent-3`, `home-4`) so the kanban subcommand has something to render in test contexts and the CLI smoke step can exercise it without seeding a perspective by hand.
+- **Regression-script kanban smoke.** `scripts/regression.sh` step 5.5 now exercises `atrium-cli kanban Fixture Board` in TSV / JSON / human formats plus the negative case (`atrium-cli kanban Weekly Review` must error with `"is a list, not a board"` since the seeded Weekly Review is a list-renderer perspective).
+
+The GUI rendering of board perspectives — switching from a flat list to a horizontal column layout, drag-drop between columns rewriting the underlying tag — lands in v0.6.0. The agenda/overview view (Slice D2) follows.
+
 ## v0.5.3 (2026-05-08) — SQL-translation evaluator (atrium-cli)
 
 The fourth v0.6.x carryover. The Calibre-style search expression
