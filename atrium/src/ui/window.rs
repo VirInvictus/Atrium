@@ -81,6 +81,11 @@ mod imp {
         pub forecast_host: TemplateChild<adw::Bin>,
         #[template_child]
         pub review_host: TemplateChild<adw::Bin>,
+        /// v0.6.0 (Slice C2) — Logbook page host. Window mounts the
+        /// day-band layout from `logbook::build_page` here whenever
+        /// `ActiveList::Logbook` is selected.
+        #[template_child]
+        pub logbook_host: TemplateChild<adw::Bin>,
         #[template_child]
         pub new_task_button: TemplateChild<gtk::Button>,
         #[template_child]
@@ -1467,6 +1472,18 @@ impl AtriumWindow {
             return;
         }
 
+        // v0.6.0 (Slice C2) — Logbook gets its own page with day-band
+        // grouping (Today / Yesterday / Last 7 Days / Older). The
+        // regular list page used to render Logbook flat; the new
+        // grouping is harder to express through a single GtkListView,
+        // so we split it out the same way Forecast / Review do.
+        if matches!(active, ActiveList::Logbook) {
+            store.remove_all();
+            self.refresh_logbook_page();
+            self.imp().content_stack.set_visible_child_name("logbook");
+            return;
+        }
+
         // Phase 14 — saved perspective. Resolve the filter
         // expression from the meta cache, run it through the same
         // parse + apply pipeline as the search bar, and render the
@@ -1691,6 +1708,16 @@ impl AtriumWindow {
         // cheaper to recompute than to diff in place.
         if matches!(active, ActiveList::Forecast) {
             self.refresh_forecast_page();
+            self.refresh_counts();
+            self.refresh_canonical_badges();
+            self.refresh_dynamic_badges();
+            return;
+        }
+        // v0.6.0 (Slice C2) — Logbook day-band view. Same shape as
+        // Forecast: rebuild on any delta so a freshly-completed task
+        // lands in the Today band immediately.
+        if matches!(active, ActiveList::Logbook) {
+            self.refresh_logbook_page();
             self.refresh_counts();
             self.refresh_canonical_badges();
             self.refresh_dynamic_badges();
@@ -2335,6 +2362,46 @@ impl AtriumWindow {
         let area_titles = self.imp().area_titles.borrow().clone();
         let widget = crate::ui::review::build_page(today, &queue, &area_titles, self.worker());
         self.imp().review_host.set_child(Some(&widget));
+    }
+
+    /// v0.6.0 (Slice C2) — rebuild the Logbook page with day-band
+    /// grouping (Today / Yesterday / Last 7 Days / Older) and mount
+    /// it into the `logbook_host` AdwBin. Replaces the flat list
+    /// rendering Logbook used to share with Inbox / Today / etc.
+    /// Called when the active list becomes Logbook, and from
+    /// `apply_task_changes` if the active list is Logbook (so a
+    /// completion toggle on another list drops a freshly-finished
+    /// task into the Today band immediately).
+    fn refresh_logbook_page(&self) {
+        let Some(pool) = self.read_pool() else {
+            self.imp().logbook_host.set_child(None::<&gtk::Widget>);
+            return;
+        };
+        let today = Local::now().date_naive();
+        let tasks = pool
+            .with(atrium_core::db::read::list_logbook)
+            .unwrap_or_default();
+        let tag_pills: crate::ui::task_list::TagPillMap = pool
+            .with(atrium_core::db::read::tag_info_per_task)
+            .unwrap_or_default();
+        let project_titles = self.imp().project_titles.borrow().clone();
+        let area_titles = self.imp().area_titles.borrow().clone();
+        let project_areas: HashMap<i64, Option<i64>> = self
+            .imp()
+            .project_meta
+            .borrow()
+            .iter()
+            .map(|(id, p)| (*id, p.area_id))
+            .collect();
+        let widget = crate::ui::logbook::build_page(
+            today,
+            &tasks,
+            &project_titles,
+            &project_areas,
+            &area_titles,
+            &tag_pills,
+        );
+        self.imp().logbook_host.set_child(Some(&widget));
     }
 
     /// Phase 10 — refresh the side pane based on the current

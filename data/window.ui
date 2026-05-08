@@ -255,6 +255,22 @@
                             </child>
 
                             <child>
+                              <!-- v0.6.0 (Slice C2) — Logbook day-band view.
+                                   Same pattern as forecast/review: window
+                                   builds the page via logbook::build_page and
+                                   mounts it here when ActiveList::Logbook
+                                   activates. Replaces the flat list rendering
+                                   that the regular `list` page used to do for
+                                   Logbook. -->
+                              <object class="GtkStackPage">
+                                <property name="name">logbook</property>
+                                <property name="child">
+                                  <object class="AdwBin" id="logbook_host"/>
+                                </property>
+                              </object>
+                            </child>
+
+                            <child>
                               <object class="GtkStackPage">
                                 <property name="name">list</property>
                                 <property name="child">
