@@ -90,6 +90,25 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.5" date="2026-05-08">
+      <description>
+        <p>atrium-cli perspective write side — closes the gap
+           that the only way to create or convert a saved
+           perspective from the shell was via direct SQL.
+           Three new sub-subcommands: <code>perspective create
+           NAME --filter EXPR …</code>, <code>perspective edit
+           NAME …</code> (with --rename / --filter / --icon /
+           --renderer / --columns), and <code>perspective
+           delete NAME</code>. Name lookup is case-insensitive
+           exact on write paths so a typo can't accidentally
+           edit the wrong row. <code>--renderer board</code>
+           requires <code>--columns</code> on create; on edit,
+           <code>--columns</code> alone updates an existing
+           board's column list in place. The regression
+           ship-gate now exercises the full create → board
+           conversion → list conversion → delete round-trip.</p>
+      </description>
+    </release>
     <release version="0.6.4" date="2026-05-08">
       <description>
         <p>Slice D2 — the Agenda canonical page. Org-mode-style

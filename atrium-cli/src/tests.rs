@@ -6,7 +6,10 @@
 //! database, which is more painful than scripting `atrium-cli` for
 //! the same coverage.
 
-use crate::args::{AddArgs, EditArgs, EditProject, Format, Subcommand, TargetSpec, parse};
+use crate::args::{
+    AddArgs, EditArgs, EditIcon, EditProject, Format, PerspectiveArgs, PerspectiveSub, Subcommand,
+    TargetSpec, parse,
+};
 use crate::output::{Row, format_row, format_rows, format_rows_human, row_to_json, rows_to_json};
 
 fn s(args: &[&str]) -> Vec<String> {
@@ -621,6 +624,183 @@ fn add_args_default_is_empty() {
 fn parse_unknown_global_flag_errors() {
     let err = parse(&s(&["--frobulate"])).unwrap_err();
     assert!(err.contains("unknown flag"));
+}
+
+// ── Perspective write subcommand ───────────────────────────────
+
+#[test]
+fn parse_perspective_create_minimum() {
+    let a = parse(&s(&[
+        "perspective",
+        "create",
+        "Q3 Plans",
+        "--filter",
+        "tag:work",
+    ]))
+    .unwrap();
+    let Some(Subcommand::Perspective(PerspectiveSub::Create { name, args })) = a.subcommand else {
+        panic!("expected Perspective::Create");
+    };
+    assert_eq!(name, "Q3 Plans");
+    assert_eq!(args.filter, Some("tag:work".into()));
+    assert!(args.renderer.is_none());
+    assert!(args.columns.is_none());
+}
+
+#[test]
+fn parse_perspective_create_requires_filter() {
+    let err = parse(&s(&["perspective", "create", "Q3 Plans"])).unwrap_err();
+    assert!(err.contains("--filter"));
+}
+
+#[test]
+fn parse_perspective_create_with_board_renderer_and_columns() {
+    let a = parse(&s(&[
+        "perspective",
+        "create",
+        "Q3",
+        "--filter",
+        "tag:work",
+        "--renderer",
+        "board",
+        "--columns",
+        "todo,doing,done",
+    ]))
+    .unwrap();
+    let Some(Subcommand::Perspective(PerspectiveSub::Create { name: _, args })) = a.subcommand
+    else {
+        panic!("expected Perspective::Create");
+    };
+    assert_eq!(args.renderer.as_deref(), Some("board"));
+    assert_eq!(args.columns.as_deref(), Some("todo,doing,done"));
+}
+
+#[test]
+fn parse_perspective_create_rejects_rename() {
+    // Rename only makes sense on edit — guard so the user notices.
+    let err = parse(&s(&[
+        "perspective",
+        "create",
+        "Q3",
+        "--filter",
+        "x",
+        "--rename",
+        "Q4",
+    ]))
+    .unwrap_err();
+    assert!(err.contains("--rename"));
+}
+
+#[test]
+fn parse_perspective_create_invalid_renderer() {
+    let err = parse(&s(&[
+        "perspective",
+        "create",
+        "Q3",
+        "--filter",
+        "x",
+        "--renderer",
+        "matrix",
+    ]))
+    .unwrap_err();
+    assert!(err.contains("list"));
+    assert!(err.contains("board"));
+}
+
+#[test]
+fn parse_perspective_edit_collects_all_flags() {
+    let a = parse(&s(&[
+        "perspective",
+        "edit",
+        "Q3 Plans",
+        "--rename",
+        "Q4 Plans",
+        "--filter",
+        "tag:newfilter",
+        "--icon",
+        "starred-symbolic",
+        "--renderer",
+        "board",
+        "--columns",
+        "a,b,c",
+    ]))
+    .unwrap();
+    let Some(Subcommand::Perspective(PerspectiveSub::Edit { name, args })) = a.subcommand else {
+        panic!("expected Perspective::Edit");
+    };
+    assert_eq!(name, "Q3 Plans");
+    assert_eq!(args.rename.as_deref(), Some("Q4 Plans"));
+    assert_eq!(args.filter.as_deref(), Some("tag:newfilter"));
+    assert_eq!(args.icon, Some(EditIcon::Set("starred-symbolic".into())));
+    assert_eq!(args.renderer.as_deref(), Some("board"));
+    assert_eq!(args.columns.as_deref(), Some("a,b,c"));
+}
+
+#[test]
+fn parse_perspective_edit_icon_none_clears() {
+    let a = parse(&s(&["perspective", "edit", "Q3", "--icon", "none"])).unwrap();
+    let Some(Subcommand::Perspective(PerspectiveSub::Edit { args, .. })) = a.subcommand else {
+        panic!("expected Perspective::Edit");
+    };
+    assert_eq!(args.icon, Some(EditIcon::Clear));
+}
+
+#[test]
+fn parse_perspective_edit_no_flags_is_a_noop() {
+    let a = parse(&s(&["perspective", "edit", "Q3 Plans"])).unwrap();
+    let Some(Subcommand::Perspective(PerspectiveSub::Edit { name, args })) = a.subcommand else {
+        panic!("expected Perspective::Edit");
+    };
+    assert_eq!(name, "Q3 Plans");
+    assert_eq!(args, PerspectiveArgs::default());
+}
+
+#[test]
+fn parse_perspective_delete_takes_only_a_name() {
+    let a = parse(&s(&["perspective", "delete", "Q3 Plans"])).unwrap();
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Perspective(PerspectiveSub::Delete {
+            name: "Q3 Plans".into()
+        }))
+    );
+}
+
+#[test]
+fn parse_perspective_delete_rejects_body_flags() {
+    let err = parse(&s(&["perspective", "delete", "Q3", "--filter", "tag:x"])).unwrap_err();
+    assert!(err.to_lowercase().contains("delete"));
+}
+
+#[test]
+fn parse_perspective_unknown_sub_errors() {
+    let err = parse(&s(&["perspective", "frobulate", "Q3"])).unwrap_err();
+    assert!(err.contains("frobulate"));
+}
+
+#[test]
+fn parse_perspective_no_sub_errors() {
+    let err = parse(&s(&["perspective"])).unwrap_err();
+    assert!(err.to_lowercase().contains("sub-subcommand"));
+}
+
+#[test]
+fn parse_perspective_joins_multi_word_name() {
+    // Shell already split — `perspective create Q3 Plans --filter ...`
+    // — we rejoin Q3 + Plans into the name.
+    let a = parse(&s(&[
+        "perspective",
+        "create",
+        "Q3",
+        "Plans",
+        "--filter",
+        "tag:x",
+    ]))
+    .unwrap();
+    let Some(Subcommand::Perspective(PerspectiveSub::Create { name, .. })) = a.subcommand else {
+        panic!("expected Perspective::Create");
+    };
+    assert_eq!(name, "Q3 Plans");
 }
 
 // ── Output formatting ──────────────────────────────────────────

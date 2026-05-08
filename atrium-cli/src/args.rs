@@ -80,6 +80,16 @@ WRITE SUBCOMMANDS:
                       (Slice D, v0.5.4). NAME is matched case-
                       insensitively against perspective.name; the
                       perspective's renderer must be 'board'.
+    perspective <SUB> NAME [FLAGS]
+                      saved-perspective write side. SUB is one of:
+                        create     --filter EXPR [--icon NAME]
+                                   [--renderer list|board] [--columns 'a,b,c']
+                        edit       [--rename NEW] [--filter EXPR]
+                                   [--icon NAME|none]
+                                   [--renderer list|board] [--columns 'a,b,c']
+                        delete     (case-insensitive exact-name match
+                                   for safety; substring is read-only).
+                      The columns flag is comma-separated tag names.
 
 EXAMPLES:
     atrium-cli list today
@@ -101,6 +111,10 @@ EXAMPLES:
     atrium-cli delete --where 'is:done AND completed:<lastmonth'   # dry run
     atrium-cli delete --where 'is:done AND completed:<lastmonth' --force
     atrium-cli list tags --json | jq '.[] | .name'
+    atrium-cli perspective create 'Q3 plans' --filter 'project:\"Q3 plans\"' --icon view-grid-symbolic
+    atrium-cli perspective edit 'Q3 plans' --renderer board --columns 'todo,doing,done'
+    atrium-cli perspective edit 'Q3 plans' --renderer list   # back to flat
+    atrium-cli perspective delete 'Q3 plans'
 ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -162,6 +176,50 @@ pub enum Subcommand {
     Kanban {
         name: String,
     },
+    /// `perspective SUBCOMMAND ...` — write side for saved
+    /// perspectives. Read-side is `list perspectives`. Sub-subcommands:
+    /// `create` / `edit` / `delete`. v0.6.5.
+    Perspective(PerspectiveSub),
+}
+
+/// Sub-subcommand of `perspective`. Each variant carries its own
+/// argument shape; parsing happens in `parse_perspective`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PerspectiveSub {
+    Create { name: String, args: PerspectiveArgs },
+    Edit { name: String, args: PerspectiveArgs },
+    Delete { name: String },
+}
+
+/// Flags shared by `perspective create` and `perspective edit`. Each
+/// `Option<...>` is `None` when the user didn't pass the flag.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PerspectiveArgs {
+    /// `create`: required (the perspective's filter expression).
+    /// `edit`:   optional new filter; `None` keeps the existing one.
+    pub filter: Option<String>,
+    /// `create`/`edit`: rename (only meaningful on `edit`).
+    pub rename: Option<String>,
+    /// `create`/`edit`: icon name. The literal `none` clears it
+    /// (back to the default icon).
+    pub icon: Option<EditIcon>,
+    /// `create`/`edit`: `Some("list")` or `Some("board")`. Together
+    /// with `columns`, drives the renderer config.
+    pub renderer: Option<String>,
+    /// `create`/`edit`: comma-separated column list. Only meaningful
+    /// when `renderer == Some("board")` or when editing an existing
+    /// board's columns. Empty string is rejected.
+    pub columns: Option<String>,
+}
+
+/// Tri-state for the icon flag: `None` means leave alone (no flag
+/// passed), `Set(name)` sets it, `Clear` clears it (the literal
+/// argument `none`). Mirrors the `EditProject::Inbox` shape used
+/// by the task `edit` subcommand.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditIcon {
+    Set(String),
+    Clear,
 }
 
 /// "What does this command operate on?" — either an explicit task
@@ -370,6 +428,7 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
             }
             Subcommand::Kanban { name }
         }
+        "perspective" => parse_perspective(&raw[i..], &mut args)?,
         other => return Err(format!("unknown subcommand: {other}")),
     });
 
@@ -656,6 +715,151 @@ fn parse_edit(rest: &[String], args: &mut Args) -> Result<EditArgs, String> {
     // the unchanged row) so users can use `edit ID` as a "show
     // single task in the list-row format" companion to `info`.
     Ok(edit)
+}
+
+/// Parse the rest-of-argv for `perspective <create|edit|delete>
+/// NAME [...flags]`. Sub-subcommand kind is at rest[0]; the
+/// perspective name is collected from non-flag tokens up to the
+/// first flag (so multi-word names work without quoting). Flags
+/// after the name follow the same vocabulary as the matching task
+/// edit shape — `--filter EXPR`, `--icon NAME|none`,
+/// `--rename NEW`, `--renderer list|board`, `--columns "a,b,c"`.
+fn parse_perspective(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
+    let kind = rest
+        .first()
+        .ok_or("perspective requires a sub-subcommand: create / edit / delete")?
+        .as_str();
+    let body = &rest[1..];
+    match kind {
+        "create" => {
+            let (name, perspective_args) = parse_perspective_args(body, args, true)?;
+            if perspective_args.filter.is_none() {
+                return Err("perspective create requires --filter EXPR".into());
+            }
+            if perspective_args.rename.is_some() {
+                return Err("perspective create does not accept --rename".into());
+            }
+            Ok(Subcommand::Perspective(PerspectiveSub::Create {
+                name,
+                args: perspective_args,
+            }))
+        }
+        "edit" => {
+            let (name, perspective_args) = parse_perspective_args(body, args, false)?;
+            Ok(Subcommand::Perspective(PerspectiveSub::Edit {
+                name,
+                args: perspective_args,
+            }))
+        }
+        "delete" | "rm" => {
+            // `delete` doesn't take any flags beyond the name (and
+            // global format flags). We share the parser to honour
+            // `--db` and friends, but reject the body-shaped flags.
+            let (name, perspective_args) = parse_perspective_args(body, args, false)?;
+            if perspective_args.filter.is_some()
+                || perspective_args.rename.is_some()
+                || perspective_args.icon.is_some()
+                || perspective_args.renderer.is_some()
+                || perspective_args.columns.is_some()
+            {
+                return Err(
+                    "perspective delete only takes a name (and global flags); did you mean edit?"
+                        .into(),
+                );
+            }
+            Ok(Subcommand::Perspective(PerspectiveSub::Delete { name }))
+        }
+        other => Err(format!(
+            "perspective: unknown sub-subcommand: {other} (expected create / edit / delete)"
+        )),
+    }
+}
+
+/// Shared body parser for `perspective create` and `perspective
+/// edit`. Returns the perspective name (multi-word OK, joined with
+/// spaces) plus the parsed flag bundle. `expect_filter_required` is
+/// a hint to the caller — we don't enforce it here so the
+/// "did you forget --filter?" error message can stay specific.
+fn parse_perspective_args(
+    rest: &[String],
+    args: &mut Args,
+    _expect_filter_required: bool,
+) -> Result<(String, PerspectiveArgs), String> {
+    let mut name_words: Vec<&str> = Vec::new();
+    let mut p = PerspectiveArgs::default();
+    let mut i = 0;
+    while i < rest.len() {
+        let tok = rest[i].as_str();
+        match tok {
+            "--filter" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--filter requires an expression")?;
+                p.filter = Some(v.clone());
+                i += 1;
+            }
+            "--rename" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--rename requires a new name")?;
+                p.rename = Some(v.clone());
+                i += 1;
+            }
+            "--icon" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--icon requires a value")?;
+                p.icon = Some(if v.eq_ignore_ascii_case("none") {
+                    EditIcon::Clear
+                } else {
+                    EditIcon::Set(v.clone())
+                });
+                i += 1;
+            }
+            "--renderer" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--renderer requires list or board")?;
+                let lower = v.to_ascii_lowercase();
+                if lower != "list" && lower != "board" {
+                    return Err(format!("--renderer must be 'list' or 'board', got {v}"));
+                }
+                p.renderer = Some(lower);
+                i += 1;
+            }
+            "--columns" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--columns requires a value")?;
+                p.columns = Some(v.clone());
+                i += 1;
+            }
+            // Global format/db flags can appear anywhere.
+            "--json" => {
+                args.format = Format::Json;
+                i += 1;
+            }
+            "--tsv" => {
+                args.format = Format::Tsv;
+                i += 1;
+            }
+            "--human" => {
+                args.format = Format::Human;
+                i += 1;
+            }
+            "--db" => {
+                i += 1;
+                let path = rest.get(i).ok_or("--db requires a path argument")?;
+                args.db_path = Some(PathBuf::from(path));
+                i += 1;
+            }
+            other if other.starts_with("--") => return Err(format!("unknown flag: {other}")),
+            _ => {
+                name_words.push(tok);
+                i += 1;
+            }
+        }
+    }
+    let name = name_words.join(" ");
+    if name.trim().is_empty() {
+        return Err("perspective requires a name".into());
+    }
+    Ok((name, p))
 }
 
 /// Pull non-flag tokens into a space-joined expression, leaving

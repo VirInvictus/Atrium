@@ -47,7 +47,10 @@ mod output;
 #[cfg(test)]
 mod tests;
 
-use args::{AddArgs, EditArgs, EditProject, Format, Subcommand, TargetSpec};
+use args::{
+    AddArgs, EditArgs, EditIcon, EditProject, Format, PerspectiveArgs, PerspectiveSub, Subcommand,
+    TargetSpec,
+};
 use output::{Row, format_row, format_rows, format_task_detail};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -132,6 +135,9 @@ fn run(args: args::Args) -> ExitCode {
         Subcommand::Kanban { name } => {
             with_readonly(&db_path, |conn| run_kanban(conn, &name, args.format))
         }
+        Subcommand::Perspective(sub) => with_writer(&db_path, |rt, handle, conn| {
+            run_perspective(rt, handle, conn, sub, args.format)
+        }),
     }
 }
 
@@ -388,6 +394,232 @@ fn run_kanban(conn: &Connection, name: &str, format: Format) -> CliResult<()> {
     let columns = atrium_core::group_into_board(&tasks, &cfg, &tag_names);
     print_board(&perspective.name, &columns, &ctx_data, format);
     Ok(())
+}
+
+/// Slice D follow-up (v0.6.5) — `atrium-cli perspective <SUB> NAME`
+/// write side. Dispatches to create / edit / delete.
+fn run_perspective(
+    runtime: &tokio::runtime::Runtime,
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
+    sub: PerspectiveSub,
+    format: Format,
+) -> CliResult<()> {
+    match sub {
+        PerspectiveSub::Create { name, args } => {
+            run_perspective_create(runtime, handle, read_conn, &name, &args, format)
+        }
+        PerspectiveSub::Edit { name, args } => {
+            run_perspective_edit(runtime, handle, read_conn, &name, &args, format)
+        }
+        PerspectiveSub::Delete { name } => {
+            run_perspective_delete(runtime, handle, read_conn, &name, format)
+        }
+    }
+}
+
+fn run_perspective_create(
+    runtime: &tokio::runtime::Runtime,
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
+    name: &str,
+    args: &PerspectiveArgs,
+    format: Format,
+) -> CliResult<()> {
+    let filter = args
+        .filter
+        .clone()
+        .ok_or_else(|| CliError::Args("perspective create requires --filter EXPR".into()))?;
+    let icon = match &args.icon {
+        Some(EditIcon::Set(s)) => Some(s.clone()),
+        Some(EditIcon::Clear) => None,
+        None => None,
+    };
+    // Renderer + columns are validated together — a board needs
+    // columns; a list rejects them. Returns the renderer name and
+    // the JSON config (or None for list).
+    let (renderer, renderer_config) = build_renderer_config(args)?;
+    let new = atrium_core::NewPerspective {
+        name: name.to_string(),
+        icon,
+        filter_expr: filter,
+        renderer: Some(renderer),
+        renderer_config,
+    };
+    let p = runtime
+        .block_on(async { handle.create_perspective(new).await })
+        .map_err(CliError::from)?;
+    print_perspective_after_write(read_conn, &p, format);
+    Ok(())
+}
+
+fn run_perspective_edit(
+    runtime: &tokio::runtime::Runtime,
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
+    name: &str,
+    args: &PerspectiveArgs,
+    format: Format,
+) -> CliResult<()> {
+    let perspective = resolve_perspective_exact(read_conn, name)?;
+    let mut update = atrium_core::PerspectiveUpdate::new(perspective.id);
+    if let Some(new_name) = &args.rename {
+        update = update.name(new_name.clone());
+    }
+    if let Some(filter) = &args.filter {
+        update = update.filter_expr(filter.clone());
+    }
+    if let Some(icon) = &args.icon {
+        update = match icon {
+            EditIcon::Set(s) => update.icon(Some(s.clone())),
+            EditIcon::Clear => update.icon(None),
+        };
+    }
+    // Renderer / columns combo. If `--renderer` is set explicitly,
+    // honour it. If only `--columns` is set, treat it as "update
+    // existing board's columns" — error if the perspective isn't a
+    // board.
+    if args.renderer.is_some() || args.columns.is_some() {
+        let synthesised = synthesise_renderer_for_edit(&perspective, args)?;
+        update = update
+            .renderer(synthesised.0)
+            .renderer_config(synthesised.1);
+    }
+    if update.is_noop() {
+        // Nothing to do — print the existing row so the user gets
+        // a confirmation that they referred to the right one.
+        print_perspective_after_write(read_conn, &perspective, format);
+        return Ok(());
+    }
+    let p = runtime
+        .block_on(async { handle.update_perspective(update).await })
+        .map_err(CliError::from)?;
+    print_perspective_after_write(read_conn, &p, format);
+    Ok(())
+}
+
+fn run_perspective_delete(
+    runtime: &tokio::runtime::Runtime,
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
+    name: &str,
+    format: Format,
+) -> CliResult<()> {
+    let perspective = resolve_perspective_exact(read_conn, name)?;
+    runtime
+        .block_on(async { handle.delete_perspective(perspective.id).await })
+        .map_err(CliError::from)?;
+    print_perspective_after_write(read_conn, &perspective, format);
+    Ok(())
+}
+
+/// Resolve a perspective by exact (case-insensitive) name. Used by
+/// the destructive write paths so a typo doesn't accidentally edit
+/// the wrong row. The read-only `kanban` subcommand uses substring
+/// fallback; we deliberately don't here.
+fn resolve_perspective_exact(conn: &Connection, name: &str) -> CliResult<atrium_core::Perspective> {
+    let needle = name.trim().to_ascii_lowercase();
+    let perspectives = read::list_perspectives(conn).map_err(CliError::from)?;
+    perspectives
+        .into_iter()
+        .find(|p| p.name.to_ascii_lowercase() == needle)
+        .ok_or_else(|| CliError::Args(format!("no perspective named: {name}")))
+}
+
+/// Build a renderer + renderer_config pair from the create flags.
+fn build_renderer_config(args: &PerspectiveArgs) -> CliResult<(String, Option<String>)> {
+    match args.renderer.as_deref() {
+        Some("board") => {
+            let columns = parse_columns(args.columns.as_deref())?;
+            if columns.is_empty() {
+                return Err(CliError::Args(
+                    "--renderer board requires --columns 'a,b,c'".into(),
+                ));
+            }
+            let cfg = atrium_core::BoardConfig {
+                axis: atrium_core::BoardAxis::Tag,
+                columns,
+            };
+            let json = cfg
+                .to_json()
+                .map_err(|e| CliError::Args(format!("renderer config serialisation: {e}")))?;
+            Ok(("board".into(), Some(json)))
+        }
+        Some("list") | None => {
+            // No renderer specified, or list — list takes no config.
+            // Reject `--columns` without `--renderer board` so the
+            // user doesn't think they configured something.
+            if args.columns.is_some() {
+                return Err(CliError::Args(
+                    "--columns is only meaningful with --renderer board".into(),
+                ));
+            }
+            Ok(("list".into(), None))
+        }
+        Some(other) => Err(CliError::Args(format!(
+            "--renderer must be 'list' or 'board', got {other}"
+        ))),
+    }
+}
+
+/// Synthesise the renderer + renderer_config tuple for `edit`. If
+/// `--renderer` is explicit, behave like `create`. If only
+/// `--columns` is set, update the existing board's columns
+/// in-place (error if the perspective isn't a board).
+fn synthesise_renderer_for_edit(
+    perspective: &atrium_core::Perspective,
+    args: &PerspectiveArgs,
+) -> CliResult<(String, Option<String>)> {
+    if args.renderer.is_some() {
+        // Explicit renderer flag — same logic as create.
+        return build_renderer_config(args);
+    }
+    // No --renderer; --columns alone → must be editing a board.
+    if !perspective.renderer.eq_ignore_ascii_case("board") {
+        return Err(CliError::Args(format!(
+            "perspective '{}' is renderer={}; pass --renderer board to convert it",
+            perspective.name, perspective.renderer
+        )));
+    }
+    let columns = parse_columns(args.columns.as_deref())?;
+    if columns.is_empty() {
+        return Err(CliError::Args(
+            "--columns must contain at least one entry".into(),
+        ));
+    }
+    let cfg = atrium_core::BoardConfig {
+        axis: atrium_core::BoardAxis::Tag,
+        columns,
+    };
+    let json = cfg
+        .to_json()
+        .map_err(|e| CliError::Args(format!("renderer config serialisation: {e}")))?;
+    Ok(("board".into(), Some(json)))
+}
+
+/// Parse a `--columns "a,b,c"` flag into a column-name list.
+/// Empty entries (consecutive commas) are dropped; surrounding
+/// whitespace is trimmed.
+fn parse_columns(raw: Option<&str>) -> CliResult<Vec<String>> {
+    let Some(raw) = raw else {
+        return Ok(Vec::new());
+    };
+    Ok(raw
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect())
+}
+
+/// Print a single perspective row after a write. Re-uses the
+/// existing `print_perspectives` plumbing so the output schema
+/// matches `list perspectives`.
+fn print_perspective_after_write(
+    _read_conn: &Connection,
+    p: &atrium_core::Perspective,
+    format: Format,
+) {
+    output::print_perspectives(std::slice::from_ref(p), format);
 }
 
 /// Render a kanban board to stdout. JSON emits one object per

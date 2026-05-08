@@ -1,5 +1,58 @@
 # Atrium — Patch Notes
 
+## v0.6.5 (2026-05-08) — atrium-cli perspective write side
+
+Closes the gap that the only way to create or convert a saved
+perspective from the shell was via direct SQL. Three new sub-
+subcommands under `atrium-cli perspective`:
+
+```bash
+# Create a list-renderer perspective.
+atrium-cli perspective create 'Q3 plans' --filter 'project:"Q3 plans"'
+
+# Convert it to a kanban board.
+atrium-cli perspective edit 'Q3 plans' --renderer board \
+  --columns 'todo,doing,done'
+
+# Update the column list in place (renderer stays as board).
+atrium-cli perspective edit 'Q3 plans' --columns 'backlog,todo,doing,done'
+
+# Rename + re-icon + retune the filter in one shot.
+atrium-cli perspective edit 'Q3 plans' \
+  --rename 'Q3 plans (rev 2)' \
+  --icon view-grid-symbolic \
+  --filter 'project:"Q3 plans" AND is:open'
+
+# Back to a flat list.
+atrium-cli perspective edit 'Q3 plans (rev 2)' --renderer list
+
+# Tear it down.
+atrium-cli perspective delete 'Q3 plans (rev 2)'
+```
+
+Locked semantics:
+- **Name lookup is case-insensitive exact** for write paths
+  (edit / delete) — substring fallback would risk editing the
+  wrong perspective on a typo. Read-only `kanban NAME` keeps
+  its substring fallback because there's no such risk.
+- **`--renderer board` requires `--columns`** on create. On edit,
+  `--columns` alone is allowed *if the perspective is already a
+  board* — that's the in-place column-list update.
+- **`--icon none`** clears the icon (back to the default); a
+  bare value sets it.
+- **`perspective edit` with no flags is a noop** — prints the
+  existing row so the user gets a confirmation that they
+  matched the right name.
+
+What's in the patch:
+
+- **`atrium-cli/src/args.rs`.** New `Subcommand::Perspective(PerspectiveSub)`; new `PerspectiveSub` enum (Create / Edit / Delete) and `PerspectiveArgs` flag bundle; new `EditIcon` tri-state for the `--icon` flag; new `parse_perspective` body parser that supports multi-word names + the full flag vocabulary. USAGE help text extended with the new shape.
+- **`atrium-cli/src/main.rs`.** New `run_perspective` dispatcher + `run_perspective_create` / `run_perspective_edit` / `run_perspective_delete` handlers. Helper functions `build_renderer_config`, `synthesise_renderer_for_edit`, `parse_columns`, `resolve_perspective_exact` keep the renderer/columns logic in one place.
+- **13 argv-parsing tests.** Cover create-minimum, missing --filter, board+columns, --rename rejection on create, invalid renderer, edit-with-all-flags, --icon none, edit-noop, delete-name-only, delete-rejects-body-flags, unknown sub, no-sub, multi-word names.
+- **Regression-script smoke (step 5.5).** Now exercises the full create → edit (convert to board) → edit (update columns) → edit (back to list) → delete round-trip plus a `perspective edit … (no flags)` noop and a `--json list perspectives` post-condition assertion.
+
+VERSION / Cargo.toml / patchnotes / AppStream metainfo bump to 0.6.5.
+
 ## v0.6.4 (2026-05-08) — Slice D2: Agenda canonical page
 
 Org-mode-style "everything you should think about right now" view.

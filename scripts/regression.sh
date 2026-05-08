@@ -216,7 +216,36 @@ case "$ERR" in
   *) fail "atrium-cli kanban error message changed: $ERR" ;;
 esac
 
-echo "  atrium-cli: 17 read commands + write round-trip + bulk dry-run + bulk force + kanban all OK"
+# Slice D follow-up — perspective write side. Create a board
+# perspective from scratch, edit its columns + renderer, then
+# delete it. The fixture's seeded "Fixture Board" stays put.
+"${CLI[@]}" perspective create 'CLI Smoke Persp' --filter 'is:open AND tag:tag-0' \
+  >/dev/null \
+  || fail "atrium-cli perspective create failed"
+"${CLI[@]}" perspective edit 'CLI Smoke Persp' --renderer board \
+  --columns 'todo,doing,done' \
+  >/dev/null \
+  || fail "atrium-cli perspective edit (convert-to-board) failed"
+"${CLI[@]}" perspective edit 'CLI Smoke Persp' --columns 'a,b,c,d' \
+  >/dev/null \
+  || fail "atrium-cli perspective edit (columns-only) failed"
+"${CLI[@]}" perspective edit 'CLI Smoke Persp' --renderer list \
+  >/dev/null \
+  || fail "atrium-cli perspective edit (back-to-list) failed"
+"${CLI[@]}" perspective delete 'CLI Smoke Persp' \
+  >/dev/null \
+  || fail "atrium-cli perspective delete failed"
+# Confirm it's gone.
+PERSP_LIST="$("${CLI[@]}" --json list perspectives)"
+case "$PERSP_LIST" in
+  *'CLI Smoke Persp'*) fail "atrium-cli perspective delete left the row behind" ;;
+  *) : ;;
+esac
+# `perspective edit` with no flags is a no-op that prints the row.
+"${CLI[@]}" perspective edit 'Weekly Review' >/dev/null \
+  || fail "atrium-cli perspective edit (noop) failed"
+
+echo "  atrium-cli: 17 read commands + write round-trip + bulk dry-run + bulk force + kanban + perspective all OK"
 
 # 6. Cold-start sanity (×3). Median should comfortably beat the
 #    spec §8 250 ms budget for the GUI cold start. The CLI --version
