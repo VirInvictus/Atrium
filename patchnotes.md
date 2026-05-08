@@ -1,5 +1,40 @@
 # Atrium — Patch Notes
 
+## v0.6.4 (2026-05-08) — Slice D2: Agenda canonical page
+
+Org-mode-style "everything you should think about right now" view.
+A new canonical page (sidebar entry next to Forecast / Review) that
+groups open tasks into five chronological sections:
+
+- **Overdue** — open AND `deadline < today`. Surfaces past-due
+  work first so it isn't buried under future scheduling.
+  Heading is rendered in red to flag urgency at a glance.
+- **Today** — most-imminent date == today. "Most-imminent" is
+  `min(scheduled_for, deadline)`. Same rule the regular Today
+  list uses, plus deadline-today.
+- **Tomorrow** — most-imminent == today + 1.
+- **This Week** — most-imminent within the rest of the current
+  ISO Mon-start week (after Tomorrow). Empty on Sunday.
+- **Next Week** — most-imminent within next ISO Mon-start week.
+- Tasks farther out live in Forecast; tasks without a time
+  anchor (no scheduled, no deadline) don't appear; completed
+  and deferred-future tasks don't appear.
+
+Each section is an Adwaita card with a heading + count and a
+vertical task list. Rows show title + date chip + project name
++ tag pills. Click any row → opens in the Inspector. Empty
+agenda gets an `AdwStatusPage` "Nothing on the agenda" banner.
+
+What's in the patch:
+
+- **`atrium/src/ui/agenda.rs`.** New module. `AgendaSection` enum, `classify(task, today)` (returns `None` when not on agenda), `group_by_section(tasks, today)` returning `Vec<(AgendaSection, Vec<Task>)>` in canonical order, `build_page(today, tasks, …)` returning the GTK widget. **14 unit tests** covering the classification rules: completed-skip, deferred-future-skip, no-anchor-skip, someday-skip, overdue precedence, scheduled-today / deadline-today / scheduled-tomorrow, this-week / next-week boundaries, beyond-next-week-skip, most-imminent-wins-when-both-dates-set, group_by_section ordering and filtering.
+- **`ActiveList::Agenda` variant.** Added to `task_list::ActiveList`; matched everywhere ActiveList is exhaustive.
+- **Sidebar entry.** Builder-mode sidebar gains an "Agenda" row between Forecast and Review (same group, same shape).
+- **`refresh_agenda_page` + content stack page.** `data/window.ui` adds an `agenda_host` AdwBin in a new GtkStackPage `"agenda"`; `refresh_active_list` and `apply_task_changes` route `ActiveList::Agenda` through it.
+- **CSS.** `.atrium-agenda-section` + `.atrium-agenda-overdue` (heading turns red) + `.atrium-agenda-row-meta` styling so the agenda reads as a focused composite view rather than another flat list.
+
+The agenda is currently Builder-only (matches the pattern Forecast / Review / Perspectives use). A future polish pass could surface it in Simple Mode too — the underlying data is mode-agnostic.
+
 ## v0.6.3 (2026-05-08) — kanban drag-drop between columns
 
 The kanban is no longer read-only. Drag a task row to a different

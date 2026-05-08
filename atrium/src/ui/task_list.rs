@@ -107,6 +107,12 @@ pub enum ActiveList {
     /// listed here so the Builder Mode sidebar can dispatch to them.
     Forecast,
     Review,
+    /// v0.6.4 (Slice D2) — agenda canonical page. Org-mode-style
+    /// chronological view: Overdue / Today / Tomorrow / This Week /
+    /// Next Week. Available in both Simple and Builder modes
+    /// because the agenda is a pure read view (no Builder-only
+    /// concepts surface there).
+    Agenda,
     /// Phase 14 — saved perspective. The payload is the row id from
     /// the `perspective` table; the window resolves the title and
     /// filter expression from the `perspective_titles` /
@@ -132,6 +138,7 @@ impl ActiveList {
             Self::SearchResults(_) => "Search",
             Self::Forecast => "Forecast",
             Self::Review => "Review",
+            Self::Agenda => "Agenda",
             Self::Perspective(_) => "Perspective",
         }
     }
@@ -196,7 +203,7 @@ impl ActiveList {
             // matches a task into them. Perspectives drive a real
             // task list, but membership depends on the saved
             // filter expression — refresh-on-update covers it.
-            Self::Forecast | Self::Review | Self::Perspective(_) => false,
+            Self::Forecast | Self::Review | Self::Agenda | Self::Perspective(_) => false,
         }
     }
 }

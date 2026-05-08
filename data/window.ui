@@ -287,6 +287,22 @@
                             </child>
 
                             <child>
+                              <!-- v0.6.4 (Slice D2) — Agenda canonical page.
+                                   Org-mode-style chronological view rendering
+                                   Overdue / Today / Tomorrow / This Week /
+                                   Next Week sections. Window builds the
+                                   widget via agenda::build_page and mounts
+                                   it here when ActiveList::Agenda is
+                                   selected. -->
+                              <object class="GtkStackPage">
+                                <property name="name">agenda</property>
+                                <property name="child">
+                                  <object class="AdwBin" id="agenda_host"/>
+                                </property>
+                              </object>
+                            </child>
+
+                            <child>
                               <object class="GtkStackPage">
                                 <property name="name">list</property>
                                 <property name="child">

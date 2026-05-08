@@ -449,6 +449,29 @@ window.atrium-quickentry-window {
 .atrium-board-row-meta > .atrium-board-row-project {
   font-weight: 500;
 }
+
+/* v0.6.4 — Agenda canonical page. Each section is an Adwaita card;
+ * the Overdue card gets a slight red tint on the heading so the user
+ * sees urgency at a glance. Row metadata uses the same compact
+ * format the kanban does. */
+.atrium-agenda-section {
+  padding: 0;
+}
+.atrium-agenda-overdue > box > label.heading {
+  color: @error_color;
+}
+.atrium-agenda-task-row {
+  border-radius: 6px;
+  padding: 4px 6px;
+  transition: background-color 120ms ease-out;
+}
+.atrium-agenda-task-row:hover {
+  background-color: alpha(@card_shade_color, 0.08);
+}
+.atrium-agenda-row-meta {
+  font-size: 0.85em;
+  margin-top: 2px;
+}
 .atrium-board-row-meta > .atrium-board-row-project:not(:last-child)::after,
 .atrium-board-row-meta > .atrium-board-row-date:not(:last-child)::after {
   /* Note: pseudo-elements aren't actually rendered by Adwaita's

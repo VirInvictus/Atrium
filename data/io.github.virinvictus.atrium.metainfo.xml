@@ -90,6 +90,20 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.4" date="2026-05-08">
+      <description>
+        <p>Slice D2 — the Agenda canonical page. Org-mode-style
+           chronological view that groups open tasks into
+           Overdue / Today / Tomorrow / This Week / Next Week
+           sections. Tasks farther out live in Forecast; tasks
+           without a time anchor (no scheduled, no deadline)
+           don't appear. The Overdue heading is rendered in red
+           so urgency reads at a glance. Each row shows title +
+           date chip + project + tag pills, and clicking opens
+           the Inspector. Available alongside Forecast and
+           Review in the Builder-mode sidebar.</p>
+      </description>
+    </release>
     <release version="0.6.3" date="2026-05-08">
       <description>
         <p>Kanban drag-drop between columns. The kanban is no

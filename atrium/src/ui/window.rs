@@ -91,6 +91,12 @@ mod imp {
         /// whenever the active Perspective has `renderer = "board"`.
         #[template_child]
         pub board_host: TemplateChild<adw::Bin>,
+        /// v0.6.4 (Slice D2) — Agenda canonical page host. Window
+        /// mounts the chronological-section layout from
+        /// `agenda::build_page` here whenever `ActiveList::Agenda`
+        /// is selected.
+        #[template_child]
+        pub agenda_host: TemplateChild<adw::Bin>,
         #[template_child]
         pub new_task_button: TemplateChild<gtk::Button>,
         #[template_child]
@@ -323,6 +329,7 @@ fn icon_for(list: &ActiveList) -> &'static str {
         ActiveList::SearchResults(_) => "system-search-symbolic",
         ActiveList::Forecast => "x-office-calendar-symbolic",
         ActiveList::Review => "object-select-symbolic",
+        ActiveList::Agenda => "alarm-symbolic",
         ActiveList::Perspective(_) => "view-grid-symbolic",
     }
 }
@@ -839,6 +846,7 @@ impl AtriumWindow {
                     "Forecast",
                     "x-office-calendar-symbolic",
                 ),
+                (ActiveList::Agenda, "Agenda", "alarm-symbolic"),
                 (ActiveList::Review, "Review", "object-select-symbolic"),
             ] {
                 let (row, _badge) = sidebar_row(icon, label, 8);
@@ -1340,7 +1348,8 @@ impl AtriumWindow {
             | ActiveList::Someday
             | ActiveList::Logbook
             | ActiveList::Forecast
-            | ActiveList::Review => active.canonical_title().to_string(),
+            | ActiveList::Review
+            | ActiveList::Agenda => active.canonical_title().to_string(),
         }
     }
 
@@ -1490,6 +1499,15 @@ impl AtriumWindow {
             store.remove_all();
             self.refresh_logbook_page();
             self.imp().content_stack.set_visible_child_name("logbook");
+            return;
+        }
+
+        // v0.6.4 (Slice D2) — Agenda canonical page. Org-mode-style
+        // chronological view with five sections.
+        if matches!(active, ActiveList::Agenda) {
+            store.remove_all();
+            self.refresh_agenda_page();
+            self.imp().content_stack.set_visible_child_name("agenda");
             return;
         }
 
@@ -1651,7 +1669,10 @@ impl AtriumWindow {
                     atrium_core::db::read::list_all_tasks(conn)
                 }
             }
-            ActiveList::Forecast | ActiveList::Review | ActiveList::Perspective(_) => {
+            ActiveList::Forecast
+            | ActiveList::Review
+            | ActiveList::Agenda
+            | ActiveList::Perspective(_) => {
                 // Unreachable — gated above. Keeps the match exhaustive.
                 Ok(Vec::new())
             }
@@ -1812,6 +1833,16 @@ impl AtriumWindow {
             self.refresh_dynamic_badges();
             return;
         }
+        // v0.6.4 (Slice D2) — Agenda canonical page. Composite over
+        // dates + completion + defer; rebuild on any delta so a
+        // toggled task slides between sections immediately.
+        if matches!(active, ActiveList::Agenda) {
+            self.refresh_agenda_page();
+            self.refresh_counts();
+            self.refresh_canonical_badges();
+            self.refresh_dynamic_badges();
+            return;
+        }
         // Phase 14 — perspective views run a saved filter expression
         // against the global task set. The diff applier doesn't have
         // visibility into the filter, so rerun the read query (same
@@ -1938,6 +1969,10 @@ impl AtriumWindow {
             ActiveList::Perspective(_) => (
                 format!("{} is quiet", self.title_for(active.clone())),
                 "No tasks currently match this perspective's filter expression. Adjust the filter or wait for matches to appear.".into(),
+            ),
+            ActiveList::Agenda => (
+                "Nothing on the agenda".into(),
+                "No overdue, today, or near-term scheduled tasks — the next two weeks are clear.".into(),
             ),
         }
     }
@@ -2491,6 +2526,43 @@ impl AtriumWindow {
             &tag_pills,
         );
         self.imp().logbook_host.set_child(Some(&widget));
+    }
+
+    /// v0.6.4 (Slice D2) — rebuild the Agenda canonical page. Loads
+    /// every open task, runs each through `agenda::classify` to
+    /// bucket into Overdue / Today / Tomorrow / This Week / Next
+    /// Week, and mounts the resulting widget into `agenda_host`.
+    fn refresh_agenda_page(&self) {
+        let Some(pool) = self.read_pool() else {
+            self.imp().agenda_host.set_child(None::<&gtk::Widget>);
+            return;
+        };
+        let today = Local::now().date_naive();
+        // The agenda is open-tasks-only; we'd otherwise pay the cost
+        // of pulling completed rows from the Logbook just to filter
+        // them out. `list_all_tasks` is the simplest one-shot but
+        // the same compose-of-existing-helpers we use elsewhere.
+        let tasks = pool
+            .with(atrium_core::db::read::list_all_tasks)
+            .unwrap_or_default();
+        let project_titles = self.imp().project_titles.borrow().clone();
+        let tag_pills: crate::ui::task_list::TagPillMap = pool
+            .with(atrium_core::db::read::tag_info_per_task)
+            .unwrap_or_default();
+        let weak = self.downgrade();
+        let on_click = move |task_id: i64| {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            let _ = WidgetExt::activate_action(
+                &window,
+                "win.edit-details-for",
+                Some(&task_id.to_variant()),
+            );
+        };
+        let widget =
+            crate::ui::agenda::build_page(today, &tasks, &project_titles, &tag_pills, on_click);
+        self.imp().agenda_host.set_child(Some(&widget));
     }
 
     /// v0.6.0 (Slice D1 GUI) — rebuild the kanban board page for a
