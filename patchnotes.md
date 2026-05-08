@@ -1,5 +1,107 @@
 # Atrium — Patch Notes
 
+## v0.6.21 (2026-05-08) — Documentation housekeeping pass
+
+Pure docs patch — bringing references that hadn't been touched
+in several minors back into alignment with the current state.
+No code touched. Ship-gate green.
+
+The post-v0.4.0 release arc landed a lot in a hurry: the
+search-engine extraction (`atrium-search`), the headless CLI
+(`atrium-cli`), FTS5 ranking, the SQL-translation evaluator,
+two new migrations (`area.color` + `perspective.renderer` /
+`renderer_config`), the kanban renderer, the Agenda page, the
+v0.6.x screenshot-driven cleanup arc, and the v0.6.19 / v0.6.20
+roadmap revision. Several reference docs lagged behind. This
+patch pulls them current.
+
+**`README.md`:**
+- Version badge `0.5.0` → `0.6.20`.
+- "Both modes ship at v0.5.0." paragraph rewritten to "Both
+  modes shipped early." with the current release noted.
+
+**`CLAUDE.md`:**
+- Status section: collapsed the "v0.6.0 carryover" framing
+  (carryover is all shipped) and replaced it with three
+  consolidated paragraphs walking the v0.5.0 → v0.5.4
+  search-engine arc, the v0.6.0 → v0.6.5 Slice D arc, the
+  v0.6.6 → v0.6.10 perf / sidebar / soft-accent arc, and the
+  v0.6.11 → v0.6.20 screenshot-cleanup + roadmap-revision arc.
+- Authoritative documents: `roadmap.md` description updated
+  (now four sub-phases — 12.5, 15.5, 15.75, 19.5 — not three);
+  `patchnotes.md` description updated ("v0.3.0 is the most
+  recent release" → "v0.6.20 is the most recent release").
+- Codebase map: header `v0.4.x` → `v0.6.20`. Added the missing
+  files: `atrium-search/{dates,rank,sql_translate}.rs`,
+  `atrium-core/{quick_entry,render}.rs`, migrations
+  `0004_area_color.sql` + `0005_perspective_renderer.sql`,
+  `atrium/src/ui/{agenda,board,logbook}.rs`. Updated read.rs
+  / command.rs descriptions to mention the surfaces added in
+  v0.5.x and v0.6.x. Removed the lifted `quickentry/parser.rs`
+  entry (parser moved to `atrium-core::quick_entry` at v0.4.5).
+- Test counts: `82 + 165 + 1 = 248 tests as of v0.4.0` →
+  `119 + 173 + 1 + 106 + 106 = 505 tests as of v0.6.20`.
+
+**`docs/schema.md`:**
+- Removed the "No mid-v0.1 schema changes" framing — the v0.1
+  freeze ended at v0.2.0.
+- Added a migration-history table covering 0001 → 0005,
+  including the v0.5.0 additions (`area.color`,
+  `perspective.renderer` / `renderer_config`).
+- ER diagram: added `AREA.color`, `TASK.repeat_mode`, the
+  full `PERSPECTIVE` entity (was missing entirely), and the
+  saved-search relation.
+- Per-table rationale: added `repeat_mode` to the task
+  notes, added the missing `perspective` section, and added
+  `color` to the area section.
+
+**`docs/perf-baseline.md`:**
+- Refreshed the v0.0.28 capture against current binaries.
+  Cold start: 30–40 ms / ~34 MB (was 25–33 ms / ~32 MB).
+  Fixture generation across small / medium / large scales
+  remains under 39 MB peak RSS at 50K tasks; the data layer
+  is still nowhere near the §8 budget. Numbers within noise
+  of the original capture despite four major arcs of feature
+  work intervening.
+- Note added: search-engine evolution did not regress the
+  data-layer budget.
+
+**`docs/regression.md`:**
+- Step table: added the 5.5 `atrium-cli` end-to-end smoke
+  (added at v0.5.x, grown through v0.6.x), with notes on
+  what it covers — read paths over every canonical list,
+  write paths over every CRUD subcommand, the kanban smoke
+  against the fixture-seeded "Fixture Board" perspective,
+  and the v0.6.5 perspective write-side smoke.
+- Cold-start observed numbers updated to match the refreshed
+  perf baseline.
+
+**`docs/keymap.md`:**
+- Removed the "*(view lands Phase 5)*" suffixes — all six
+  canonical lists shipped at v0.1.0.
+- Added a note about Agenda / Forecast / Review joining the
+  top-tier sidebar at v0.6.7 / v0.6.16 without dedicated
+  number accels.
+- Search-filter section rewritten — the flat AND-only
+  grammar grew into a full expression language at v0.4.0
+  / v0.5.0; pointed at `spec.md` §4.3 as the canonical
+  reference and called out the `?` operator-reference
+  popover.
+- Builder Mode chord table reframed — Builder Mode shipped
+  at v0.2.0 but the `Ctrl+Shift+F` / `Ctrl+P` / `Ctrl+D`
+  chords are still aspirational slots (these features ship
+  via the sidebar / Inspector today, not via accels).
+
+**`docs/accessibility.md`:**
+- Header note added: the Phase 8f findings cover the v0.1
+  surface area; the Builder Mode side pane, Forecast,
+  Review, Perspectives, kanban renderer, and Agenda all
+  inherit the same widget primitives but owe a full re-audit
+  at the next minor.
+
+VERSION / Cargo.toml / patchnotes / AppStream metainfo bump to
+**0.6.21**.
+
 ## v0.6.20 (2026-05-08) — Phase 19.5 calendar item: iCal feed → Evolution Data Server
 
 Brandon course-corrected the original "read-only iCal calendar

@@ -18,12 +18,12 @@ The canonical written reference for every keyboard shortcut Atrium binds. The in
 |---|---|
 | `Ctrl+1` | Inbox |
 | `Ctrl+2` | Today |
-| `Ctrl+3` | Upcoming *(view lands Phase 5)* |
-| `Ctrl+4` | Anytime *(view lands Phase 5)* |
-| `Ctrl+5` | Someday *(view lands Phase 5)* |
-| `Ctrl+6` | Logbook *(view lands Phase 5)* |
+| `Ctrl+3` | Upcoming |
+| `Ctrl+4` | Anytime |
+| `Ctrl+5` | Someday |
+| `Ctrl+6` | Logbook |
 
-The accel works regardless of whether the list itself is fully implemented — pressing it switches the active list; an unimplemented list shows a placeholder.
+All six canonical lists shipped at v0.1.0; the v0.6.x sidebar reorder (v0.6.7 / v0.6.16) joined Agenda + Forecast + Review to the top tier alongside them but those derived pages don't have their own number accels — reach them via the sidebar.
 
 ## List actions
 
@@ -42,19 +42,13 @@ These act on the focused row in the current list. From Phase 7h, the three input
 | `Ctrl+A` | Select all in the active list (Phase 7c) |
 | `Esc` | Clear multi-selection (Phase 7c) |
 
-## Search filter expressions (Phase 7d)
+## Search filter expressions
 
-Mix freeform text and filter clauses inside the search bar. AND semantics — every filter must match.
+Mix freeform text and filter clauses inside the search bar. The grammar landed at v0.4.0 (Phase 15.5) and grew through v0.5.0; the canonical reference is **`spec.md` §4.3**. Press `?` while the search entry is focused to open the in-app operator-reference popover.
 
-| Token | Meaning |
-|---|---|
-| `tag:NAME` | Task bears the named tag (case-insensitive) |
-| `is:open` | Open task (`completed_at IS NULL`) |
-| `is:done` / `is:completed` / `is:complete` | Completed task |
-| `is:overdue` / `due:overdue` | Open task with `deadline < today` |
-| `due:today` | Open task with `deadline == today` |
+Highlights — boolean operators (`AND` / `OR` / `NOT`, with `NOT > AND > OR` precedence + parens for grouping); comparison + range operators on date and numeric fields; date keywords (`today`, `tomorrow`, `thisweek`, `5daysago`, etc.); state predicates (`is:open`, `is:done`, `is:overdue`, `is:scheduled`, `is:repeating`, `is:deferred`, `is:someday`, `is:inbox`); Calibre-style match modifiers on textual fields (`tag:x` substring, `tag:=x` exact, `tag:~regex`, `tag:true` / `tag:false`); fuzzy match (`title:?term`); the `sort:` modifier.
 
-Examples: `Q3 tag:work` · `tag:errand is:open` · `due:overdue` · `email tag:family is:done`.
+Examples: `Q3 tag:work` · `tag:errand AND is:open` · `is:overdue` · `(tag:home OR tag:family) AND is:open` · `deadline:<thisweek` · `is:repeating sort:scheduled_for`.
 
 ## Library (Phase 5b)
 
@@ -67,17 +61,17 @@ These manage the area / project hierarchy in the sidebar.
 | `F2` | Rename the active project or area |
 | `Ctrl+Shift+Delete` | Delete the active project or area (with confirmation) |
 
-## Builder Mode (sketched, not yet bound)
+## Builder Mode (reserved chords, not yet bound)
 
-Phase 10+ will add these. Listed here so the slots stay reserved. Phase 10's Inspector pane reuses the existing `Ctrl+I` chord — Simple Mode already binds it to "Open Inspector dialog", and Builder Mode will toggle the side-pane variant on the same key (the data flow is identical, only the host widget differs).
+Builder Mode shipped at v0.2.0 — Inspector pane, Forecast, Review queue, Perspectives, defer dates and repeating tasks all reachable via the sidebar / Inspector. The chords below are still **aspirational slots**: shipped today via the sidebar / mode toggle, not via these accelerators. Listed here so they stay reserved for the binding pass.
 
-| Shortcut | Action | Lands in |
+| Shortcut | Action | Status |
 |---|---|---|
-| `Ctrl+Shift+F` | Open Forecast | Phase 12 |
+| `Ctrl+Shift+F` | Open Forecast | Shipped via sidebar (Phase 12) — chord pending |
 | `Ctrl+Shift+M` | Open Calendar Month View | Phase 12.5 |
-| `Ctrl+Shift+R` | Open Review queue | Phase 13 |
-| `Ctrl+P` | Perspective picker | Phase 14 |
-| `Ctrl+D` | Defer-date editor | Phase 11 |
+| `Ctrl+Shift+R` | Open Review queue | Shipped via sidebar (Phase 13) — chord pending |
+| `Ctrl+P` | Perspective picker | Shipped via sidebar Perspectives section (Phase 14) — chord pending |
+| `Ctrl+D` | Defer-date editor | Shipped via Inspector (Phase 11) — chord pending |
 
 ## Reserved (stub bindings)
 

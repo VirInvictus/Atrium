@@ -90,6 +90,32 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.21" date="2026-05-08">
+      <description>
+        <p>Documentation housekeeping pass. README version
+           badge refreshed to 0.6.20. CLAUDE.md status section
+           consolidated and codebase map updated to v0.6.20
+           (added the missing files from the search-engine
+           extraction, the kanban renderer, the Agenda page,
+           and migrations 0004 and 0005). docs/schema.md
+           dropped the obsolete "no mid-v0.1 schema changes"
+           framing, picked up a migration-history table, and
+           the ER diagram now covers area.color,
+           task.repeat_mode, and the perspective entity in
+           full. docs/perf-baseline.md refreshed against
+           current binaries — cold start and fixture
+           generation remain inside the spec budget by a wide
+           margin. docs/regression.md documents the atrium-cli
+           end-to-end + kanban + perspective-write smokes.
+           docs/keymap.md retired the "view lands Phase 5"
+           markers, rewrote the search-filter section against
+           the current expression-language grammar, and
+           reframed the Builder Mode chord table as
+           aspirational slots. Test counts updated from "248
+           as of v0.4.0" to "505 as of v0.6.20." Pure docs
+           change; no code touched. Ship-gate green.</p>
+      </description>
+    </release>
     <release version="0.6.20" date="2026-05-08">
       <description>
         <p>Phase 19.5 calendar-overlay item course-corrected

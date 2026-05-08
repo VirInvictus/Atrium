@@ -2,7 +2,17 @@
 
 This document is the **rationale** for the schema. The **contract** lives in [`spec.md`](../spec.md) §4 and the canonical SQL in [`atrium-core/src/db/migrations/0001_initial.sql`](../atrium-core/src/db/migrations/0001_initial.sql). When in doubt, the SQL wins.
 
-> **No mid-v0.1 schema changes.** Migration `0001_initial.sql` ships the full OmniFocus superset. Backwards-compatible migrations begin at v0.2. Any v0.1 task that seems to need a schema change is almost always a UI-layer fix.
+> **Schema discipline.** Migration `0001_initial.sql` shipped the full OmniFocus superset. The v0.1 line was schema-frozen — every Builder-mode column already existed. The freeze ended at v0.2.0. Migrations are now **append-only and backwards-compatible**: add columns / tables / triggers / indexes; renames + drops are major-bump-only. Current `user_version`: **5**. Migration history below.
+
+## Migration history
+
+| Migration | Phase / Version | What it does |
+|---|---|---|
+| `0001_initial.sql` | Phase 1 / v0.1.0 | OmniFocus superset — area, project, heading, task, tag, task_tag, FTS5, triggers, indexes |
+| `0002_perspectives.sql` | Phase 14 / v0.1.17 | Adds `perspective` table for saved searches (additive) |
+| `0003_repeat_mode.sql` | Phase 15 / v0.2.0 | First `ALTER TABLE` — adds `task.repeat_mode` (`NULL` / `'next'` / `'all'` / `'org-mode'`) for Org-mode-style completion semantics |
+| `0004_area_color.sql` | Phase 15.75 Slice A / v0.5.0 | Adds `area.color` (`TEXT NULL`, `'#RRGGBB'`) for per-area accent |
+| `0005_perspective_renderer.sql` | Phase 15.75 Slice A / v0.5.0 | Adds `perspective.renderer` (`'list'` / `'board'`, default `'list'`) + `perspective.renderer_config` (TEXT, JSON config — used by the kanban renderer for column definitions) |
 
 ## Entity-Relationship diagram
 
@@ -13,11 +23,13 @@ erDiagram
     PROJECT ||--o{ TASK : "schedules"
     TASK ||--o{ TASK : "subtasks (parent_id)"
     TASK }o--o{ TAG : "tagged via task_tag"
+    PERSPECTIVE ||..|| TASK : "saved search over"
 
     AREA {
         INTEGER id PK
         TEXT uuid UK
         TEXT title
+        TEXT color "#RRGGBB or NULL (0004)"
         REAL position
         TEXT created_at
         TEXT modified_at
@@ -58,6 +70,18 @@ erDiagram
         INTEGER estimated_minutes
         TEXT completed_at
         TEXT repeat_rule
+        TEXT repeat_mode "NULL/next/all/org-mode (0003)"
+        REAL position
+        TEXT created_at
+        TEXT modified_at
+    }
+    PERSPECTIVE {
+        INTEGER id PK
+        TEXT uuid UK
+        TEXT name UK
+        TEXT filter_expr
+        TEXT renderer "list or board (0005)"
+        TEXT renderer_config "JSON, NULL for list (0005)"
         REAL position
         TEXT created_at
         TEXT modified_at
@@ -79,7 +103,7 @@ erDiagram
 ## Per-table rationale
 
 ### `area`
-Top-level grouping. Areas hold projects; deleting an area unfiles its projects rather than nuking them (`ON DELETE SET NULL`). Things 3 calls these "Areas of Responsibility"; OmniFocus calls them "Folders." Same concept.
+Top-level grouping. Areas hold projects; deleting an area unfiles its projects rather than nuking them (`ON DELETE SET NULL`). Things 3 calls these "Areas of Responsibility"; OmniFocus calls them "Folders." Same concept. `color` (added in `0004`) is an optional `'#RRGGBB'` accent driving the per-area sidebar accent introduced in v0.5.0 Slice B; `NULL` means "use the GTK accent."
 
 ### `project`
 Lives in an area or unfiled (`area_id NULL`). All Builder-only GTD fields (`sequential`, `review_interval_days`, `last_reviewed_at`) exist from day one — Mode-as-View dictates schema completeness. `archived_at` carries Logbook semantics for completed projects (Things 3 archives projects on completion; OmniFocus calls them "Dropped"/"Done"). `ON DELETE CASCADE` to tasks: deleting a project deletes its tasks, matching user expectation.
@@ -97,6 +121,7 @@ The central row. Several columns deserve specific notes:
 - **`defer_until`** is Builder-only. Tasks invisible in Today / Anytime until the date passes. Implemented in Phase 11.
 - **`completed_at`** is ISO datetime; `NULL` = open task. Logbook is `WHERE completed_at IS NOT NULL`. Hard-delete model — there is no `deleted_at` column. Per Phase 1 design call.
 - **`repeat_rule`** stores the canonical RFC 5545 RRULE as text. Org-mode export renders a best-effort approximation in the SCHEDULED cookie (spec §7.3.3 rule 3).
+- **`repeat_mode`** (added in `0003`) controls completion semantics for repeating tasks: `NULL` (no repeat), `'next'` (advance to next occurrence — Things 3 default), `'all'` (regenerate the whole rule), `'org-mode'` (preserve original schedule, log completion to LOGBOOK). See `atrium-core/src/repeat.rs`.
 - **`position`** is `REAL` — midpoint insertion enables arbitrary reorder without renumbering siblings.
 
 ### `tag`
@@ -104,6 +129,9 @@ The central row. Several columns deserve specific notes:
 
 ### `task_tag`
 Composite primary key `(task_id, tag_id)` doubles as a uniqueness constraint. Both FKs `ON DELETE CASCADE`: deleting a tag removes its associations; deleting a task removes its tag links.
+
+### `perspective`
+Saved search. `filter_expr` stores the expression-language query verbatim (parsed at evaluation time, not at save time, so syntax updates apply retroactively). Added in `0002` as a list-renderer table; `0005` extended it with `renderer` (`'list'` / `'board'`, default `'list'`) and `renderer_config` (TEXT NULL — JSON column definitions for the kanban renderer; ignored when `renderer = 'list'`). The kanban projection logic lives in `atrium-core/src/render.rs`.
 
 ## Datetime format
 

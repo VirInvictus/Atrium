@@ -2,6 +2,8 @@
 
 This document captures the v0.1 accessibility audit. It's a snapshot — each change to a UI surface should re-check against the relevant section. Updated whenever a slice lands that meaningfully alters the keyboard map, sidebar, or task row.
 
+> **v0.6.x note.** The Phase 8f findings below cover the v0.1 surface area. The Builder Mode side pane (Phase 10), Forecast (Phase 12), Review (Phase 13), Perspectives (Phase 14), the kanban renderer (Slice D1), and the Agenda canonical page (Slice D2) all carry their accessible labels by inheriting the same widget primitives audited here, but a full re-audit covering the new surfaces is owed at the next minor — track in `roadmap.md`. The keyboard map below is updated through v0.6.20.
+
 ## Keyboard end-to-end
 
 Every common operation has a chord; mouse is optional. Full table lives in [`docs/keymap.md`](keymap.md). Highlights:
