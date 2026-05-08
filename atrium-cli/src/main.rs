@@ -93,20 +93,20 @@ fn run(args: args::Args) -> ExitCode {
             with_readonly(&db_path, |conn| run_list(conn, &name, args.format))
         }
         Subcommand::Info { id } => with_readonly(&db_path, |conn| run_info(conn, id, args.format)),
-        Subcommand::Add(add) => with_writer(&db_path, |handle, conn| {
-            run_add(handle, conn, add, args.format)
+        Subcommand::Add(add) => with_writer(&db_path, |rt, handle, conn| {
+            run_add(rt, handle, conn, add, args.format)
         }),
-        Subcommand::Capture { line } => with_writer(&db_path, |handle, conn| {
-            run_capture(handle, conn, &line, args.format)
+        Subcommand::Capture { line } => with_writer(&db_path, |rt, handle, conn| {
+            run_capture(rt, handle, conn, &line, args.format)
         }),
-        Subcommand::Edit { id, edit } => with_writer(&db_path, |handle, conn| {
-            run_edit(handle, conn, id, edit, args.format)
+        Subcommand::Edit { id, edit } => with_writer(&db_path, |rt, handle, conn| {
+            run_edit(rt, handle, conn, id, edit, args.format)
         }),
-        Subcommand::Complete { target } => with_writer(&db_path, |handle, conn| {
-            run_complete(handle, conn, target, args.format)
+        Subcommand::Complete { target } => with_writer(&db_path, |rt, handle, conn| {
+            run_complete(rt, handle, conn, target, args.format)
         }),
-        Subcommand::Delete { target, force } => with_writer(&db_path, |handle, conn| {
-            run_delete(handle, conn, target, force, args.format)
+        Subcommand::Delete { target, force } => with_writer(&db_path, |rt, handle, conn| {
+            run_delete(rt, handle, conn, target, force, args.format)
         }),
     }
 }
@@ -132,28 +132,24 @@ where
 
 /// Open the database read-write (running migrations as needed),
 /// spawn the worker on a current-thread tokio runtime, and run the
-/// closure with the WorkerHandle + a read connection. The runtime
-/// shuts down when the handle drops on closure exit.
+/// closure with the Runtime + WorkerHandle + a read connection.
+///
+/// We hand `f` the `Runtime` rather than entering `runtime.block_on`
+/// around it on purpose: inside an outer `block_on`, a second
+/// `Runtime::block_on` (or `Handle::block_on`) panics with "Cannot
+/// start a runtime from within a runtime." Keeping `f` *outside*
+/// the runtime lets it drive each async call individually via
+/// `runtime.block_on(handle.foo().await)`. The worker stays alive
+/// because the runtime owns the spawn — it just isn't actively
+/// running until the next `block_on`.
 fn with_writer<F>(path: &Path, f: F) -> ExitCode
 where
-    F: FnOnce(&atrium_core::WorkerHandle, &Connection) -> CliResult<()>,
+    F: FnOnce(&tokio::runtime::Runtime, &atrium_core::WorkerHandle, &Connection) -> CliResult<()>,
 {
     let conn = match atrium_core::db::open(path) {
         Ok(c) => c,
         Err(err) => {
             eprintln!("error: opening database at {}: {err}", path.display());
-            return ExitCode::from(1);
-        }
-    };
-    // Read-only connection for context loading. The worker takes
-    // the writable connection by value, so we snapshot the metadata
-    // we need before handing it over — alternatively we'd open a
-    // second connection, but the CLI is short-lived and one shared
-    // path is enough.
-    let ctx_data = match ContextData::load(&conn) {
-        Ok(d) => d,
-        Err(err) => {
-            eprintln!("error: loading context: {err}");
             return ExitCode::from(1);
         }
     };
@@ -167,24 +163,21 @@ where
             return ExitCode::from(1);
         }
     };
-    let result = runtime.block_on(async move {
-        let _enter = tokio::runtime::Handle::current();
-        let (handle, _changes_rx, _library_rx) = atrium_core::spawn_worker(conn);
-        // Read-only connection for post-write reads (status display).
-        let read_conn = match open_db_readonly(path) {
-            Ok(c) => c,
-            Err(err) => {
-                return Err(CliError::Args(format!("opening read connection: {err}")));
-            }
-        };
-        // Apply the closure — drops handle at the end, which lets the worker shut down.
-        let outcome = f(&handle, &read_conn);
-        // Stash ctx_data for downstream uses (currently unused — kept
-        // because run_add resolves project name → id via direct SQL).
-        let _ = &ctx_data;
-        outcome
-    });
-    result.unwrap_or_exit_code()
+    // Spawn the worker inside the runtime, then exit block_on so
+    // the closure runs in non-async context. The worker future is
+    // alive on the runtime; subsequent `runtime.block_on(...)` calls
+    // from `f` drive it forward to handle each command.
+    let (handle, _changes_rx, _library_rx) =
+        runtime.block_on(async move { atrium_core::spawn_worker(conn) });
+    // Read-only connection for post-write reads (status display).
+    let read_conn = match open_db_readonly(path) {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("error: opening read-only connection: {err}");
+            return ExitCode::from(1);
+        }
+    };
+    f(&runtime, &handle, &read_conn).unwrap_or_exit_code()
 }
 
 /// Resolve the database path: CLI flag → `ATRIUM_DB_PATH` env →
@@ -290,6 +283,7 @@ fn run_list_perspectives(conn: &Connection, format: Format) -> CliResult<()> {
 // ── Write commands ──────────────────────────────────────────────
 
 fn run_add(
+    runtime: &tokio::runtime::Runtime,
     handle: &atrium_core::WorkerHandle,
     read_conn: &Connection,
     add: AddArgs,
@@ -326,7 +320,6 @@ fn run_add(
         repeat_mode: None,
     };
 
-    let runtime = tokio::runtime::Handle::current();
     let task = runtime
         .block_on(async { handle.create_task(new).await })
         .map_err(CliError::from)?;
@@ -363,6 +356,7 @@ fn run_add(
 /// Drops to Inbox (no project) — matching the GUI's Quick Entry
 /// behaviour per spec §6.
 fn run_capture(
+    runtime: &tokio::runtime::Runtime,
     handle: &atrium_core::WorkerHandle,
     read_conn: &Connection,
     line: &str,
@@ -380,7 +374,6 @@ fn run_capture(
         deadline: parsed.deadline,
         ..Default::default()
     };
-    let runtime = tokio::runtime::Handle::current();
     let task = runtime
         .block_on(async { handle.create_task(new).await })
         .map_err(CliError::from)?;
@@ -410,6 +403,7 @@ fn run_capture(
 /// clears a nullable field. `--inbox` (or `--project inbox`) maps
 /// to project_id = NULL.
 fn run_edit(
+    runtime: &tokio::runtime::Runtime,
     handle: &atrium_core::WorkerHandle,
     read_conn: &Connection,
     id: i64,
@@ -476,7 +470,6 @@ fn run_edit(
     // Run the field-update first; tag diff is applied separately
     // because tags route through ensure_tag + set_task_tags rather
     // than TaskUpdate's column-level setters.
-    let runtime = tokio::runtime::Handle::current();
     let task = if update.is_noop() {
         existing
     } else {
@@ -486,7 +479,7 @@ fn run_edit(
     };
 
     if edit.touches_tags() {
-        apply_tag_diff(handle, read_conn, task.id, &edit, &runtime)?;
+        apply_tag_diff(handle, read_conn, task.id, &edit, runtime)?;
     }
 
     // Re-read so the row reflects post-tag state, plus a fresh
@@ -509,7 +502,7 @@ fn apply_tag_diff(
     read_conn: &Connection,
     task_id: i64,
     edit: &EditArgs,
-    runtime: &tokio::runtime::Handle,
+    runtime: &tokio::runtime::Runtime,
 ) -> CliResult<()> {
     let current_names: Vec<String> = if edit.clear_tags {
         Vec::new()
@@ -551,18 +544,20 @@ fn apply_tag_diff(
 }
 
 fn run_complete(
+    runtime: &tokio::runtime::Runtime,
     handle: &atrium_core::WorkerHandle,
     read_conn: &Connection,
     target: TargetSpec,
     format: Format,
 ) -> CliResult<()> {
     match target {
-        TargetSpec::Id(id) => run_complete_one(handle, read_conn, id, format),
-        TargetSpec::Where(expr) => run_complete_bulk(handle, read_conn, &expr, format),
+        TargetSpec::Id(id) => run_complete_one(runtime, handle, read_conn, id, format),
+        TargetSpec::Where(expr) => run_complete_bulk(runtime, handle, read_conn, &expr, format),
     }
 }
 
 fn run_complete_one(
+    runtime: &tokio::runtime::Runtime,
     handle: &atrium_core::WorkerHandle,
     read_conn: &Connection,
     id: i64,
@@ -577,7 +572,6 @@ fn run_complete_one(
     {
         return Err(CliError::NotFound(id));
     }
-    let runtime = tokio::runtime::Handle::current();
     let task = runtime
         .block_on(async { handle.toggle_complete(id).await })
         .map_err(CliError::from)?;
@@ -593,6 +587,7 @@ fn run_complete_one(
 /// rows would invert each. For "mark these done" specifically,
 /// users compose `is:open AND ...` into the where clause.
 fn run_complete_bulk(
+    runtime: &tokio::runtime::Runtime,
     handle: &atrium_core::WorkerHandle,
     read_conn: &Connection,
     expr: &str,
@@ -603,7 +598,6 @@ fn run_complete_bulk(
         eprintln!("no tasks matched the expression");
         return Ok(());
     }
-    let runtime = tokio::runtime::Handle::current();
     let mut after: Vec<atrium_core::Task> = Vec::with_capacity(matched.len());
     for task in &matched {
         let toggled = runtime
@@ -617,6 +611,7 @@ fn run_complete_bulk(
 }
 
 fn run_delete(
+    runtime: &tokio::runtime::Runtime,
     handle: &atrium_core::WorkerHandle,
     read_conn: &Connection,
     target: TargetSpec,
@@ -624,12 +619,15 @@ fn run_delete(
     format: Format,
 ) -> CliResult<()> {
     match target {
-        TargetSpec::Id(id) => run_delete_one(handle, read_conn, id, format),
-        TargetSpec::Where(expr) => run_delete_bulk(handle, read_conn, &expr, force, format),
+        TargetSpec::Id(id) => run_delete_one(runtime, handle, read_conn, id, format),
+        TargetSpec::Where(expr) => {
+            run_delete_bulk(runtime, handle, read_conn, &expr, force, format)
+        }
     }
 }
 
 fn run_delete_one(
+    runtime: &tokio::runtime::Runtime,
     handle: &atrium_core::WorkerHandle,
     read_conn: &Connection,
     id: i64,
@@ -642,7 +640,6 @@ fn run_delete_one(
         .ok_or(CliError::NotFound(id))?;
     let ctx_data = ContextData::load(read_conn)?;
     let row = build_row(&task, &ctx_data);
-    let runtime = tokio::runtime::Handle::current();
     runtime
         .block_on(async { handle.delete_task(id).await })
         .map_err(CliError::from)?;
@@ -655,6 +652,7 @@ fn run_delete_one(
 /// be deleted and exit with status 2 so a calling script can
 /// review the output and re-run with `--force` to commit.
 fn run_delete_bulk(
+    runtime: &tokio::runtime::Runtime,
     handle: &atrium_core::WorkerHandle,
     read_conn: &Connection,
     expr: &str,
@@ -675,7 +673,6 @@ fn run_delete_bulk(
         print_tasks(&matched, &ctx_data, format);
         return Err(CliError::DryRun(matched.len()));
     }
-    let runtime = tokio::runtime::Handle::current();
     for task in &matched {
         runtime
             .block_on(async { handle.delete_task(task.id).await })

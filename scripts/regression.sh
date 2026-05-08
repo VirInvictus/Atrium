@@ -9,6 +9,7 @@
 #   3. cargo test --workspace                      (<1 s)
 #   4. cargo build --release                       (~45 s clean, fast incrementally)
 #   5. release-mode 1K-task fixture smoke           (~50 ms)
+#   5.5 atrium-cli end-to-end smoke against the same fixture (~200 ms)
 #   6. release-mode --version cold start (×3)      (~100 ms total)
 #
 # Exits non-zero on the first failing step. No network calls; no
@@ -91,6 +92,101 @@ case "$SUMMARY" in
     fail "fixture summary did not report 1000 tasks: $SUMMARY"
     ;;
 esac
+
+# 5.5 atrium-cli end-to-end smoke. Exercises every read + write
+#     subcommand against the fixture DB just generated, asserts
+#     each exits cleanly, and confirms the bulk dry-run path
+#     returns status 2 (not 0, not 1). Closes the architectural
+#     commitment that every non-GUI surface stays CLI-testable.
+step "atrium-cli end-to-end smoke"
+
+if [[ ! -x "target/release/atrium-cli" ]]; then
+  fail "target/release/atrium-cli not found — run without --skip-build"
+fi
+
+CLI_DB="$FIXTURE_DIR/atrium/atrium.db"
+CLI=(target/release/atrium-cli --db "$CLI_DB")
+
+# Read paths — every subcommand exits cleanly on the fixture.
+"${CLI[@]}" list today        >/dev/null  || fail "atrium-cli list today failed"
+"${CLI[@]}" list inbox        >/dev/null  || fail "atrium-cli list inbox failed"
+"${CLI[@]}" list upcoming     >/dev/null  || fail "atrium-cli list upcoming failed"
+"${CLI[@]}" list anytime      >/dev/null  || fail "atrium-cli list anytime failed"
+"${CLI[@]}" list someday      >/dev/null  || fail "atrium-cli list someday failed"
+"${CLI[@]}" list logbook      >/dev/null  || fail "atrium-cli list logbook failed"
+"${CLI[@]}" list all          >/dev/null  || fail "atrium-cli list all failed"
+"${CLI[@]}" list areas        >/dev/null  || fail "atrium-cli list areas failed"
+"${CLI[@]}" list projects     >/dev/null  || fail "atrium-cli list projects failed"
+"${CLI[@]}" list tags         >/dev/null  || fail "atrium-cli list tags failed"
+"${CLI[@]}" list perspectives >/dev/null  || fail "atrium-cli list perspectives failed"
+
+# Search expression smoke — every operator class shipped at v0.5.0.
+"${CLI[@]}" search 'is:open'                         >/dev/null || fail "search is:open failed"
+"${CLI[@]}" search 'is:today'                        >/dev/null || fail "search is:today failed"
+"${CLI[@]}" search 'tag:work AND is:open'            >/dev/null || fail "search compound failed"
+"${CLI[@]}" search 'is:open sort:-due'               >/dev/null || fail "search sort: failed"
+"${CLI[@]}" search 'is:open AND tag:?wrok'           >/dev/null || fail "search fuzzy failed"
+
+# JSON output is a valid JSON array — sanity check the formatter
+# without forcing a python / jq dependency. Capture the full
+# output and use bash substring expansion rather than piping to
+# `head -c 1`, which would close the pipe early and trip Rust's
+# default panic-on-broken-pipe behaviour. (The broken-pipe issue
+# is real but separate; tracked as a v0.6.x follow-up.)
+JSON_OUT="$("${CLI[@]}" --json list all)"
+[[ "${JSON_OUT:0:1}" == "[" ]] || fail "atrium-cli --json list all did not emit a JSON array"
+
+# Write path — add → info → search-finds-it → complete → delete.
+ADDED_ROW="$("${CLI[@]}" add 'CLI regression smoke' --tag regression-smoke)"
+ADDED_ID="$(printf '%s' "$ADDED_ROW" | cut -f1)"
+case "$ADDED_ID" in
+  ''|*[!0-9]*) fail "atrium-cli add did not return a numeric id: $ADDED_ROW" ;;
+esac
+"${CLI[@]}" info "$ADDED_ID" >/dev/null || fail "atrium-cli info failed for id=$ADDED_ID"
+"${CLI[@]}" search 'tag:regression-smoke' | grep -q 'CLI regression smoke' \
+  || fail "atrium-cli search did not surface the freshly-added task"
+"${CLI[@]}" edit "$ADDED_ID" --due tomorrow >/dev/null \
+  || fail "atrium-cli edit failed for id=$ADDED_ID"
+"${CLI[@]}" complete "$ADDED_ID" >/dev/null \
+  || fail "atrium-cli complete failed for id=$ADDED_ID"
+"${CLI[@]}" delete "$ADDED_ID" >/dev/null \
+  || fail "atrium-cli delete failed for id=$ADDED_ID"
+
+# Capture path uses the inline parser (the same one the GUI Quick
+# Entry uses). We leave the captured task in place — the bulk
+# dry-run + --force flow below uses it as a target.
+CAPTURED_ROW="$("${CLI[@]}" capture 'CLI capture smoke #regression-smoke @today')"
+CAPTURED_ID="$(printf '%s' "$CAPTURED_ROW" | cut -f1)"
+case "$CAPTURED_ID" in
+  ''|*[!0-9]*) fail "atrium-cli capture did not return a numeric id: $CAPTURED_ROW" ;;
+esac
+
+# Seed a second regression-smoke row so the bulk path has >1 match.
+"${CLI[@]}" add 'CLI bulk smoke 2' --tag regression-smoke >/dev/null \
+  || fail "atrium-cli add (bulk seed) failed"
+
+# Bulk dry-run: delete --where without --force must exit status 2
+# (matched, but did not delete) and leave the rows intact.
+set +e
+"${CLI[@]}" delete --where 'tag:regression-smoke' >/dev/null 2>&1
+DRY_EXIT=$?
+set -e
+if [[ "$DRY_EXIT" -ne 2 ]]; then
+  fail "atrium-cli delete --where (dry run) should exit 2, got $DRY_EXIT"
+fi
+
+# --force commits the delete; the rows go away.
+"${CLI[@]}" delete --where 'tag:regression-smoke' --force >/dev/null \
+  || fail "atrium-cli delete --where --force failed"
+
+# --json emits an array (no header row), so empty == "[]" — easier
+# to assert than counting TSV lines past the header.
+REMAINING_JSON="$("${CLI[@]}" --json search 'tag:regression-smoke')"
+if [[ "$REMAINING_JSON" != "[]" ]]; then
+  fail "atrium-cli delete --where --force left rows behind: $REMAINING_JSON"
+fi
+
+echo "  atrium-cli: 17 read commands + write round-trip + bulk dry-run + bulk force all OK"
 
 # 6. Cold-start sanity (×3). Median should comfortably beat the
 #    spec §8 250 ms budget for the GUI cold start. The CLI --version
