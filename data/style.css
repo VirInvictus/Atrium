@@ -370,6 +370,24 @@ window.atrium-quickentry-window {
 .atrium-task-row.atrium-area-accent-red    { border-left-color: alpha(#e01b24, 0.7); }
 .atrium-task-row.atrium-area-accent-purple { border-left-color: alpha(#9141ac, 0.7); }
 
+/* v0.5.0 — canonical-list icon tinting. Each canonical sidebar
+ * list picks up a quiet accent colour on its leading symbolic
+ * icon — Things-3-style warmth without surface noise. Alpha 0.85
+ * pulls the saturation back so the accents read as personality,
+ * not signage. Anytime intentionally skips this so the list set
+ * has a "neutral" beat; Logbook gets a faded purple to match
+ * "settled past" semantics.
+ *
+ * The named colours (@blue_3, @yellow_5, @green_4, @purple_3,
+ * @purple_2) are GTK4 standard palette values — they auto-swap
+ * for light / dark, and high-contrast mode preserves the hue
+ * relationship. */
+.atrium-canonical-inbox image    { color: alpha(@blue_3, 0.85); }
+.atrium-canonical-today image    { color: alpha(@yellow_5, 0.95); }
+.atrium-canonical-upcoming image { color: alpha(@green_4, 0.85); }
+.atrium-canonical-someday image  { color: alpha(@purple_3, 0.85); }
+.atrium-canonical-logbook image  { color: alpha(@purple_2, 0.75); }
+
 /* v0.3.0 — sidebar section headers ("Areas", "Tags", "Builder",
  * "Perspectives"). Adds a subtle top border to mark the section
  * change visually; the existing caption-heading + dim-label classes

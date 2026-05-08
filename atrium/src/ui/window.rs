@@ -294,7 +294,7 @@ fn icon_for(list: &ActiveList) -> &'static str {
         ActiveList::Logbook => "document-open-recent-symbolic",
         ActiveList::Project(_) => "view-list-bullet-symbolic",
         ActiveList::Area(_) => "folder-symbolic",
-        ActiveList::Tag(_) => "tag-outline-symbolic",
+        ActiveList::Tag(_) => "tag-symbolic",
         ActiveList::SearchResults(_) => "system-search-symbolic",
         ActiveList::Forecast => "x-office-calendar-symbolic",
         ActiveList::Review => "object-select-symbolic",
@@ -3509,7 +3509,31 @@ fn truncate(s: &str, max_chars: usize) -> String {
 }
 
 fn build_canonical_row(active: &ActiveList) -> (gtk::ListBoxRow, gtk::Label) {
-    sidebar_row(icon_for(active), active.canonical_title(), 8)
+    let (row, badge) = sidebar_row(icon_for(active), active.canonical_title(), 8);
+    // v0.5.0 — quiet accent colour per canonical list. Each class
+    // reaches in via CSS (see data/style.css) and tints only the
+    // leading symbolic icon, not the label or the row chrome. The
+    // alpha-wrapped libadwaita named colours auto-respect light /
+    // dark / high-contrast.
+    if let Some(class) = canonical_accent_class(active) {
+        row.add_css_class(class);
+    }
+    (row, badge)
+}
+
+/// CSS class supplying the canonical-list accent colour. Returned
+/// per `ActiveList`; `None` for the lists that intentionally stay
+/// neutral (Anytime — "no time pressure" reads as no colour).
+fn canonical_accent_class(active: &ActiveList) -> Option<&'static str> {
+    match active {
+        ActiveList::Inbox => Some("atrium-canonical-inbox"),
+        ActiveList::Today => Some("atrium-canonical-today"),
+        ActiveList::Upcoming => Some("atrium-canonical-upcoming"),
+        ActiveList::Someday => Some("atrium-canonical-someday"),
+        ActiveList::Logbook => Some("atrium-canonical-logbook"),
+        ActiveList::Anytime => None,
+        _ => None,
+    }
 }
 
 fn build_area_row(area: &Area) -> (gtk::ListBoxRow, gtk::Label) {
