@@ -199,7 +199,89 @@ fn match_field(task: &Task, field: Field, kind: &MatchKind, ctx: &EvalContext<'_
         MatchKind::Regex(pattern) => candidates.iter().any(|v| ctx.regex_match(pattern, v)),
         MatchKind::HasAny => !candidates.iter().all(String::is_empty) && !candidates.is_empty(),
         MatchKind::HasNone => candidates.iter().all(String::is_empty) || candidates.is_empty(),
+        MatchKind::Fuzzy(needle) => {
+            let n_lower = needle.to_ascii_lowercase();
+            let threshold = fuzzy_threshold_for(n_lower.chars().count());
+            candidates.iter().any(|v| {
+                let v_lower = v.to_ascii_lowercase();
+                levenshtein_within(&n_lower, &v_lower, threshold)
+            })
+        }
     }
+}
+
+/// Length-aware fuzzy threshold. Short queries get tight matching
+/// (one typo); longer ones tolerate proportionally more so multi-
+/// character words like `strawberry` can survive a missed letter
+/// or two without throwing the user back to substring.
+fn fuzzy_threshold_for(needle_len: usize) -> u32 {
+    match needle_len {
+        0..=4 => 1,
+        5..=7 => 2,
+        _ => 3,
+    }
+}
+
+/// Compute whether the Damerau-Levenshtein distance between `a` and
+/// `b` is at most `max`. Damerau (vs plain Levenshtein) counts a
+/// transposition of two adjacent characters as a single edit — the
+/// most common typing slip ("wrok" ↔ "work"), which the user
+/// expects fuzzy match to handle. Early-exits as soon as the running
+/// minimum across a row exceeds `max`. Both strings are expected to
+/// be lowercased by the caller.
+fn levenshtein_within(a: &str, b: &str, max: u32) -> bool {
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    // Length difference alone exceeds the budget — short-circuit.
+    let diff = a_chars.len().abs_diff(b_chars.len()) as u32;
+    if diff > max {
+        return false;
+    }
+    if a_chars.is_empty() {
+        return (b_chars.len() as u32) <= max;
+    }
+    if b_chars.is_empty() {
+        return (a_chars.len() as u32) <= max;
+    }
+    let n = a_chars.len();
+    let m = b_chars.len();
+    // Three rows for Damerau: prev_prev (i-2), prev (i-1), curr (i).
+    // Damerau's transposition rule needs the row two before to look
+    // up cost `prev_prev[j-2] + 1`.
+    let mut prev_prev: Vec<u32> = vec![0; m + 1];
+    let mut prev: Vec<u32> = (0..=m as u32).collect();
+    let mut curr: Vec<u32> = vec![0; m + 1];
+    for i in 1..=n {
+        curr[0] = i as u32;
+        let mut row_min = curr[0];
+        for j in 1..=m {
+            let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                0
+            } else {
+                1
+            };
+            let mut v = (curr[j - 1] + 1).min(prev[j] + 1).min(prev[j - 1] + cost);
+            // Damerau transposition: a[i-1]a[i-2] swap to b[j-2]b[j-1].
+            if i >= 2
+                && j >= 2
+                && a_chars[i - 1] == b_chars[j - 2]
+                && a_chars[i - 2] == b_chars[j - 1]
+            {
+                v = v.min(prev_prev[j - 2] + 1);
+            }
+            curr[j] = v;
+            row_min = row_min.min(v);
+        }
+        // If every cell on this row is already past the budget,
+        // the final answer can only grow from here.
+        if row_min > max {
+            return false;
+        }
+        // Rotate rows: prev_prev ← prev, prev ← curr, curr scratch.
+        std::mem::swap(&mut prev_prev, &mut prev);
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[m] <= max
 }
 
 /// Collect the string-shaped values for a field on a single task.

@@ -150,6 +150,13 @@ pub enum MatchKind {
     HasAny,
     /// `tag:false` — has no values (e.g. zero tags).
     HasNone,
+    /// v0.4.1 — `tag:?work` — fuzzy match. A candidate matches when
+    /// its case-insensitive Levenshtein distance to the needle is
+    /// within the threshold. Threshold scales with needle length:
+    /// ≤4 chars → 1, 5–7 → 2, ≥8 → 3 (so "wrok" matches "work" and
+    /// "strwbery" matches "strawberry"). In-memory only — SQL
+    /// translation falls back to the eval path.
+    Fuzzy(String),
 }
 
 /// State predicates surfaced as `is:NAME`. Single source of truth for
@@ -352,6 +359,7 @@ impl fmt::Display for MatchKind {
             Self::Regex(s) => write!(f, "~{s}"),
             Self::HasAny => f.write_str("true"),
             Self::HasNone => f.write_str("false"),
+            Self::Fuzzy(s) => write!(f, "?{s}"),
         }
     }
 }

@@ -215,6 +215,7 @@ Calibre's full match grammar applies on every text-shaped field. The default is 
 | `tag:=x` | exact (case-insensitive) | matches `Work` only, not `worker` |
 | `tag:"=x y"` | quoted exact | for exact values with spaces |
 | `tag:~regex` | regex | full RE2 syntax via the `regex` crate; in-memory only — SQL translation falls back |
+| `tag:?value` | fuzzy | Damerau-Levenshtein within a length-aware threshold (≤4 chars → 1, 5–7 → 2, ≥8 → 3); transpositions count as a single edit so `tag:?wrok` matches `work`. In-memory only. |
 | `tag:true` | has at least one | task must have any tag |
 | `tag:false` | has none | task must have no tags |
 

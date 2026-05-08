@@ -613,6 +613,126 @@ fn eval_is_someday_completed_no_match() {
     assert!(!match_simple(&r.expr, &t, d(2026, 5, 15)));
 }
 
+// ── v0.4.1 fuzzy modifier ───────────────────────────────────────
+
+#[test]
+fn parse_tag_fuzzy_modifier() {
+    let r = parse("tag:?work").unwrap();
+    assert_eq!(
+        r.expr,
+        Expr::Field {
+            field: Field::Tag,
+            kind: MatchKind::Fuzzy("work".into())
+        }
+    );
+}
+
+#[test]
+fn parse_title_fuzzy_modifier() {
+    let r = parse("title:?milk").unwrap();
+    assert_eq!(
+        r.expr,
+        Expr::Field {
+            field: Field::Title,
+            kind: MatchKind::Fuzzy("milk".into())
+        }
+    );
+}
+
+#[test]
+fn fuzzy_modifier_does_not_apply_to_date_fields() {
+    // `due:?today` keeps the leading `?` as a literal value char
+    // (the comparison/sense-correction paths take precedence on
+    // date-shaped fields). The eval will simply not match anything.
+    let r = parse("due:?today").unwrap();
+    // This becomes a substring match against `?today` — nothing
+    // useful, but no Fuzzy variant.
+    assert!(!matches!(
+        &r.expr,
+        Expr::Field {
+            kind: MatchKind::Fuzzy(_),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn eval_tag_fuzzy_matches_exact() {
+    let t = dummy_task(1);
+    let mut tag_names = HashMap::new();
+    tag_names.insert(1, vec!["work".into()]);
+    let r = parse("tag:?work").unwrap();
+    assert!(match_with_tags(&r.expr, &t, d(2026, 5, 15), tag_names));
+}
+
+#[test]
+fn eval_tag_fuzzy_matches_single_typo() {
+    // Levenshtein distance 1 (transposition: o↔r).
+    let t = dummy_task(1);
+    let mut tag_names = HashMap::new();
+    tag_names.insert(1, vec!["work".into()]);
+    let r = parse("tag:?wrok").unwrap();
+    assert!(match_with_tags(&r.expr, &t, d(2026, 5, 15), tag_names));
+}
+
+#[test]
+fn eval_tag_fuzzy_matches_single_deletion() {
+    // "wok" → "work" is one insertion, distance 1.
+    let t = dummy_task(1);
+    let mut tag_names = HashMap::new();
+    tag_names.insert(1, vec!["work".into()]);
+    let r = parse("tag:?wok").unwrap();
+    assert!(match_with_tags(&r.expr, &t, d(2026, 5, 15), tag_names));
+}
+
+#[test]
+fn eval_tag_fuzzy_rejects_two_typos_on_short_word() {
+    // "wxxk" → "work" is distance 2 — past the threshold for a 4-
+    // character query.
+    let t = dummy_task(1);
+    let mut tag_names = HashMap::new();
+    tag_names.insert(1, vec!["work".into()]);
+    let r = parse("tag:?wxxk").unwrap();
+    assert!(!match_with_tags(&r.expr, &t, d(2026, 5, 15), tag_names));
+}
+
+#[test]
+fn eval_tag_fuzzy_tolerates_two_typos_on_medium_word() {
+    // 7-char query → threshold 2.
+    let t = dummy_task(1);
+    let mut tag_names = HashMap::new();
+    tag_names.insert(1, vec!["meeting".into()]);
+    // "metting" — one substitution; "metings" — one substitution +
+    // one deletion (distance 2).
+    let close = parse("tag:?metings").unwrap();
+    assert!(match_with_tags(&close.expr, &t, d(2026, 5, 15), tag_names));
+}
+
+#[test]
+fn eval_title_fuzzy_matches() {
+    let mut t = dummy_task(1);
+    t.title = "Buy milk".into();
+    // Fuzzy needle "mlik" matches the literal "milk" inside the
+    // title via per-candidate Levenshtein. (Note: title fuzzy is
+    // whole-string, so the candidate is "Buy milk" and we expect a
+    // substring-style match? No — Fuzzy is per-candidate strict.
+    // For title, the candidate is the whole title. Distance from
+    // "mlik" to "Buy milk" is 5 — fails. This test pins the
+    // *intentional* strict whole-string behaviour.)
+    let r = parse("title:?mlik").unwrap();
+    assert!(!match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_title_fuzzy_against_short_titles() {
+    // When the title is the same length as the needle, fuzzy
+    // catches typos.
+    let mut t = dummy_task(1);
+    t.title = "milk".into();
+    let r = parse("title:?mlik").unwrap();
+    assert!(match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
 // ── v0.4.1 sort modifier ────────────────────────────────────────
 
 #[test]

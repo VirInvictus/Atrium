@@ -281,6 +281,22 @@ impl Parser {
         // get a sense-correction: a bare date keyword on a date field
         // is treated as `Compare(Eq, ...)` — Calibre's convention.
         let value_str = self.consume_value_token_text();
+        // v0.4.1 — `?prefix` on a text-shaped field becomes a fuzzy
+        // (Levenshtein) match. The lexer keeps `?` inside the
+        // bareword (no Token::Question), so we strip it here. Date /
+        // numeric fields don't get fuzzy matching; the `?` stays as
+        // a literal character of the value (which probably won't
+        // match anything sensible — but that's correct behaviour
+        // for "due:?today" rather than silently misinterpreting).
+        if !field.is_date_shaped()
+            && !field.is_numeric()
+            && let Some(rest) = value_str.strip_prefix('?')
+        {
+            return Ok(Expr::Field {
+                field,
+                kind: MatchKind::Fuzzy(rest.to_string()),
+            });
+        }
         if field.is_date_shaped() {
             let v = parse_value(&value_str);
             if matches!(v, Value::Date(_) | Value::DateKeyword(_)) {

@@ -3676,6 +3676,7 @@ fn build_search_help_popover() -> gtk::Popover {
                 ("tag:work", "substring (default, case-insensitive)"),
                 ("tag:=work", "exact match"),
                 ("tag:~mystery.*", "regex (RE2 syntax)"),
+                ("tag:?wrok", "fuzzy (typo / transposition tolerant)"),
                 ("tag:true / tag:false", "has any tag, or has none"),
             ],
         ),
