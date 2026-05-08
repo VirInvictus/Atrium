@@ -179,10 +179,31 @@
                         <property name="search-mode-enabled">false</property>
                         <property name="key-capture-widget">task_list_view</property>
                         <child>
-                          <object class="GtkSearchEntry" id="search_entry">
-                            <property name="placeholder-text" translatable="yes">Find tasks — try tag:errand, due:today, or is:overdue</property>
-                            <property name="hexpand">true</property>
-                            <property name="search-delay">200</property>
+                          <!-- v0.4.1 — search bar grew a `?` help button next
+                               to the entry. The MenuButton's popover is
+                               populated in code (see window.rs::wire_search_bar)
+                               with a structured operator reference. Wrapping
+                               in a horizontal Box keeps the entry growing to
+                               fill while the button hugs the right edge. -->
+                          <object class="GtkBox">
+                            <property name="orientation">horizontal</property>
+                            <property name="spacing">6</property>
+                            <child>
+                              <object class="GtkSearchEntry" id="search_entry">
+                                <property name="placeholder-text" translatable="yes">Find tasks — try tag:errand, due:today, or is:overdue</property>
+                                <property name="hexpand">true</property>
+                                <property name="search-delay">200</property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkMenuButton" id="search_help_button">
+                                <property name="icon-name">help-about-symbolic</property>
+                                <property name="tooltip-text" translatable="yes">Search operator reference</property>
+                                <style>
+                                  <class name="flat"/>
+                                </style>
+                              </object>
+                            </child>
                           </object>
                         </child>
                       </object>

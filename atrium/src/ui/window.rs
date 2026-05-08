@@ -91,6 +91,11 @@ mod imp {
         pub search_bar: TemplateChild<gtk::SearchBar>,
         #[template_child]
         pub search_entry: TemplateChild<gtk::SearchEntry>,
+        /// v0.4.1 — `?` button at the right end of the search bar;
+        /// hosts the operator-reference popover built in
+        /// `wire_search_bar`.
+        #[template_child]
+        pub search_help_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
         pub toast_overlay: TemplateChild<adw::ToastOverlay>,
         #[template_child]
@@ -2445,6 +2450,7 @@ impl AtriumWindow {
         let bar = self.imp().search_bar.clone();
         let entry = self.imp().search_entry.clone();
         let button = self.imp().search_button.clone();
+        let help_button = self.imp().search_help_button.clone();
 
         // Hook the toggle button to the search bar's search-mode.
         button
@@ -2452,6 +2458,13 @@ impl AtriumWindow {
             .sync_create()
             .bidirectional()
             .build();
+
+        // v0.4.1 — operator-reference popover. Attaches to the `?`
+        // GtkMenuButton in the search bar; click opens a structured
+        // quick-reference for the search expression language. The
+        // popover content is built once at wire time; subsequent
+        // opens reuse the same widget.
+        help_button.set_popover(Some(&build_search_help_popover()));
 
         // search-changed fires after `search-delay` ms (set in .ui).
         // We use it as our debounced input.
@@ -3597,6 +3610,200 @@ fn build_canonical_row(active: &ActiveList) -> (gtk::ListBoxRow, gtk::Label) {
 /// with ↑ / ↓ without losing context, long enough to recover the
 /// session's worth of queries.
 const SEARCH_HISTORY_MAX: usize = 20;
+
+/// v0.4.1 — build the operator-reference popover for the `?` menu
+/// button on the search bar. Compact quick-reference, organised by
+/// section, with monospace operator examples paired against
+/// short descriptions. Sections cover the boolean / field /
+/// modifier / comparison / date / state / sort layers of the
+/// expression language; spec.md §4.3 is the authoritative deeper
+/// reference.
+fn build_search_help_popover() -> gtk::Popover {
+    // ── Layout: vertical box of sections inside a scrolled window
+    //    so a tall reference doesn't push the popover off-screen.
+    let body = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(14)
+        .margin_start(14)
+        .margin_end(14)
+        .margin_top(14)
+        .margin_bottom(14)
+        .build();
+
+    let intro = gtk::Label::builder()
+        .label("Search expression reference")
+        .halign(gtk::Align::Start)
+        .build();
+    intro.add_css_class("title-4");
+    body.append(&intro);
+
+    let sub = gtk::Label::builder()
+        .label("Compose freely with AND / OR / NOT and parens.")
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .build();
+    sub.add_css_class("dim-label");
+    sub.add_css_class("caption");
+    body.append(&sub);
+
+    // Sections — each is (title, [(operator, meaning), …]).
+    let sections: &[(&str, &[(&str, &str)])] = &[
+        (
+            "Boolean",
+            &[
+                ("a AND b", "both must match (implicit between bare tokens)"),
+                ("a OR b", "either matches"),
+                ("NOT a / !a", "negation"),
+                ("(a OR b) AND c", "parens override precedence"),
+            ],
+        ),
+        (
+            "Fields",
+            &[
+                ("tag:work", "task has a tag matching \"work\""),
+                ("area:Personal", "task's project sits under that area"),
+                ("project:\"Q3 plans\"", "task lives in that project"),
+                ("title:milk / note:foo", "column-scoped text match"),
+                ("due: / scheduled: / defer:", "date fields"),
+                ("created: / modified: / completed:", "datetime fields"),
+                ("estimated:", "numeric (minutes)"),
+                ("repeats:true / :false", "has a repeat rule, or doesn't"),
+            ],
+        ),
+        (
+            "Match modifiers",
+            &[
+                ("tag:work", "substring (default, case-insensitive)"),
+                ("tag:=work", "exact match"),
+                ("tag:~mystery.*", "regex (RE2 syntax)"),
+                ("tag:true / tag:false", "has any tag, or has none"),
+            ],
+        ),
+        (
+            "Comparison & range",
+            &[
+                ("due:>today", "deadline after today"),
+                ("estimated:>=30", "30 minutes or more"),
+                ("due:2026-05-01..2026-05-31", "inclusive range"),
+            ],
+        ),
+        (
+            "Date keywords",
+            &[
+                ("today / yesterday / tomorrow", "single days"),
+                ("thisweek / lastweek / nextweek", "ISO Mon-start week"),
+                ("thismonth / lastmonth / nextmonth", "calendar month"),
+                ("thisyear", "calendar year"),
+                ("5daysago / 3daysout", "Ndaysago / Ndaysout"),
+            ],
+        ),
+        (
+            "State predicates",
+            &[
+                ("is:open / is:done / is:overdue", "completion state"),
+                (
+                    "is:scheduled / is:deadline / is:deferred",
+                    "has the field set",
+                ),
+                ("is:repeating / is:archived / is:tagged", "presence flags"),
+                (
+                    "is:today / is:inbox / is:upcoming",
+                    "canonical-list mirrors",
+                ),
+                ("is:anytime / is:someday", "more list mirrors"),
+            ],
+        ),
+        (
+            "Sort",
+            &[
+                ("sort:KEY", "ascending (due, scheduled, title, …)"),
+                ("sort:-KEY", "descending"),
+                (
+                    "sort:-due sort:title",
+                    "primary by deadline desc, ties by title",
+                ),
+            ],
+        ),
+    ];
+
+    for (title, rows) in sections {
+        body.append(&build_help_section(title, rows));
+    }
+
+    let footer = gtk::Label::builder()
+        .label("Full reference: spec.md §4.3 · ↑/↓ recall recent searches")
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .build();
+    footer.add_css_class("dim-label");
+    footer.add_css_class("caption");
+    body.append(&footer);
+
+    let scrolled = gtk::ScrolledWindow::builder()
+        .child(&body)
+        .min_content_width(420)
+        .min_content_height(360)
+        .max_content_height(540)
+        .propagate_natural_height(true)
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .build();
+
+    let popover = gtk::Popover::new();
+    popover.set_child(Some(&scrolled));
+    popover.set_position(gtk::PositionType::Bottom);
+    popover.add_css_class("atrium-search-help");
+    popover
+}
+
+/// One section in the operator-reference popover: a heading label
+/// followed by `op | meaning` rows. Operators land in monospace via
+/// the `.monospace` style class so they read as code.
+fn build_help_section(title: &str, rows: &[(&str, &str)]) -> gtk::Box {
+    let section = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(4)
+        .build();
+
+    let heading = gtk::Label::builder()
+        .label(title)
+        .halign(gtk::Align::Start)
+        .build();
+    heading.add_css_class("heading");
+    heading.add_css_class("caption");
+    heading.add_css_class("atrium-search-help-heading");
+    section.append(&heading);
+
+    for (op, meaning) in rows {
+        let row = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(12)
+            .build();
+        let op_label = gtk::Label::builder()
+            .label(*op)
+            .halign(gtk::Align::Start)
+            .xalign(0.0)
+            .width_chars(28)
+            .max_width_chars(28)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .build();
+        op_label.add_css_class("monospace");
+        op_label.add_css_class("caption");
+        let meaning_label = gtk::Label::builder()
+            .label(*meaning)
+            .halign(gtk::Align::Start)
+            .xalign(0.0)
+            .wrap(true)
+            .hexpand(true)
+            .build();
+        meaning_label.add_css_class("caption");
+        meaning_label.add_css_class("dim-label");
+        row.append(&op_label);
+        row.append(&meaning_label);
+        section.append(&row);
+    }
+
+    section
+}
 
 /// Direction of a single ↑/↓ keypress in the search-history cursor
 /// state machine.
