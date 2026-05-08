@@ -716,6 +716,48 @@ impl AtriumWindow {
         // for filterable area/project/tag rows. Phase 7e.
         let mut titles: Vec<Option<String>> = vec![None; CANONICAL_LISTS.len()];
 
+        // v0.6.7 — top-tier rows. Agenda joins the canonical set in
+        // both modes; Forecast and Review join only in Builder.
+        // No section header — these read as kindred to Inbox /
+        // Today / etc., with their own accent tints (see
+        // `canonical_accent_class` and `data/style.css`).
+        let builder = self.imp().current_mode_is_builder.get();
+        for (active, label) in top_tier_extras(builder) {
+            let (row, _badge) = sidebar_row(icon_for(&active), label, 8);
+            if let Some(class) = canonical_accent_class(&active) {
+                row.add_css_class(class);
+            }
+            list_box.append(&row);
+            targets.push(Some(active));
+            titles.push(None); // top-tier rows don't filter
+        }
+
+        // v0.6.7 — Perspectives section moves up to right after
+        // the top-tier group (was previously at the end of the
+        // sidebar). Above Areas, below the Inbox group.
+        let mut perspective_titles: HashMap<i64, String> = HashMap::new();
+        let mut perspective_meta: HashMap<i64, atrium_core::Perspective> = HashMap::new();
+        if builder {
+            let perspectives = pool
+                .with(atrium_core::db::read::list_perspectives)
+                .unwrap_or_default();
+            list_box.append(&build_section_header("Perspectives"));
+            targets.push(None);
+            titles.push(None);
+            for p in &perspectives {
+                perspective_titles.insert(p.id, p.name.clone());
+                perspective_meta.insert(p.id, p.clone());
+                let icon = p.icon.as_deref().unwrap_or("view-grid-symbolic");
+                let (row, _badge) = sidebar_row(icon, &p.name, 8);
+                self.install_perspective_context_menu(&row, p.id);
+                list_box.append(&row);
+                targets.push(Some(ActiveList::Perspective(p.id)));
+                titles.push(Some(p.name.clone()));
+            }
+        }
+        self.imp().perspective_titles.replace(perspective_titles);
+        self.imp().perspective_meta.replace(perspective_meta);
+
         let areas = match pool.with(atrium_core::db::read::list_areas) {
             Ok(a) => a,
             Err(e) => {
@@ -827,57 +869,6 @@ impl AtriumWindow {
         self.imp().tag_titles.replace(tag_titles);
         self.imp().tag_colors.replace(tag_colors);
         self.imp().tag_badges.replace(tag_badges);
-
-        // Phase 10 / 12 / 13 / 14 — Builder-only sidebar entries.
-        // Forecast and Review (Phase 12 / 13) sit at the top of the
-        // Builder section; saved perspectives (Phase 14) follow under
-        // their own subsection so users can scan them at a glance.
-        let builder = self.imp().current_mode_is_builder.get();
-        let mut perspective_titles: HashMap<i64, String> = HashMap::new();
-        let mut perspective_meta: HashMap<i64, atrium_core::Perspective> = HashMap::new();
-        if builder {
-            list_box.append(&build_section_header("Builder"));
-            targets.push(None);
-            titles.push(None);
-
-            for (active, label, icon) in [
-                (
-                    ActiveList::Forecast,
-                    "Forecast",
-                    "x-office-calendar-symbolic",
-                ),
-                (ActiveList::Agenda, "Agenda", "alarm-symbolic"),
-                (ActiveList::Review, "Review", "object-select-symbolic"),
-            ] {
-                let (row, _badge) = sidebar_row(icon, label, 8);
-                list_box.append(&row);
-                targets.push(Some(active));
-                titles.push(Some(label.to_string()));
-            }
-
-            // Phase 14 — saved perspectives. Always show the header
-            // in Builder mode (even when the list is empty) so the
-            // user knows where new perspectives will land. Empty
-            // state is implicit (no rows under the header).
-            let perspectives = pool
-                .with(atrium_core::db::read::list_perspectives)
-                .unwrap_or_default();
-            list_box.append(&build_section_header("Perspectives"));
-            targets.push(None);
-            titles.push(None);
-            for p in &perspectives {
-                perspective_titles.insert(p.id, p.name.clone());
-                perspective_meta.insert(p.id, p.clone());
-                let icon = p.icon.as_deref().unwrap_or("view-grid-symbolic");
-                let (row, _badge) = sidebar_row(icon, &p.name, 8);
-                self.install_perspective_context_menu(&row, p.id);
-                list_box.append(&row);
-                targets.push(Some(ActiveList::Perspective(p.id)));
-                titles.push(Some(p.name.clone()));
-            }
-        }
-        self.imp().perspective_titles.replace(perspective_titles);
-        self.imp().perspective_meta.replace(perspective_meta);
 
         // Cache project metadata so the project extras toolbar can
         // populate when a project view is selected.
@@ -4438,9 +4429,33 @@ fn canonical_accent_class(active: &ActiveList) -> Option<&'static str> {
         ActiveList::Upcoming => Some("atrium-canonical-upcoming"),
         ActiveList::Someday => Some("atrium-canonical-someday"),
         ActiveList::Logbook => Some("atrium-canonical-logbook"),
+        // v0.6.7 — Agenda / Forecast / Review live in the top tier
+        // alongside the canonicals. They each get their own subtle
+        // accent so the icons read as a kindred set: Agenda is the
+        // urgent/red of an alarm clock; Forecast is the cool blue
+        // of a calendar; Review is the green of a checkmark.
+        ActiveList::Agenda => Some("atrium-canonical-agenda"),
+        ActiveList::Forecast => Some("atrium-canonical-forecast"),
+        ActiveList::Review => Some("atrium-canonical-review"),
         ActiveList::Anytime => None,
         _ => None,
     }
+}
+
+/// v0.6.7 — non-canonical rows that join the top tier (alongside
+/// Inbox / Today / etc.). Agenda is mode-agnostic — it's a plain
+/// read view of the user's now-picture and surfaces in both
+/// Simple and Builder. Forecast and Review carry Builder-only
+/// concepts (calendar projection / project review cadence) so
+/// they only appear in Builder mode.
+fn top_tier_extras(builder: bool) -> Vec<(ActiveList, &'static str)> {
+    let mut out: Vec<(ActiveList, &'static str)> = Vec::with_capacity(3);
+    out.push((ActiveList::Agenda, "Agenda"));
+    if builder {
+        out.push((ActiveList::Forecast, "Forecast"));
+        out.push((ActiveList::Review, "Review"));
+    }
+    out
 }
 
 fn build_area_row(area: &Area) -> (gtk::ListBoxRow, gtk::Label) {
@@ -4857,6 +4872,44 @@ mod tests {
         assert!(CANONICAL_LISTS.contains(&ActiveList::Inbox));
         assert!(CANONICAL_LISTS.contains(&ActiveList::Today));
         assert!(CANONICAL_LISTS.contains(&ActiveList::Logbook));
+    }
+
+    #[test]
+    fn top_tier_extras_in_simple_mode_is_just_agenda() {
+        let extras = top_tier_extras(false);
+        assert_eq!(extras.len(), 1);
+        assert_eq!(extras[0].0, ActiveList::Agenda);
+        assert_eq!(extras[0].1, "Agenda");
+    }
+
+    #[test]
+    fn top_tier_extras_in_builder_mode_adds_forecast_and_review() {
+        let extras = top_tier_extras(true);
+        assert_eq!(extras.len(), 3);
+        // Order matters — Agenda first because it's mode-agnostic
+        // and the user's most likely "where am I now?" entry.
+        assert_eq!(extras[0].0, ActiveList::Agenda);
+        assert_eq!(extras[1].0, ActiveList::Forecast);
+        assert_eq!(extras[2].0, ActiveList::Review);
+    }
+
+    #[test]
+    fn agenda_forecast_review_have_accent_classes() {
+        // v0.6.7 — top-tier extras tint their icons just like the
+        // canonical rows. Pinning the class names so a future tweak
+        // doesn't quietly drop the accent and turn the icons grey.
+        assert_eq!(
+            canonical_accent_class(&ActiveList::Agenda),
+            Some("atrium-canonical-agenda")
+        );
+        assert_eq!(
+            canonical_accent_class(&ActiveList::Forecast),
+            Some("atrium-canonical-forecast")
+        );
+        assert_eq!(
+            canonical_accent_class(&ActiveList::Review),
+            Some("atrium-canonical-review")
+        );
     }
 
     // Build a fake sidebar layout: 2 canonical, then "Areas" header

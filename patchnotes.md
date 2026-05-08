@@ -1,5 +1,40 @@
 # Atrium — Patch Notes
 
+## v0.6.7 (2026-05-08) — sidebar reorganisation: Agenda / Forecast / Review join the top tier
+
+The "Builder" sidebar header is gone. Agenda / Forecast / Review
+no longer hide at the bottom of the sidebar in Builder mode — they
+now sit in the top tier alongside Inbox / Today / Upcoming /
+Anytime / Someday / Logbook, with their own accent tints:
+
+- **Agenda** appears in *both* Simple and Builder modes (the
+  agenda is a pure read view with no Builder-only concepts;
+  it makes sense to surface it everywhere). Accent: warning
+  red on the alarm-clock icon, so urgency reads at a glance.
+- **Forecast** + **Review** stay Builder-only but join the top
+  tier in that mode. Accents: cool blue (calendar) and success
+  green (checkmark).
+
+Perspectives section moves up from the bottom of the sidebar to
+right under the top-tier group — above Areas, below "the Inbox
+grouping," exactly as the user wanted.
+
+Final sidebar order:
+
+- **Both modes:** Inbox, Today, Upcoming, Anytime, Someday,
+  Logbook, Agenda
+- **Builder mode adds:** Forecast, Review (still in the top
+  tier), then a "Perspectives" section header + its rows
+  underneath
+- **Both modes continue with:** Areas (and nested projects),
+  Unfiled projects, Tags
+
+What's in the patch:
+
+- **`atrium/src/ui/window.rs`.** New `top_tier_extras(builder)` helper returns the post-canonical rows that should appear in the current mode. `rebuild_dynamic_sidebar` now appends those rows + the Perspectives section *before* Areas, instead of the old "Builder" section header at the bottom. `canonical_accent_class` extended to cover Agenda / Forecast / Review.
+- **`data/style.css`.** Three new accent rules (`.atrium-canonical-agenda` → `@warning_color`, `.atrium-canonical-forecast` → `@accent_color`, `.atrium-canonical-review` → `@success_color`). Same alpha treatment the canonical rows already use, so they sit alongside without screaming.
+- **Three new unit tests** pin the top-tier shape (Simple = just Agenda; Builder = Agenda + Forecast + Review in that order) and the accent-class wiring so a future tweak can't quietly drop the tints.
+
 ## v0.6.6 (2026-05-08) — kanban drag-drop CPU mitigation
 
 Two targeted optimisations to address the CPU spike Brandon

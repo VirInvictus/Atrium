@@ -387,6 +387,15 @@ window.atrium-quickentry-window {
 .atrium-canonical-upcoming image { color: alpha(@green_4, 0.85); }
 .atrium-canonical-someday image  { color: alpha(@purple_3, 0.85); }
 .atrium-canonical-logbook image  { color: alpha(@purple_2, 0.75); }
+/* v0.6.7 — Agenda / Forecast / Review join the top tier. Agenda's
+ * alarm icon takes the warning red so it reads as urgency at a
+ * glance; Forecast picks up a cool blue (calendar); Review uses
+ * the success green (validation / done-with-it). Same alpha
+ * convention so they sit alongside the existing canonicals
+ * without screaming. */
+.atrium-canonical-agenda image   { color: alpha(@warning_color, 0.85); }
+.atrium-canonical-forecast image { color: alpha(@accent_color, 0.85); }
+.atrium-canonical-review image   { color: alpha(@success_color, 0.85); }
 
 /* v0.3.0 — sidebar section headers ("Areas", "Tags", "Builder",
  * "Perspectives"). Adds a subtle top border to mark the section

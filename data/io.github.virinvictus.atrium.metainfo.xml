@@ -90,6 +90,22 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.7" date="2026-05-08">
+      <description>
+        <p>Sidebar reorganisation. Agenda / Forecast / Review
+           no longer hide at the bottom of the Builder section
+           — they now sit in the top tier alongside Inbox /
+           Today / etc., each with its own subtle icon tint
+           (red for the urgent alarm of Agenda, blue for the
+           calendar of Forecast, green for the checkmark of
+           Review). Agenda is mode-agnostic and appears in
+           both Simple and Builder; Forecast and Review stay
+           Builder-only but join the top tier when visible.
+           The "Perspectives" section moves up to right under
+           the top-tier group — above Areas, below the Inbox
+           grouping. The "Builder" sidebar header is gone.</p>
+      </description>
+    </release>
     <release version="0.6.6" date="2026-05-08">
       <description>
         <p>Kanban drag-drop CPU mitigation. Two targeted
