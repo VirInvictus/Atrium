@@ -6,7 +6,7 @@
 //! database, which is more painful than scripting `atrium-cli` for
 //! the same coverage.
 
-use crate::args::{Format, Subcommand, parse};
+use crate::args::{AddArgs, Format, Subcommand, parse};
 use crate::output::{Row, format_row, format_rows, format_rows_human, row_to_json, rows_to_json};
 
 fn s(args: &[&str]) -> Vec<String> {
@@ -155,6 +155,154 @@ fn parse_info_with_human_flag() {
 fn parse_unknown_subcommand_errors() {
     let err = parse(&s(&["frobnicate"])).unwrap_err();
     assert!(err.contains("unknown subcommand"));
+}
+
+// ── Write subcommands ──────────────────────────────────────────
+
+#[test]
+fn parse_add_with_just_a_title() {
+    let a = parse(&s(&["add", "Buy milk"])).unwrap();
+    let Some(Subcommand::Add(add)) = a.subcommand else {
+        panic!("expected Add");
+    };
+    assert_eq!(add.title, "Buy milk");
+    assert!(add.tags.is_empty());
+    assert!(add.scheduled.is_none());
+}
+
+#[test]
+fn parse_add_joins_multi_word_title() {
+    // No quotes — shell already split on spaces. atrium-cli rejoins.
+    let a = parse(&s(&["add", "Buy", "milk", "and", "eggs"])).unwrap();
+    let Some(Subcommand::Add(add)) = a.subcommand else {
+        panic!("expected Add");
+    };
+    assert_eq!(add.title, "Buy milk and eggs");
+}
+
+#[test]
+fn parse_add_collects_tag_flags() {
+    let a = parse(&s(&[
+        "add", "Buy milk", "--tag", "errand", "--tag", "grocery",
+    ]))
+    .unwrap();
+    let Some(Subcommand::Add(add)) = a.subcommand else {
+        panic!("expected Add");
+    };
+    assert_eq!(add.tags, vec!["errand".to_string(), "grocery".into()]);
+}
+
+#[test]
+fn parse_add_picks_up_date_flags() {
+    let a = parse(&s(&[
+        "add",
+        "Buy milk",
+        "--scheduled",
+        "today",
+        "--due",
+        "2026-05-20",
+        "--defer",
+        "tomorrow",
+    ]))
+    .unwrap();
+    let Some(Subcommand::Add(add)) = a.subcommand else {
+        panic!("expected Add");
+    };
+    assert_eq!(add.scheduled, Some("today".into()));
+    assert_eq!(add.due, Some("2026-05-20".into()));
+    assert_eq!(add.defer, Some("tomorrow".into()));
+}
+
+#[test]
+fn parse_add_estimated_must_be_integer() {
+    let err = parse(&s(&["add", "Buy", "--estimated", "thirty"])).unwrap_err();
+    assert!(err.contains("--estimated"));
+    assert!(err.contains("integer"));
+}
+
+#[test]
+fn parse_add_supports_when_alias() {
+    // `--when` aliases `--scheduled` to match Atrium's GUI vocab.
+    let a = parse(&s(&["add", "Buy", "--when", "today"])).unwrap();
+    let Some(Subcommand::Add(add)) = a.subcommand else {
+        panic!("expected Add");
+    };
+    assert_eq!(add.scheduled, Some("today".into()));
+}
+
+#[test]
+fn parse_add_supports_deadline_alias() {
+    let a = parse(&s(&["add", "Buy", "--deadline", "today"])).unwrap();
+    let Some(Subcommand::Add(add)) = a.subcommand else {
+        panic!("expected Add");
+    };
+    assert_eq!(add.due, Some("today".into()));
+}
+
+#[test]
+fn parse_add_with_format_flag_anywhere() {
+    // Global flags can appear interleaved with the title / flags.
+    let a = parse(&s(&["add", "Buy", "milk", "--json"])).unwrap();
+    assert_eq!(a.format, Format::Json);
+}
+
+#[test]
+fn parse_add_empty_title_errors() {
+    let err = parse(&s(&["add", "--tag", "errand"])).unwrap_err();
+    assert!(err.contains("title"));
+}
+
+#[test]
+fn parse_add_unknown_flag_errors() {
+    let err = parse(&s(&["add", "Buy", "--frobulate", "x"])).unwrap_err();
+    assert!(err.contains("unknown flag"));
+}
+
+#[test]
+fn parse_complete_takes_id() {
+    let a = parse(&s(&["complete", "42"])).unwrap();
+    assert_eq!(a.subcommand, Some(Subcommand::Complete { id: 42 }));
+}
+
+#[test]
+fn parse_complete_aliases() {
+    // `done` and `toggle` route to the same Complete branch.
+    assert_eq!(
+        parse(&s(&["done", "7"])).unwrap().subcommand,
+        Some(Subcommand::Complete { id: 7 })
+    );
+    assert_eq!(
+        parse(&s(&["toggle", "7"])).unwrap().subcommand,
+        Some(Subcommand::Complete { id: 7 })
+    );
+}
+
+#[test]
+fn parse_delete_takes_id() {
+    let a = parse(&s(&["delete", "42"])).unwrap();
+    assert_eq!(a.subcommand, Some(Subcommand::Delete { id: 42 }));
+}
+
+#[test]
+fn parse_delete_rm_alias() {
+    assert_eq!(
+        parse(&s(&["rm", "9"])).unwrap().subcommand,
+        Some(Subcommand::Delete { id: 9 })
+    );
+}
+
+#[test]
+fn parse_complete_invalid_id_errors() {
+    let err = parse(&s(&["complete", "not-a-number"])).unwrap_err();
+    assert!(err.contains("invalid task id"));
+}
+
+#[test]
+fn add_args_default_is_empty() {
+    let add = AddArgs::default();
+    assert!(add.title.is_empty());
+    assert!(add.tags.is_empty());
+    assert!(add.scheduled.is_none());
 }
 
 #[test]

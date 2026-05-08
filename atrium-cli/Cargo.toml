@@ -19,10 +19,16 @@ atrium-search = { path = "../atrium-search" }
 # parsing for output).
 chrono.workspace = true
 
-# Direct read-only access to the SQLite store. We don't use the
-# worker channel here — atrium-cli is single-shot and short-lived,
-# so we open one read-only connection per invocation.
+# Direct read-only access to the SQLite store for read commands.
+# Write commands (add, complete, delete) use the existing
+# atrium-core worker pattern instead — that's what serialises
+# writes when Atrium's GUI is also running.
 rusqlite.workspace = true
+
+# Worker dispatch lives behind tokio's mpsc channels; the CLI
+# builds a current-thread runtime, spawns the worker, blocks on
+# one async call, and shuts down. No GTK main loop needed.
+tokio.workspace = true
 
 # Structured output. serde_json is already in the workspace dep
 # graph; the CLI uses it for the `--json` formatter.

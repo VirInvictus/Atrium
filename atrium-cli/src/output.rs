@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: MIT
 //! Output formatters — TSV (default), JSON, and human-readable.
 
-use atrium_core::Task;
+use std::collections::HashMap;
+
+use atrium_core::{Area, Perspective, Project, Tag, Task};
 use serde::Serialize;
+
+use crate::args::Format;
 
 /// One output row, derived from a Task plus the cached metadata
 /// (project / area title resolution, tag-name aggregation).
@@ -165,5 +169,182 @@ fn truncate(s: &str, max: usize) -> String {
     } else {
         let head: String = s.chars().take(max - 1).collect();
         format!("{head}…")
+    }
+}
+
+// ── Metadata-list printers ──────────────────────────────────────
+
+const AREA_TSV_HEADER: &str = "id\ttitle\tcolor\tposition";
+const PROJECT_TSV_HEADER: &str = "id\ttitle\tarea\tsequential\treview_interval_days\tarchived";
+const TAG_TSV_HEADER: &str = "id\tname\tcolor";
+const PERSPECTIVE_TSV_HEADER: &str = "id\tname\ticon\trenderer\tfilter_expr";
+
+pub fn print_areas(areas: &[Area], format: Format) {
+    match format {
+        Format::Json => println!(
+            "{}",
+            serde_json::to_string(areas).unwrap_or_else(|_| "[]".into())
+        ),
+        Format::Tsv => {
+            println!("{AREA_TSV_HEADER}");
+            for a in areas {
+                println!(
+                    "{}\t{}\t{}\t{}",
+                    a.id,
+                    sanitize_tsv(&a.title),
+                    a.color.as_deref().unwrap_or(""),
+                    a.position
+                );
+            }
+        }
+        Format::Human => {
+            if areas.is_empty() {
+                println!("(no areas)");
+            } else {
+                for a in areas {
+                    let swatch = a
+                        .color
+                        .as_deref()
+                        .map(|c| format!("  {c}"))
+                        .unwrap_or_default();
+                    println!("{:>3}  {}{}", a.id, a.title, swatch);
+                }
+            }
+        }
+    }
+}
+
+pub fn print_projects(projects: &[Project], area_titles: &HashMap<i64, String>, format: Format) {
+    match format {
+        Format::Json => println!(
+            "{}",
+            serde_json::to_string(projects).unwrap_or_else(|_| "[]".into())
+        ),
+        Format::Tsv => {
+            println!("{PROJECT_TSV_HEADER}");
+            for p in projects {
+                let area = p
+                    .area_id
+                    .and_then(|aid| area_titles.get(&aid).cloned())
+                    .unwrap_or_default();
+                println!(
+                    "{}\t{}\t{}\t{}\t{}\t{}",
+                    p.id,
+                    sanitize_tsv(&p.title),
+                    sanitize_tsv(&area),
+                    if p.sequential { "true" } else { "false" },
+                    p.review_interval_days
+                        .map(|n| n.to_string())
+                        .unwrap_or_default(),
+                    if p.archived_at.is_some() {
+                        "true"
+                    } else {
+                        "false"
+                    },
+                );
+            }
+        }
+        Format::Human => {
+            if projects.is_empty() {
+                println!("(no projects)");
+            } else {
+                for p in projects {
+                    let area = p
+                        .area_id
+                        .and_then(|aid| area_titles.get(&aid).cloned())
+                        .map(|a| format!("  {a} ›"))
+                        .unwrap_or_default();
+                    let mut suffix = Vec::new();
+                    if p.sequential {
+                        suffix.push("sequential".to_string());
+                    }
+                    if let Some(n) = p.review_interval_days {
+                        suffix.push(format!("review every {n}d"));
+                    }
+                    if p.archived_at.is_some() {
+                        suffix.push("archived".into());
+                    }
+                    let suffix_str = if suffix.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  ({})", suffix.join(", "))
+                    };
+                    println!("{:>3} {} {}{}", p.id, area, p.title, suffix_str);
+                }
+            }
+        }
+    }
+}
+
+pub fn print_tags(tags: &[Tag], format: Format) {
+    match format {
+        Format::Json => println!(
+            "{}",
+            serde_json::to_string(tags).unwrap_or_else(|_| "[]".into())
+        ),
+        Format::Tsv => {
+            println!("{TAG_TSV_HEADER}");
+            for t in tags {
+                println!(
+                    "{}\t{}\t{}",
+                    t.id,
+                    sanitize_tsv(&t.name),
+                    t.color.as_deref().unwrap_or("")
+                );
+            }
+        }
+        Format::Human => {
+            if tags.is_empty() {
+                println!("(no tags)");
+            } else {
+                for t in tags {
+                    let swatch = t
+                        .color
+                        .as_deref()
+                        .map(|c| format!("  {c}"))
+                        .unwrap_or_default();
+                    println!("{:>3}  #{}{}", t.id, t.name, swatch);
+                }
+            }
+        }
+    }
+}
+
+pub fn print_perspectives(perspectives: &[Perspective], format: Format) {
+    match format {
+        Format::Json => println!(
+            "{}",
+            serde_json::to_string(perspectives).unwrap_or_else(|_| "[]".into())
+        ),
+        Format::Tsv => {
+            println!("{PERSPECTIVE_TSV_HEADER}");
+            for p in perspectives {
+                println!(
+                    "{}\t{}\t{}\t{}\t{}",
+                    p.id,
+                    sanitize_tsv(&p.name),
+                    p.icon.as_deref().unwrap_or(""),
+                    p.renderer,
+                    sanitize_tsv(&p.filter_expr),
+                );
+            }
+        }
+        Format::Human => {
+            if perspectives.is_empty() {
+                println!("(no perspectives)");
+            } else {
+                for p in perspectives {
+                    let icon = p
+                        .icon
+                        .as_deref()
+                        .map(|i| format!("[{i}]"))
+                        .unwrap_or_else(|| "[default]".into());
+                    println!("{:>3}  {}  {}  ({})", p.id, p.name, icon, p.renderer);
+                    if !p.filter_expr.is_empty() {
+                        println!("       {}", p.filter_expr);
+                    }
+                }
+            }
+        }
     }
 }
