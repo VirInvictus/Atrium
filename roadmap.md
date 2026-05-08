@@ -176,6 +176,8 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 ## Phase 12.5: Builder Mode — Calendar Month View
 *The other side of Forecast — a familiar month grid for users who think in calendar pages.*
 
+> **Subsumed by Phase 15.75 Slice D2 (the Overview view).** The agenda + calendar combination unifies what was previously planned as a standalone Calendar Month View — the agenda half is already covered by Forecast, so a separate calendar page would duplicate. Items below stay as the design reference for the calendar half of Slice D2.
+
 - [ ] **Month-grid widget:** `GtkGrid` of 7 columns × 5–6 weeks; each cell is a day. Optional ISO week-number column on the left.
 - [ ] **Per-day task rendering:** count badge for normal density; up to ~3 task titles inline; "+N more" overflow link that opens a popover with the full day's list.
 - [ ] **Today indicator** + overdue/due-today emphasis + month/year header that updates with navigation.
@@ -241,7 +243,9 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 - [x] **atrium-search workspace crate (v0.4.2).** Lifted `atrium-core/src/search/` into its own sibling crate. Same code, same tests; the search engine can be exercised, fuzzed, and reused (atrium-cli + future TUI / atriumd / search server) without dragging the SQLite/worker layer along.
 - [x] **atrium-cli workspace crate (v0.4.3 → v0.4.7).** Headless binary with full task CRUD plus metadata reads. Reads (`search`, `list`, `info`) open `SQLITE_OPEN_READ_ONLY`; writes (`add`, `capture`, `edit`, `complete`, `delete`) spin up the worker on a current-thread tokio runtime. TSV (default) / JSON / human output formats. Quick Entry parser (`#tag` / `@today` / `@deadline ...`) lifted from the GTK binary into `atrium_core::quick_entry` so atrium-cli's `capture` reuses the exact same grammar.
 - [ ] **Slice C — GTD audit fixes (deferred to v0.6.0).** First-run seed of a Weekly Review Perspective; Logbook day-grouping headers (Today / Yesterday / Last 7 Days / Older); `docs/gtd-patterns.md` documenting the `#waiting` user-tag idiom for "waiting on someone."
-- [ ] **Slice D — Board view (deferred to v0.6.0).** Saved Perspectives gain a `renderer = 'board'` option that renders the filter expression as a kanban with tag-axis columns. Schema columns shipped at v0.5.0 (Slice A); UI is Slice D.
+- [ ] **Slice D — Big new view work (deferred to v0.6.0).** Two subslices, both renderer-shaped (one task list + multiple ways to look at it):
+  - **D1: Kanban board.** Saved Perspectives gain a `renderer = 'board'` option that renders the filter expression as a kanban with tag-axis columns. Schema columns shipped at v0.5.0 (Slice A — `perspective.renderer` + `perspective.renderer_config`). Drag-between columns updates the column-axis tag on the dragged task. AdwToggleGroup [List | Board] on the Perspective page header.
+  - **D2: Org-mode-style agenda + calendar Overview.** A unified view with two panes — an agenda list (today, upcoming scheduled, overdue, repeating cycles approaching) and a calendar month grid alongside / below it. Click a task in the agenda to navigate to it; click a day in the calendar to filter the agenda to that day. Subsumes the original Phase 12.5 "Calendar Month View" — the agenda half is already covered by Forecast, so D2 unifies and extends rather than duplicates. New top-level sidebar entry "Overview" in Builder Mode, alongside Forecast / Review / Perspectives.
 - [ ] **CLI bulk operations.** `atrium-cli complete --where 'is:overdue'` to bulk-toggle matched tasks. The pieces are all in place; just needs a flag-driven dispatcher.
 - [ ] **Regression-script integration.** `scripts/regression.sh` should exercise atrium-cli end-to-end against a fixture DB so the architectural commitment ("every non-GUI surface stays CLI-testable") is verified at every release.
 
