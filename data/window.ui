@@ -360,13 +360,25 @@
                                       </object>
                                     </child>
                                     <child>
+                                      <!-- v0.5.0 (Slice B1) wraps the list in an
+                                           AdwClamp so the rows don't stretch into
+                                           runway on wide windows — Things-3-style
+                                           paper-list calm without forging shadows.
+                                           720 px is the max width; below that the
+                                           list takes the available space. -->
                                       <object class="GtkScrolledWindow">
                                         <property name="hscrollbar-policy">never</property>
                                         <property name="vexpand">true</property>
                                         <property name="child">
-                                          <object class="GtkListView" id="task_list_view">
-                                            <property name="show-separators">true</property>
-                                            <property name="single-click-activate">false</property>
+                                          <object class="AdwClamp">
+                                            <property name="maximum-size">720</property>
+                                            <property name="child">
+                                              <object class="GtkListView" id="task_list_view">
+                                                <property name="show-separators">true</property>
+                                                <property name="single-click-activate">false</property>
+                                                <property name="margin-top">12</property>
+                                              </object>
+                                            </property>
                                           </object>
                                         </property>
                                       </object>

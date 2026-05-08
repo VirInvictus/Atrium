@@ -131,13 +131,21 @@ window.atrium-high-legibility .atrium-task-deadline {
  * subtle background that rises with the accent colour gives the row
  * tactile feedback when the pointer passes over. The selection
  * highlight (libadwaita default) wins over hover when both fire,
- * which is what users expect. */
+ * which is what users expect.
+ *
+ * v0.5.0 (Slice B1) bumps the hover alpha 0.08 → 0.10 so the chip
+ * reads more present without becoming a button, and adds an inset
+ * 1 px @card_shade_color bottom edge for a subtle "lift" depth cue
+ * on hover (the only sanctioned depth proxy in Adwaita — actual
+ * box-shadows fight the platform). */
 .atrium-task-row {
-  transition: opacity 180ms ease-out, background-color 120ms ease-out;
+  transition: opacity 180ms ease-out, background-color 120ms ease-out,
+              box-shadow 120ms ease-out;
   border-radius: 6px;
 }
 .atrium-task-row:hover {
-  background-color: alpha(@accent_bg_color, 0.08);
+  background-color: alpha(@accent_bg_color, 0.10);
+  box-shadow: inset 0 -1px 0 @card_shade_color;
 }
 .atrium-task-row.completed {
   opacity: 0.55;
@@ -281,14 +289,20 @@ window.atrium-quickentry-window {
   animation: atrium-quickentry-fade-in 150ms ease-out;
 }
 
-/* Note bodies use the serif. The selector lands in Phase 4 with the
- * actual editor; declared here as a foundation. The serif intentionally
- * doesn't pick up cv11/ss01 — those are Inter-only. */
+/* Note bodies use the serif. v0.5.0 (Slice B1) wires the class
+ * through to both inspectors' Notes textviews and switches the
+ * face to Source Serif 4 italic — Things-3-style "writing surface"
+ * differentiation from the sans UI. Italic body text is unusual,
+ * but constrained to the editable Notes field where the user is
+ * writing prose, the cue lands as "different mode" rather than
+ * "harder to read." The serif intentionally doesn't pick up
+ * cv11/ss01 — those are Inter-only. */
 .atrium-note-body {
   font-family: var(--atrium-font-serif);
+  font-style: italic;
   font-feature-settings: normal;
   font-size: 1.05em;
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
 /* Debug pane / SQL trace surface use the monospace. JetBrains Mono
@@ -340,7 +354,7 @@ window.atrium-quickentry-window {
  * doesn't compete. */
 .atrium-sidebar-section {
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   font-size: 0.78em;
   border-top: 1px solid alpha(@borders, 0.4);

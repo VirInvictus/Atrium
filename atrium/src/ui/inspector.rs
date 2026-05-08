@@ -161,6 +161,7 @@ pub fn open<F>(
         .right_margin(10)
         .build();
     notes_view.add_css_class("atrium-inspector-notes");
+    notes_view.add_css_class("atrium-note-body");
     let notes_scroll = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .child(&notes_view)
