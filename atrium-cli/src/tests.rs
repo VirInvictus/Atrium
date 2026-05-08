@@ -259,6 +259,42 @@ fn parse_add_unknown_flag_errors() {
 }
 
 #[test]
+fn parse_capture_single_line() {
+    let a = parse(&s(&["capture", "Buy milk #errand @today"])).unwrap();
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Capture {
+            line: "Buy milk #errand @today".into()
+        })
+    );
+}
+
+#[test]
+fn parse_capture_joins_words() {
+    // Shell already split — atrium-cli rejoins.
+    let a = parse(&s(&["capture", "Buy", "milk", "#errand", "@today"])).unwrap();
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Capture {
+            line: "Buy milk #errand @today".into()
+        })
+    );
+}
+
+#[test]
+fn parse_capture_with_format_flag() {
+    let a = parse(&s(&["capture", "Buy milk #errand", "--json"])).unwrap();
+    assert_eq!(a.format, Format::Json);
+    assert!(matches!(a.subcommand, Some(Subcommand::Capture { .. })));
+}
+
+#[test]
+fn parse_capture_empty_errors() {
+    let err = parse(&s(&["capture"])).unwrap_err();
+    assert!(err.contains("capture"));
+}
+
+#[test]
 fn parse_complete_takes_id() {
     let a = parse(&s(&["complete", "42"])).unwrap();
     assert_eq!(a.subcommand, Some(Subcommand::Complete { id: 42 }));

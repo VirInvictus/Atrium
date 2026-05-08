@@ -96,6 +96,9 @@ fn run(args: args::Args) -> ExitCode {
         Subcommand::Add(add) => with_writer(&db_path, |handle, conn| {
             run_add(handle, conn, add, args.format)
         }),
+        Subcommand::Capture { line } => with_writer(&db_path, |handle, conn| {
+            run_capture(handle, conn, &line, args.format)
+        }),
         Subcommand::Complete { id } => with_writer(&db_path, |handle, conn| {
             run_complete(handle, conn, id, args.format)
         }),
@@ -341,6 +344,55 @@ fn run_add(
 
     // Re-read so the row reflects the post-tag state, plus a fresh
     // ContextData (tags landed since the open).
+    let task = read::task_by_id(read_conn, task.id)
+        .map_err(CliError::from)?
+        .ok_or(CliError::NotFound(task.id))?;
+    let ctx_data = ContextData::load(read_conn)?;
+    let row = build_row(&task, &ctx_data);
+    print_single_row(&task, &row, format);
+    Ok(())
+}
+
+/// `capture` — single-string Quick Entry equivalent. Parses the
+/// line through atrium_core::quick_entry (the same parser the GUI's
+/// Quick Entry modal and bottom-of-list entry use) and creates a
+/// task with the resolved title / tags / scheduled / deadline.
+/// Drops to Inbox (no project) — matching the GUI's Quick Entry
+/// behaviour per spec §6.
+fn run_capture(
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
+    line: &str,
+    format: Format,
+) -> CliResult<()> {
+    let parsed = atrium_core::quick_entry::parse(line);
+    if parsed.title.trim().is_empty() && parsed.tag_names.is_empty() {
+        return Err(CliError::Args(
+            "capture line is empty after parsing inline syntax".into(),
+        ));
+    }
+    let new = NewTask {
+        title: parsed.title.clone(),
+        scheduled_for: parsed.scheduled_for,
+        deadline: parsed.deadline,
+        ..Default::default()
+    };
+    let runtime = tokio::runtime::Handle::current();
+    let task = runtime
+        .block_on(async { handle.create_task(new).await })
+        .map_err(CliError::from)?;
+    if !parsed.tag_names.is_empty() {
+        let mut tag_ids: Vec<i64> = Vec::with_capacity(parsed.tag_names.len());
+        for name in &parsed.tag_names {
+            let tag = runtime
+                .block_on(async { handle.ensure_tag(name.clone()).await })
+                .map_err(CliError::from)?;
+            tag_ids.push(tag.id);
+        }
+        let _ = runtime
+            .block_on(async { handle.set_task_tags(task.id, tag_ids).await })
+            .map_err(CliError::from)?;
+    }
     let task = read::task_by_id(read_conn, task.id)
         .map_err(CliError::from)?
         .ok_or(CliError::NotFound(task.id))?;

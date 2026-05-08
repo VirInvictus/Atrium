@@ -13,8 +13,9 @@
 //! Anything else is title text. Unrecognised `@foo` strings stay in
 //! the title verbatim — no silent data loss.
 
-use atrium_core::ScheduledFor;
 use chrono::{Local, NaiveDate};
+
+use crate::ScheduledFor;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ParsedEntry {

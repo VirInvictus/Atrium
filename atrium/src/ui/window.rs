@@ -1961,7 +1961,7 @@ impl AtriumWindow {
             return;
         };
         let active = self.active_list();
-        let parsed = crate::quickentry::parser::parse(&raw_input);
+        let parsed = atrium_core::quick_entry::parse(&raw_input);
         if parsed.title.is_empty() && parsed.tag_names.is_empty() {
             return;
         }

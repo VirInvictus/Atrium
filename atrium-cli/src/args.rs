@@ -47,6 +47,11 @@ WRITE SUBCOMMANDS:
                         --due DATE          YYYY-MM-DD, today, tomorrow
                         --defer DATE        YYYY-MM-DD, today, tomorrow
                         --estimated MINUTES integer minutes
+    capture LINE      Quick-Entry-style one-shot capture. Parses the
+                      line for inline `#tag` / `@today` / `@tomorrow`
+                      / `@someday` / `@yyyy-mm-dd` / `@deadline ...`
+                      syntax exactly like the GUI's bottom-of-list
+                      entry and Quick Entry modal. Drops to Inbox.
     complete ID       toggle a task's completion (same as the GTK
                       checkbox; calling twice un-completes).
     delete ID         delete a task. Prints the row before deletion
@@ -59,6 +64,8 @@ EXAMPLES:
     atrium-cli info 42 --human
     atrium-cli add 'Buy milk' --tag errand --due tomorrow
     atrium-cli add 'Q3 retrospective notes' --project 'Q3 plans' --scheduled today
+    atrium-cli capture 'Buy milk #errand @today'
+    atrium-cli capture 'File taxes #urgent @deadline 2026-04-15'
     atrium-cli complete 42
     atrium-cli list tags --json | jq '.[] | .name'
 ";
@@ -81,12 +88,28 @@ pub enum Format {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Subcommand {
-    Search { expression: String },
-    List { name: String },
-    Info { id: i64 },
+    Search {
+        expression: String,
+    },
+    List {
+        name: String,
+    },
+    Info {
+        id: i64,
+    },
     Add(AddArgs),
-    Complete { id: i64 },
-    Delete { id: i64 },
+    /// `capture LINE` — Quick-Entry-style one-shot capture.
+    /// LINE is a single string parsed for `#tag` / `@date` /
+    /// `@deadline ...` inline syntax via atrium_core::quick_entry.
+    Capture {
+        line: String,
+    },
+    Complete {
+        id: i64,
+    },
+    Delete {
+        id: i64,
+    },
 }
 
 /// Fields populated from the `add` subcommand's flag soup. Resolved
@@ -198,6 +221,18 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
             Subcommand::Info { id }
         }
         "add" => parse_add(&raw[i..], &mut args)?,
+        "capture" => {
+            // `capture` joins the rest of argv into one line so the
+            // user doesn't have to quote unless they want to embed a
+            // literal newline. Trailing global flags are still
+            // honoured (atrium-cli capture 'Buy milk #errand' --json).
+            let (line, trailing) = collect_expression_and_flags(&raw[i..]);
+            apply_trailing_flags(&trailing, &mut args)?;
+            if line.trim().is_empty() {
+                return Err("capture requires a line of text".into());
+            }
+            Subcommand::Capture { line }
+        }
         "complete" | "done" | "toggle" => {
             let id_str = raw.get(i).ok_or("complete requires a task id")?;
             i += 1;
