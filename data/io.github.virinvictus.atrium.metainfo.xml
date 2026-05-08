@@ -90,6 +90,20 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.12" date="2026-05-08">
+      <description>
+        <p>Patch B — state-aware row treatment. The biggest
+           visual win in the screenshot-cleanup arc. Each
+           task row classifies into Overdue / Today /
+           Upcoming / Neutral based on its dates + completion
+           state, and the leading checkbox + the right-hand
+           schedule / deadline pills tint accordingly:
+           strong red on overdue, warm amber on today, theme
+           accent on upcoming, neutral on completed +
+           untimed. The eye picks up urgency without having
+           to read each date column.</p>
+      </description>
+    </release>
     <release version="0.6.11" date="2026-05-08">
       <description>
         <p>Screenshot-driven cleanup, Patch A — eight quick

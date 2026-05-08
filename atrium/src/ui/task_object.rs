@@ -64,6 +64,12 @@ mod imp {
         /// the 3 px left-border stripe.
         #[property(get, set)]
         pub area_color: RefCell<String>,
+        /// State string for the v0.6.12 state-aware row treatment.
+        /// One of overdue / today / upcoming, or empty for neutral
+        /// and completed rows; the factory translates the value
+        /// into a CSS class. See `classify_row_state`.
+        #[property(get, set)]
+        pub row_state: RefCell<String>,
     }
 
     #[glib::object_subclass]
@@ -102,6 +108,7 @@ impl AtriumTask {
         obj.set_deadline_label(format_deadline(task.deadline));
         obj.set_position(task.position);
         obj.set_tag_names_csv(format_tag_names(pills));
+        obj.set_row_state(classify_row_state(task));
         obj
     }
 
@@ -129,6 +136,62 @@ impl AtriumTask {
         if (self.position() - task.position).abs() > f64::EPSILON {
             self.set_position(task.position);
         }
+        let new_state = classify_row_state(task);
+        if self.row_state() != new_state {
+            self.set_row_state(new_state);
+        }
+    }
+}
+
+/// Classify a task into a row-state string for the v0.6.12
+/// state-aware row treatment. Returns `""` (neutral) for completed
+/// tasks (the existing `.completed` CSS class already handles them)
+/// and for tasks with no time anchor. Otherwise returns one of
+/// `"overdue"`, `"today"`, or `"upcoming"`. The classifier reads
+/// `chrono::Local` once per call — the row updates on every
+/// `refresh_from`, which fires on the worker's task-change deltas.
+///
+/// Rules (mirrors the in-memory evaluator's state predicates and
+/// the agenda's `classify`):
+/// - Overdue: open AND deadline < today.
+/// - Today: open AND most-imminent date == today (where most-
+///   imminent = min(scheduled, deadline)).
+/// - Upcoming: open AND most-imminent date > today (and within a
+///   short window the eye reads as "soon").
+/// - Neutral: completed, no time anchor, or scheduled-someday.
+fn classify_row_state(task: &Task) -> String {
+    use chrono::Local;
+    if task.completed_at.is_some() {
+        return String::new();
+    }
+    let today = Local::now().date_naive();
+    if let Some(deadline) = task.deadline
+        && deadline < today
+    {
+        return "overdue".into();
+    }
+    let scheduled_date = match &task.scheduled_for {
+        Some(ScheduledFor::Date(d)) => Some(*d),
+        _ => None,
+    };
+    let most_imminent = match (scheduled_date, task.deadline) {
+        (Some(s), Some(d)) => Some(s.min(d)),
+        (Some(s), None) => Some(s),
+        (None, Some(d)) => Some(d),
+        (None, None) => None,
+    };
+    let Some(date) = most_imminent else {
+        return String::new();
+    };
+    if date == today {
+        "today".into()
+    } else if date > today {
+        "upcoming".into()
+    } else {
+        // Past scheduled (no deadline) — treated as neutral; the
+        // user already let it slide, no point flashing red on a
+        // schedule that wasn't a hard commitment.
+        String::new()
     }
 }
 

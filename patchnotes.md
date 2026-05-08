@@ -1,5 +1,39 @@
 # Atrium — Patch Notes
 
+## v0.6.12 (2026-05-08) — Patch B: state-aware row treatment
+
+The biggest visual win in the screenshot-cleanup arc. Each row now
+classifies into one of three states based on its dates + completion
+state, and the leading checkbox + the right-hand schedule / deadline
+pills tint accordingly. The eye picks up "needs attention" without
+reading the dates.
+
+States (mirrors the in-memory evaluator + agenda classify rules):
+
+- **Overdue** — open AND deadline < today. Strong red on checkbox
+  + deadline pill. The eye doesn't get to look anywhere else.
+- **Today** — open AND most-imminent date == today (where
+  most-imminent = `min(scheduled_for, deadline)`). Warm amber.
+  "What you said you'd do today."
+- **Upcoming** — open AND most-imminent date > today. Theme accent
+  (blue by default) at lower alpha so the cue reads as quiet "on
+  the way" rather than competing with the urgent states above.
+- **Neutral** — no time anchor, completed, or scheduled-someday.
+  No special tint; rows look as they did pre-v0.6.12.
+
+Completed tasks (the existing `.completed` class) override the
+state tints — a finished task should read as settled regardless
+of when its deadline used to be.
+
+What's in the patch:
+
+- **`atrium/src/ui/task_object.rs`.** New `row_state` glib property on `AtriumTask` (`""` / `"overdue"` / `"today"` / `"upcoming"`). New `classify_row_state(&Task) -> String` function that walks the same rules `agenda::classify` uses. Both `from_task_with_tags` and `refresh_from` call it so the property updates on every worker delta — a task whose deadline rolls past today flips state on the next refresh.
+- **`atrium/src/ui/task_list.rs`.** Row factory `bind` adds the matching CSS class on initial bind, then a `connect_row_state_notify` keeps it in sync as the property mutates. Three classes (`atrium-task-row-overdue` / `atrium-task-row-today` / `atrium-task-row-upcoming`) are mutually exclusive — the factory drops all three before adding the current one. Handler stashed under `atrium-row-state-handler` and disconnected on unbind.
+- **`data/style.css`.** Three CSS rules per state, targeting `checkbutton check` (the GtkCheckButton's checkmark) for the leading colour cue and `.atrium-task-deadline` / `.atrium-task-schedule` for the date-pill colour. A fourth rule resets the colours when the row also has `.completed` so the strike-through treatment isn't fighting the state colour.
+
+Patch C (Notes placeholder + derived recurrence icon) and Patch D
+(day-band grouping in the main task list) follow.
+
 ## v0.6.11 (2026-05-08) — screenshot-issue cleanup, Patch A (eight quick wins)
 
 First patch off the screenshot-driven issue list logged in v0.6.10.

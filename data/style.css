@@ -586,3 +586,74 @@ listview.navigation-sidebar > row:selected,
 .atrium-task-row:hover .atrium-task-title {
   background-color: alpha(@accent_color, 0.06);
 }
+
+/* ============================================================================
+ * v0.6.12 — state-aware row treatment.
+ *
+ * `task_object::classify_row_state` derives one of three states off
+ * each task's deadline + scheduled_for + completed_at, and the row
+ * factory adds the matching `.atrium-task-row-{state}` CSS class.
+ * Three rules below tint the row's leading checkbox + the right-
+ * hand schedule/deadline pills based on that state. The eye picks
+ * up "needs attention now" without reading the dates:
+ *
+ *   .atrium-task-row-overdue   → @error_color (red)
+ *   .atrium-task-row-today     → @warning_color (amber)
+ *   .atrium-task-row-upcoming  → @accent_color (theme accent / blue)
+ *
+ * Completed tasks (the existing `.completed` class) override these
+ * — a finished task should read as settled regardless of when its
+ * deadline used to be.
+ * ============================================================================ */
+
+/* Overdue — open task with deadline in the past. Strong red on the
+ * checkbox and the deadline pill so the user can't miss it. */
+.atrium-task-row-overdue checkbutton check {
+  color: alpha(@error_color, 0.9);
+  border-color: alpha(@error_color, 0.7);
+}
+.atrium-task-row-overdue .atrium-task-deadline {
+  color: alpha(@error_color, 0.95);
+  font-weight: 500;
+}
+
+/* Today — open task whose most-imminent date is today. Warm amber
+ * — "this is what you said you'd do today." */
+.atrium-task-row-today checkbutton check {
+  color: alpha(@warning_color, 0.9);
+  border-color: alpha(@warning_color, 0.7);
+}
+.atrium-task-row-today .atrium-task-schedule,
+.atrium-task-row-today .atrium-task-deadline {
+  color: alpha(@warning_color, 0.95);
+  font-weight: 500;
+}
+
+/* Upcoming — open task scheduled or due in the future. Theme accent
+ * gives a quiet "this is on the way" cue without competing with the
+ * "needs attention now" tints above. */
+.atrium-task-row-upcoming checkbutton check {
+  color: alpha(@accent_color, 0.7);
+  border-color: alpha(@accent_color, 0.55);
+}
+.atrium-task-row-upcoming .atrium-task-schedule,
+.atrium-task-row-upcoming .atrium-task-deadline {
+  color: alpha(@accent_color, 0.85);
+}
+
+/* Completed tasks: reset the state tints — the .completed class's
+ * fade-and-strike treatment is the source of truth. */
+.atrium-task-row.completed.atrium-task-row-overdue checkbutton check,
+.atrium-task-row.completed.atrium-task-row-today checkbutton check,
+.atrium-task-row.completed.atrium-task-row-upcoming checkbutton check {
+  color: inherit;
+  border-color: inherit;
+}
+.atrium-task-row.completed.atrium-task-row-overdue .atrium-task-deadline,
+.atrium-task-row.completed.atrium-task-row-today .atrium-task-deadline,
+.atrium-task-row.completed.atrium-task-row-upcoming .atrium-task-deadline,
+.atrium-task-row.completed.atrium-task-row-today .atrium-task-schedule,
+.atrium-task-row.completed.atrium-task-row-upcoming .atrium-task-schedule {
+  color: inherit;
+  font-weight: inherit;
+}

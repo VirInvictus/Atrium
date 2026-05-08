@@ -438,6 +438,42 @@ where
             row.remove_css_class("completed");
         }
 
+        // v0.6.12 (Patch B) — state-aware row class for the
+        // checkbox + date pill colouring. The four state classes
+        // are mutually exclusive; we drop all three before adding
+        // the current one so a row that flips between states (a
+        // task gets toggled-completed, then re-opened past its
+        // deadline) doesn't carry stale classes.
+        for stale in [
+            "atrium-task-row-overdue",
+            "atrium-task-row-today",
+            "atrium-task-row-upcoming",
+        ] {
+            row.remove_css_class(stale);
+        }
+        match task.row_state().as_str() {
+            "overdue" => row.add_css_class("atrium-task-row-overdue"),
+            "today" => row.add_css_class("atrium-task-row-today"),
+            "upcoming" => row.add_css_class("atrium-task-row-upcoming"),
+            _ => {}
+        }
+        let row_for_state = row.clone();
+        let state_handler = task.connect_row_state_notify(move |t| {
+            for stale in [
+                "atrium-task-row-overdue",
+                "atrium-task-row-today",
+                "atrium-task-row-upcoming",
+            ] {
+                row_for_state.remove_css_class(stale);
+            }
+            match t.row_state().as_str() {
+                "overdue" => row_for_state.add_css_class("atrium-task-row-overdue"),
+                "today" => row_for_state.add_css_class("atrium-task-row-today"),
+                "upcoming" => row_for_state.add_css_class("atrium-task-row-upcoming"),
+                _ => {}
+            }
+        });
+
         // Phase 11 — .queued CSS class dims sequential-project
         // rows past the first incomplete one. Window populates the
         // `queued` property on each AtriumTask before it lands in
@@ -555,6 +591,7 @@ where
             row.set_data("atrium-tags-handler", tags_handler);
             row.set_data("atrium-context-handler", context_handler);
             row.set_data("atrium-area-color-handler", area_color_handler);
+            row.set_data("atrium-row-state-handler", state_handler);
             row.set_data("atrium-task-obj", task.clone());
             row.set_data("atrium-check", check.clone());
             row.set_data("atrium-title-stack", title_stack.clone());
@@ -755,8 +792,14 @@ where
                 task.disconnect(handler);
             }
             if let (Some(task), Some(handler)) = (
-                task_obj,
+                task_obj.clone(),
                 row.steal_data::<glib::SignalHandlerId>("atrium-area-color-handler"),
+            ) {
+                task.disconnect(handler);
+            }
+            if let (Some(task), Some(handler)) = (
+                task_obj,
+                row.steal_data::<glib::SignalHandlerId>("atrium-row-state-handler"),
             ) {
                 task.disconnect(handler);
             }
