@@ -226,6 +226,21 @@ Calibre's full match grammar applies on every text-shaped field. The default is 
 
 `field:lo..hi` (inclusive). `due:2026-05-01..2026-05-31`. The bounds may be literal dates or date keywords.
 
+#### 4.3.5.1 Sort modifier (v0.4.1)
+
+`sort:KEY` re-orders the result set after the predicate filter runs. Multiple sorts compose primary → secondary → tertiary in input order, so `sort:-due sort:title` orders by deadline descending and breaks ties alphabetically by title.
+
+| Syntax | Meaning |
+|---|---|
+| `sort:KEY` | ascending order on `KEY` |
+| `sort:-KEY` | descending order on `KEY` |
+
+Recognised keys: `due` (alias `deadline`), `scheduled` (alias `when`), `defer` (alias `deferred`, `defer_until`), `created`, `modified` (alias `updated`), `completed` (alias `done`), `estimated` (alias `est`, `effort`), `title`, `position` (alias `manual`).
+
+NULLs sort last regardless of direction (SQL's `NULLS LAST` convention) — a task with no `deadline` always lands at the bottom of `sort:due` and `sort:-due` alike. When no `sort:` modifier is present, the result keeps the source list's `position` order.
+
+`sort:` is metadata on the result set, not a per-task predicate; the parser strips it from the AST and surfaces it on `ParseResult.sorts` so the evaluator never sees a sort modifier as a filter. Saved Perspectives written against v0.4.1's grammar inherit sort modifiers verbatim — `tag:work sort:-due` saves the work and the order both.
+
 #### 4.3.6 Date keywords
 
 Calibre's date-keyword vocabulary plus future-tense forms Atrium needs (Calibre's library is past-only).

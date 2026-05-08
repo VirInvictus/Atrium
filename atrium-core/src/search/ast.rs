@@ -56,6 +56,47 @@ pub enum Expr {
     And(Vec<Expr>),
     /// `a OR b OR c …` — same shape as And.
     Or(Vec<Expr>),
+    /// v0.4.1 — always-true placeholder. The parser emits this for
+    /// tokens that don't filter anything but carry metadata (e.g.
+    /// `sort:KEY` is captured into `ParseResult.sorts` and the
+    /// position in the AST becomes a Pass). And/Or compose Pass
+    /// cleanly (it acts as identity).
+    Pass,
+}
+
+/// v0.4.1 — sort modifier. `sort:KEY` parses to `Asc`; `sort:-KEY`
+/// parses to `Desc`. Multiple sorts compose primary → secondary →
+/// tertiary in input order, so `sort:-due sort:title` sorts by
+/// deadline descending, ties broken alphabetically by title.
+///
+/// Sort is metadata on the result set, not a per-task predicate, so
+/// it lives on [`crate::search::parse::ParseResult`] alongside
+/// `expr` rather than inside the `Expr` AST itself. Tasks lacking
+/// the sort field (e.g. no deadline for `sort:due`) sort *last*
+/// regardless of direction — the SQL convention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SortSpec {
+    pub key: SortKey,
+    pub direction: SortDirection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortKey {
+    Due,
+    Scheduled,
+    Defer,
+    Created,
+    Modified,
+    Completed,
+    Estimated,
+    Title,
+    Position,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortDirection {
+    Asc,
+    Desc,
 }
 
 /// Field name. Recognised at parse time; unknown field names parse
@@ -353,24 +394,70 @@ impl fmt::Display for Expr {
             Self::Range { field, low, high } => write!(f, "{field}:{low}..{high}"),
             Self::Not(inner) => write!(f, "NOT {inner}"),
             Self::And(items) => {
-                for (i, item) in items.iter().enumerate() {
-                    if i > 0 {
+                let mut first = true;
+                for item in items {
+                    // Pass nodes contribute nothing to the rendered
+                    // text; they were sort-modifier placeholders the
+                    // parser already lifted into ParseResult.sorts.
+                    if matches!(item, Expr::Pass) {
+                        continue;
+                    }
+                    if !first {
                         f.write_str(" AND ")?;
                     }
+                    first = false;
                     fmt_with_parens(f, item, BindingPower::And)?;
                 }
                 Ok(())
             }
             Self::Or(items) => {
-                for (i, item) in items.iter().enumerate() {
-                    if i > 0 {
+                let mut first = true;
+                for item in items {
+                    if matches!(item, Expr::Pass) {
+                        continue;
+                    }
+                    if !first {
                         f.write_str(" OR ")?;
                     }
+                    first = false;
                     fmt_with_parens(f, item, BindingPower::Or)?;
                 }
                 Ok(())
             }
+            Self::Pass => Ok(()),
         }
+    }
+}
+
+impl fmt::Display for SortKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::Due => "due",
+            Self::Scheduled => "scheduled",
+            Self::Defer => "defer",
+            Self::Created => "created",
+            Self::Modified => "modified",
+            Self::Completed => "completed",
+            Self::Estimated => "estimated",
+            Self::Title => "title",
+            Self::Position => "position",
+        };
+        f.write_str(s)
+    }
+}
+
+impl fmt::Display for SortDirection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Asc => Ok(()), // implicit
+            Self::Desc => f.write_str("-"),
+        }
+    }
+}
+
+impl fmt::Display for SortSpec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "sort:{}{}", self.direction, self.key)
     }
 }
 

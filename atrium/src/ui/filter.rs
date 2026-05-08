@@ -19,10 +19,12 @@
 //! path so v0.1.17 perspective expressions inherit the new grammar
 //! the moment v0.4.0 ships.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
+use atrium_core::ScheduledFor;
 use atrium_core::Task;
-use atrium_core::search::{EvalContext, Expr, evaluate};
+use atrium_core::search::{EvalContext, Expr, SortDirection, SortKey, SortSpec, evaluate};
 use chrono::NaiveDate;
 
 /// Output of [`parse`]. The window uses `expr.is_some()` as "the
@@ -35,6 +37,10 @@ pub struct FilterQuery {
     /// Warnings collected during parse — unknown field names,
     /// unknown state predicates. Surfaced as toast in the search bar.
     pub warnings: Vec<String>,
+    /// v0.4.1 — explicit `sort:KEY` / `sort:-KEY` modifiers in input
+    /// order (primary → secondary). Empty when the user didn't
+    /// specify a sort; the window then falls back to position order.
+    pub sorts: Vec<SortSpec>,
     /// Raw input, kept around for the operator-reference popover and
     /// the search history ring buffer.
     pub raw: String,
@@ -47,11 +53,13 @@ pub fn parse(input: &str) -> FilterQuery {
         Ok(result) => FilterQuery {
             expr: Some(result.expr),
             warnings: result.warnings,
+            sorts: result.sorts,
             raw,
         },
         Err(_) => FilterQuery {
             expr: None,
             warnings: Vec::new(),
+            sorts: Vec::new(),
             raw,
         },
     }
@@ -60,6 +68,12 @@ pub fn parse(input: &str) -> FilterQuery {
 /// Apply a parsed expression against a task vector. When the query
 /// is empty, returns the input unchanged. Builds the `EvalContext`
 /// from the window-side caches the caller passes in.
+///
+/// v0.4.1: when `query.sorts` is non-empty, the result is *also*
+/// sorted by those keys (primary → secondary, NULLs last). Callers
+/// that have explicit sorts skip their own positional sort; callers
+/// without sorts get the unsorted filter output and apply their own
+/// ordering as before.
 #[allow(clippy::too_many_arguments)]
 pub fn apply(
     tasks: Vec<Task>,
@@ -74,10 +88,107 @@ pub fn apply(
         return tasks;
     };
     let ctx = EvalContext::new(today, tag_names, project_titles, project_areas, area_titles);
-    tasks
+    let mut filtered: Vec<Task> = tasks
         .into_iter()
         .filter(|t| evaluate(expr, t, &ctx))
-        .collect()
+        .collect();
+    if !query.sorts.is_empty() {
+        sort_tasks(&mut filtered, &query.sorts);
+    }
+    filtered
+}
+
+/// Stable-sort `tasks` by the configured sorts in primary-first
+/// order. Tasks lacking the sort field always sink to the end of
+/// the list regardless of direction (NULLs-last convention).
+fn sort_tasks(tasks: &mut [Task], sorts: &[SortSpec]) {
+    tasks.sort_by(|a, b| {
+        for spec in sorts {
+            let ord = compare_for_sort(a, b, *spec);
+            if ord != Ordering::Equal {
+                return ord;
+            }
+        }
+        Ordering::Equal
+    });
+}
+
+fn compare_for_sort(a: &Task, b: &Task, spec: SortSpec) -> Ordering {
+    match spec.key {
+        SortKey::Due => cmp_option(task_deadline(a), task_deadline(b), spec.direction),
+        SortKey::Scheduled => cmp_option(
+            task_scheduled_date(a),
+            task_scheduled_date(b),
+            spec.direction,
+        ),
+        SortKey::Defer => cmp_option(a.defer_until, b.defer_until, spec.direction),
+        SortKey::Created => cmp_with_dir(a.created_at, b.created_at, spec.direction),
+        SortKey::Modified => cmp_with_dir(a.modified_at, b.modified_at, spec.direction),
+        SortKey::Completed => cmp_option(a.completed_at, b.completed_at, spec.direction),
+        SortKey::Estimated => cmp_option(a.estimated_minutes, b.estimated_minutes, spec.direction),
+        SortKey::Title => cmp_with_dir(a.title.as_str(), b.title.as_str(), spec.direction),
+        SortKey::Position => {
+            cmp_with_dir(FloatOrd(a.position), FloatOrd(b.position), spec.direction)
+        }
+    }
+}
+
+fn task_deadline(t: &Task) -> Option<NaiveDate> {
+    t.deadline
+}
+
+fn task_scheduled_date(t: &Task) -> Option<NaiveDate> {
+    match &t.scheduled_for {
+        Some(ScheduledFor::Date(d)) => Some(*d),
+        // Someday sorts as None — the sentinel isn't a real date.
+        _ => None,
+    }
+}
+
+/// Compare two `Option<T>` values with NULLs last regardless of
+/// direction (SQL's NULLS LAST convention; the user wants tasks
+/// missing the sort field at the bottom of the list).
+fn cmp_option<T: Ord>(a: Option<T>, b: Option<T>, dir: SortDirection) -> Ordering {
+    match (a, b) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(av), Some(bv)) => apply_dir(av.cmp(&bv), dir),
+    }
+}
+
+fn cmp_with_dir<T: Ord>(a: T, b: T, dir: SortDirection) -> Ordering {
+    apply_dir(a.cmp(&b), dir)
+}
+
+fn apply_dir(ord: Ordering, dir: SortDirection) -> Ordering {
+    match dir {
+        SortDirection::Asc => ord,
+        SortDirection::Desc => ord.reverse(),
+    }
+}
+
+/// f64 wrapper that's `Ord` (NaN goes last via `total_cmp`). Position
+/// is always finite in practice — this is just a guard. PartialOrd
+/// is hand-written rather than derived to stay consistent with Ord
+/// (clippy::derive_ord_xor_partial_ord).
+#[derive(Clone, Copy)]
+struct FloatOrd(f64);
+impl PartialEq for FloatOrd {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+impl Eq for FloatOrd {}
+impl PartialOrd for FloatOrd {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for FloatOrd {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.total_cmp(&other.0)
+    }
 }
 
 #[cfg(test)]
@@ -180,6 +291,129 @@ mod tests {
         );
         assert_eq!(out.len(), 1, "only the deadline=today task should match");
         assert_eq!(out[0].id, 1);
+    }
+
+    // v0.4.1 — `sort:KEY` orders the result Vec. Stable secondary
+    // ordering uses input position when primary sort ties.
+    #[test]
+    fn apply_sort_due_ascending_orders_by_deadline() {
+        let mut t1 = dummy_task(1);
+        t1.deadline = Some(d(2026, 5, 20));
+        let mut t2 = dummy_task(2);
+        t2.deadline = Some(d(2026, 5, 10));
+        let mut t3 = dummy_task(3);
+        t3.deadline = None; // sinks to last (NULLs LAST)
+        let mut t4 = dummy_task(4);
+        t4.deadline = Some(d(2026, 5, 15));
+        let q = parse("sort:due");
+        let out = apply(
+            vec![t1, t2, t3, t4],
+            &q,
+            d(2026, 5, 1),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let ids: Vec<i64> = out.iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![2, 4, 1, 3]);
+    }
+
+    #[test]
+    fn apply_sort_descending_with_dash_prefix() {
+        let mut t1 = dummy_task(1);
+        t1.deadline = Some(d(2026, 5, 10));
+        let mut t2 = dummy_task(2);
+        t2.deadline = Some(d(2026, 5, 20));
+        let q = parse("sort:-due");
+        let out = apply(
+            vec![t1, t2],
+            &q,
+            d(2026, 5, 1),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let ids: Vec<i64> = out.iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![2, 1]);
+    }
+
+    #[test]
+    fn apply_sort_filters_first_then_orders() {
+        // Filter to `tag:work` then sort by deadline ascending.
+        let mut t1 = dummy_task(1);
+        t1.deadline = Some(d(2026, 5, 20));
+        let mut t2 = dummy_task(2);
+        t2.deadline = Some(d(2026, 5, 10));
+        let mut t3 = dummy_task(3);
+        t3.deadline = Some(d(2026, 5, 5));
+        let mut tag_names = HashMap::new();
+        tag_names.insert(1, vec!["work".into()]);
+        tag_names.insert(2, vec!["work".into()]);
+        // t3 has no `work` tag — must drop out before sort.
+        let q = parse("tag:work sort:due");
+        let out = apply(
+            vec![t1, t2, t3],
+            &q,
+            d(2026, 5, 1),
+            &tag_names,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(out.len(), 2);
+        let ids: Vec<i64> = out.iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![2, 1]);
+    }
+
+    #[test]
+    fn apply_sort_title_alphabetical() {
+        let mut t1 = dummy_task(1);
+        t1.title = "Zebra".into();
+        let mut t2 = dummy_task(2);
+        t2.title = "Apple".into();
+        let mut t3 = dummy_task(3);
+        t3.title = "Mango".into();
+        let q = parse("sort:title");
+        let out = apply(
+            vec![t1, t2, t3],
+            &q,
+            d(2026, 5, 1),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let titles: Vec<String> = out.iter().map(|t| t.title.clone()).collect();
+        assert_eq!(titles, vec!["Apple", "Mango", "Zebra"]);
+    }
+
+    #[test]
+    fn apply_sort_multi_key_secondary_breaks_ties() {
+        let mut t1 = dummy_task(1);
+        t1.deadline = Some(d(2026, 5, 10));
+        t1.title = "Bravo".into();
+        let mut t2 = dummy_task(2);
+        t2.deadline = Some(d(2026, 5, 10));
+        t2.title = "Alpha".into();
+        let mut t3 = dummy_task(3);
+        t3.deadline = Some(d(2026, 5, 5));
+        t3.title = "Charlie".into();
+        let q = parse("sort:due sort:title");
+        let out = apply(
+            vec![t1, t2, t3],
+            &q,
+            d(2026, 5, 1),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let ids: Vec<i64> = out.iter().map(|t| t.id).collect();
+        // Charlie (May 5) first; then May 10 ties broken by title:
+        // Alpha (id=2) before Bravo (id=1).
+        assert_eq!(ids, vec![3, 2, 1]);
     }
 
     // Calibre's "comparison form" — `due:>today`, `due:<=today`, etc.

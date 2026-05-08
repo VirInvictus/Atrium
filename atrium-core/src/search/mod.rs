@@ -45,6 +45,8 @@ mod parse;
 #[cfg(test)]
 mod tests;
 
-pub use ast::{Comparator, DateKeyword, Expr, Field, MatchKind, Value};
+pub use ast::{
+    Comparator, DateKeyword, Expr, Field, MatchKind, SortDirection, SortKey, SortSpec, Value,
+};
 pub use eval::{EvalContext, evaluate};
 pub use parse::{ParseError, parse};

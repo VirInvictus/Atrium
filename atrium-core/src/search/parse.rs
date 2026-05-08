@@ -21,7 +21,9 @@
 
 use chrono::NaiveDate;
 
-use super::ast::{Comparator, DateKeyword, Expr, Field, MatchKind, State, Value};
+use super::ast::{
+    Comparator, DateKeyword, Expr, Field, MatchKind, SortDirection, SortKey, SortSpec, State, Value,
+};
 use super::lex::{Token, lex};
 
 /// Output of a successful parse, plus any lossy-but-non-fatal
@@ -30,6 +32,12 @@ use super::lex::{Token, lex};
 pub struct ParseResult {
     pub expr: Expr,
     pub warnings: Vec<String>,
+    /// v0.4.1 — sort modifiers extracted from the input. Each
+    /// `sort:KEY` token in the source produces one entry here, in
+    /// input order (primary → secondary). The parser also strips
+    /// these from the AST (replaces them with `Expr::Pass`) so the
+    /// evaluator never sees a sort modifier as a predicate.
+    pub sorts: Vec<SortSpec>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +70,7 @@ pub fn parse(input: &str) -> Result<ParseResult, ParseError> {
         tokens,
         pos: 0,
         warnings: Vec::new(),
+        sorts: Vec::new(),
     };
     let expr = p.parse_or()?;
     if p.pos < p.tokens.len() {
@@ -73,6 +82,7 @@ pub fn parse(input: &str) -> Result<ParseResult, ParseError> {
     Ok(ParseResult {
         expr,
         warnings: p.warnings,
+        sorts: p.sorts,
     })
 }
 
@@ -80,6 +90,7 @@ struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     warnings: Vec<String>,
+    sorts: Vec<SortSpec>,
 }
 
 impl Parser {
@@ -194,6 +205,14 @@ impl Parser {
         if field_name.eq_ignore_ascii_case("is") {
             return self.parse_state_predicate();
         }
+        // v0.4.1 — `sort:KEY` / `sort:-KEY` is a sort modifier, not a
+        // predicate. Capture it onto self.sorts and return Expr::Pass
+        // so And/Or composition treats it as identity. Unknown keys
+        // become a warning (same shape as unknown fields) and the
+        // token falls through to freeform text.
+        if field_name.eq_ignore_ascii_case("sort") {
+            return self.parse_sort_modifier();
+        }
         let Some(field) = Field::parse(field_name) else {
             // Unknown field → warning + freeform fallback. Re-attach
             // the colon and value so the user's typed expression is
@@ -288,6 +307,30 @@ impl Parser {
             _ => MatchKind::Substring(value_str),
         };
         Ok(Expr::Field { field, kind })
+    }
+
+    /// `sort:KEY` / `sort:-KEY` — read the next bareword and pull
+    /// out the direction prefix and key name. Appends a SortSpec to
+    /// self.sorts and returns `Expr::Pass` so the AST stays clean.
+    fn parse_sort_modifier(&mut self) -> Result<Expr, ParseError> {
+        let raw = self.consume_value_token_text();
+        let (direction, key_name) = if let Some(rest) = raw.strip_prefix('-') {
+            (SortDirection::Desc, rest)
+        } else {
+            (SortDirection::Asc, raw.as_str())
+        };
+        match SortKey::parse(key_name) {
+            Some(key) => {
+                self.sorts.push(SortSpec { key, direction });
+                Ok(Expr::Pass)
+            }
+            None => {
+                // Unknown sort key — warn, keep as freeform.
+                let combined = format!("sort:{raw}");
+                self.warnings.push(combined.clone());
+                Ok(Expr::Text(combined))
+            }
+        }
     }
 
     /// `is:NAME` — read the next bareword and map it to a State.
@@ -426,6 +469,23 @@ impl Field {
             "completed" | "done" => Some(Self::Completed),
             "estimated" | "est" | "effort" => Some(Self::Estimated),
             "repeats" | "repeating" => Some(Self::Repeats),
+            _ => None,
+        }
+    }
+}
+
+impl SortKey {
+    fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "due" | "deadline" => Some(Self::Due),
+            "scheduled" | "when" => Some(Self::Scheduled),
+            "defer" | "defer_until" | "deferred" => Some(Self::Defer),
+            "created" => Some(Self::Created),
+            "modified" | "updated" => Some(Self::Modified),
+            "completed" | "done" => Some(Self::Completed),
+            "estimated" | "est" | "effort" => Some(Self::Estimated),
+            "title" => Some(Self::Title),
+            "position" | "manual" => Some(Self::Position),
             _ => None,
         }
     }

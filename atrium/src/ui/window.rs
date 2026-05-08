@@ -1514,7 +1514,13 @@ impl AtriumWindow {
                         context_for,
                         area_color_for,
                     );
-                    sort_by_position(&store);
+                    // v0.4.1 — `sort:KEY` modifiers in the saved
+                    // perspective override position order. apply()
+                    // already sorted the Vec; just don't clobber it
+                    // with sort_by_position.
+                    if parsed.sorts.is_empty() {
+                        sort_by_position(&store);
+                    }
                 }
                 Err(e) => {
                     error!(?e, perspective_id = id, "failed to load perspective");
@@ -1563,8 +1569,13 @@ impl AtriumWindow {
                 let tag_pills: crate::ui::task_list::TagPillMap = pool
                     .with(atrium_core::db::read::tag_info_per_task)
                     .unwrap_or_default();
+                // v0.4.1 — capture whether the user's search expression
+                // pinned a sort order so the post-store sort_by_position
+                // call can skip when the query already sorted the Vec.
+                let mut search_pinned_sort = false;
                 let tasks = if let ActiveList::SearchResults(q) = &active {
                     let parsed = crate::ui::filter::parse(q);
+                    search_pinned_sort = !parsed.sorts.is_empty();
                     let project_areas = self.project_areas_map();
                     crate::ui::filter::apply(
                         tasks,
@@ -1601,7 +1612,11 @@ impl AtriumWindow {
                     context_for,
                     area_color_for,
                 );
-                sort_by_position(&store);
+                // Skip the position sort when the search expression
+                // pinned a sort — apply() already ordered the Vec.
+                if !search_pinned_sort {
+                    sort_by_position(&store);
+                }
             }
             Err(e) => {
                 error!(?e, ?active, "failed to load active list");

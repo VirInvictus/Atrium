@@ -9,7 +9,9 @@ use chrono::{NaiveDate, Utc};
 use crate::domain::{ScheduledFor, Task};
 use crate::test_support::dummy_task;
 
-use super::ast::{Comparator, DateKeyword, Expr, Field, MatchKind, State, Value};
+use super::ast::{
+    Comparator, DateKeyword, Expr, Field, MatchKind, SortDirection, SortKey, SortSpec, State, Value,
+};
 use super::eval::{EvalContext, evaluate};
 use super::parse::parse;
 
@@ -609,6 +611,105 @@ fn eval_is_someday_completed_no_match() {
     t.completed_at = Some(Utc::now());
     let r = parse("is:someday").unwrap();
     assert!(!match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+// ── v0.4.1 sort modifier ────────────────────────────────────────
+
+#[test]
+fn parse_sort_ascending_default() {
+    let r = parse("sort:due").unwrap();
+    assert_eq!(
+        r.sorts,
+        vec![SortSpec {
+            key: SortKey::Due,
+            direction: SortDirection::Asc
+        }]
+    );
+    // The AST should be Pass — sort modifier doesn't filter.
+    assert_eq!(r.expr, Expr::Pass);
+}
+
+#[test]
+fn parse_sort_descending_with_dash_prefix() {
+    let r = parse("sort:-completed").unwrap();
+    assert_eq!(
+        r.sorts,
+        vec![SortSpec {
+            key: SortKey::Completed,
+            direction: SortDirection::Desc
+        }]
+    );
+}
+
+#[test]
+fn parse_sort_alongside_filter() {
+    // `tag:work sort:due` — the And reduces to just tag:work since
+    // sort folds to Pass.
+    let r = parse("tag:work sort:due").unwrap();
+    assert_eq!(
+        r.sorts,
+        vec![SortSpec {
+            key: SortKey::Due,
+            direction: SortDirection::Asc
+        }]
+    );
+    // Implicit AND of Field(work) and Pass — Pass acts as identity.
+    assert!(matches!(r.expr, Expr::And(_)));
+    if let Expr::And(items) = &r.expr {
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().any(|e| matches!(
+            e,
+            Expr::Field {
+                field: Field::Tag,
+                ..
+            }
+        )));
+        assert!(items.iter().any(|e| matches!(e, Expr::Pass)));
+    }
+}
+
+#[test]
+fn parse_multiple_sorts_compose_in_order() {
+    let r = parse("sort:-due sort:title").unwrap();
+    assert_eq!(
+        r.sorts,
+        vec![
+            SortSpec {
+                key: SortKey::Due,
+                direction: SortDirection::Desc
+            },
+            SortSpec {
+                key: SortKey::Title,
+                direction: SortDirection::Asc
+            },
+        ]
+    );
+}
+
+#[test]
+fn parse_sort_unknown_key_warns_and_falls_back() {
+    let r = parse("sort:bogus").unwrap();
+    assert!(r.sorts.is_empty());
+    assert_eq!(r.warnings, vec!["sort:bogus"]);
+    // Falls through to freeform text.
+    assert_eq!(r.expr, Expr::Text("sort:bogus".into()));
+}
+
+#[test]
+fn eval_pass_node_is_identity_in_and() {
+    // Manually-constructed expression to exercise Expr::Pass directly.
+    let expr = Expr::And(vec![
+        Expr::Pass,
+        Expr::Field {
+            field: Field::Tag,
+            kind: MatchKind::Substring("work".into()),
+        },
+    ]);
+    let mut t = dummy_task(1);
+    t.title = "anything".into();
+    let mut tag_names = HashMap::new();
+    tag_names.insert(1, vec!["work".into()]);
+    assert!(match_with_tags(&expr, &t, d(2026, 5, 15), tag_names));
 }
 
 // ── Display / round-trip ─────────────────────────────────────────

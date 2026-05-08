@@ -97,6 +97,10 @@ pub fn evaluate(expr: &Expr, task: &Task, ctx: &EvalContext<'_>) -> bool {
         Expr::Not(inner) => !evaluate(inner, task, ctx),
         Expr::And(items) => items.iter().all(|e| evaluate(e, task, ctx)),
         Expr::Or(items) => items.iter().any(|e| evaluate(e, task, ctx)),
+        // v0.4.1 — Pass is the parser's placeholder for tokens that
+        // don't filter (e.g., a sort modifier). Always-true makes it
+        // act as identity in And/Or composition.
+        Expr::Pass => true,
     }
 }
 
