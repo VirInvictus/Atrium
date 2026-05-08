@@ -1,5 +1,19 @@
 # Atrium — Patch Notes
 
+## v0.5.2 (2026-05-08) — FTS5 bm25 + recency ranking on bare-text searches
+
+The third v0.6.x carryover off the deferred list. Bare-text searches
+(`atrium-cli search milk`, the GUI search bar with a freeform word)
+now rank by FTS5's `bm25` blended with a 30-day half-life recency
+factor. Stronger matches and freshly-touched tasks rise to the top
+instead of every result coming back in `task.position` order.
+
+- **`atrium-search::rank` module.** Two pure helpers — `collect_text_terms` walks the parsed AST for `Expr::Text` nodes, `blend_relevance` maps `bm25` + `days_since_modified` → a single comparable score on a stable scale. Twelve unit tests cover the math (saturating relevance, recency half-life, clamped negative days, AND/OR/NOT walking, field-scoped exclusion).
+- **`atrium-core::db::read::bm25_for_terms`.** Queries FTS5 with the term set unioned via `OR`, returns `HashMap<task_id, bm25>` for the matching rows. User input is double-quote-stripped + phrase-quoted so a stray `"` can't inject MATCH operators. Six tests cover the empty / blank / quote-injection edge cases plus a term-frequency rank check.
+- **CLI wiring (`atrium-cli`).** `run_search` calls the rank helper after the in-memory evaluator, only when the query has bare text and no explicit `sort:` modifier. Skipped automatically when `sort:` is present so power users keep their explicit ordering.
+- **GUI wiring (`atrium/ui/filter::rank_by_bm25_recency` + window.rs).** Same fast-path applied to both the search-bar's transient SearchResults list and saved Perspectives whose filter contains bare text. Four window-side unit tests cover the no-op / strong-match / recency-tiebreak / unscored-fallback cases.
+- **No new dependencies.** Sits on the existing FTS5 `task_fts` virtual table that's been in place since migration `0001_initial.sql`.
+
 ## v0.5.1 (2026-05-08) — atrium-cli runtime fix + ship-gate smoke + broken-pipe fix
 
 A focused patch with three small, coupled fixes that the v0.5.0 ship-gate hadn't been wide enough to catch.

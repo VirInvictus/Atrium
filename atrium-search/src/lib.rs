@@ -51,6 +51,7 @@ mod ast;
 mod eval;
 mod lex;
 mod parse;
+mod rank;
 
 #[cfg(test)]
 mod tests;
@@ -60,3 +61,4 @@ pub use ast::{
 };
 pub use eval::{EvalContext, evaluate};
 pub use parse::{ParseError, parse};
+pub use rank::{blend_relevance, collect_text_terms};

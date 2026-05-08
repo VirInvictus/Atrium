@@ -101,6 +101,34 @@ pub fn apply(
     filtered
 }
 
+/// Reorder `tasks` in-place by FTS5 bm25 + recency. The caller
+/// passes in the `bm25` map from `atrium_core::db::read::bm25_for_terms`
+/// (so this helper itself stays DB-agnostic). No-op when `scores`
+/// is empty — the caller decides when the bm25 fast-path applies
+/// (bare text in the expression AND no explicit `sort:` modifier).
+///
+/// Unranked tasks (those not in the FTS5 hit set) keep their
+/// existing relative order at the bottom of the list — Rust's
+/// `sort_by` is stable.
+pub fn rank_by_bm25_recency(tasks: &mut [Task], bm25_scores: &HashMap<i64, f64>, today: NaiveDate) {
+    if bm25_scores.is_empty() {
+        return;
+    }
+    const HALF_LIFE_DAYS: f64 = 30.0;
+    tasks.sort_by(|a, b| {
+        let sa = blended_score(a, bm25_scores, today, HALF_LIFE_DAYS);
+        let sb = blended_score(b, bm25_scores, today, HALF_LIFE_DAYS);
+        // Higher score sorts first.
+        sb.partial_cmp(&sa).unwrap_or(Ordering::Equal)
+    });
+}
+
+fn blended_score(task: &Task, scores: &HashMap<i64, f64>, today: NaiveDate, half_life: f64) -> f64 {
+    let bm25 = scores.get(&task.id).copied().unwrap_or(0.0);
+    let days = (today - task.modified_at.date_naive()).num_days();
+    atrium_search::blend_relevance(bm25, days, half_life)
+}
+
 /// Stable-sort `tasks` by the configured sorts in primary-first
 /// order. Tasks lacking the sort field always sink to the end of
 /// the list regardless of direction (NULLs-last convention).
@@ -474,5 +502,65 @@ mod tests {
             &HashMap::new(),
         );
         assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn rank_by_bm25_no_op_on_empty_scores() {
+        let mut tasks = vec![dummy_task(1), dummy_task(2), dummy_task(3)];
+        let scores: HashMap<i64, f64> = HashMap::new();
+        rank_by_bm25_recency(&mut tasks, &scores, d(2026, 5, 15));
+        // Order preserved when nothing was scored.
+        assert_eq!(
+            tasks.iter().map(|t| t.id).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn rank_by_bm25_orders_strong_match_ahead_of_weak_match() {
+        let mut tasks = vec![dummy_task(1), dummy_task(2)];
+        // Same modified_at (dummy_task default) so recency is a
+        // wash; bm25 alone determines order.
+        let mut scores = HashMap::new();
+        scores.insert(1_i64, -1.0); // weak
+        scores.insert(2_i64, -10.0); // strong
+        rank_by_bm25_recency(&mut tasks, &scores, d(2026, 5, 15));
+        assert_eq!(tasks.iter().map(|t| t.id).collect::<Vec<_>>(), vec![2, 1]);
+    }
+
+    #[test]
+    fn rank_by_bm25_breaks_ties_with_recency() {
+        let mut t_recent = dummy_task(1);
+        t_recent.modified_at = chrono::DateTime::parse_from_rfc3339("2026-05-15T08:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let mut t_stale = dummy_task(2);
+        t_stale.modified_at = chrono::DateTime::parse_from_rfc3339("2026-04-01T08:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let mut tasks = vec![t_stale.clone(), t_recent.clone()];
+        // Equal bm25 → recency tiebreaker.
+        let mut scores = HashMap::new();
+        scores.insert(1_i64, -3.0);
+        scores.insert(2_i64, -3.0);
+        rank_by_bm25_recency(&mut tasks, &scores, d(2026, 5, 15));
+        assert_eq!(
+            tasks.iter().map(|t| t.id).collect::<Vec<_>>(),
+            vec![1, 2],
+            "recent task should outrank stale at equal bm25"
+        );
+    }
+
+    #[test]
+    fn rank_by_bm25_unscored_tasks_sink_below_scored() {
+        let mut tasks = vec![dummy_task(1), dummy_task(2), dummy_task(3)];
+        // Only id=2 has a score — id=1 and id=3 fall back to a
+        // relevance term of 0 + the same recency contribution, so
+        // they sit *below* id=2 (the scored one) but keep their
+        // existing relative order between themselves.
+        let mut scores = HashMap::new();
+        scores.insert(2_i64, -5.0);
+        rank_by_bm25_recency(&mut tasks, &scores, d(2026, 5, 15));
+        assert_eq!(tasks[0].id, 2, "scored task should rank first");
     }
 }

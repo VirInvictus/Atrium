@@ -1527,7 +1527,7 @@ impl AtriumWindow {
                         .with(atrium_core::db::read::tag_info_per_task)
                         .unwrap_or_default();
                     let project_areas = self.project_areas_map();
-                    let tasks = crate::ui::filter::apply(
+                    let mut tasks = crate::ui::filter::apply(
                         tasks,
                         &parsed,
                         today,
@@ -1536,6 +1536,33 @@ impl AtriumWindow {
                         &project_areas,
                         &self.imp().area_titles.borrow(),
                     );
+                    // v0.5.2 — bm25-rank a Perspective whose filter
+                    // contains bare text and doesn't pin a sort.
+                    // `bm25_pinned_sort` mirrors the meaning of
+                    // `parsed.sorts.is_empty()` for the post-store
+                    // sort_by_position skip below.
+                    let bm25_pinned_sort = if parsed.sorts.is_empty() {
+                        let terms = parsed
+                            .expr
+                            .as_ref()
+                            .map(atrium_search::collect_text_terms)
+                            .unwrap_or_default();
+                        if !terms.is_empty() {
+                            let scores = pool
+                                .with(|conn| atrium_core::db::read::bm25_for_terms(conn, &terms))
+                                .unwrap_or_default();
+                            if !scores.is_empty() {
+                                crate::ui::filter::rank_by_bm25_recency(&mut tasks, &scores, today);
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
                     let context_for = self.build_context_resolver(&active);
                     let area_color_for = self.build_area_color_resolver();
                     replace_store_with_tags_seq(
@@ -1549,8 +1576,9 @@ impl AtriumWindow {
                     // v0.4.1 — `sort:KEY` modifiers in the saved
                     // perspective override position order. apply()
                     // already sorted the Vec; just don't clobber it
-                    // with sort_by_position.
-                    if parsed.sorts.is_empty() {
+                    // with sort_by_position. v0.5.2 — same skip when
+                    // bm25 ranking ordered the Vec.
+                    if parsed.sorts.is_empty() && !bm25_pinned_sort {
                         sort_by_position(&store);
                     }
                 }
@@ -1609,7 +1637,7 @@ impl AtriumWindow {
                     let parsed = crate::ui::filter::parse(q);
                     search_pinned_sort = !parsed.sorts.is_empty();
                     let project_areas = self.project_areas_map();
-                    crate::ui::filter::apply(
+                    let mut filtered = crate::ui::filter::apply(
                         tasks,
                         &parsed,
                         today,
@@ -1617,7 +1645,32 @@ impl AtriumWindow {
                         &self.imp().project_titles.borrow(),
                         &project_areas,
                         &self.imp().area_titles.borrow(),
-                    )
+                    );
+                    // v0.5.2 — bm25 ranking when bare text is in the
+                    // query and the user hasn't pinned a sort. We
+                    // flip `search_pinned_sort` so the post-store
+                    // sort_by_position doesn't clobber the rank.
+                    if !search_pinned_sort {
+                        let terms = parsed
+                            .expr
+                            .as_ref()
+                            .map(atrium_search::collect_text_terms)
+                            .unwrap_or_default();
+                        if !terms.is_empty() {
+                            let scores = pool
+                                .with(|conn| atrium_core::db::read::bm25_for_terms(conn, &terms))
+                                .unwrap_or_default();
+                            if !scores.is_empty() {
+                                crate::ui::filter::rank_by_bm25_recency(
+                                    &mut filtered,
+                                    &scores,
+                                    today,
+                                );
+                                search_pinned_sort = true;
+                            }
+                        }
+                    }
+                    filtered
                 } else {
                     tasks
                 };

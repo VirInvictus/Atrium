@@ -90,6 +90,21 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.5.2" date="2026-05-08">
+      <description>
+        <p>FTS5 bm25 + recency ranking on bare-text searches —
+           the third v0.6.x carryover off the deferred list.
+           Searching for a freeform word (in the search bar or
+           via <code>atrium-cli search milk</code>) now ranks
+           the matches by FTS5's <code>bm25</code> blended with
+           a 30-day half-life recency factor. Stronger matches
+           and freshly-touched tasks rise to the top instead of
+           every result coming back in task-position order.
+           Skipped automatically when the query carries an
+           explicit <code>sort:</code> modifier — power users
+           keep their pinned ordering.</p>
+      </description>
+    </release>
     <release version="0.5.1" date="2026-05-08">
       <description>
         <p>Patch release. Three small, coupled fixes the v0.5.0

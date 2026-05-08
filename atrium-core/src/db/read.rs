@@ -554,6 +554,58 @@ pub fn search_tasks(conn: &Connection, query: &str) -> Result<Vec<Task>, DbError
         .map_err(Into::into)
 }
 
+/// FTS5 bm25 scores for the given bare-text terms. Returns one
+/// entry per task that matches *any* of the terms; absent rows are
+/// "no match" (the caller falls back to its in-memory rank).
+///
+/// The bm25 contract: more negative = more relevant. We forward the
+/// raw FTS5 score so the caller can apply its own blend (recency,
+/// per-column weighting, etc.) without us coupling a policy in.
+///
+/// Callers don't need this for *correctness* — the in-memory
+/// evaluator does substring on title + note and returns the same
+/// match set. This is the *ranking* path: when bare text is in the
+/// query and no `sort:` modifier was given, the call site can
+/// reorder its already-filtered results by these scores blended
+/// with recency. See `atrium_search::blend_relevance`.
+pub fn bm25_for_terms(conn: &Connection, terms: &[String]) -> Result<HashMap<i64, f64>, DbError> {
+    if terms.is_empty() {
+        return Ok(HashMap::new());
+    }
+    // Sanitise each term: drop double quotes (we wrap in our own
+    // quotes for phrase semantics), and reject any term that
+    // becomes empty after trimming. FTS5 is permissive about most
+    // ASCII but can choke on unbalanced quotes — quoting prevents
+    // the user's text from injecting MATCH operators.
+    let phrases: Vec<String> = terms
+        .iter()
+        .map(|t| {
+            let clean: String = t.chars().filter(|c| *c != '"').collect();
+            format!("\"{}\"", clean.trim())
+        })
+        .filter(|p| p.len() > 2) // 2 = the two quotes alone
+        .collect();
+    if phrases.is_empty() {
+        return Ok(HashMap::new());
+    }
+    // FTS5's MATCH glues phrases with implicit AND when separated
+    // by whitespace; we want OR so any term contributes. The
+    // explicit `OR` keyword does that.
+    let match_clause = phrases.join(" OR ");
+
+    let sql = "SELECT rowid, bm25(task_fts) \
+               FROM task_fts \
+               WHERE task_fts MATCH ?1";
+    let mut stmt = conn.prepare_cached(sql)?;
+    let rows = stmt.query_map(params![match_clause], |row| {
+        let id: i64 = row.get(0)?;
+        let score: f64 = row.get(1)?;
+        Ok((id, score))
+    })?;
+    rows.collect::<rusqlite::Result<HashMap<_, _>>>()
+        .map_err(Into::into)
+}
+
 /// Open tasks bearing the given tag, ordered by position. The tag
 /// page view (`ActiveList::Tag(id)`) calls this.
 pub fn list_tasks_with_tag(conn: &Connection, tag_id: i64) -> Result<Vec<Task>, DbError> {
@@ -1563,5 +1615,90 @@ mod tests {
         assert_eq!(projects.len(), 2);
         assert!(projects[0].area_id.is_none());
         assert!(projects[1].area_id.is_some());
+    }
+
+    #[test]
+    fn bm25_for_terms_returns_one_score_per_match() {
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "buy milk and bread", None, None, None, None);
+        insert_task(&conn, "b", "schedule milk delivery", None, None, None, None);
+        insert_task(&conn, "c", "wash the car", None, None, None, None);
+        let scores = bm25_for_terms(&conn, &["milk".to_string()]).unwrap();
+        assert_eq!(scores.len(), 2, "two tasks contain 'milk'");
+        // FTS5's bm25 returns more-negative for a stronger match;
+        // we keep the raw value, so every score must be ≤ 0.
+        for s in scores.values() {
+            assert!(*s <= 0.0, "bm25 should be ≤ 0; got {s}");
+        }
+    }
+
+    #[test]
+    fn bm25_for_terms_or_unions_terms() {
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "buy milk", None, None, None, None);
+        insert_task(&conn, "b", "buy bread", None, None, None, None);
+        insert_task(&conn, "c", "wash the car", None, None, None, None);
+        // Either "milk" or "bread" should pull both rows, but not the car.
+        let scores = bm25_for_terms(&conn, &["milk".to_string(), "bread".to_string()]).unwrap();
+        assert_eq!(scores.len(), 2);
+    }
+
+    #[test]
+    fn bm25_for_terms_empty_input_is_empty() {
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "buy milk", None, None, None, None);
+        let scores = bm25_for_terms(&conn, &[]).unwrap();
+        assert!(scores.is_empty());
+    }
+
+    #[test]
+    fn bm25_for_terms_skips_blank_terms() {
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "buy milk", None, None, None, None);
+        // Blanks become empty phrases (just two quotes); we drop
+        // those before issuing the MATCH so the user doesn't get a
+        // FTS5 syntax error from `""`.
+        let scores = bm25_for_terms(&conn, &["   ".to_string()]).unwrap();
+        assert!(scores.is_empty());
+    }
+
+    #[test]
+    fn bm25_for_terms_strips_double_quotes_in_input() {
+        // A user-supplied bare term shouldn't be able to break out
+        // of our own phrase-quoting and inject MATCH operators.
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "buy milk", None, None, None, None);
+        let scores = bm25_for_terms(&conn, &["mi\"lk".to_string()]).unwrap();
+        // After stripping the inner quote we look for `milk`,
+        // which matches.
+        assert_eq!(scores.len(), 1);
+    }
+
+    #[test]
+    fn bm25_for_terms_ranks_term_frequency() {
+        // Two tasks contain "milk"; the one that mentions it twice
+        // and has shorter overall content should score more
+        // strongly (i.e., a more-negative bm25). The shape of bm25
+        // is "shorter doc + more occurrences = higher relevance =
+        // smaller (more negative) score."
+        let conn = fresh_conn();
+        let title_a = "milk milk";
+        let title_b = "buy milk and bread and eggs at the store later today";
+        insert_task(&conn, "a", title_a, None, None, None, None);
+        insert_task(&conn, "b", title_b, None, None, None, None);
+        let scores = bm25_for_terms(&conn, &["milk".to_string()]).unwrap();
+        let id_a: i64 = conn
+            .query_row("SELECT id FROM task WHERE uuid='a'", [], |r| r.get(0))
+            .unwrap();
+        let id_b: i64 = conn
+            .query_row("SELECT id FROM task WHERE uuid='b'", [], |r| r.get(0))
+            .unwrap();
+        let score_a = scores[&id_a];
+        let score_b = scores[&id_b];
+        assert!(
+            score_a < score_b,
+            "stronger match (a) should have a smaller bm25 \
+             than weaker match (b); got a={score_a}, b={score_b}"
+        );
     }
 }

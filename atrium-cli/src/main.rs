@@ -240,9 +240,60 @@ fn run_search(conn: &Connection, expression: &str, format: Format) -> CliResult<
     tasks.retain(|t| evaluate(&parsed.expr, t, &ctx));
     if !parsed.sorts.is_empty() {
         sort_tasks(&mut tasks, &parsed.sorts, &ctx_data);
+    } else {
+        // Bare-text fast-path: when the user typed freeform words and
+        // didn't pin a sort order, rank by FTS5 bm25 blended with
+        // recency so the result list reads "most relevant first"
+        // instead of "first by task position." Falls through to
+        // position order when no bare text is present (or none of
+        // the matching rows happens to be in the FTS5 hit set).
+        rank_by_bm25_and_recency(conn, &parsed.expr, &mut tasks, today)?;
     }
     print_tasks(&tasks, &ctx_data, format);
     Ok(())
+}
+
+/// Reorder `tasks` in-place by FTS5 bm25 + recency when the parsed
+/// expression contains at least one bare-text term and the call site
+/// hasn't already applied an explicit `sort:` modifier. Tasks that
+/// don't appear in the bm25 result map keep their existing relative
+/// order (stable sort) at the bottom of the list.
+fn rank_by_bm25_and_recency(
+    conn: &Connection,
+    expr: &atrium_search::Expr,
+    tasks: &mut [Task],
+    today: NaiveDate,
+) -> CliResult<()> {
+    let terms = atrium_search::collect_text_terms(expr);
+    if terms.is_empty() {
+        return Ok(());
+    }
+    let scores = read::bm25_for_terms(conn, &terms).map_err(CliError::from)?;
+    if scores.is_empty() {
+        return Ok(());
+    }
+    // Half-life of 30 days mirrors the "freshly-touched edges out
+    // lukewarm matches over the last month" intuition. Tunable; for
+    // now there's no setting, just a sensible default.
+    const HALF_LIFE_DAYS: f64 = 30.0;
+    tasks.sort_by(|a, b| {
+        let score_a = blended_score(a, &scores, today, HALF_LIFE_DAYS);
+        let score_b = blended_score(b, &scores, today, HALF_LIFE_DAYS);
+        // Higher score sorts first.
+        score_b
+            .partial_cmp(&score_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(())
+}
+
+fn blended_score(task: &Task, scores: &HashMap<i64, f64>, today: NaiveDate, half_life: f64) -> f64 {
+    // Tasks not in the FTS5 hit set receive a relevance of 0; their
+    // recency contribution alone keeps them ordered consistently
+    // among themselves.
+    let bm25 = scores.get(&task.id).copied().unwrap_or(0.0);
+    let days = (today - task.modified_at.date_naive()).num_days();
+    atrium_search::blend_relevance(bm25, days, half_life)
 }
 
 fn run_list(conn: &Connection, name: &str, format: Format) -> CliResult<()> {
