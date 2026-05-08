@@ -1,39 +1,58 @@
 // SPDX-License-Identifier: MIT
-//! Slice D1 GUI — kanban board page (v0.6.0).
+//! Slice D1 GUI — kanban board page.
 //!
 //! Renders a saved Perspective whose `renderer = "board"` as a
 //! horizontal column layout: one column per configured tag, plus a
 //! trailing "Other" column for everything that didn't match. Each
 //! column is a vertical task list.
 //!
-//! v0.6.0 ships a *read-only* board:
+//! v0.6.0 shipped a minimal read-only board (checkbox + title only,
+//! no metadata). v0.6.1 fills the row out:
 //!
-//! - Click a row to open it in the Inspector (GTK `Tasks::Open`
-//!   action; same as the regular task list's row activation).
-//! - The completion checkbox is rendered for state visibility but
-//!   isn't interactive yet — toggling completion goes through the
-//!   regular list view.
-//! - No drag-drop between columns. That's the next slice.
+//! - **Interactive checkbox.** Clicking the checkbox toggles the
+//!   task's completion via the worker, same as the regular list
+//!   view. The board re-renders on the next `apply_task_changes`.
+//! - **Metadata line.** Project name, scheduled date or deadline,
+//!   and tag pills (using the same Pango-coloured markup the
+//!   regular task list uses) appear underneath the title when any
+//!   of them are set.
+//! - **Click any row** still opens the Inspector via the supplied
+//!   callback (mirroring `win.edit-details-for(i64)`).
+//!
+//! Drag-drop between columns and a board-renderer editing UI are
+//! the next slices.
 //!
 //! The grouping logic lives in `atrium_core::render::group_into_board`
 //! — the GUI is a thin adapter on top of the same engine the
 //! `atrium-cli kanban` subcommand uses.
 
+use std::collections::HashMap;
+
 use adw::prelude::*;
-use atrium_core::{Column, Task};
+use atrium_core::{Column, ScheduledFor, Task, WorkerHandle};
+use gtk::glib;
 use gtk::pango;
+use tracing::error;
+
+use super::task_list::{TagPillMap, format_tag_names};
 
 /// Build the board page widget. Returns a horizontally-scrolling
 /// container with one column per configured kanban column plus the
 /// trailing `Other` bucket. The window mounts this into the
 /// `board_host` AdwBin in the content stack.
 ///
-/// `on_row_click` is a per-row click callback the caller wires to
-/// the existing "open in Inspector" path; passing `task.id` so the
-/// board can stay loosely coupled to the rest of the window state.
+/// `tag_pills` and `project_titles` are read-only references the
+/// rows borrow when building their secondary metadata line. `worker`
+/// drives the interactive completion checkbox; `None` falls back to
+/// a read-only state cue (same shape as v0.6.0).
+///
+/// `on_row_click` is the per-row click callback (open in Inspector).
 pub fn build_page<F: Fn(i64) + 'static + Clone>(
     perspective_name: &str,
     columns: &[Column<'_>],
+    tag_pills: &TagPillMap,
+    project_titles: &HashMap<i64, String>,
+    worker: Option<WorkerHandle>,
     on_row_click: F,
 ) -> gtk::Widget {
     let outer = gtk::Box::builder()
@@ -75,7 +94,13 @@ pub fn build_page<F: Fn(i64) + 'static + Clone>(
         .build();
 
     for col in columns {
-        row.append(&build_column(col, on_row_click.clone()));
+        row.append(&build_column(
+            col,
+            tag_pills,
+            project_titles,
+            worker.clone(),
+            on_row_click.clone(),
+        ));
     }
 
     let scroller = gtk::ScrolledWindow::builder()
@@ -90,7 +115,13 @@ pub fn build_page<F: Fn(i64) + 'static + Clone>(
     outer.upcast()
 }
 
-fn build_column<F: Fn(i64) + 'static + Clone>(col: &Column<'_>, on_row_click: F) -> gtk::Widget {
+fn build_column<F: Fn(i64) + 'static + Clone>(
+    col: &Column<'_>,
+    tag_pills: &TagPillMap,
+    project_titles: &HashMap<i64, String>,
+    worker: Option<WorkerHandle>,
+    on_row_click: F,
+) -> gtk::Widget {
     let card = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(8)
@@ -151,7 +182,13 @@ fn build_column<F: Fn(i64) + 'static + Clone>(col: &Column<'_>, on_row_click: F)
         list.append(&empty);
     } else {
         for t in &col.tasks {
-            list.append(&build_row(t, on_row_click.clone()));
+            list.append(&build_row(
+                t,
+                tag_pills,
+                project_titles,
+                worker.clone(),
+                on_row_click.clone(),
+            ));
         }
     }
 
@@ -167,26 +204,46 @@ fn build_column<F: Fn(i64) + 'static + Clone>(col: &Column<'_>, on_row_click: F)
     card.upcast()
 }
 
-fn build_row<F: Fn(i64) + 'static>(task: &Task, on_row_click: F) -> gtk::Widget {
+fn build_row<F: Fn(i64) + 'static>(
+    task: &Task,
+    tag_pills: &TagPillMap,
+    project_titles: &HashMap<i64, String>,
+    worker: Option<WorkerHandle>,
+    on_row_click: F,
+) -> gtk::Widget {
     let row = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .spacing(8)
-        .margin_start(6)
-        .margin_end(6)
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(2)
+        .margin_start(4)
+        .margin_end(4)
         .margin_top(4)
         .margin_bottom(4)
         .build();
     row.add_css_class("atrium-board-task-row");
 
-    // Read-only completion indicator. Toggling lives in the regular
-    // list view; this is just a state cue so the user can see at a
-    // glance whether a task in the board is already done.
+    // Top line: checkbox + title.
+    let top = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .build();
+
     let check = gtk::CheckButton::builder()
         .active(task.completed_at.is_some())
-        .sensitive(false)
         .focusable(false)
         .build();
-    row.append(&check);
+    check.set_sensitive(worker.is_some());
+    if let Some(worker) = worker.clone() {
+        let task_id = task.id;
+        check.connect_toggled(move |_| {
+            let worker = worker.clone();
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker.toggle_complete(task_id).await {
+                    error!(?e, task_id, "kanban toggle_complete failed");
+                }
+            });
+        });
+    }
+    top.append(&check);
 
     let title = gtk::Label::builder()
         .label(&task.title)
@@ -200,18 +257,30 @@ fn build_row<F: Fn(i64) + 'static>(task: &Task, on_row_click: F) -> gtk::Widget 
     if task.completed_at.is_some() {
         title.add_css_class("dim-label");
     }
-    row.append(&title);
+    top.append(&title);
+    row.append(&top);
 
-    // Click → open in Inspector. We wrap the row in a GestureClick
-    // rather than using a Button so the row's visual stays lean.
+    // Metadata line — project, date chip, tag pills. Only built
+    // when there's something to show; otherwise we skip the second
+    // row entirely so all-empty tasks stay tight.
+    let metadata = build_metadata_line(task, tag_pills, project_titles);
+    if let Some(meta) = metadata {
+        row.append(&meta);
+    }
+
+    // Whole-row click → open in Inspector. We attach the gesture to
+    // the outer row Box so the user can click anywhere except the
+    // checkbox to activate.
     let click = gtk::GestureClick::new();
     click.set_button(gtk::gdk::BUTTON_PRIMARY);
     let task_id = task.id;
+    // The checkbox handles its own click via the toggled signal; we
+    // don't want a click on the checkbox to also open the Inspector.
+    // GTK lets the checkbox's controller fire first and consume the
+    // event, so the row-level controller only sees clicks that
+    // didn't land on a child handler — which is the behaviour we
+    // want here.
     click.connect_pressed(move |_, n_press, _, _| {
-        // Single click activates — same idiom as the v0.1.15 list
-        // view (ListView::activate for fast double-clicks); but the
-        // board's click target is the whole row so we don't need
-        // the double-click escape hatch.
         if n_press == 1 {
             on_row_click(task_id);
         }
@@ -219,4 +288,70 @@ fn build_row<F: Fn(i64) + 'static>(task: &Task, on_row_click: F) -> gtk::Widget 
     row.add_controller(click);
 
     row.upcast()
+}
+
+/// Build the secondary metadata line shown under the title.
+/// Returns `None` when the task has no project, no scheduled date,
+/// no deadline, and no tags — keeps "naked" tasks visually compact.
+fn build_metadata_line(
+    task: &Task,
+    tag_pills: &TagPillMap,
+    project_titles: &HashMap<i64, String>,
+) -> Option<gtk::Widget> {
+    let project_name: Option<&String> = task.project_id.and_then(|pid| project_titles.get(&pid));
+    let date_chip = format_date_chip(task);
+    let pills = tag_pills.get(&task.id).cloned().unwrap_or_default();
+
+    if project_name.is_none() && date_chip.is_none() && pills.is_empty() {
+        return None;
+    }
+
+    let line = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(6)
+        .margin_start(28) // align with title (after the checkbox)
+        .build();
+    line.add_css_class("atrium-board-row-meta");
+    line.add_css_class("dim-label");
+
+    if let Some(name) = project_name {
+        let label = gtk::Label::builder()
+            .label(name)
+            .ellipsize(pango::EllipsizeMode::End)
+            .build();
+        label.add_css_class("atrium-board-row-project");
+        line.append(&label);
+    }
+
+    if let Some(chip) = date_chip {
+        let label = gtk::Label::builder().label(&chip).build();
+        label.add_css_class("atrium-board-row-date");
+        line.append(&label);
+    }
+
+    if !pills.is_empty() {
+        let tags_label = gtk::Label::builder()
+            .use_markup(true)
+            .ellipsize(pango::EllipsizeMode::End)
+            .label(format_tag_names(&pills))
+            .build();
+        tags_label.add_css_class("atrium-board-row-tags");
+        line.append(&tags_label);
+    }
+
+    Some(line.upcast())
+}
+
+/// Compose a single date chip showing the most-relevant date for
+/// the task. Deadline trumps scheduled (a deadline is a harder
+/// commitment); Someday renders as the literal "Someday" label.
+fn format_date_chip(task: &Task) -> Option<String> {
+    if let Some(deadline) = task.deadline {
+        return Some(format!("⏰ {deadline}"));
+    }
+    match &task.scheduled_for {
+        Some(ScheduledFor::Date(d)) => Some(format!("📅 {d}")),
+        Some(ScheduledFor::Someday) => Some("Someday".into()),
+        None => None,
+    }
 }

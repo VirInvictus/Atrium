@@ -2551,6 +2551,15 @@ impl AtriumWindow {
         }
         let columns = atrium_core::group_into_board(&filtered, &cfg, &tag_map);
 
+        // Tag pills + worker handle for the row's secondary metadata
+        // line and interactive checkbox. The pill map carries the
+        // colour each tag was configured with so the kanban renders
+        // the same Pango-coloured pills the regular list does.
+        let tag_pills: crate::ui::task_list::TagPillMap = pool
+            .with(atrium_core::db::read::tag_info_per_task)
+            .unwrap_or_default();
+        let worker = self.worker();
+
         // Click → open the task in the Inspector. Reuses the
         // already-wired `win.edit-details-for(i64)` action that the
         // regular list and the keyboard shortcut both go through.
@@ -2569,7 +2578,14 @@ impl AtriumWindow {
             );
         };
 
-        let widget = crate::ui::board::build_page(&perspective.name, &columns, on_click);
+        let widget = crate::ui::board::build_page(
+            &perspective.name,
+            &columns,
+            &tag_pills,
+            &project_titles,
+            worker,
+            on_click,
+        );
         self.imp().board_host.set_child(Some(&widget));
         Ok(())
     }

@@ -1,5 +1,24 @@
 # Atrium — Patch Notes
 
+## v0.6.1 (2026-05-08) — kanban polish: row metadata + interactive checkbox
+
+The first polish pass on the v0.6.0 kanban. Two gaps closed:
+
+- **Row metadata line.** Project name, the most-relevant date
+  (deadline trumps scheduled; Someday renders as the literal
+  "Someday"), and tag pills (using the same Pango-coloured
+  markup the regular task list uses) now appear under the title
+  when any of them are set. Tasks with no metadata stay tight —
+  the metadata row is suppressed entirely rather than rendering
+  empty.
+- **Interactive checkbox.** Clicking the checkbox toggles the
+  task's completion via the worker, same as the regular list
+  view. The board re-renders on the next `apply_task_changes`
+  delta. Previously the checkbox was render-only.
+
+Drag-drop between columns and a board-renderer editing UI are
+still the next slices.
+
 ## v0.6.0 (2026-05-08) — Slice D1 GUI (read-only kanban board page)
 
 The first GUI consumer for the v0.5.0 `perspective.renderer` /

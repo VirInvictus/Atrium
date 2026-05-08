@@ -90,6 +90,19 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.1" date="2026-05-08">
+      <description>
+        <p>Kanban polish — board rows now show a metadata line
+           with the project name, the most-relevant date
+           (deadline if set, else scheduled, else Someday), and
+           tag pills using the same Pango-coloured markup the
+           regular task list uses. The completion checkbox is
+           interactive: clicking it toggles the task via the
+           worker, same as the rest of the app. Tasks with no
+           metadata stay tight — the secondary line is
+           suppressed entirely rather than rendering empty.</p>
+      </description>
+    </release>
     <release version="0.6.0" date="2026-05-08">
       <description>
         <p>Slice D1 GUI — saved Perspectives whose renderer is

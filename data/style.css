@@ -438,3 +438,21 @@ window.atrium-quickentry-window {
 .atrium-board-row-scroll {
   background: transparent;
 }
+
+/* v0.6.1 — kanban row metadata (project, dates, tag pills). Smaller
+ * type than the title row; subtle separator dots between segments
+ * keep the line scannable without adding a heavier background. */
+.atrium-board-row-meta {
+  font-size: 0.85em;
+  margin-top: 2px;
+}
+.atrium-board-row-meta > .atrium-board-row-project {
+  font-weight: 500;
+}
+.atrium-board-row-meta > .atrium-board-row-project:not(:last-child)::after,
+.atrium-board-row-meta > .atrium-board-row-date:not(:last-child)::after {
+  /* Note: pseudo-elements aren't actually rendered by Adwaita's
+   * label, so the visual separation comes from the spacing between
+   * boxed children. Keep this rule as a no-op placeholder so a
+   * future styling tweak can land cleanly. */
+}
