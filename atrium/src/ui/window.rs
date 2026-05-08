@@ -178,6 +178,16 @@ mod imp {
         /// rather than one per refresh tick.
         pub last_filter_warning: RefCell<Option<String>>,
 
+        /// v0.4.1 — search-history ring buffer. The last
+        /// `SEARCH_HISTORY_MAX` non-empty queries the user committed
+        /// to, newest at the end. ↑ / ↓ inside the search entry
+        /// cycles through this; the cursor is `None` when the user
+        /// isn't navigating, `Some(n)` while they walk back through
+        /// history. In-memory only for v0.4.1 — restarts forget;
+        /// persistence is a follow-up if usage warrants it.
+        pub search_history: RefCell<Vec<String>>,
+        pub search_history_cursor: RefCell<Option<usize>>,
+
         /// Phase 10 — Builder Mode Inspector pane handle. `None`
         /// until `attach_data_layer` runs (the pane needs a
         /// `WorkerHandle`); from then on the window calls
@@ -2481,9 +2491,55 @@ impl AtriumWindow {
                 } else {
                     entry.add_css_class("warning");
                 }
+                // v0.4.1 — push the committed query onto the history
+                // ring buffer (de-duped against the most recent entry,
+                // capped at SEARCH_HISTORY_MAX). Reset the navigation
+                // cursor — typing always represents "fresh search,"
+                // not "I'm browsing through history."
+                {
+                    let mut history = win.imp().search_history.borrow_mut();
+                    push_history_entry(&mut history, q.clone(), SEARCH_HISTORY_MAX);
+                }
+                win.imp().search_history_cursor.replace(None);
                 win.set_active_list(ActiveList::SearchResults(q));
             }
         ));
+
+        // v0.4.1 — search-history navigation. ↑ recalls the previous
+        // query, ↓ moves toward newer / current. The handler reads
+        // and mutates `search_history_cursor`; cycle_history_cursor
+        // is a pure-Rust helper so the logic is unit-testable.
+        let key_ctrl = gtk::EventControllerKey::new();
+        key_ctrl.connect_key_pressed(clone!(
+            #[weak(rename_to = win)]
+            self,
+            #[upgrade_or]
+            glib::Propagation::Proceed,
+            move |_, key, _, _| {
+                let direction = match key {
+                    gtk::gdk::Key::Up => HistoryDirection::Older,
+                    gtk::gdk::Key::Down => HistoryDirection::Newer,
+                    _ => return glib::Propagation::Proceed,
+                };
+                let entry = win.imp().search_entry.clone();
+                let history = win.imp().search_history.borrow().clone();
+                let cursor = *win.imp().search_history_cursor.borrow();
+                let next = cycle_history_cursor(cursor, history.len(), direction);
+                win.imp().search_history_cursor.replace(next);
+                if let Some(idx) = next
+                    && let Some(text) = history.get(idx)
+                {
+                    // set_text re-fires the search-changed handler,
+                    // which pushes onto history. The dedup-against-
+                    // last-entry guard in push_history_entry keeps
+                    // that from snowballing.
+                    entry.set_text(text);
+                    entry.set_position(-1);
+                }
+                glib::Propagation::Stop
+            }
+        ));
+        entry.add_controller(key_ctrl);
 
         // Esc inside the entry closes the bar.
         entry.connect_stop_search(clone!(
@@ -3536,6 +3592,69 @@ fn build_canonical_row(active: &ActiveList) -> (gtk::ListBoxRow, gtk::Label) {
     (row, badge)
 }
 
+/// v0.4.1 — search-history ring buffer cap. Twenty entries is the
+/// shell convention (bash/zsh fc default); short enough to navigate
+/// with ↑ / ↓ without losing context, long enough to recover the
+/// session's worth of queries.
+const SEARCH_HISTORY_MAX: usize = 20;
+
+/// Direction of a single ↑/↓ keypress in the search-history cursor
+/// state machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HistoryDirection {
+    /// ↑ — toward older entries (lower indices in our newest-last vec).
+    Older,
+    /// ↓ — toward newer / "current" entry.
+    Newer,
+}
+
+/// Append `entry` to the history buffer, deduplicating against the
+/// most-recent entry (so repeatedly running the same query doesn't
+/// flood the buffer) and capping at `max` entries (drops from the
+/// front when full). Empty / whitespace-only entries are ignored.
+fn push_history_entry(history: &mut Vec<String>, entry: String, max: usize) {
+    if entry.trim().is_empty() {
+        return;
+    }
+    if history.last().map(String::as_str) == Some(entry.as_str()) {
+        return;
+    }
+    history.push(entry);
+    while history.len() > max {
+        history.remove(0);
+    }
+}
+
+/// Compute the next history cursor given the current cursor, the
+/// length of the history buffer, and the direction of the ↑/↓ press.
+///
+/// The state machine treats `None` as "the user is on the live entry"
+/// and `Some(n)` as "the user has stepped back to history\[n\]." ↑
+/// from `None` lands on the most recent entry; ↓ off the most recent
+/// returns to `None` (the live entry, which the search bar already
+/// holds).
+fn cycle_history_cursor(
+    cursor: Option<usize>,
+    len: usize,
+    direction: HistoryDirection,
+) -> Option<usize> {
+    if len == 0 {
+        return None;
+    }
+    match (cursor, direction) {
+        // Stepping back from the live entry → most recent history.
+        (None, HistoryDirection::Older) => Some(len - 1),
+        // Already at the oldest entry — clamp.
+        (Some(0), HistoryDirection::Older) => Some(0),
+        (Some(n), HistoryDirection::Older) => Some(n - 1),
+        // Stepping forward past the most recent → live entry.
+        (Some(n), HistoryDirection::Newer) if n + 1 >= len => None,
+        (Some(n), HistoryDirection::Newer) => Some(n + 1),
+        // Stepping forward from the live entry has nowhere to go.
+        (None, HistoryDirection::Newer) => None,
+    }
+}
+
 /// CSS class supplying the canonical-list accent colour. Returned
 /// per `ActiveList`; `None` for the lists that intentionally stay
 /// neutral (Anytime — "no time pressure" reads as no colour).
@@ -3847,6 +3966,109 @@ mod tests {
         let menu = build_primary_menu(false);
         // New + Library + Mode + About sections.
         assert_eq!(menu.n_items(), 4);
+    }
+
+    // ── v0.4.1 search-history helpers ──────────────────────────────
+
+    #[test]
+    fn push_history_entry_appends_normal_case() {
+        let mut h = vec!["a".to_string()];
+        push_history_entry(&mut h, "b".into(), 5);
+        assert_eq!(h, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn push_history_entry_dedupes_against_last() {
+        let mut h = vec!["a".to_string(), "b".into()];
+        push_history_entry(&mut h, "b".into(), 5);
+        assert_eq!(h, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn push_history_entry_does_not_dedupe_non_consecutive() {
+        // "a" appears then "b" then "a" again — both "a" entries
+        // are kept because they're not adjacent.
+        let mut h = vec!["a".to_string(), "b".into()];
+        push_history_entry(&mut h, "a".into(), 5);
+        assert_eq!(h, vec!["a", "b", "a"]);
+    }
+
+    #[test]
+    fn push_history_entry_caps_at_max() {
+        let mut h: Vec<String> = (0..5).map(|i| format!("q{i}")).collect();
+        push_history_entry(&mut h, "q5".into(), 5);
+        // Oldest dropped from the front; newest at the end.
+        assert_eq!(h, vec!["q1", "q2", "q3", "q4", "q5"]);
+    }
+
+    #[test]
+    fn push_history_entry_ignores_empty_input() {
+        let mut h = vec!["a".to_string()];
+        push_history_entry(&mut h, "".into(), 5);
+        push_history_entry(&mut h, "   ".into(), 5);
+        assert_eq!(h, vec!["a"]);
+    }
+
+    #[test]
+    fn cycle_history_cursor_empty_history_stays_none() {
+        assert_eq!(cycle_history_cursor(None, 0, HistoryDirection::Older), None);
+        assert_eq!(cycle_history_cursor(None, 0, HistoryDirection::Newer), None);
+    }
+
+    #[test]
+    fn cycle_history_cursor_older_from_live_lands_on_most_recent() {
+        // history len 3 → most recent index is 2
+        assert_eq!(
+            cycle_history_cursor(None, 3, HistoryDirection::Older),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn cycle_history_cursor_older_walks_back() {
+        assert_eq!(
+            cycle_history_cursor(Some(2), 3, HistoryDirection::Older),
+            Some(1)
+        );
+        assert_eq!(
+            cycle_history_cursor(Some(1), 3, HistoryDirection::Older),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn cycle_history_cursor_older_clamps_at_oldest() {
+        // Already at the oldest entry; ↑ shouldn't underflow.
+        assert_eq!(
+            cycle_history_cursor(Some(0), 3, HistoryDirection::Older),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn cycle_history_cursor_newer_returns_to_live_past_most_recent() {
+        // Walking forward off the end of history → live entry (None).
+        assert_eq!(
+            cycle_history_cursor(Some(2), 3, HistoryDirection::Newer),
+            None
+        );
+    }
+
+    #[test]
+    fn cycle_history_cursor_newer_walks_forward() {
+        assert_eq!(
+            cycle_history_cursor(Some(0), 3, HistoryDirection::Newer),
+            Some(1)
+        );
+        assert_eq!(
+            cycle_history_cursor(Some(1), 3, HistoryDirection::Newer),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn cycle_history_cursor_newer_from_live_stays_live() {
+        assert_eq!(cycle_history_cursor(None, 3, HistoryDirection::Newer), None);
     }
 
     #[test]
