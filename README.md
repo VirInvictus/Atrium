@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/GNOME-50%2B-4a86cf" alt="GNOME 50+">
   <img src="https://img.shields.io/badge/Simple%20Mode-shipping-2ea44f" alt="Simple Mode: shipping">
   <img src="https://img.shields.io/badge/Builder%20Mode-shipping-2ea44f" alt="Builder Mode: shipping">
-  <img src="https://img.shields.io/badge/version-0.4.0-blueviolet" alt="version 0.4.0">
+  <img src="https://img.shields.io/badge/version-0.5.0-blueviolet" alt="version 0.5.0">
 </p>
 
 ---
@@ -19,7 +19,7 @@
 
 Atrium fuses Things 3's clarity with OmniFocus's depth into one application via a mode switch over a shared data store. Pick **Simple Mode** for *what am I doing right now*. Switch to **Builder Mode** when you want full GTD review, deferral, sequential projects, and forecast. Same data, two surfaces, no migration.
 
-**Both modes are shipping at v0.4.0.** Simple Mode (Phases 0–9) tagged at v0.1.0; Builder Mode (Phases 10–15) tagged at v0.2.0; v0.3.0 was the visual polish minor; v0.4.0 ships Phase 15.5 — Calibre-powered search.
+**Both modes are shipping at v0.5.0.** Simple Mode (Phases 0–9) tagged at v0.1.0; Builder Mode (Phases 10–15) tagged at v0.2.0; v0.3.0 was the visual polish minor; v0.4.0 shipped Phase 15.5 (Calibre-powered search). v0.5.0 closes the Phase 15.5 deferred-list (state predicates, sort, history, popover, fuzzy match), extracts the search engine and a full headless CLI as their own workspace crates (`atrium-search` / `atrium-cli`), and lands Phase 15.75 Slices A + B (visual polish + per-area accent + canonical-list colour). Slices C (GTD audit) and D (kanban board) carry into v0.6.0.
 
 **Author's Note:** I'm a broke college student in my late thirties with no professional industry experience yet — Atrium is one in a string of native Linux desktop apps I'm building to learn the craft and assemble a portfolio. I came from Things 3 and OmniFocus on macOS / iOS, and Linux has nothing in their lane that isn't an Electron wrapper or a CalDAV form over a webview. Atrium is the answer I wanted to exist. I work on Fedora 44 on a ThinkPad T14s AMD Gen 6; that's the environment it'll be tested against. I welcome contributions but can only honestly support my own setup.
 
@@ -113,11 +113,12 @@ VTODO export is one-way — Atrium does not become a CalDAV client. The plan is 
 
 - **Phases 0–9** — Simple Mode → tagged as **v0.1.0**
 - **Phases 10–15** — Builder Mode → tagged as **v0.2.0**
-- **Phase 15.5** — Calibre-powered search → tagged as **v0.4.0**
+- **Phase 15.5** — Calibre-powered search → tagged as **v0.4.0** (deferred-list closed at v0.5.0)
+- **Phase 15.75 (partial)** — visual polish + per-area accent + atrium-search/atrium-cli extraction → tagged as **v0.5.0**
 - **Phases 16–19** — imports and exports across the Linux productivity-app ecosystem
 - **Phase 20** — l10n, accessibility round 2, capture daemon (`atriumd`), Flathub → **v1.0**
 
-[`patchnotes.md`](patchnotes.md) tracks every release entry, newest at top. The current `VERSION` is the most recent shipped release; v0.4.0 (Calibre-powered search expression grammar — boolean operators, parens, ranges, date keywords, regex, state predicates) is the latest.
+[`patchnotes.md`](patchnotes.md) tracks every release entry, newest at top. The current `VERSION` is the most recent shipped release; v0.5.0 (atrium-cli + atrium-search workspace crates, Phase 15.5 deferred-list closure, Phase 15.75 Slices A + B) is the latest.
 
 ## Architecture (in one paragraph)
 

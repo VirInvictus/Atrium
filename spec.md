@@ -1,6 +1,6 @@
 # Atrium — Application Specification
 
-**Version:** 0.3.0 (Simple + Builder Mode shipped; visual polish pass complete)
+**Version:** 0.5.0 (Phase 15.5+15.75 partial — Calibre search expression language, atrium-search + atrium-cli workspace crates, per-area accent + canonical-list colour, full task CRUD from the shell)
 **Target:** GNOME 50+, GTK4 ≥ 4.16, libadwaita ≥ 1.7
 **Language:** Rust (2024 Edition)
 **Build System:** Cargo / Meson wrapper for Flatpak packaging
@@ -70,7 +70,14 @@ GTK main thread ──direct read──▶ SQLite read-only connection pool (sep
 
 ### 3.3 Process Topology
 
-v0.1 through v0.3 is a single GTK application binary. Phase 20 (v1.0) introduces an optional capture daemon (`atriumd`) running under user systemd that handles the global Quick Entry shortcut even when the main app is closed and IPCs the captured task in. Until that ships, Quick Entry works only when Atrium is running.
+The workspace ships four crates as of v0.5.0:
+
+- **`atrium-core`** — headless data layer (domain types, SQLite worker, paths, repeat-rule wrapper). GUI-free; the foundation every other crate builds on.
+- **`atrium-search`** — Calibre-style search expression language (lex / parse / ast / eval). Extracted from atrium-core in v0.4.2 so the engine can be exercised, fuzzed, and reused independently.
+- **`atrium-cli`** — headless binary that exposes the search engine and full task CRUD (search / list / info / add / capture / edit / complete / delete) from the shell. TSV by default for shell pipelines, `--json` for jq, `--human` for terminal viewing. Read commands open the database read-only as a process-level safety guarantee; write commands spin up the worker on a current-thread tokio runtime, send commands via WorkerHandle, and shut down cleanly.
+- **`atrium`** — the GTK4 binary. Depends on all three above.
+
+The architectural commitment: every non-GUI surface stays CLI-testable. The 2.0-era TUI (`atrium-tui`) is the same shape — another headless consumer of atrium-core + atrium-search. Phase 20 (v1.0) introduces an optional capture daemon (`atriumd`) running under user systemd that handles the global Quick Entry shortcut even when the main app is closed and IPCs the captured task in. Until that ships, Quick Entry works only when Atrium is running.
 
 ### 3.4 Debug-First Architecture
 

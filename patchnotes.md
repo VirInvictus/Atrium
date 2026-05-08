@@ -1,5 +1,71 @@
 # Atrium — Patch Notes
 
+## v0.5.0 (2026-05-08) — atrium-cli, search engine evolution, Phase 15.75 visual polish
+
+A meaty minor — this release rolls together fifteen post-v0.4.0 patches into one shippable boundary. Three threads finished and one started:
+
+1. **Phase 15.75 (partial) — visual polish + per-area accent.** Foundation migrations, beauty pass, and per-area colour rendering all landed. The board view (Slice D) and GTD-audit work (Slice C) remain for v0.6.0 / Phase 15.75 finish.
+2. **Phase 15.5 deferred-list — closed.** Every search-engine line item the v0.4.0 release punted into "v0.4.x patch" territory shipped: state-predicate coverage, `sort:` modifier, ↑/↓ history, `?` operator-reference popover, fuzzy match, plus the SQL-translation evaluator and FTS5 ranking still pending for a future patch.
+3. **Architectural extraction — atrium-search + atrium-cli.** The search engine and a full headless CLI both live as their own workspace crates. The GTK binary is no longer the gatekeeper for the search engine or the data layer.
+4. **CLI-testable everything.** Every non-GUI surface is now exercisable from the shell. Foundation for the 2.0-era TUI / atriumd capture daemon.
+
+### Phase 15.75 visual polish
+
+- **Foundation (Slice A).** Two additive migrations — `0004_area_color.sql` (one new column on `area`) and `0005_perspective_renderer.sql` (two new columns on `perspective`: `renderer TEXT NOT NULL DEFAULT 'list'` and `renderer_config TEXT NULL`). Domain types and worker SQL grew alongside; user_version 3 → 5. No UI consumer yet for the perspective renderer columns — that's Slice D's board view, deferred to v0.6.0.
+- **Visual rhythm (Slice B1).** `.atrium-task-row:hover` gains a subtle inset bottom border (`@card_shade_color` 1px) plus alpha bump 0.08 → 0.10 for a "lift" cue. `.atrium-sidebar-section` letter-spacing 0.04em → 0.06em — section headers read more clearly as labels. `.atrium-note-body` picks up `font-style: italic` + tighter line-height (1.55 → 1.6); both Inspector surfaces (Simple-mode dialog + Builder-mode pane) now attach the class to their notes TextView so the editable Notes field reads as a writing surface, not a clone of the row chrome. Task list wrapped in an `AdwClamp` (max 720 px) so rows don't stretch into runway on wide windows.
+- **Per-area accent (Slice B2).** `prompt_for_tag` generalised to `prompt_for_named_color` with a `placeholder` parameter. Tag callers (3 sites) pass "Tag name"; new area callers (2 sites) pass "Area name". `prompt_create_area` and the Area arm of `prompt_rename_active` now both surface the six-swatch picker. `build_area_row` mirrors `build_tag_row`'s coloured-dot pattern when `area.color` is set. `AtriumTask` gains an `area_color` glib property; `apply_area_accent` toggles the matching `.atrium-area-accent-{color}` CSS class on bind + on every notify so a project move that shifts a task under a differently-coloured area updates the stripe in place. Six new CSS rules paint `border-left-color` at alpha 0.7 on each `.atrium-area-accent-{color}` class. `replace_store_with_tags_seq` + `apply_changes_seq` grow an `area_color_for: G` closure parameter alongside the existing `context_for`; three call sites in `window.rs` pass the new resolver via `build_area_color_resolver`.
+- **About-dialog icon resolution.** `typography::register_icon_search_paths` walks three candidate paths (ATRIUM_DATADIR runtime env, compile-time install, `CARGO_MANIFEST_DIR`-relative dev fallback) and registers each existing one with `gtk::IconTheme::for_display`, so AdwAboutDialog's `application_icon(APP_ID)` lookup finds the bundled SVG during `cargo run` development. Installed builds were always fine.
+- **Subtle warmth.** Each canonical sidebar list now carries a quiet accent on its leading symbolic icon — Things-3-style. Inbox `@blue_3`, Today `@yellow_5`, Upcoming `@green_4`, Anytime unchanged (intentional neutral beat), Someday `@purple_3`, Logbook `@purple_2` (faded). All wrapped in alpha 0.75–0.95 so accents read as personality, not signage. Also fixed the "cancel symbol" tag icons — `tag-outline-symbolic` isn't in the GNOME standard set; switched to `tag-symbolic`.
+
+### Search engine evolution (Phase 15.5 deferred-list closure)
+
+- **Canonical-list state predicates.** Five new `is:NAME` shortcuts mirroring the canonical sidebar lists per spec §4.2: `is:today`, `is:inbox`, `is:upcoming`, `is:anytime`, `is:someday`. Each pairs with `!is:NAME` for the inverse. Closes the user-mental-model gap that `due:today` (correctly exact-match on Deadline) doesn't surface tasks scheduled for today — `is:today` is the broader Today-list mirror.
+- **`sort:` modifier.** `sort:KEY` (ascending) / `sort:-KEY` (descending) with primary → secondary composition. Recognised keys: `due` (alias `deadline`), `scheduled` (alias `when`), `defer`, `created`, `modified`, `completed`, `estimated`, `title`, `position`. NULLs sort last regardless of direction (SQL convention). Implemented as a parser-time AST extraction (the `Expr::Pass` placeholder + `ParseResult.sorts` metadata) so the evaluator never sees a sort modifier as a predicate.
+- **Fuzzy `?` modifier.** `tag:?work` matches with Damerau-Levenshtein within a length-aware threshold (≤4 chars → 1, 5–7 → 2, ≥8 → 3). Damerau (vs plain Levenshtein) counts a transposition of adjacent characters as a single edit, so `tag:?wrok` matches `work` — the most common typing slip survives fuzzy without falling back to substring.
+- **Search history (↑ / ↓).** 20-entry in-memory ring buffer of recent committed queries. ↑ steps back, ↓ moves toward newer entries; pressing ↓ off the most-recent entry returns to the live entry. Pure-Rust `push_history_entry` + `cycle_history_cursor` helpers keep the state-machine logic out of GTK glue and unit-testable.
+- **Operator-reference popover (`?` button).** The search bar grew a `?` GtkMenuButton; clicking opens a structured quick-reference organised by section (Boolean, Fields, Modifiers, Comparison & range, Date keywords, State, Sort). Closes the discoverability gap — without this the search-engine power was invisible to anyone who hadn't read spec §4.3.
+
+### atrium-search workspace crate (v0.4.2)
+
+`atrium-core/src/search/` was lifted into its own sibling workspace crate `atrium-search`. Same code, same tests, no behaviour change — the move means the parser/evaluator can be fuzzed, benchmarked, and reused (atrium-cli + future TUI / atriumd / search server) without dragging the SQLite/worker layer along. atrium-core no longer depends on `regex`. The codebase map in `CLAUDE.md` documents the four-crate workspace.
+
+### atrium-cli — headless data + search access
+
+A whole new headless binary, sibling to the GTK app:
+
+- **Read commands.** `search EXPR` (full search expression language, sort modifiers honoured), `list NAME` (canonical task lists: inbox, today, upcoming, anytime, someday, logbook, all; metadata lists: areas, projects, tags, perspectives), `info ID` (full task detail).
+- **Write commands.** `add TITLE [flags]` (full NewTask flag soup with date keywords, project resolution by case-insensitive substring, tag attachment via ensure_tag), `capture LINE` (Quick-Entry-style one-shot capture using the same inline-syntax parser the GUI's bottom-of-list entry uses — lifted from `atrium/src/quickentry/parser.rs` to `atrium-core/src/quick_entry.rs` at v0.4.5), `edit ID [flags]` (diff-based field updates including additive tag flags `--tag X` / `--remove-tag X` / `--clear-tags`), `complete ID` (toggle), `delete ID`.
+- **Output formats.** `--tsv` (default — header row + sanitised columns; `cut`/`grep`-friendly), `--json` (serde_json array; `jq`-friendly), `--human` (pretty columns with truncation; for terminal viewing).
+- **Database resolution.** `--db PATH` flag → `ATRIUM_DB_PATH` env → XDG default. Read commands open `SQLITE_OPEN_READ_ONLY` so a buggy query attempting an INSERT errors at the engine — no CLI invocation can corrupt the user's database through a read path.
+
+### Numbers
+
+- **362 tests pass total** (89 atrium + 63 atrium-cli + 136 atrium-core + 73 atrium-search + 1 mode-flip integration). Up from 248 at v0.4.0 (+114).
+- **Workspace shape:** four crates (`atrium-core`, `atrium-search`, `atrium-cli`, `atrium`).
+- **Schema version:** 5 (was 3 at v0.4.0; +0004 area_color, +0005 perspective_renderer).
+- **Migrations log:** `0001_initial.sql` (Phase 1) → `0005_perspective_renderer.sql` (v0.5.0 / Phase 15.75 Slice A).
+
+### Spec discipline
+
+- `spec.md` §3.3 Process Topology rewritten to reflect the four-crate workspace + the architectural commitment that every non-GUI surface stays CLI-testable.
+- `spec.md` §4.3 search expression language updated with the new operators (state predicates, sort modifier, fuzzy match) and §4.5 migrations log records 0004 + 0005.
+- `roadmap.md` Phase 15.75 records partial progress (Slices A + B done; C/D/E pending). Phase 15.5 deferred-list moves to "closed" with the line items shipped at v0.4.x.
+- `CLAUDE.md` codebase map shows the four-crate layout and includes atrium-cli's structure.
+
+### Phase 15.75 carryover into v0.6.0
+
+Three slices remain on Phase 15.75's plan:
+- **Slice C — GTD audit fixes.** Weekly-Review seed Perspective on first-run; Logbook day-grouping headers (Today / Yesterday / Last 7 Days / Older); `docs/gtd-patterns.md` documenting the `#waiting` user-tag idiom.
+- **Slice D — Board view.** Saved Perspectives gain a `renderer = 'board'` option that renders the filter expression as a kanban with tag-axis columns. The schema columns shipped at v0.5.0 (Slice A); UI is Slice D.
+- **Slice E — Documentation polish.** Already partly subsumed by this v0.5.0 release notes entry; what remains is the fuller spec / roadmap / patchnotes pass that goes with the next minor.
+
+### Other deferred to v0.6.x
+
+- **SQL-translation evaluator** for the search engine. Translates the AST to a SQL `WHERE` clause when expressible; falls back to in-memory eval for regex / complex tag predicates. Pure perf optimization — the in-memory path handles 100K tasks within budget today.
+- **FTS5 bm25 + recency ranking** on bare-text searches. Currently search returns matches unranked.
+- **CLI bulk operations.** `atrium-cli complete --where 'is:overdue'` to bulk-complete matched tasks. The pieces are all in place; just needs a flag-driven dispatcher.
+- **Regression-script integration.** `scripts/regression.sh` should exercise atrium-cli end-to-end against a fixture DB so the architectural commitment is automatically verified at every release.
+
 ## v0.4.0 (2026-05-07) — Phase 15.5: Calibre-Powered Search
 
 The search bar's filter language grew from the v0.1 flat shape (`tag:foo is:open due:today` — useful but limited) into a full Calibre-style expression grammar. Saved Perspectives inherit the new power for free since they store filter expressions verbatim. The full operator reference lives in `spec.md` §4.3; the highlights:
