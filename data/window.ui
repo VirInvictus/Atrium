@@ -86,6 +86,59 @@
                             </property>
                           </object>
                         </child>
+                        <!-- v0.2.2 — empty-library hint. Visible only
+                             when there are no areas, projects, or tags
+                             yet. AtriumWindow::refresh_sidebar_empty_hint
+                             toggles the revealer and the "create first
+                             project" action lives on win.new-project. -->
+                        <child>
+                          <object class="GtkRevealer" id="sidebar_empty_hint">
+                            <property name="reveal-child">false</property>
+                            <property name="transition-type">slide-up</property>
+                            <property name="child">
+                              <object class="GtkBox">
+                                <property name="orientation">vertical</property>
+                                <property name="spacing">8</property>
+                                <property name="margin-start">12</property>
+                                <property name="margin-end">12</property>
+                                <property name="margin-top">12</property>
+                                <property name="margin-bottom">16</property>
+                                <child>
+                                  <object class="GtkLabel">
+                                    <property name="label" translatable="yes">No projects yet</property>
+                                    <property name="xalign">0</property>
+                                    <style>
+                                      <class name="caption-heading"/>
+                                    </style>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkLabel">
+                                    <property name="label" translatable="yes">Group tasks by what they're for. You can always add an area later to organise multiple projects.</property>
+                                    <property name="wrap">true</property>
+                                    <property name="xalign">0</property>
+                                    <property name="max-width-chars">28</property>
+                                    <style>
+                                      <class name="caption"/>
+                                      <class name="dim-label"/>
+                                    </style>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton">
+                                    <property name="label" translatable="yes">New Project</property>
+                                    <property name="action-name">app.new-project</property>
+                                    <property name="halign">start</property>
+                                    <style>
+                                      <class name="suggested-action"/>
+                                      <class name="pill"/>
+                                    </style>
+                                  </object>
+                                </child>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
                       </object>
                     </property>
                   </object>
@@ -127,7 +180,7 @@
                         <property name="key-capture-widget">task_list_view</property>
                         <child>
                           <object class="GtkSearchEntry" id="search_entry">
-                            <property name="placeholder-text" translatable="yes">Search · tag:errand · is:overdue · due:today</property>
+                            <property name="placeholder-text" translatable="yes">Find tasks — try tag:errand, due:today, or is:overdue</property>
                             <property name="hexpand">true</property>
                             <property name="search-delay">200</property>
                           </object>

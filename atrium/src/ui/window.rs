@@ -64,6 +64,11 @@ mod imp {
         pub sidebar_list: TemplateChild<gtk::ListBox>,
         #[template_child]
         pub sidebar_filter: TemplateChild<gtk::SearchEntry>,
+        /// v0.2.2 — empty-library hint. Reveals when no areas /
+        /// projects / tags exist; the embedded button dispatches
+        /// `app.new-project` to bootstrap the first project.
+        #[template_child]
+        pub sidebar_empty_hint: TemplateChild<gtk::Revealer>,
         #[template_child]
         pub content_page: TemplateChild<adw::NavigationPage>,
         #[template_child]
@@ -140,6 +145,10 @@ mod imp {
         /// the sidebar is built. `set_active_list` consults it for
         /// `Tag(id)` content-pane titles.
         pub tag_titles: RefCell<HashMap<i64, String>>,
+        /// v0.3.0 — per-tag colour cache (hex strings or None).
+        /// Used by the rename-tag dialog to pre-select the swatch
+        /// and by the task-row factory to render coloured #pills.
+        pub tag_colors: RefCell<HashMap<i64, Option<String>>>,
 
         /// Phase 14 — saved-perspective caches populated from
         /// `db::read::list_perspectives` during sidebar build. The
@@ -156,6 +165,13 @@ mod imp {
         /// *or* the `Ctrl+Z` accel can take it (whoever fires first
         /// wins; the loser sees an empty cell and no-ops). Phase 7f.
         pub last_undo: RefCell<Option<UndoCell>>,
+
+        /// v0.2.2 — fingerprint of the last filter-parse warning we
+        /// surfaced as a toast. Refreshes of the same query (e.g.
+        /// TaskChanges arrivals on a SearchResults view) check this
+        /// before re-toasting, so the user sees one toast per typo
+        /// rather than one per refresh tick.
+        pub last_filter_warning: RefCell<Option<String>>,
 
         /// Phase 10 — Builder Mode Inspector pane handle. `None`
         /// until `attach_data_layer` runs (the pane needs a
@@ -269,7 +285,7 @@ fn icon_for(list: &ActiveList) -> &'static str {
         ActiveList::Today => "starred-symbolic",
         ActiveList::Upcoming => "x-office-calendar-symbolic",
         ActiveList::Anytime => "view-list-symbolic",
-        ActiveList::Someday => "user-home-symbolic",
+        ActiveList::Someday => "weather-clear-night-symbolic",
         ActiveList::Logbook => "document-open-recent-symbolic",
         ActiveList::Project(_) => "view-list-bullet-symbolic",
         ActiveList::Area(_) => "folder-symbolic",
@@ -747,6 +763,7 @@ impl AtriumWindow {
             .with(atrium_core::db::read::list_tags)
             .unwrap_or_default();
         let mut tag_titles: HashMap<i64, String> = HashMap::new();
+        let mut tag_colors: HashMap<i64, Option<String>> = HashMap::new();
         let mut tag_badges: HashMap<i64, gtk::Label> = HashMap::new();
         if !tags.is_empty() {
             list_box.append(&build_section_header("Tags"));
@@ -754,6 +771,7 @@ impl AtriumWindow {
             titles.push(None);
             for tag in &tags {
                 tag_titles.insert(tag.id, tag.name.clone());
+                tag_colors.insert(tag.id, tag.color.clone());
                 let (row, badge) = build_tag_row(tag);
                 self.install_tag_context_menu(&row, tag.id);
                 list_box.append(&row);
@@ -763,6 +781,7 @@ impl AtriumWindow {
             }
         }
         self.imp().tag_titles.replace(tag_titles);
+        self.imp().tag_colors.replace(tag_colors);
         self.imp().tag_badges.replace(tag_badges);
 
         // Phase 10 / 12 / 13 / 14 — Builder-only sidebar entries.
@@ -822,6 +841,17 @@ impl AtriumWindow {
         self.imp().sidebar_targets.replace(targets);
         self.imp().sidebar_titles.replace(titles);
         self.refresh_dynamic_badges();
+
+        // v0.2.2 — empty-library hint. Reveals only when there are
+        // no areas, no projects, *and* no tags. Tags-only is a valid
+        // workflow (capture-by-tag rather than capture-by-project)
+        // so we don't pester the user when they've started with that
+        // shape; areas-without-projects is unusual but treated as
+        // "in progress" rather than empty.
+        let library_empty = areas.is_empty() && projects.is_empty() && tags.is_empty();
+        self.imp()
+            .sidebar_empty_hint
+            .set_reveal_child(library_empty);
 
         // Re-apply any active filter so the freshly-built rows respect
         // it (e.g., a tag rename that lands while a filter is typed).
@@ -1220,13 +1250,30 @@ impl AtriumWindow {
     /// was built.
     fn title_for(&self, active: ActiveList) -> String {
         match active {
-            ActiveList::Project(id) => self
-                .imp()
-                .project_titles
-                .borrow()
-                .get(&id)
-                .cloned()
-                .unwrap_or_else(|| "Project".into()),
+            ActiveList::Project(id) => {
+                // v0.3.0 — when a project lives under an area, render
+                // "Area › Project" so the heading anchors the user
+                // in the hierarchy. Falls back to bare project name
+                // when the project has no area (Unfiled).
+                let project_title = self
+                    .imp()
+                    .project_titles
+                    .borrow()
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| "Project".into());
+                let area_title = self
+                    .imp()
+                    .project_meta
+                    .borrow()
+                    .get(&id)
+                    .and_then(|p| p.area_id)
+                    .and_then(|aid| self.imp().area_titles.borrow().get(&aid).cloned());
+                match area_title {
+                    Some(area) if !area.is_empty() => format!("{area} › {project_title}"),
+                    _ => project_title,
+                }
+            }
             ActiveList::Area(id) => self
                 .imp()
                 .area_titles
@@ -1276,6 +1323,18 @@ impl AtriumWindow {
     /// Tag / Forecast / Perspective / SearchResults / Upcoming)
     /// render the full "Area › Project" form so users can place a
     /// task in their hierarchy at a glance.
+    /// v0.4.0 — derive the project_id → area_id map from the cached
+    /// `project_meta`. Used by the search evaluator's `area:` matcher
+    /// and by `build_context_resolver` for the row-context chip.
+    fn project_areas_map(&self) -> HashMap<i64, Option<i64>> {
+        self.imp()
+            .project_meta
+            .borrow()
+            .iter()
+            .map(|(id, p)| (*id, p.area_id))
+            .collect()
+    }
+
     fn build_context_resolver(&self, active: &ActiveList) -> impl Fn(&Task) -> String + use<> {
         let project_titles = self.imp().project_titles.borrow().clone();
         let area_titles = self.imp().area_titles.borrow().clone();
@@ -1296,7 +1355,18 @@ impl AtriumWindow {
                 return String::new();
             }
             let Some(pid) = task.project_id else {
-                return String::new();
+                // v0.2.2 — when a task has no project (Inbox), the
+                // chip would render blank in AreaAndProject mode.
+                // Users unfamiliar with the data model don't know
+                // a missing chip means "Inbox". Render it
+                // explicitly. ProjectOnly views (Area pages) keep
+                // the empty render — there's no project to name and
+                // the heading already names the area.
+                let inbox = match mode {
+                    ContextMode::AreaAndProject => "Inbox".to_string(),
+                    _ => String::new(),
+                };
+                return inbox;
             };
             let project = project_titles.get(&pid).cloned().unwrap_or_default();
             if matches!(mode, ContextMode::ProjectOnly) {
@@ -1371,21 +1441,37 @@ impl AtriumWindow {
                 return;
             };
             let parsed = crate::ui::filter::parse(&expr);
-            let tasks = pool.with(|conn| {
-                if parsed.text.is_empty() {
-                    atrium_core::db::read::list_all_tasks(conn)
-                } else {
-                    atrium_core::db::read::search_tasks(conn, &parsed.text)
-                }
-            });
+            // v0.2.2 — surface unknown-token warnings against the
+            // saved expression so users notice when a Perspective's
+            // filter has a typo. Deduped so we don't re-toast on
+            // every refresh.
+            self.surface_filter_warnings(&parsed);
+            // v0.4.0 — load the full task set and let the search
+            // evaluator filter in Rust. Stage 3 will add SQL
+            // translation for the subset of expressions SQLite can
+            // express; until then the in-memory path covers
+            // everything (regex, complex tag predicates, etc.).
+            let tasks = pool.with(atrium_core::db::read::list_all_tasks);
             match tasks {
                 Ok(tasks) => {
                     let tag_map: TagMap = pool
                         .with(atrium_core::db::read::tag_names_per_task)
                         .unwrap_or_default();
-                    let tasks = crate::ui::filter::apply(tasks, &parsed.filters, &tag_map, today);
+                    let tag_pills: crate::ui::task_list::TagPillMap = pool
+                        .with(atrium_core::db::read::tag_info_per_task)
+                        .unwrap_or_default();
+                    let project_areas = self.project_areas_map();
+                    let tasks = crate::ui::filter::apply(
+                        tasks,
+                        &parsed,
+                        today,
+                        &tag_map,
+                        &self.imp().project_titles.borrow(),
+                        &project_areas,
+                        &self.imp().area_titles.borrow(),
+                    );
                     let context_for = self.build_context_resolver(&active);
-                    replace_store_with_tags_seq(&store, &tasks, &tag_map, false, context_for);
+                    replace_store_with_tags_seq(&store, &tasks, &tag_pills, false, context_for);
                     sort_by_position(&store);
                 }
                 Err(e) => {
@@ -1408,18 +1494,17 @@ impl AtriumWindow {
             ActiveList::Area(id) => atrium_core::db::read::list_area(conn, *id),
             ActiveList::Tag(id) => atrium_core::db::read::list_tasks_with_tag(conn, *id),
             ActiveList::SearchResults(query) => {
-                // Phase 7d: parse out filter expressions (`tag:foo`,
-                // `is:overdue`, etc.) before hitting FTS5; filters
-                // apply in Rust after the hit list comes back.
-                let parsed = crate::ui::filter::parse(query);
-                if parsed.text.is_empty() {
-                    if parsed.filters.is_empty() {
-                        Ok(Vec::new())
-                    } else {
-                        atrium_core::db::read::list_all_tasks(conn)
-                    }
+                // v0.4.0 — search expressions go through the
+                // Calibre-style parser in atrium_core::search. The
+                // window-side `filter::apply` evaluates the parsed
+                // AST against the in-memory task set. Empty parse
+                // (no expression at all) returns the empty list so
+                // the user doesn't see the entire library on a
+                // blank search bar.
+                if crate::ui::filter::parse(query).expr.is_none() {
+                    Ok(Vec::new())
                 } else {
-                    atrium_core::db::read::search_tasks(conn, &parsed.text)
+                    atrium_core::db::read::list_all_tasks(conn)
                 }
             }
             ActiveList::Forecast | ActiveList::Review | ActiveList::Perspective(_) => {
@@ -1433,9 +1518,21 @@ impl AtriumWindow {
                 let tag_map: TagMap = pool
                     .with(atrium_core::db::read::tag_names_per_task)
                     .unwrap_or_default();
+                let tag_pills: crate::ui::task_list::TagPillMap = pool
+                    .with(atrium_core::db::read::tag_info_per_task)
+                    .unwrap_or_default();
                 let tasks = if let ActiveList::SearchResults(q) = &active {
                     let parsed = crate::ui::filter::parse(q);
-                    crate::ui::filter::apply(tasks, &parsed.filters, &tag_map, today)
+                    let project_areas = self.project_areas_map();
+                    crate::ui::filter::apply(
+                        tasks,
+                        &parsed,
+                        today,
+                        &tag_map,
+                        &self.imp().project_titles.borrow(),
+                        &project_areas,
+                        &self.imp().area_titles.borrow(),
+                    )
                 } else {
                     tasks
                 };
@@ -1453,7 +1550,7 @@ impl AtriumWindow {
                     _ => false,
                 };
                 let context_for = self.build_context_resolver(&active);
-                replace_store_with_tags_seq(&store, &tasks, &tag_map, sequential, context_for);
+                replace_store_with_tags_seq(&store, &tasks, &tag_pills, sequential, context_for);
                 sort_by_position(&store);
             }
             Err(e) => {
@@ -1532,10 +1629,14 @@ impl AtriumWindow {
             return;
         }
         let today = Local::now().date_naive();
-        // Re-load tag map so the diff applier renders updated pills.
-        let tag_map: TagMap = self
+        // Re-load the per-task tag pill map so the diff applier
+        // renders updated pills with their colours. Drop the older
+        // name-only TagMap here — the diff applier no longer needs
+        // it (only filter::apply does, and it isn't called inside
+        // apply_task_changes).
+        let tag_pills: crate::ui::task_list::TagPillMap = self
             .read_pool()
-            .and_then(|p| p.with(atrium_core::db::read::tag_names_per_task).ok())
+            .and_then(|p| p.with(atrium_core::db::read::tag_info_per_task).ok())
             .unwrap_or_default();
         // Phase 11 — propagate the sequential flag so the diff
         // applier recomputes queued state when the active view is
@@ -1555,7 +1656,7 @@ impl AtriumWindow {
             changes,
             active,
             today,
-            &tag_map,
+            &tag_pills,
             sequential,
             context_for,
         );
@@ -1585,61 +1686,60 @@ impl AtriumWindow {
     fn empty_state_copy(&self, active: &ActiveList) -> (String, String) {
         match active {
             ActiveList::Inbox => (
-                "Inbox is empty".into(),
-                "Press Ctrl+N or use the entry below to capture a task.".into(),
+                "Inbox zero".into(),
+                "Catch a thought with Ctrl+N or the entry below — Atrium will keep it safe until you place it.".into(),
             ),
             ActiveList::Today => (
-                "Nothing today".into(),
-                "Schedule tasks for today or check Upcoming for what's next.".into(),
+                "Clear plate today".into(),
+                "Nothing scheduled and no deadlines crossing the horizon. Glance at Upcoming for what's next, or take the afternoon back.".into(),
             ),
             ActiveList::Upcoming => (
-                "Nothing upcoming".into(),
-                "Tasks scheduled for future dates appear here.".into(),
+                "Open horizon".into(),
+                "Schedule a task to a future date and it'll surface here, sorted by when.".into(),
             ),
             ActiveList::Anytime => (
-                "No anytime tasks".into(),
-                "Open tasks without a scheduled date land here.".into(),
+                "Nothing waiting".into(),
+                "Open tasks without a date land here — your low-pressure pool to dip into when there's time.".into(),
             ),
             ActiveList::Someday => (
-                "Someday is empty".into(),
-                "Park ideas here when you don't want a date attached.".into(),
+                "Park it for later".into(),
+                "Ideas and maybes belong here. Scheduled to Someday means \"on the radar, no commitment yet\".".into(),
             ),
             ActiveList::Logbook => (
-                "Logbook is empty".into(),
-                "Completed tasks accumulate here, newest first.".into(),
+                "Nothing logged yet".into(),
+                "Completed tasks settle here in reverse chronological order — your record of the work done.".into(),
             ),
             ActiveList::Project(_) => (
                 format!("{} is empty", self.title_for(active.clone())),
-                "Add tasks to this project from the entry below.".into(),
+                "Add the first task with the entry below, or capture quickly with Ctrl+Alt+Space.".into(),
             ),
             ActiveList::Area(_) => (
-                format!("{} is empty", self.title_for(active.clone())),
-                "No open tasks across this area's projects.".into(),
+                format!("Nothing open in {}", self.title_for(active.clone())),
+                "An area aggregates open tasks across its projects. Add a project under it, then file tasks into the project.".into(),
             ),
             ActiveList::Tag(_) => (
-                format!("{} is empty", self.title_for(active.clone())),
-                "No open tasks bear this tag.".into(),
+                format!("No tasks tagged {}", self.title_for(active.clone())),
+                "Apply this tag from a task's Inspector or with #tag in Quick Entry.".into(),
             ),
             ActiveList::SearchResults(q) if q.trim().is_empty() => (
-                "Search".into(),
-                "Type a query above to find tasks by title or note.".into(),
+                "Search Atrium".into(),
+                "Type to find tasks by title or note. Try filters too: tag:errand, due:today, is:overdue.".into(),
             ),
             ActiveList::SearchResults(q) => (
-                format!("No matches for “{q}”"),
-                "Search covers task titles and notes (FTS5).".into(),
+                format!("No matches for \u{201c}{q}\u{201d}"),
+                "Search covers task titles, notes, and filter expressions. Check spelling, or try a broader term.".into(),
             ),
             ActiveList::Forecast => (
-                "Forecast is empty".into(),
-                "Schedule, deadline, or defer a task and it'll appear here on its day.".into(),
+                "Open horizon".into(),
+                "Schedule, deadline, or defer a task and it'll appear here on its day. Drag rows between days to reschedule.".into(),
             ),
             ActiveList::Review => (
-                "Nothing to review".into(),
-                "Projects with a review interval surface here when they're due — oldest first."
-                    .into(),
+                "All caught up".into(),
+                "Projects with a review interval surface here when their last review goes stale — oldest first.".into(),
             ),
             ActiveList::Perspective(_) => (
-                format!("{} is empty", self.title_for(active.clone())),
-                "No tasks match this perspective's filter expression right now.".into(),
+                format!("{} is quiet", self.title_for(active.clone())),
+                "No tasks currently match this perspective's filter expression. Adjust the filter or wait for matches to appear.".into(),
             ),
         }
     }
@@ -2286,12 +2386,33 @@ impl AtriumWindow {
                 if q.trim().is_empty() {
                     // If search bar is open and user cleared the
                     // text, fall back to Today rather than rendering
-                    // empty results.
+                    // empty results. Also clear any standing
+                    // filter-warning fingerprint so next typo
+                    // re-toasts, and clear any warning styling on
+                    // the entry.
+                    win.imp().last_filter_warning.replace(None);
+                    entry.remove_css_class("warning");
                     if matches!(win.active_list(), ActiveList::SearchResults(_)) {
                         win.set_active_list(ActiveList::Today);
                         win.select_sidebar_row_for(ActiveList::Today);
                     }
                     return;
+                }
+                // v0.2.2 — flag obvious typos before the SELECT runs.
+                // The parsed FilterQuery is computed cheaply; the
+                // warning toast deduplicates against the last
+                // fingerprint so successive refreshes don't spam.
+                //
+                // v0.4.0 — also tint the search entry with the
+                // libadwaita `.warning` accent when the expression
+                // has unknown tokens. Removed when the user fixes
+                // the typo.
+                let parsed = crate::ui::filter::parse(&q);
+                win.surface_filter_warnings(&parsed);
+                if parsed.warnings.is_empty() {
+                    entry.remove_css_class("warning");
+                } else {
+                    entry.add_css_class("warning");
                 }
                 win.set_active_list(ActiveList::SearchResults(q));
             }
@@ -2322,6 +2443,45 @@ impl AtriumWindow {
     /// most once — whichever of the toast button or the `Ctrl+Z`
     /// accel (Phase 7f) fires first consumes it. Default 6 s timeout.
     /// Phase 7b's daily-driver safety net.
+    /// Generic toast helper. Used for non-undo notifications like
+    /// the filter-parse warning surface. Times out at 4 seconds —
+    /// long enough to read, short enough not to linger.
+    pub fn show_toast(&self, message: &str) {
+        let toast = adw::Toast::new(message);
+        toast.set_timeout(4);
+        self.imp().toast_overlay.add_toast(toast);
+    }
+
+    /// v0.2.2 — surface unknown `key:value` tokens in a search /
+    /// perspective expression as a toast so users notice typos
+    /// (`tga:foo`) instead of having the filter silently no-op.
+    /// Deduplicated against `last_filter_warning` so refreshes of
+    /// the same query (e.g. TaskChanges arrivals on a SearchResults
+    /// view) don't re-toast.
+    pub fn surface_filter_warnings(&self, parsed: &crate::ui::filter::FilterQuery) {
+        if parsed.warnings.is_empty() {
+            // Clear the cell so the same warning re-toasts later if
+            // the user edits and re-types the same typo.
+            self.imp().last_filter_warning.replace(None);
+            return;
+        }
+        // De-duplicate by joined-warning fingerprint. Same fingerprint
+        // = same bad input, don't re-toast.
+        let fingerprint = parsed.warnings.join(" ");
+        if self.imp().last_filter_warning.borrow().as_ref() == Some(&fingerprint) {
+            return;
+        }
+        self.imp().last_filter_warning.replace(Some(fingerprint));
+        let preview = parsed.warnings.iter().take(3).cloned().collect::<Vec<_>>();
+        let suffix = if parsed.warnings.len() > preview.len() {
+            format!(" (+{} more)", parsed.warnings.len() - preview.len())
+        } else {
+            String::new()
+        };
+        let message = format!("Unknown filter: {}{}", preview.join(", "), suffix);
+        self.show_toast(&message);
+    }
+
     pub fn show_undo_toast<F: FnOnce() + 'static>(&self, message: &str, undo: F) {
         let toast = adw::Toast::new(message);
         toast.set_button_label(Some("Undo"));
@@ -2656,7 +2816,13 @@ impl AtriumWindow {
                 return;
             };
             let Some(worker) = win.worker() else { return };
-            if let Err(e) = worker.create_area(NewArea { title }).await {
+            if let Err(e) = worker
+                .create_area(NewArea {
+                    title,
+                    ..Default::default()
+                })
+                .await
+            {
                 error!(?e, "create_area failed");
             }
         });
@@ -2750,21 +2916,31 @@ impl AtriumWindow {
                 });
             }
             ActiveList::Tag(id) => {
-                let current = self
+                let current_name = self
                     .imp()
                     .tag_titles
                     .borrow()
                     .get(&id)
                     .cloned()
                     .unwrap_or_default();
+                let current_color = self.imp().tag_colors.borrow().get(&id).cloned().flatten();
                 glib::MainContext::default().spawn_local(async move {
-                    let Some(name) =
-                        prompt_for_text(&win, "Rename Tag", "Tag name", &current, "Rename").await
+                    let Some((name, color)) = prompt_for_tag(
+                        &win,
+                        "Edit Tag",
+                        &current_name,
+                        current_color.as_deref(),
+                        "Save",
+                    )
+                    .await
                     else {
                         return;
                     };
                     let Some(worker) = win.worker() else { return };
-                    if let Err(e) = worker.update_tag(TagUpdate::new(id).name(name)).await {
+                    if let Err(e) = worker
+                        .update_tag(TagUpdate::new(id).name(name).color(color))
+                        .await
+                    {
                         error!(?e, id, "update_tag failed");
                     }
                 });
@@ -2929,12 +3105,12 @@ impl AtriumWindow {
     pub fn prompt_create_tag(&self) {
         let win = self.clone();
         glib::MainContext::default().spawn_local(async move {
-            let Some(name) = prompt_for_text(&win, "New Tag", "Tag name", "", "Create").await
+            let Some((name, color)) = prompt_for_tag(&win, "New Tag", "", None, "Create").await
             else {
                 return;
             };
             let Some(worker) = win.worker() else { return };
-            if let Err(e) = worker.create_tag(NewTag { name, color: None }).await {
+            if let Err(e) = worker.create_tag(NewTag { name, color }).await {
                 error!(?e, "create_tag failed");
             }
         });
@@ -2967,6 +3143,7 @@ impl AtriumWindow {
                     name: name.clone(),
                     icon: None,
                     filter_expr: trimmed,
+                    ..Default::default()
                 })
                 .await
             {
@@ -3099,6 +3276,113 @@ pub(crate) fn build_primary_menu(include_debug: bool) -> gio::Menu {
 /// Open a small `AdwAlertDialog` with a text entry. Returns the
 /// trimmed entered text on the configured-action response, or `None`
 /// on cancel / empty input.
+/// v0.3.0 — six-swatch palette used by the tag-color picker. Hex
+/// values were picked from libadwaita's accent palette so they look
+/// right in both light and dark themes. The first `(label, None)`
+/// entry is the "no colour" option; selecting it stores `NULL` in
+/// `tag.color`.
+const TAG_COLORS: &[(&str, Option<&str>)] = &[
+    ("None", None),
+    ("Blue", Some("#3584e4")),
+    ("Green", Some("#33d17a")),
+    ("Yellow", Some("#e5a50a")),
+    ("Orange", Some("#ff7800")),
+    ("Red", Some("#e01b24")),
+    ("Purple", Some("#9141ac")),
+];
+
+/// Promp for a tag name + colour. Returns `Some((name, color))` on
+/// confirmation; `None` on cancel or empty name. The `color_initial`
+/// is matched against the palette; unrecognised colours fall back to
+/// "None" in the picker (the underlying value is preserved through
+/// the rename if the user doesn't change the picker selection).
+async fn prompt_for_tag(
+    parent: &impl IsA<gtk::Widget>,
+    heading: &str,
+    name_initial: &str,
+    color_initial: Option<&str>,
+    confirm_label: &str,
+) -> Option<(String, Option<String>)> {
+    let entry = gtk::Entry::builder()
+        .placeholder_text("Tag name")
+        .text(name_initial)
+        .activates_default(true)
+        .build();
+
+    // Swatch row — one toggle button per palette entry.
+    let swatches = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(6)
+        .halign(gtk::Align::Start)
+        .build();
+    let group: Rc<RefCell<Option<gtk::ToggleButton>>> = Rc::new(RefCell::new(None));
+    let selected_color: Rc<RefCell<Option<String>>> =
+        Rc::new(RefCell::new(color_initial.map(str::to_string)));
+
+    for (label, hex) in TAG_COLORS {
+        let toggle = gtk::ToggleButton::builder()
+            .tooltip_text(*label)
+            .width_request(28)
+            .height_request(28)
+            .build();
+        toggle.add_css_class("circular");
+        toggle.add_css_class("atrium-swatch");
+        if hex.is_some() {
+            // Lower-case the colour name → CSS class. style.css defines
+            // .atrium-swatch-{blue,green,yellow,orange,red,purple} as
+            // coloured circular buttons with a checked-state ring.
+            toggle.add_css_class(&format!("atrium-swatch-{}", label.to_ascii_lowercase()));
+        } else {
+            toggle.set_label("\u{2300}"); // diameter sign as a "no colour" mark
+        }
+        if let Some(rb) = group.borrow().as_ref() {
+            toggle.set_group(Some(rb));
+        }
+        if group.borrow().is_none() {
+            *group.borrow_mut() = Some(toggle.clone());
+        }
+        // Pre-select if the initial colour matches.
+        if hex.map(str::to_string) == color_initial.map(str::to_string) {
+            toggle.set_active(true);
+        }
+        let sel = selected_color.clone();
+        let stored = hex.map(str::to_string);
+        toggle.connect_toggled(move |b| {
+            if b.is_active() {
+                *sel.borrow_mut() = stored.clone();
+            }
+        });
+        swatches.append(&toggle);
+    }
+
+    let body = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .build();
+    body.append(&entry);
+    body.append(&swatches);
+
+    let dialog = adw::AlertDialog::new(Some(heading), None);
+    dialog.set_extra_child(Some(&body));
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("ok", confirm_label);
+    dialog.set_default_response(Some("ok"));
+    dialog.set_close_response("cancel");
+    dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+
+    let response = dialog.choose_future(parent).await;
+    if response.as_str() == "ok" {
+        let text = entry.text().to_string().trim().to_string();
+        if text.is_empty() {
+            None
+        } else {
+            Some((text, selected_color.borrow().clone()))
+        }
+    } else {
+        None
+    }
+}
+
 async fn prompt_for_text(
     parent: &impl IsA<gtk::Widget>,
     heading: &str,
@@ -3185,7 +3469,48 @@ fn build_project_row(project: &Project, indented: bool) -> (gtk::ListBoxRow, gtk
 }
 
 fn build_tag_row(tag: &Tag) -> (gtk::ListBoxRow, gtk::Label) {
-    sidebar_row(icon_for(&ActiveList::Tag(tag.id)), &tag.name, 8)
+    let (row, badge) = sidebar_row(icon_for(&ActiveList::Tag(tag.id)), &tag.name, 8);
+    // v0.3.0 — when the tag has a colour, swap the leading icon for
+    // a coloured dot so the sidebar row reads at a glance. The
+    // existing CSS swatch classes (`.atrium-swatch-{color}`) supply
+    // the dot's fill; we just walk the row's child layout to replace
+    // the GtkImage with a small Box that carries the swatch class.
+    if let Some(hex) = tag.color.as_deref()
+        && let Some(row_box) = row.child().and_downcast::<gtk::Box>()
+        && let Some(icon) = row_box.first_child().and_downcast::<gtk::Image>()
+    {
+        let dot = gtk::Box::builder()
+            .width_request(12)
+            .height_request(12)
+            .valign(gtk::Align::Center)
+            .halign(gtk::Align::Center)
+            .tooltip_text(hex)
+            .build();
+        dot.add_css_class("atrium-tag-dot");
+        if let Some(class) = swatch_class_for_hex(hex) {
+            dot.add_css_class(class);
+        }
+        row_box.insert_child_after(&dot, Some(&icon));
+        row_box.remove(&icon);
+    }
+    (row, badge)
+}
+
+/// Map a stored hex colour back to one of the named swatch classes
+/// declared in `style.css`. Returns `None` for hex values outside the
+/// palette — the caller can still render a dot, just without the
+/// pre-defined background colour (the `.atrium-tag-dot` base class
+/// gives it a neutral grey fallback).
+fn swatch_class_for_hex(hex: &str) -> Option<&'static str> {
+    match hex {
+        "#3584e4" => Some("atrium-swatch-blue"),
+        "#33d17a" => Some("atrium-swatch-green"),
+        "#e5a50a" => Some("atrium-swatch-yellow"),
+        "#ff7800" => Some("atrium-swatch-orange"),
+        "#e01b24" => Some("atrium-swatch-red"),
+        "#9141ac" => Some("atrium-swatch-purple"),
+        _ => None,
+    }
 }
 
 fn build_section_header(label: &str) -> gtk::ListBoxRow {
@@ -3194,11 +3519,12 @@ fn build_section_header(label: &str) -> gtk::ListBoxRow {
         .halign(gtk::Align::Start)
         .margin_start(8)
         .margin_end(8)
-        .margin_top(10)
+        .margin_top(14)
         .margin_bottom(4)
         .build();
     l.add_css_class("dim-label");
     l.add_css_class("caption-heading");
+    l.add_css_class("atrium-sidebar-section");
     gtk::ListBoxRow::builder()
         .child(&l)
         .selectable(false)
@@ -3256,6 +3582,17 @@ fn apply_badge_label(badge: &gtk::Label, count: i64) {
     if count > 0 {
         badge.set_label(&count.to_string());
         badge.set_visible(true);
+        // v0.2.2 — give screen readers the *meaning* of the
+        // number, not just the digit. The visible label stays
+        // "5"; the accessible label reads as "5 open tasks", so
+        // SR users hear "Today, 5 open tasks" instead of "Today,
+        // 5". Singular form when count == 1.
+        let aria = if count == 1 {
+            "1 open task".to_string()
+        } else {
+            format!("{count} open tasks")
+        };
+        badge.update_property(&[gtk::accessible::Property::Label(&aria)]);
     } else {
         badge.set_visible(false);
     }

@@ -25,6 +25,11 @@ use crate::ui::task_object::AtriumTask;
 /// `apply_changes` to populate row pills. `HashMap<task_id, tag_names>`.
 pub type TagMap = HashMap<i64, Vec<String>>;
 
+/// v0.3.0 — pill-shape tag map: per-task list of `(name, optional
+/// hex colour)`. The renderer uses this; `TagMap` (name-only) stays
+/// for the filter evaluator's substring-matching path.
+pub type TagPillMap = HashMap<i64, Vec<(String, Option<String>)>>;
+
 /// Which list is currently displayed in the content pane. Canonical
 /// Simple-Mode lists plus the `Project(id)` / `Area(id)` / `Tag(id)`
 /// variants and Phase 7a's `SearchResults(query)` virtual list.
@@ -230,7 +235,14 @@ where
         title_stack.add_named(&title_entry, Some("edit"));
         title_stack.set_visible_child_name("display");
 
-        let tags = gtk::Label::builder().visible(false).build();
+        // v0.3.0 — tags label renders Pango markup so per-pill
+        // colours can ship as inline <span foreground="…"> tokens.
+        // Format helper lives in this module; window-side wires the
+        // colour resolver through the row factory's bind path.
+        let tags = gtk::Label::builder()
+            .visible(false)
+            .use_markup(true)
+            .build();
         tags.add_css_class("atrium-task-tags");
         tags.add_css_class("dim-label");
         tags.set_ellipsize(pango::EllipsizeMode::End);
@@ -749,7 +761,7 @@ where
 pub fn replace_store_with_tags_seq<F>(
     store: &gio::ListStore,
     tasks: &[Task],
-    tag_map: &TagMap,
+    tag_pills: &TagPillMap,
     sequential: bool,
     context_for: F,
 ) where
@@ -761,8 +773,8 @@ pub fn replace_store_with_tags_seq<F>(
         .iter()
         .zip(queued.iter())
         .map(|(t, q)| {
-            let names = tag_map.get(&t.id).cloned().unwrap_or_default();
-            let obj = AtriumTask::from_task_with_tags(t, &names);
+            let pills = tag_pills.get(&t.id).cloned().unwrap_or_default();
+            let obj = AtriumTask::from_task_with_tags(t, &pills);
             obj.set_context_label(context_for(t));
             obj.set_queued(*q);
             obj.upcast()
@@ -814,7 +826,7 @@ pub fn apply_changes_seq<F>(
     changes: &TaskChanges,
     active: ActiveList,
     today: NaiveDate,
-    tag_map: &TagMap,
+    tag_pills: &TagPillMap,
     sequential: bool,
     context_for: F,
 ) where
@@ -823,8 +835,8 @@ pub fn apply_changes_seq<F>(
     // Created — append rows that belong here.
     for task in &changes.created {
         if active.task_matches(task, today) && find_index(store, task.id).is_none() {
-            let names = tag_map.get(&task.id).cloned().unwrap_or_default();
-            let obj = AtriumTask::from_task_with_tags(task, &names);
+            let pills = tag_pills.get(&task.id).cloned().unwrap_or_default();
+            let obj = AtriumTask::from_task_with_tags(task, &pills);
             obj.set_context_label(context_for(task));
             store.append(&obj);
         }
@@ -839,8 +851,8 @@ pub fn apply_changes_seq<F>(
                 if let Some(obj) = store.item(i).and_downcast::<AtriumTask>() {
                     obj.refresh_from(task);
                     // Sync tag pills with the latest tag map.
-                    let names = tag_map.get(&task.id).cloned().unwrap_or_default();
-                    obj.set_tag_names_csv(format_tag_names(&names));
+                    let pills = tag_pills.get(&task.id).cloned().unwrap_or_default();
+                    obj.set_tag_names_csv(format_tag_names(&pills));
                     // Sync the area/project context chip — the
                     // task may have moved to a different project,
                     // which slides it under a different area.
@@ -851,8 +863,8 @@ pub fn apply_changes_seq<F>(
                 store.remove(i);
             }
             (None, true) => {
-                let names = tag_map.get(&task.id).cloned().unwrap_or_default();
-                let obj = AtriumTask::from_task_with_tags(task, &names);
+                let pills = tag_pills.get(&task.id).cloned().unwrap_or_default();
+                let obj = AtriumTask::from_task_with_tags(task, &pills);
                 obj.set_context_label(context_for(task));
                 store.append(&obj);
             }
@@ -921,12 +933,35 @@ fn recompute_queued_state(store: &gio::ListStore) {
     }
 }
 
-fn format_tag_names(names: &[String]) -> String {
-    names
+/// v0.3.0 — render tags as Pango markup. Coloured tags get a
+/// `<span foreground="#hex">` wrapper; uncoloured tags render plain
+/// (the row-level CSS class supplies the default accent palette).
+/// The label widget bound to `tag-names-csv` was upgraded to
+/// `use-markup=true` in `connect_setup` so the markup renders.
+///
+/// Pango markup requires `&` and `<` to be escaped. Tag names are
+/// the only user-controlled input here; the color values come from
+/// a fixed palette controlled by the swatch picker, so we only need
+/// to escape names.
+pub fn format_tag_names(pills: &[(String, Option<String>)]) -> String {
+    pills
         .iter()
-        .map(|n| format!("#{n}"))
+        .map(|(name, color)| {
+            let escaped = pango_escape(name);
+            match color.as_deref() {
+                Some(hex) => format!("<span foreground=\"{hex}\">#{escaped}</span>"),
+                None => format!("#{escaped}"),
+            }
+        })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Escape a string for Pango markup. Pango is XML-style; only `&`
+/// and `<` need escaping in attribute-free spans (and `<` only when
+/// it'd start a tag, but be safe).
+fn pango_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;")
 }
 
 /// Sort an `AtriumTask`-bearing store by `position` (ascending).

@@ -12,6 +12,7 @@ pub mod domain;
 pub mod error;
 pub mod paths;
 pub mod repeat;
+pub mod search;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

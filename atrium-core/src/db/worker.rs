@@ -881,8 +881,8 @@ impl Worker {
         let uuid = Uuid::new_v4().to_string();
         let position = self.next_area_position()?;
         self.conn.execute(
-            "INSERT INTO area (uuid, title, position) VALUES (?, ?, ?)",
-            params![uuid, new.title, position],
+            "INSERT INTO area (uuid, title, color, position) VALUES (?, ?, ?, ?)",
+            params![uuid, new.title, new.color, position],
         )?;
         let id = self.conn.last_insert_rowid();
         read::area_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
@@ -908,6 +908,10 @@ impl Worker {
         if let Some(position) = update.position {
             sets.push("position = ?");
             bound.push(Box::new(position));
+        }
+        if let Some(color) = update.color {
+            sets.push("color = ?");
+            bound.push(Box::new(color));
         }
         bound.push(Box::new(update.id));
         let sql = format!("UPDATE area SET {} WHERE id = ?", sets.join(", "));
@@ -1168,11 +1172,23 @@ impl Worker {
     fn create_perspective(&mut self, new: NewPerspective) -> Result<Perspective, DbError> {
         let uuid = Uuid::new_v4().to_string();
         let position = self.next_perspective_position()?;
+        // `renderer` defaults to "list" at the schema level; supply it
+        // explicitly when the caller provides one so we can ship board
+        // perspectives via NewPerspective in Slice D.
+        let renderer = new.renderer.as_deref().unwrap_or("list");
         self.conn.execute(
             "INSERT INTO perspective \
-             (uuid, name, icon, filter_expr, position) \
-             VALUES (?, ?, ?, ?, ?)",
-            params![uuid, new.name, new.icon, new.filter_expr, position],
+             (uuid, name, icon, filter_expr, renderer, renderer_config, position) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![
+                uuid,
+                new.name,
+                new.icon,
+                new.filter_expr,
+                renderer,
+                new.renderer_config,
+                position
+            ],
         )?;
         let id = self.conn.last_insert_rowid();
         read::perspective_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
@@ -1206,6 +1222,14 @@ impl Worker {
         if let Some(position) = update.position {
             sets.push("position = ?");
             bound.push(Box::new(position));
+        }
+        if let Some(renderer) = update.renderer {
+            sets.push("renderer = ?");
+            bound.push(Box::new(renderer));
+        }
+        if let Some(renderer_config) = update.renderer_config {
+            sets.push("renderer_config = ?");
+            bound.push(Box::new(renderer_config));
         }
         bound.push(Box::new(update.id));
         let sql = format!("UPDATE perspective SET {} WHERE id = ?", sets.join(", "));
@@ -1785,6 +1809,7 @@ mod tests {
         let area = handle
             .create_area(NewArea {
                 title: "Personal".into(),
+                ..Default::default()
             })
             .await
             .unwrap();
@@ -1801,6 +1826,7 @@ mod tests {
         let area = handle
             .create_area(NewArea {
                 title: "Old".into(),
+                ..Default::default()
             })
             .await
             .unwrap();
@@ -1820,6 +1846,7 @@ mod tests {
         let area = handle
             .create_area(NewArea {
                 title: "Soon Gone".into(),
+                ..Default::default()
             })
             .await
             .unwrap();
@@ -1986,6 +2013,7 @@ mod tests {
                 name: "Q3 work overdue".into(),
                 icon: None,
                 filter_expr: "tag:work due:overdue".into(),
+                ..Default::default()
             })
             .await
             .unwrap();
@@ -2007,6 +2035,7 @@ mod tests {
                 name: "Old name".into(),
                 icon: None,
                 filter_expr: "tag:work".into(),
+                ..Default::default()
             })
             .await
             .unwrap();
@@ -2034,6 +2063,7 @@ mod tests {
                 name: "Doomed".into(),
                 icon: None,
                 filter_expr: "is:done".into(),
+                ..Default::default()
             })
             .await
             .unwrap();

@@ -19,11 +19,15 @@ use crate::error::DbError;
 /// changes to v0.1's tables. Version 3 (Phase 15, v0.2.0) adds the
 /// `repeat_mode` column to `task` for Org-style repeater semantics —
 /// the first migration to alter an existing table, allowed because
-/// v0.2.0 ends the v0.1 schema freeze.
+/// v0.2.0 ends the v0.1 schema freeze. Versions 4 and 5 (Phase 15.75,
+/// v0.5.0) add `area.color` and `perspective.{renderer, renderer_config}`
+/// for the beauty pass and the kanban-board renderer respectively.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
     (3, include_str!("0003_repeat_mode.sql")),
+    (4, include_str!("0004_area_color.sql")),
+    (5, include_str!("0005_perspective_renderer.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

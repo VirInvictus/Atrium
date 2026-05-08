@@ -1,0 +1,36 @@
+-- 0005_perspective_renderer.sql — Phase 15.75 (v0.5.0)
+--
+-- Lets a saved Perspective render as something other than a list view.
+-- Slice D ships the kanban-board renderer; the schema admits future
+-- renderers (calendar, timeline, …) without further migrations because
+-- `renderer_config` is a JSON blob keyed by renderer-specific shape.
+--
+-- Two new columns on `perspective`:
+--
+--   renderer        TEXT NOT NULL DEFAULT 'list'
+--                   The renderer the saved view uses. v0.5.0 ships
+--                   'list' (default — same behaviour as v0.4.0) and
+--                   'board' (kanban). Future renderers append more
+--                   string values without altering this column.
+--
+--   renderer_config TEXT NULL
+--                   Renderer-specific configuration as JSON. For
+--                   board, the shape is:
+--                     {
+--                       "axis":    "tag",
+--                       "columns": ["todo", "doing", "blocked", "done"],
+--                       "wip_limits": { "doing": 3 }
+--                     }
+--                   NULL for `list` (no config needed). NULL for
+--                   `board` is the "no columns picked yet" state and
+--                   the UI surfaces an empty-board placeholder.
+--
+-- Backwards-compatible additive change. Existing perspectives keep
+-- their list rendering with no row-level work because `renderer`
+-- defaults to 'list'. The worker INSERT statement is updated alongside
+-- this migration to supply explicit values, but the DEFAULT means
+-- v0.4.0 binaries reading a v0.5.0 DB don't blow up either — they
+-- ignore the new column entirely.
+
+ALTER TABLE perspective ADD COLUMN renderer TEXT NOT NULL DEFAULT 'list';
+ALTER TABLE perspective ADD COLUMN renderer_config TEXT;

@@ -6,15 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Simple Mode shipped (v0.1.0, May 2026).** Phases 0–9 complete. Atrium runs end-to-end: workspace scaffolding, schema + single-writer worker, application shell, all six canonical lists (Inbox / Today / Upcoming / Anytime / Someday / Logbook), areas + projects + tags + multi-tag, Quick Entry, FTS5 search + filter expressions, multi-select + undo, Inspector + tag editor dialogs, sidebar find-as-you-type, full keyboard map, typography + accessibility (Atkinson Hyperlegible), debug-pane Memory Watch, ship-gate regression script. Three Phase 9 follow-ups remain on Brandon's plate (the actual `v0.1.0` git tag, the Flatpak publish, the public announcement on `VirInvictus.github.io`); two Phase 8 carryovers also outstanding (README screenshots, Flatpak font verification under sandbox).
 
-**Builder Mode shipped (v0.2.0, May 2026).** Phases 10–15 complete. Mode toggle + Inspector pane + project Sequential / Review extras (Phase 10), defer dates + sequential rendering (Phase 11), Forecast 30-day calendar-axis page (Phase 12), Review queue with Mark Reviewed (Phase 13), saved Perspectives in their own sidebar section (Phase 14), and Repeating Tasks with full RFC 5545 RRULE support + three Org-mode completion semantics (Phase 15). v0.2.0 ends the v0.1 schema freeze: `ALTER TABLE` migrations are now allowed and v0.2.0 ships the first one (`0003_repeat_mode.sql` adds `task.repeat_mode`).
+**Builder Mode shipped (v0.2.0, May 2026).** Phases 10–15 complete. Mode toggle + Inspector pane + project Sequential / Review extras (Phase 10), defer dates + sequential rendering (Phase 11), Forecast 30-day calendar-axis page (Phase 12), Review queue with Mark Reviewed (Phase 13), saved Perspectives in their own sidebar section (Phase 14, v0.1.17), and Repeating Tasks with full RFC 5545 RRULE support + three Org-mode completion semantics (Phase 15, v0.2.0). v0.2.0 ends the v0.1 schema freeze: `ALTER TABLE` migrations are now allowed and v0.2.0 ships the first one (`0003_repeat_mode.sql` adds `task.repeat_mode`).
 
-Phase 16 (Things 3 import) is what's next — JSON via Things' URL scheme (`things:///add-json` / AppleScript export); importer module at `atrium-core/src/import/things3.rs`; mapping table per `spec.md` §7. Adds JSON export of saved perspectives as a Phase 14 follow-up alongside the file-format work.
+**v0.2.x patches + v0.3.0 visual polish landed (May 2026).** v0.2.1 fixed the tag-pill update path and shipped the *Area › Project* row context chip. v0.2.2 was an audit-pass patch — filter-typo toast warnings, sidebar zero-state hint, screen-reader badge labels, Inbox chip fallback. v0.3.0 was a focused visual-polish minor: tag colours wired end-to-end (six-swatch picker, sidebar dots, Pango-coloured pills), row hover states, completion micro-animation, per-list empty-state warmth, sidebar section dividers, header-bar `Area › Project` breadcrumb, Inspector-pane card treatment.
+
+**Phase 15.5 shipped at v0.4.0 (May 2026).** Calibre-powered search: the search bar's flat filter language grew into a full expression grammar — boolean operators (AND / OR / NOT, `NOT > AND > OR` precedence), parens grouping, comparison + range operators on date and numeric fields, date keywords (`thisweek`, `5daysago`, etc.), state predicates (`is:overdue`, `is:repeating`, etc.), and Calibre-style match modifiers (`tag:x` substring, `tag:=x` exact, `tag:~regex`, `tag:true`/false). Saved Perspectives inherit the new grammar for free since they store filter expressions verbatim. New module at `atrium-core/src/search/`; full reference in `spec.md` §4.3. Three Phase 15.5 line items deferred to v0.4.x patches: SQL-translation evaluator (perf optimization), search history (`↑`/`↓`), operator reference popover (`?` button on the search bar).
+
+**Phase 16 (Things 3 import) is what's next** — JSON via the `things:///add-json` URL scheme; importer module at `atrium-core/src/import/things3.rs`; mapping table per `spec.md` §7.
 
 ## Authoritative documents
 
 - **`spec.md`** is the contract. Architecture (§3), schema (§4), UI deltas (§5), Quick Entry (§6), import/export mapping (§7), and the perf budget (§8) all live there. **Read it before changing semantics.** If a request conflicts with the spec, surface that conflict — don't quietly drift.
-- **`roadmap.md`** is the 20-phase plan. Phases 0–9 → v0.1 (Simple Mode). Phases 10–15 → v0.2 (Builder Mode). Phases 16–19 → import/export. Phase 20 → v1.0. **Don't skip phases or pull work forward** without explicit go-ahead — Brandon sequenced these deliberately to keep each release shippable.
-- **`patchnotes.md`** — newest at top. The first real release entry lands at the end of Phase 9 as v0.1.0.
+- **`roadmap.md`** is the 20-phase plan plus three sub-phases (12.5, 15.5, 17.5). Phases 0–9 → v0.1 (Simple Mode). Phases 10–15 → v0.2 (Builder Mode). Phase 15.5 → Calibre-powered search. Phases 16–19 → import/export. Phase 20 → v1.0. **Don't skip phases or pull work forward** without explicit go-ahead — Brandon sequenced these deliberately to keep each release shippable.
+- **`patchnotes.md`** — newest at top. v0.1.0 was the first user-facing tag; v0.3.0 is the most recent release (visual polish minor).
 
 ## Architectural commitments (don't drift from these)
 
@@ -61,7 +65,14 @@ Don't pivot to "vault is the storage." The §8 perf budget assumes SQLite indexe
 
 > `gtk4`, `libadwaita`, `tokio`, `rusqlite` (`bundled`, `chrono` features), `serde`, `serde_json`, `chrono`, `anyhow`, `thiserror`, `tracing`, `tracing-subscriber`
 
-Every later phase that wants to add a crate has an explicit "dependency check" item — e.g. `rrule` (Phase 15), `orgize` (Phase 17), `ical`/`rustical` (Phase 19). If a task pushes you toward a crate that isn't already in `Cargo.toml`, **stop and ask** — don't add it speculatively, and don't hand-roll a wide subset to dodge the conversation.
+Sign-off granted in subsequent phases:
+- `uuid` (Phase 1) — UUID v4 generation for `:ID:` round-trip.
+- `rrule` (Phase 15, v0.2.0) — RFC 5545 RRULE parsing + iteration for repeating tasks.
+- `regex` (Phase 15.5, v0.4.0) — `tag:~regex` match modifier in the search expression language. Already transitively in the dep graph via `tracing-subscriber`; promoted to a direct dependency for `atrium-core`.
+
+Pending dependency checks: `orgize` (Phase 17), `ical` / `rustical` (Phase 19).
+
+If a task pushes you toward a crate that isn't already in `Cargo.toml`, **stop and ask** — don't add it speculatively, and don't hand-roll a wide subset to dodge the conversation.
 
 ## Spec discipline
 
@@ -130,37 +141,53 @@ When implementing the data layer, **`~/.gitrepos/Viaduct/`** is the reference fo
 
 `~/.gitrepos/Hermitage/` and `~/.gitrepos/Framework/` are the other native GTK4/libadwaita apps in the portfolio — useful for cross-checking GTK idioms, Flatpak manifest shape, and AppStream metainfo conventions.
 
-## Codebase map (current)
+## Codebase map (current — v0.3.0)
 
 The workspace split adopted in v0.0.3 mirrors the Phase 20 `atriumd` daemon plan and the post-1.0 TUI plan — the data layer must be reusable from multiple frontends.
 
 ```
 atrium-core/                          ← headless library
-├── src/lib.rs                        ← re-exports
+├── src/lib.rs                        ← re-exports (Task / WorkerHandle / RepeatRule / …)
 ├── src/paths.rs                      ← XDG path helpers, APP_ID
-├── src/error.rs                      ← thiserror hierarchy
-├── src/domain/                       ← Task / Project / Area / Tag / ScheduledFor types
+├── src/error.rs                      ← thiserror hierarchy (DbError::BadRepeatRule v0.2.0)
+├── src/repeat.rs                     ← RFC 5545 RRULE wrapper, RepeatMode, CountStep (Phase 15)
+├── src/search/                       ← Calibre-powered search expression language (Phase 15.5)
+│   ├── mod.rs                        ← module root, re-exports
+│   ├── lex.rs                        ← Token enum + tokenizer
+│   ├── parse.rs                      ← recursive-descent parser → Expr AST
+│   ├── ast.rs                        ← Expr + Field + State + MatchKind + Comparator + Value + DateKeyword
+│   ├── eval.rs                       ← in-memory evaluator + EvalContext (lazy regex cache)
+│   └── tests.rs                      ← integration tests
+├── src/test_support.rs               ← dummy_task helpers behind `test-support` feature (v0.2.0 maintenance)
+├── src/domain/                       ← Task / Project / Area / Tag / Perspective / ScheduledFor types
 └── src/db/
-    ├── worker.rs                     ← single-writer task; spawn_worker
+    ├── worker.rs                     ← single-writer task; spawn_worker; regenerate-on-complete (Phase 15)
     ├── read_pool.rs                  ← read-only connection pool
-    ├── read.rs                       ← list_inbox / list_today / search / counts
-    ├── command.rs                    ← Command enum (Create/Update/Toggle/Delete/…)
-    ├── changes.rs                    ← TaskChanges, LibraryChanges deltas
+    ├── read.rs                       ← list_inbox / list_today / list_forecast / list_review_queue / search / counts / tag_info_per_task (v0.3.0)
+    ├── command.rs                    ← Command enum (Create/Update/Toggle/Delete/Perspective/MarkReviewed/…)
+    ├── changes.rs                    ← TaskChanges, LibraryChanges deltas (perspectives_* added v0.1.17)
     ├── fixtures.rs                   ← --fixture stress generators
-    └── migrations/0001_initial.sql   ← OmniFocus superset (locked through v0.1)
+    └── migrations/
+        ├── mod.rs                    ← migrate(&mut conn) runner; user_version PRAGMA
+        ├── 0001_initial.sql          ← OmniFocus superset (Phase 1)
+        ├── 0002_perspectives.sql     ← perspective table (Phase 14, v0.1.17, additive)
+        └── 0003_repeat_mode.sql      ← task.repeat_mode column (Phase 15, v0.2.0, first ALTER)
 
 atrium/                               ← GTK binary
 ├── build.rs                          ← compiles GSettings schema for cargo-only runs
-├── src/main.rs                       ← Application, CLI flags, accels, action wiring
+├── src/main.rs                       ← Application, CLI flags, accels, action wiring, bridges
 ├── src/error.rs
 ├── src/ui/
 │   ├── mod.rs
-│   ├── window.rs                     ← AtriumWindow (composite template)
-│   ├── task_list.rs                  ← row factory, ActiveList, apply_changes
-│   ├── task_object.rs                ← AtriumTask glib::Object wrapper
-│   ├── inspector.rs                  ← per-task Inspector (AdwDialog, Phase 7i)
+│   ├── window.rs                     ← AtriumWindow (composite template); ContextMode; build_context_resolver
+│   ├── task_list.rs                  ← row factory, ActiveList, apply_changes_seq, TagPillMap (v0.3.0)
+│   ├── task_object.rs                ← AtriumTask glib::Object wrapper (context_label v0.2.1)
+│   ├── inspector.rs                  ← Simple-Mode modal Inspector (AdwDialog, Phase 7i)
+│   ├── inspector_pane.rs             ← Builder-Mode side pane (Phase 10) + repeat editor (Phase 15)
 │   ├── tag_editor.rs                 ← per-task tag editor (AdwDialog, Phase 7g)
-│   ├── filter.rs                     ← search-bar filter expressions (Phase 7d)
+│   ├── filter.rs                     ← thin window-side shim over atrium_core::search (v0.4.0); warnings + EvalContext glue
+│   ├── forecast.rs                   ← Phase 12 calendar-axis page; build_page + drag-to-reschedule
+│   ├── review.rs                     ← Phase 13 project review queue
 │   ├── shortcuts.rs                  ← Ctrl+? / F1 dialog
 │   ├── about.rs                      ← AdwAboutDialog
 │   └── typography.rs                 ← bundled font install + CSS load
@@ -171,8 +198,8 @@ atrium/                               ← GTK binary
 └── src/debug/mod.rs                  ← Memory Watch + /proc/self/status sampler
 
 data/                                 ← installed assets
-├── window.ui                         ← composite template
-├── style.css                         ← typography + per-surface tweaks
+├── window.ui                         ← composite template (sidebar_empty_hint added v0.2.2)
+├── style.css                         ← typography + per-surface tweaks; v0.3.0 swatches, hover, completion-pop
 ├── fonts/                            ← Inter + Source Serif 4 + JetBrains Mono + Atkinson Hyperlegible
 ├── icons/hicolor/scalable/apps/io.github.virinvictus.atrium.svg
 ├── io.github.virinvictus.atrium.gschema.xml
@@ -188,11 +215,17 @@ docs/                                 ← long-form references
 └── regression.md                     ← Phase 9a regression-script doc
 
 scripts/regression.sh                 ← ship-gate: fmt → clippy → test → smoke
+
+tests/                                ← integration tests
+└── mode_flip_snapshot.rs             ← Phase 10 acceptance (mode flip never touches DB)
 ```
+
+**Test counts as of v0.4.0:** 82 atrium (binary) + 165 atrium-core (lib, +41 from search module) + 1 mode-flip integration = 248 tests.
 
 The dialog primitives standardised in the v0.0.37 bugsweep:
 
-- **Inspector** + **Tag editor** are `adw::Dialog` (in-window modal overlay; `present(parent)` / `close()`).
+- **Inspector** (Simple Mode) + **Tag editor** are `adw::Dialog` (in-window modal overlay; `present(parent)` / `close()`).
+- **Inspector pane** (Builder Mode) is an always-visible `AdwBin` mounted into the right-side `AdwOverlaySplitView` sidebar — non-modal, autosaves on focus-out.
 - **Quick Entry** stays an `adw::Window` (`modal=false`, `transient_for(main)`, fade-in keyframe) — the spec wants it to *not* steal grab from previously-focused windows; AdwDialog always grabs.
 - **Memory Watch** stays an `adw::Window` for the same reason (non-modal observer pane).
-- **Confirmations** use `adw::AlertDialog`.
+- **Confirmations** use `adw::AlertDialog`. The v0.3.0 tag-colour picker (`prompt_for_tag`) extends `AlertDialog` with a custom extra-child Box holding the swatch row.

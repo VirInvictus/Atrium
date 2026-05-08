@@ -1,6 +1,6 @@
 # Atrium — Application Specification
 
-**Version:** 0.0.0 (pre-implementation)
+**Version:** 0.3.0 (Simple + Builder Mode shipped; visual polish pass complete)
 **Target:** GNOME 50+, GTK4 ≥ 4.16, libadwaita ≥ 1.7
 **Language:** Rust (2024 Edition)
 **Build System:** Cargo / Meson wrapper for Flatpak packaging
@@ -70,7 +70,7 @@ GTK main thread ──direct read──▶ SQLite read-only connection pool (sep
 
 ### 3.3 Process Topology
 
-v0.1 is a single GTK application binary. v0.2 introduces an optional capture daemon (`atriumd`) running under user systemd that handles the global Quick Entry shortcut even when the main app is closed and IPCs the captured task. Until v0.2 lands, Quick Entry works only when Atrium is running.
+v0.1 through v0.3 is a single GTK application binary. Phase 20 (v1.0) introduces an optional capture daemon (`atriumd`) running under user systemd that handles the global Quick Entry shortcut even when the main app is closed and IPCs the captured task in. Until that ships, Quick Entry works only when Atrium is running.
 
 ### 3.4 Debug-First Architecture
 
@@ -128,7 +128,8 @@ OmniFocus superset. Every Builder column lives in v0.1 schema; only some are exp
 | `defer_until` | TEXT NULL | Builder-only; hidden in Simple |
 | `estimated_minutes` | INTEGER NULL | Builder-only |
 | `completed_at` | TEXT NULL | ISO datetime; NULL = not done |
-| `repeat_rule` | TEXT NULL | RFC 5545 RRULE; impl Phase 15 |
+| `repeat_rule` | TEXT NULL | RFC 5545 RRULE; impl Phase 15 (v0.2.0) |
+| `repeat_mode` | TEXT NULL | Org repeater cookie — `BASIC` / `CUMULATIVE` / `NEXT`; NULL falls back to default (CUMULATIVE). Phase 15 (v0.2.0) — column added via `0003_repeat_mode.sql` |
 | `created_at` | TEXT NOT NULL | ISO datetime |
 | `modified_at` | TEXT NOT NULL | ISO datetime, trigger-maintained |
 | `position` | REAL NOT NULL | for ordering within parent |
@@ -148,9 +149,10 @@ OmniFocus superset. Every Builder column lives in v0.1 schema; only some are exp
 | `created_at`, `modified_at`, `position` | | |
 
 **`area`** — top-level grouping (`id`, `uuid`, `title`, `position`, timestamps).
-**`tag`** — (`id`, `uuid`, `name UNIQUE`, `color`, timestamps).
+**`tag`** — (`id`, `uuid`, `name UNIQUE`, `color`, timestamps). The `color` column is wired end-to-end as of v0.3.0 — six-swatch picker in the editor, coloured dot in the sidebar tag row, coloured Pango pill on every task row.
 **`task_tag`** — many-to-many join (`task_id`, `tag_id`).
 **`heading`** — project subdivisions (`id`, `uuid`, `project_id`, `title`, `position`); Builder UI exposes editing in v0.1, Simple displays them inline as section breaks within a project.
+**`perspective`** — (`id`, `uuid`, `name`, `icon`, `filter_expr`, `sort_order`, `grouping`, `position`, timestamps). Saved filter expressions surfaced as Builder-only sidebar entries. Phase 14 (v0.1.17) — added via `0002_perspectives.sql`. The `sort_order` and `grouping` columns ship now and stay unused by the v0.3 UI; they exist to absorb future per-perspective sort / grouping without another migration.
 
 ### 4.2 Derived views
 
@@ -164,11 +166,113 @@ Things-style lists are SELECTs, not stored rows:
 - **Logbook:** `task WHERE completed_at IS NOT NULL`
 - **Forecast (Builder):** Today + Upcoming windowed to 30 days, grouped by date axis
 
-### 4.3 FTS5
+### 4.3 Search Expression Language
+
+Phase 15.5 (v0.4.0) replaced the v0.1 flat filter parser with a Calibre-shaped expression grammar in `atrium-core/src/search/`. The language is the contract for the search bar, saved Perspectives (which store filter expressions verbatim), and any future scripting / import surface that wants to express a task query.
+
+#### 4.3.1 Grammar
+
+```text
+expr      = or_expr
+or_expr   = and_expr ( "OR" and_expr )*
+and_expr  = not_expr ( ("AND")? not_expr )*       (implicit AND)
+not_expr  = ( "NOT" | "!" ) not_expr | primary
+primary   = "(" or_expr ")"
+          | field ":" value_or_match
+          | "is:" state
+          | bareword                                (freeform text)
+          | quoted_string                           (freeform text)
+```
+
+Precedence: `NOT > AND > OR` — standard boolean, matches Calibre, SQL, Python. `tag:work AND !done OR tag:home` parses as `(tag:work AND (NOT done)) OR tag:home`.
+
+#### 4.3.2 Field operators
+
+| Field | Aliases | Type | Example |
+|---|---|---|---|
+| `tag:` | `tags:` | text | `tag:errand` |
+| `area:` | | text | `area:Personal` |
+| `project:` | | text | `project:"Q3 plans"` |
+| `title:` | | text | `title:milk` |
+| `note:` | `notes:` | text | `note:"shopping list"` |
+| `due:` | `deadline:` | date | `due:tomorrow` |
+| `scheduled:` | `when:` | date | `scheduled:thisweek` |
+| `defer:` | `defer_until:`, `deferred:` | date | `defer:>today` |
+| `created:` | | date | `created:<lastweek` |
+| `modified:` | `updated:` | date | `modified:thismonth` |
+| `completed:` | `done:` | date | `completed:today` |
+| `estimated:` | `est:`, `effort:` | number | `estimated:>30` |
+| `repeats:` | `repeating:` | boolean | `repeats:true` |
+
+#### 4.3.3 Match modifiers
+
+Calibre's full match grammar applies on every text-shaped field. The default is substring (case-insensitive); explicit modifiers tighten or change the match shape.
+
+| Syntax | Match kind | Example |
+|---|---|---|
+| `tag:x` | substring (default) | matches `worker`, `homework`, `Work` |
+| `tag:"x y"` | quoted substring | for values with spaces |
+| `tag:=x` | exact (case-insensitive) | matches `Work` only, not `worker` |
+| `tag:"=x y"` | quoted exact | for exact values with spaces |
+| `tag:~regex` | regex | full RE2 syntax via the `regex` crate; in-memory only — SQL translation falls back |
+| `tag:true` | has at least one | task must have any tag |
+| `tag:false` | has none | task must have no tags |
+
+#### 4.3.4 Comparison operators
+
+`=`, `!=`, `<`, `<=`, `>`, `>=` apply to date and numeric fields. Comparing against a date keyword that resolves to a range (`thisweek`, `thismonth`, etc.) uses the appropriate bound: `>thisweek` is "after the end of this week", `<thisweek` is "before the start of this week", `=thisweek` is "anywhere within this week".
+
+#### 4.3.5 Range syntax
+
+`field:lo..hi` (inclusive). `due:2026-05-01..2026-05-31`. The bounds may be literal dates or date keywords.
+
+#### 4.3.6 Date keywords
+
+Calibre's date-keyword vocabulary plus future-tense forms Atrium needs (Calibre's library is past-only).
+
+| Keyword | Meaning |
+|---|---|
+| `today` | the current date |
+| `yesterday`, `tomorrow` | ±1 day |
+| `thisweek`, `lastweek`, `nextweek` | Mon–Sun ISO week |
+| `thismonth`, `lastmonth`, `nextmonth` | calendar month |
+| `thisyear` | calendar year |
+| `Ndaysago` | N days before today |
+| `Ndaysout` | N days after today |
+
+#### 4.3.7 State predicates
+
+`is:NAME` shortcuts that read directly off task fields without taking a value. Each pairs with `!is:NAME` (or `NOT is:NAME`) for the inverse.
+
+| Predicate | Meaning |
+|---|---|
+| `is:open` | `completed_at IS NULL` |
+| `is:done`, `is:logbook` | `completed_at IS NOT NULL` |
+| `is:overdue` | open AND `deadline < today` |
+| `is:scheduled` | has a `scheduled_for` |
+| `is:deadline` | has a `deadline` |
+| `is:deferred` | has a `defer_until > today` |
+| `is:repeating` | has a `repeat_rule` |
+| `is:archived` | belongs to a project with `archived_at IS NOT NULL` |
+| `is:project` (or `is:in_project`) | has a `project_id` |
+| `is:area` (or `is:in_area`) | belongs (transitively) to an area |
+| `is:tagged` | has at least one tag |
+| `is:queued` | sequential project, not the first incomplete task |
+| `is:available` | first incomplete task in a sequential project, OR not in one and not deferred |
+
+#### 4.3.8 Forgiving parser
+
+Unknown field names and unknown `is:NAME` predicates are non-fatal warnings, not errors — the unrecognised token falls through to freeform text. The window-side surfaces a toast and a yellow tint on the search entry; the user keeps typing without losing what they had. This shape is what lets the spec add new operators in future minor releases without breaking existing saved Perspectives.
+
+#### 4.3.9 Persistence
+
+The expression text — exactly what the user typed — is what's stored in `perspective.filter_expr`. Re-parsing on every load means a saved Perspective written against v0.4.0's grammar inherits operator additions in v0.5.0+ for free.
+
+### 4.4 FTS5
 
 `task_fts` virtual table indexes `title` + `note`. Triggers keep it in sync on INSERT/UPDATE/DELETE. Search is `Ctrl+F` debounced 200 ms, ranks by recency × relevance.
 
-### 4.4 Migrations
+### 4.5 Migrations
 
 Schema versioned via SQLite `user_version` PRAGMA. Migrations live in `src/db/migrations/<NNNN>_*.sql`.
 
@@ -211,17 +315,18 @@ AdwApplicationWindow
 **Hidden views:** Forecast, Review, Perspectives.
 **Hidden project fields:** `sequential`, `review_interval_days`.
 
-### 5.2 Builder Mode (v0.2+)
+### 5.2 Builder Mode (v0.2.0 — shipping)
 
-Adds:
+Adds, all wired end-to-end as of v0.2.0:
 
-- **Forecast** — calendar-axis layout of next 30 days
-- **Review** — projects with stale `last_reviewed_at` surface here
-- **Perspectives** — saved filter expressions, sidebar section
-- **Inspector pane** — right-side `AdwOverlaySplitView` exposing every Builder field
-- Sequential project rendering, defer-date scheduling, repeat-rule editor, estimated-time stamps
+- **Forecast** — calendar-axis layout of next 30 days, drag-to-reschedule (Phase 12).
+- **Review** — projects with stale `last_reviewed_at` surface here, oldest first; per-card *Mark Reviewed* button stamps the timestamp (Phase 13).
+- **Perspectives** — saved filter expressions stored as `perspective` rows, surfaced in the sidebar's Builder section. *Save Search as Perspective…* in the primary menu captures the current search bar query (Phase 14, v0.1.17).
+- **Inspector pane** — right-side `AdwOverlaySplitView` companion, autosaves every field on focus-out / Enter (Phase 10).
+- **Defer dates + sequential projects** — `defer_until` excludes from Today/Anytime; sequential rendering dims rows past the first incomplete one (Phase 11).
+- **Repeat rules** — full RFC 5545 RRULE with three Org-style completion modes (Cumulative default, Next-from-completion, Basic). Editor in the Inspector pane; worker regenerates the next instance on completion. Schema-side, `repeat_mode` was added via `0003_repeat_mode.sql` — the first migration to alter an existing table, allowed because v0.2.0 ends the v0.1 freeze (Phase 15).
 
-The widget tree is the same; Inspector and Forecast are added as sibling content pages, the sidebar gains a Perspectives section, and the task editor's collapsed/expanded fieldset grows. **No DB work happens on mode switch.**
+The widget tree is the same; Inspector and Forecast are added as sibling content pages, the sidebar gains a Perspectives section, and the task editor's collapsed/expanded fieldset grows. **No DB work happens on mode switch.** Verified by `tests/mode_flip_snapshot.rs`.
 
 ### 5.3 Mode Switch
 

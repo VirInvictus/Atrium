@@ -263,7 +263,7 @@ pub fn list_area(conn: &Connection, area_id: i64) -> Result<Vec<Task>, DbError> 
         .map_err(Into::into)
 }
 
-const AREA_COLUMNS: &str = "id, uuid, title, position, created_at, modified_at";
+const AREA_COLUMNS: &str = "id, uuid, title, color, position, created_at, modified_at";
 
 const PROJECT_COLUMNS: &str = "id, uuid, title, note, area_id, sequential, \
     review_interval_days, last_reviewed_at, archived_at, position, \
@@ -495,7 +495,7 @@ pub fn list_tags(conn: &Connection) -> Result<Vec<Tag>, DbError> {
 // ── Perspectives (Phase 14) ─────────────────────────────────────
 
 const PERSPECTIVE_COLUMNS: &str = "id, uuid, name, icon, filter_expr, sort_order, grouping, \
-    position, created_at, modified_at";
+    renderer, renderer_config, position, created_at, modified_at";
 
 /// Single perspective by id.
 pub fn perspective_by_id(conn: &Connection, id: i64) -> Result<Option<Perspective>, DbError> {
@@ -601,6 +601,37 @@ pub fn tag_names_per_task(conn: &Connection) -> Result<HashMap<i64, Vec<String>>
     Ok(out)
 }
 
+/// Per-task list of `(tag_name, optional_hex_color)` pairs. Returned
+/// by [`tag_info_per_task`] as the renderer-side companion to
+/// [`tag_names_per_task`]; aliased to keep the public signature
+/// readable.
+pub type TagInfoMap = HashMap<i64, Vec<(String, Option<String>)>>;
+
+/// v0.3.0 — same join as `tag_names_per_task`, but also returns each
+/// tag's `color` so the row factory can render coloured Pango spans
+/// per pill. Single batched query; the renderer keeps `tag_names_per_task`
+/// for paths that only need names (the Phase 7d filter evaluator).
+pub fn tag_info_per_task(conn: &Connection) -> Result<TagInfoMap, DbError> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT tt.task_id, tag.name, tag.color FROM task_tag tt \
+         JOIN tag ON tag.id = tt.tag_id \
+         ORDER BY tt.task_id, tag.name",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?,
+        ))
+    })?;
+    let mut out: HashMap<i64, Vec<(String, Option<String>)>> = HashMap::new();
+    for row in rows {
+        let (task_id, name, color) = row?;
+        out.entry(task_id).or_default().push((name, color));
+    }
+    Ok(out)
+}
+
 /// Open-task counts per tag id. Sidebar Tags section consumes this
 /// for badge values.
 pub fn count_open_per_tag(conn: &Connection) -> Result<HashMap<i64, i64>, DbError> {
@@ -635,6 +666,7 @@ fn area_from_row(row: &Row<'_>) -> rusqlite::Result<Area> {
         id: row.get("id")?,
         uuid: row.get("uuid")?,
         title: row.get("title")?,
+        color: row.get("color")?,
         position: row.get("position")?,
         created_at: row.get("created_at")?,
         modified_at: row.get("modified_at")?,
@@ -650,6 +682,8 @@ fn perspective_from_row(row: &Row<'_>) -> rusqlite::Result<Perspective> {
         filter_expr: row.get("filter_expr")?,
         sort_order: row.get("sort_order")?,
         grouping: row.get("grouping")?,
+        renderer: row.get("renderer")?,
+        renderer_config: row.get("renderer_config")?,
         position: row.get("position")?,
         created_at: row.get("created_at")?,
         modified_at: row.get("modified_at")?,

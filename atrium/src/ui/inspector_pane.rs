@@ -423,7 +423,13 @@ where
     install_repeat_editor(&builder_group, &worker, &task);
 
     // ── Page container ───────────────────────────────────────────
+    // v0.3.0 — `atrium-inspector-pane` styling lifts the surface
+    // visually so the side pane reads as a sheet rather than a
+    // continuation of the main list. Padding + a subtle left
+    // border distinguishes it; the page itself stays the standard
+    // AdwPreferencesPage so library theming flows through.
     let page = adw::PreferencesPage::new();
+    page.add_css_class("atrium-inspector-pane");
     page.add(&title_group);
     page.add(&dates_group);
     page.add(&tags_group);

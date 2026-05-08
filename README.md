@@ -7,7 +7,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/GNOME-50%2B-4a86cf" alt="GNOME 50+">
   <img src="https://img.shields.io/badge/Simple%20Mode-shipping-2ea44f" alt="Simple Mode: shipping">
-  <img src="https://img.shields.io/badge/Builder%20Mode-next-orange" alt="Builder Mode: next">
+  <img src="https://img.shields.io/badge/Builder%20Mode-shipping-2ea44f" alt="Builder Mode: shipping">
+  <img src="https://img.shields.io/badge/version-0.4.0-blueviolet" alt="version 0.4.0">
 </p>
 
 ---
@@ -18,7 +19,7 @@
 
 Atrium fuses Things 3's clarity with OmniFocus's depth into one application via a mode switch over a shared data store. Pick **Simple Mode** for *what am I doing right now*. Switch to **Builder Mode** when you want full GTD review, deferral, sequential projects, and forecast. Same data, two surfaces, no migration.
 
-**Simple Mode is shipping now. Builder Mode is the next major release.**
+**Both modes are shipping at v0.4.0.** Simple Mode (Phases 0–9) tagged at v0.1.0; Builder Mode (Phases 10–15) tagged at v0.2.0; v0.3.0 was the visual polish minor; v0.4.0 ships Phase 15.5 — Calibre-powered search.
 
 **Author's Note:** I'm a broke college student in my late thirties with no professional industry experience yet — Atrium is one in a string of native Linux desktop apps I'm building to learn the craft and assemble a portfolio. I came from Things 3 and OmniFocus on macOS / iOS, and Linux has nothing in their lane that isn't an Electron wrapper or a CalDAV form over a webview. Atrium is the answer I wanted to exist. I work on Fedora 44 on a ThinkPad T14s AMD Gen 6; that's the environment it'll be tested against. I welcome contributions but can only honestly support my own setup.
 
@@ -35,22 +36,24 @@ The other thing nobody on Linux is doing well: **plain-text interop**. Atrium's 
 
 ## Screenshots
 
-<!-- TODO: capture screenshots against a populated demo library before tagging
-     v0.1.0. Suggested set:
+<!-- TODO: capture screenshots against a populated demo library. Suggested set
+     for the README header (v0.3.0 reality):
 
-       1. Today view with a populated task list (Quick Entry visible).
-       2. A project page showing #tag pills, schedule pill, deadline pill.
-       3. The sidebar filter narrowing on a project name.
-       4. Multi-select + bulk-action bar revealed.
-       5. Search bar with a `tag:NAME is:overdue` filter expression typed.
+       1. Today view in Simple Mode with a populated task list, coloured
+          #tag pills, and the Area › Project chip on each row.
+       2. Builder Mode with the Inspector pane open, showing the repeat-
+          rule editor, defer date, and tag picker.
+       3. Forecast view with day cards and the Today indicator.
+       4. Review queue with a stale project surfacing.
+       5. Quick Entry modal with `#tag @today @deadline` syntax in flight.
        6. Atkinson Hyperlegible toggle on (high-legibility a11y mode).
 
      Drop the PNGs into `docs/screenshots/` and reference them from this section.
 -->
 
-*Screenshots land alongside the v0.1.0 tag.*
+*Screenshots are a remaining Phase 8 / 9 carryover — see `roadmap.md`.*
 
-## Simple Mode (v0.1 — shipping)
+## Simple Mode (shipping)
 
 A direct Things 3 analogue for GNOME. Everything below is implemented and exercised by the regression gate (`scripts/regression.sh`):
 
@@ -58,35 +61,37 @@ A direct Things 3 analogue for GNOME. Everything below is implemented and exerci
 |---|---|
 | **Lists** | Inbox · Today · Upcoming · Anytime · Someday · Logbook |
 | **Hierarchy** | Areas → Projects → Tasks |
-| **Tags** | Multi-tag, orthogonal to areas/projects, with their own pages — inline `#tag` edit syntax |
+| **Tags** | Multi-tag, orthogonal to areas/projects, with their own pages — inline `#tag` edit syntax. Tag colours wired end-to-end (v0.3.0): six-swatch picker in the editor, coloured dot in the sidebar, coloured `#pill` on every task row. |
 | **Dates** | Distinct *When* (scheduled-for) and *Deadline* — the Things 3 detail most clones get wrong |
 | **Quick Entry** | `Ctrl+Alt+Space` → small modal → drops to Inbox without stealing focus; supports `#tag` / `@today` / `@deadline 2026-04-15` inline syntax |
-| **Search** | `Ctrl+F` opens an FTS5-backed bar; `tag:NAME` / `is:open|done|overdue` / `due:today` filter expressions mix with freeform text |
+| **Search** | `Ctrl+F` opens an FTS5-backed bar with the **Calibre-powered expression grammar** (v0.4.0): boolean operators (`AND` / `OR` / `NOT`), parens grouping, comparison + range on date and numeric fields (`due:>today`, `due:2026-05-01..2026-05-31`), date keywords (`thisweek`, `5daysago`), state predicates (`is:overdue`, `is:repeating`), Calibre match modifiers (`tag:work` substring, `tag:=work` exact, `tag:~mystery` regex, `tag:true` existence). Full operator reference in `spec.md` §4.3. |
+| **Area › Project context chip** | Each task row shows its parent project (and area, when set) on cross-list views like Today, Inbox, Upcoming — so you always know where a task lives without leaving the view. (v0.2.1) |
 | **Find-as-you-type sidebar** | `Ctrl+L` filters the area / project / tag rows live |
 | **Multi-select** | `Ctrl+Click` toggle, `Shift+Click` range, `Ctrl+A` select all; bulk Complete + Delete with summary toast |
 | **Undo** | `Ctrl+Z` invokes the active toast (toggle-complete + delete recover with their tag attachments intact) |
 | **Drag-reorder** | Drag a row to reorder within the list; drag onto a project / Inbox sidebar row to file or unfile |
 | **Keyboard-first** | Every common op bindable; mouse optional — full chord scheme in [`docs/keymap.md`](docs/keymap.md) |
-| **Accessibility** | Bundled Atkinson Hyperlegible toggle; AT-SPI labels on every interactive widget; libadwaita variables (no hard-coded colors) — see [`docs/accessibility.md`](docs/accessibility.md) |
+| **Accessibility** | Bundled Atkinson Hyperlegible toggle; AT-SPI labels on every interactive widget (sidebar count badges read as "5 open tasks", not bare "5"); libadwaita variables (no hard-coded colors) — see [`docs/accessibility.md`](docs/accessibility.md) |
 | **Storage** | One SQLite file at `$XDG_DATA_HOME/atrium/atrium.db`; single-writer worker thread; WAL mode; UI never blocks on I/O |
-| **Local-first** | No network, no telemetry, no accounts, no CalDAV. Optional Org-mode vault projection lands in v0.2 (Phase 17 / 17.5) |
+| **Local-first** | No network, no telemetry, no accounts, no CalDAV. Optional Org-mode vault projection lands in Phase 17 / 17.5 |
 | **Debug harness** | `atrium --debug` opens *Debug → Memory Watch* for live VmRSS / VmHWM / VmData against the §8 perf budget; fixture generators (1K / 10K / 50K / 100K) for stress-testing |
 
-## Builder Mode (v0.2 — next)
+## Builder Mode (shipping)
 
-Same schema. Same data. New surfaces:
+Same schema. Same data. Adds:
 
 | | |
 |---|---|
-| **Defer dates** | Tasks invisible in Today/Anytime until their `defer_until` passes |
-| **Sequential projects** | Only the next incomplete task is "available" — the rest dim |
-| **Forecast** | Calendar-axis layout of the next 30 days; drag to reschedule |
-| **Review** | Projects with stale `last_reviewed_at` surface in a queue, oldest first |
-| **Perspectives** | Saved filter expressions as first-class sidebar entries |
-| **Inspector pane** | Right-side overlay exposing every Builder field |
-| **Repeating tasks** | RFC 5545 RRULE-driven; respects Org's `+` / `++` / `.+` semantics |
+| **Defer dates** | Tasks invisible in Today/Anytime until their `defer_until` passes (Phase 11) |
+| **Sequential projects** | Only the next incomplete task is "available" — the rest dim (Phase 11) |
+| **Forecast** | Calendar-axis layout of the next 30 days; drag to reschedule between days (Phase 12) |
+| **Review** | Projects with stale `last_reviewed_at` surface in a queue, oldest first; per-card *Mark Reviewed* button (Phase 13) |
+| **Perspectives** | Saved filter expressions as first-class sidebar entries; *Save Search as Perspective…* in the primary menu (Phase 14, v0.1.17) |
+| **Inspector pane** | Always-visible right-side `AdwOverlaySplitView` exposing every Builder field, autosaves on focus-out / Enter (Phase 10) |
+| **Repeating tasks** | RFC 5545 RRULE-driven via the `rrule` crate; respects all three Org repeater modes — `+1w` (Basic), `++1w` (Cumulative — the default), `.+1w` (Next-from-completion). Spawns the next instance on completion with shifted dates and carried tags (Phase 15, v0.2.0) |
+| **Project › Area breadcrumb** | Header bar shows `Area › Project` when viewing a project under an area, anchoring users in their hierarchy (v0.3.0) |
 
-Mode flips are pure UI re-renders. The schema is already the superset; Builder Mode just exposes the columns Simple Mode keeps hidden. Verified by an integration test that snapshots schema + rows before and after a switch (Phase 10 acceptance).
+Mode flips are pure UI re-renders. The schema is the superset; Builder Mode just exposes the columns Simple Mode keeps hidden. Verified by an integration test that snapshots schema + rows before and after a switch (`tests/mode_flip_snapshot.rs`).
 
 ## Imports and exports (toward 1.0)
 
@@ -104,14 +109,15 @@ VTODO export is one-way — Atrium does not become a CalDAV client. The plan is 
 
 ## Status
 
-**Phase 8 closed; Phase 9 (v0.1.0 ship) is in flight.** The journey to v1.0 lives in [`roadmap.md`](roadmap.md), broken into 20 phases:
+**Phases 0–15 closed at v0.2.0 (Builder Mode milestone). v0.3.0 visual polish minor shipped.** The journey to v1.0 lives in [`roadmap.md`](roadmap.md), broken into 20 numbered phases plus three sub-phases (12.5, 15.5, 17.5):
 
-- **Phases 0–9** — Simple Mode → ships as **v0.1**
-- **Phases 10–15** — Builder Mode → ships as **v0.2**
+- **Phases 0–9** — Simple Mode → tagged as **v0.1.0**
+- **Phases 10–15** — Builder Mode → tagged as **v0.2.0**
+- **Phase 15.5** — Calibre-powered search → tagged as **v0.4.0**
 - **Phases 16–19** — imports and exports across the Linux productivity-app ecosystem
-- **Phase 20** — l10n, accessibility round 2, capture daemon, Flathub → **v1.0**
+- **Phase 20** — l10n, accessibility round 2, capture daemon (`atriumd`), Flathub → **v1.0**
 
-[`patchnotes.md`](patchnotes.md) tracks every release entry, newest at top. The current `VERSION` carries the in-progress patch number; v0.1.0 is the first user-facing tag.
+[`patchnotes.md`](patchnotes.md) tracks every release entry, newest at top. The current `VERSION` is the most recent shipped release; v0.4.0 (Calibre-powered search expression grammar — boolean operators, parens, ranges, date keywords, regex, state predicates) is the latest.
 
 ## Architecture (in one paragraph)
 

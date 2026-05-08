@@ -192,7 +192,7 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 - [x] **`review_interval_days` per project** — Phase 11's project-page Review-interval `GtkSpinButton` already writes the column. v0.1.2 closed this slot ahead of Phase 13.
 - [x] **Review perspective:** new `read::list_review_queue(conn, today)` SQL selects projects with `review_interval_days IS NOT NULL`, `archived_at IS NULL`, and `last_reviewed_at + review_interval_days days ≤ today` (or never reviewed). Order: never-reviewed first, then by oldest `last_reviewed_at`, then by `position`. The Phase 10 Review sidebar stub now mounts a real `atrium/src/ui/review.rs` page that renders one card per queued project (title, area subtitle, "Last reviewed N days ago" / "Never reviewed" caption, Mark Reviewed button). Empty queue shows an `AdwStatusPage` "All caught up" placeholder.
 - [x] **"Mark Reviewed" action** — `Command::MarkReviewed { id }` worker variant + `WorkerHandle::mark_reviewed(id)` API. Handler runs `UPDATE project SET last_reviewed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1`, emits `LibraryChanges{projects_updated}`. The card's Mark Reviewed button dispatches via `glib::MainContext::default().spawn_local`, disables itself while in flight to prevent double-fire, and drops out of the visible queue when `apply_library_changes` triggers a page rebuild.
-- [ ] **Per-area review schedules:** an area can default an interval new projects inherit. *Deferred — adds a `default_review_interval_days` column to the `area` table, which is a schema change. Per spec §4.4 the v0.1 schema is frozen; once we tag v0.2.0 (or move to a clearly-pre-v0.2 lane) we can land it as a backwards-compatible migration. Functionality-wise it's a quality-of-life nicety on top of the per-project interval that already works, so deferring doesn't gate any other phase.*
+- [ ] **Per-area review schedules:** an area can default an interval new projects inherit. *Deferred — adds a `default_review_interval_days` column to the `area` table. v0.2.0 ended the schema freeze (per spec §4.5) so this can land as an additive migration any time; punted because the per-project interval (Phase 11's SpinButton) already gives users full control and this is quality-of-life on top, not a blocking gap.*
 
 ## Phase 14: Builder Mode — Perspectives (Saved Views)
 *OmniFocus Perspectives. Filter expressions become first-class objects.* Shipped v0.1.17.
@@ -213,26 +213,24 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 - [x] **Dependency check:** `rrule` crate v0.14 (MIT/Apache) — sign-off granted before implementation. Default features only.
 
 ## Phase 15.5: Calibre-Powered Search
-*Power-user search bar. Expansive boolean grammar over Phase 7d's foundation.*
+*Power-user search bar. Expansive boolean grammar over Phase 7d's foundation.* Shipped v0.4.0.
 
-The Phase 7d filter parser handles `tag:foo`, `is:open`, `is:done`, `is:overdue`, `due:today` — useful but flat. Phase 15.5 grows it into a Calibre-shaped expression language: every list view becomes filterable by every task field, with negation, boolean composition, parens grouping, ranges, and exact-match. Saved Perspectives (Phase 14) inherit the new power for free since they store filter expressions verbatim. The expanded language ships before imports (Phases 16–19) so importers can map source-app searches into Atrium's syntax cleanly.
-
-- [ ] **Grammar design + spec.** New `spec.md` §4.3 (search expression language) documenting the full operator set with examples. Lexer / parser / AST / evaluator architecture sketch.
-- [ ] **Lexer + parser** in `atrium-core/src/search/` (new module). Hand-rolled recursive-descent matching the convention set by `repeat.rs` and `quickentry/parser.rs` — no new parser-combinator dependency.
-- [ ] **AST + evaluator.** Two evaluation paths: in-memory (against a `Vec<Task>` post-FTS5) for current Phase 7d shape; SQL-translation (where safe) for views over the entire library so we don't load everything to filter. Falls back to in-memory when the AST contains operators SQL can't express (most notably the `~regex` form below).
-- [ ] **Field operators.** `tag:`, `tags:` (alias), `area:`, `project:`, `title:`, `note:` (column-scoped FTS5), plus the existing `is:` / `due:` / `scheduled:` / `defer:`. New: `created:`, `modified:`, `completed:`, `estimated:`, `position:`, `repeats:`.
-- [ ] **Boolean operators + grouping.** `AND` / `OR` (case-insensitive), implicit `AND` between bare tokens (Calibre default), parenthesised sub-expressions, `NOT` prefix (or `!` shorthand) for negation. Standard precedence: **`NOT > AND > OR`** — matches Calibre, SQL, Python, and most search engines. `tag:work AND !done OR tag:home` parses as `(tag:work AND (NOT done)) OR tag:home`.
-- [ ] **Comparison operators.** `=`, `!=`, `>`, `<`, `>=`, `<=` on date and numeric fields. `due:>2026-05-01`, `estimated:>30`, `created:<lastweek`.
-- [ ] **Calibre-style match modifiers** on every field operator: `tag:x` substring (default, case-insensitive); `tag:"x y"` quoted substring for values with spaces; `tag:=x` exact match; `tag:"=x y"` quoted exact; `tag:~regex` regex match (in-memory only — SQLite has no built-in regex); `tag:true` / `tag:false` boolean existence (has-any-tag / has-no-tags). The `~regex` form needs a regex-crate sign-off (already transitively in the tree via `tracing-subscriber`; using it directly is the question).
-- [ ] **Date keywords.** `today`, `yesterday`, `tomorrow`, `thisweek`, `lastweek`, `nextweek`, `thismonth`, `lastmonth`, `nextmonth`, `thisyear`, `Ndaysago`, `Ndaysout`. Same set Calibre exposes plus future-tense forms (`tomorrow`, `nextweek`, etc.) since Atrium's tasks have future dates that Calibre's books don't. Mon-start ISO weeks.
-- [ ] **Range syntax.** `due:2026-05-01..2026-05-31` (inclusive). Open-ended ranges via comparison operators.
-- [ ] **Quote escape.** `\"` and `\\` inside quoted values.
-- [ ] **Boolean-existence operators.** `is:scheduled` / `is:deadline` / `is:deferred` / `is:repeating` / `is:archived` / `is:logbook` / `is:project` / `is:area` / `is:tagged`. `is:archived` means "task is in a project with `archived_at` set" — the column lives on `project` but the task-level shortcut reads cleaner. Each pairs with a `!` (negated) form.
-- [ ] **State predicates.** `is:open`, `is:done`, `is:overdue`, `is:queued` (sequential project), `is:available` (not deferred, not queued).
-- [ ] **Search-bar UX.** Live AST validity indicator (checkmark / red squiggle); ESC clears; `↑` / `↓` cycle recent searches (in-memory ring buffer, 20 entries).
-- [ ] **Operator reference popover.** `?` button at the right of the search bar opens a popover listing the operator set with examples. Same source as the `mdbook` documentation site (Phase 20).
-- [ ] **Tests:** parser round-trip on every operator, evaluator correctness across boolean composition, SQL-translation correctness vs in-memory eval (same result on the same input), edge cases (empty parens, mismatched quotes, unknown fields, regex compile errors). Synthetic 10K-task fixture exercises the SQL path.
-- [ ] **Saved Perspectives bonus.** Existing perspectives keep working; new perspectives written with the expanded grammar surface a "language: v2" hint in `perspective.filter_expr` so the parser can refuse legacy-only syntax cleanly if we ever break compatibility (we won't).
+- [x] **Grammar design + spec.** `spec.md` §4.3 documents the full operator set with examples, EBNF-style grammar production, and precedence table.
+- [x] **Lexer + parser** in `atrium-core/src/search/` — hand-rolled recursive-descent (no new parser-combinator dep), matches the convention set by `repeat.rs` and `quickentry/parser.rs`.
+- [x] **AST + in-memory evaluator.** Single-pass traversal with short-circuiting AND / OR; lazy regex compilation cached per-query.
+- [x] **Field operators.** `tag:`, `tags:`, `area:`, `project:`, `title:`, `note:`, `due:`, `scheduled:`, `defer:`, `created:`, `modified:`, `completed:`, `estimated:`, `repeats:`. Aliases (`tags`/`tag`, `deadline`/`due`, `est`/`estimated`, etc.) per the spec table.
+- [x] **Boolean operators + grouping.** `AND` / `OR` (case-insensitive), implicit `AND` between bare tokens, parenthesised sub-expressions, `NOT` / `!` prefix. **`NOT > AND > OR`** precedence — matches Calibre, SQL, Python.
+- [x] **Comparison operators.** `=` `!=` `>` `<` `>=` `<=` on date and numeric fields.
+- [x] **Calibre-style match modifiers.** `tag:x` substring, `tag:"x y"` quoted substring, `tag:=x` exact, `tag:"=x y"` quoted exact, `tag:~regex` regex (via the `regex` crate; sign-off granted), `tag:true` / `tag:false` boolean existence.
+- [x] **Date keywords.** `today` / `yesterday` / `tomorrow` / `thisweek` / `lastweek` / `nextweek` / `thismonth` / `lastmonth` / `nextmonth` / `thisyear` / `Ndaysago` / `Ndaysout`. Mon-start ISO weeks.
+- [x] **Range syntax.** `due:2026-05-01..2026-05-31` inclusive.
+- [x] **Quote escape.** `\"` and `\\` inside quoted values.
+- [x] **State predicates.** `is:open`, `is:done`, `is:overdue`, `is:scheduled`, `is:deadline`, `is:deferred`, `is:repeating`, `is:archived`, `is:logbook`, `is:project`, `is:area`, `is:tagged`, `is:queued`, `is:available`. Each pairs with `!is:NAME` (or `NOT is:NAME`).
+- [x] **Search-bar visual feedback.** Yellow `.warning` accent on the search entry when the parsed expression has unknown tokens; toast surfaces the typo'd field names. Cleared the moment the user fixes the typo.
+- [x] **Tests.** 46 search-module tests in `atrium-core` covering parser round-trips, evaluator correctness across all operators, regex matching, boolean composition, range bounds, date-keyword resolution. Plus 4 binary-side `filter` tests for the window-side shim.
+- [ ] **SQL-translation evaluator** *(deferred to v0.4.x patch)*. Translate the AST to a `WHERE` clause when expressible; fall back to in-memory for `~regex` and complex tag predicates. Pure perf optimization — the in-memory path handles 100K tasks within budget today.
+- [ ] **Search history ring buffer** *(deferred to v0.4.x patch)*. `↑` / `↓` to cycle the last 20 searches.
+- [ ] **Operator reference popover** *(deferred to v0.4.x patch)*. `?` button at the right of the search bar showing the operator set inline. Until then, spec §4.3 is the authoritative reference.
 
 ---
 

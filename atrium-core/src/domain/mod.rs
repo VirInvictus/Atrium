@@ -207,6 +207,10 @@ impl TaskUpdate {
 #[derive(Debug, Clone, Default)]
 pub struct NewArea {
     pub title: String,
+    /// Phase 15.75 — optional accent colour. Hex string (`"#3584e4"`)
+    /// from the same six-swatch palette tags use; `None` for areas
+    /// with no chosen accent.
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -214,6 +218,9 @@ pub struct AreaUpdate {
     pub id: i64,
     pub title: Option<String>,
     pub position: Option<f64>,
+    /// Phase 15.75 — `Some(Some(hex))` sets the accent, `Some(None)`
+    /// clears it back to no accent.
+    pub color: Option<Option<String>>,
 }
 
 impl AreaUpdate {
@@ -234,8 +241,15 @@ impl AreaUpdate {
         self
     }
 
+    /// Phase 15.75 — set or clear the area's accent colour. Pass
+    /// `None` to clear (back to no accent), `Some(hex)` to set.
+    pub fn color(mut self, color: Option<String>) -> Self {
+        self.color = Some(color);
+        self
+    }
+
     pub fn is_noop(&self) -> bool {
-        self.title.is_none() && self.position.is_none()
+        self.title.is_none() && self.position.is_none() && self.color.is_none()
     }
 }
 
@@ -350,6 +364,9 @@ pub struct Area {
     pub id: i64,
     pub uuid: String,
     pub title: String,
+    /// Phase 15.75 — optional accent colour as a hex string. `None`
+    /// for areas with no chosen accent.
+    pub color: Option<String>,
     pub position: f64,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
@@ -438,6 +455,14 @@ pub struct Perspective {
     pub sort_order: Option<String>,
     /// Reserved for Phase 14.x — explicit grouping spec.
     pub grouping: Option<String>,
+    /// Phase 15.75 — renderer name. `"list"` (default — same as
+    /// v0.4.0) or `"board"` (Slice D kanban). Stored as a string so
+    /// future renderers can append without a column-type migration.
+    pub renderer: String,
+    /// Phase 15.75 — renderer-specific configuration as JSON. NULL
+    /// for `"list"` (no config needed). For `"board"` the shape is
+    /// `{ "axis": "tag", "columns": [...], "wip_limits": {...} }`.
+    pub renderer_config: Option<String>,
     pub position: f64,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
@@ -450,6 +475,12 @@ pub struct NewPerspective {
     pub name: String,
     pub icon: Option<String>,
     pub filter_expr: String,
+    /// Phase 15.75 — renderer name. `None` falls back to `"list"`,
+    /// matching the column DEFAULT.
+    pub renderer: Option<String>,
+    /// Phase 15.75 — renderer-specific JSON config. `None` for
+    /// `"list"`; `Some` JSON for `"board"`.
+    pub renderer_config: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -460,6 +491,12 @@ pub struct PerspectiveUpdate {
     pub icon: Option<Option<String>>,
     pub filter_expr: Option<String>,
     pub position: Option<f64>,
+    /// Phase 15.75 — `Some("list")` or `Some("board")` swaps the
+    /// renderer. `None` leaves it unchanged.
+    pub renderer: Option<String>,
+    /// Phase 15.75 — `Some(Some(json))` sets the renderer config,
+    /// `Some(None)` clears it (back to NULL — empty board).
+    pub renderer_config: Option<Option<String>>,
 }
 
 impl PerspectiveUpdate {
@@ -490,10 +527,26 @@ impl PerspectiveUpdate {
         self
     }
 
+    /// Phase 15.75 — set the renderer. `"list"` or `"board"`.
+    pub fn renderer(mut self, renderer: impl Into<String>) -> Self {
+        self.renderer = Some(renderer.into());
+        self
+    }
+
+    /// Phase 15.75 — set or clear the renderer config JSON. Pass
+    /// `None` to clear (board with no columns picked yet), or
+    /// `Some(json)` to install.
+    pub fn renderer_config(mut self, config: Option<String>) -> Self {
+        self.renderer_config = Some(config);
+        self
+    }
+
     pub fn is_noop(&self) -> bool {
         self.name.is_none()
             && self.icon.is_none()
             && self.filter_expr.is_none()
             && self.position.is_none()
+            && self.renderer.is_none()
+            && self.renderer_config.is_none()
     }
 }

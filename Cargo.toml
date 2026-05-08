@@ -4,7 +4,7 @@ default-members = ["atrium"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.1"
+version = "0.4.0"
 edition = "2024"
 license = "MIT"
 authors = ["Brandon LaRocque"]
@@ -43,3 +43,11 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # Phase 15 implementation. Default features only — `serde` is opt-in and
 # we store rules as strings, not serialised RRule structs.
 rrule = "0.14"
+
+# Phase 15.5: regular expression matcher for the Calibre-style
+# `tag:~regex` modifier in the search expression language. Sign-off
+# granted before Phase 15.5 implementation. Already transitively in
+# the dep graph via tracing-subscriber, so the artifact ships either
+# way; this entry promotes it to a direct dependency for atrium-core.
+# Default features only — Unicode + the standard syntax.
+regex = "1.12"

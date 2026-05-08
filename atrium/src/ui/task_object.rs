@@ -77,10 +77,12 @@ impl AtriumTask {
         Self::from_task_with_tags(task, &[])
     }
 
-    /// Build an `AtriumTask` with the tag names already populated.
+    /// Build an `AtriumTask` with the tag pills already populated.
     /// Phase 6b's row factory consumes the `tag_names_csv` property
-    /// to render inline tag pills.
-    pub fn from_task_with_tags(task: &Task, tag_names: &[String]) -> Self {
+    /// to render inline tag pills; v0.3.0 expanded the input shape
+    /// to `(name, optional hex color)` so per-pill colours can land
+    /// in the rendered Pango markup.
+    pub fn from_task_with_tags(task: &Task, pills: &[(String, Option<String>)]) -> Self {
         let obj: Self = glib::Object::builder()
             .property("id", task.id)
             .property("uuid", task.uuid.clone())
@@ -91,7 +93,7 @@ impl AtriumTask {
         obj.set_schedule_label(format_schedule(&task.scheduled_for));
         obj.set_deadline_label(format_deadline(task.deadline));
         obj.set_position(task.position);
-        obj.set_tag_names_csv(format_tag_names(tag_names));
+        obj.set_tag_names_csv(format_tag_names(pills));
         obj
     }
 
@@ -122,12 +124,12 @@ impl AtriumTask {
     }
 }
 
-fn format_tag_names(names: &[String]) -> String {
-    names
-        .iter()
-        .map(|n| format!("#{n}"))
-        .collect::<Vec<_>>()
-        .join(" ")
+/// Re-export of the task_list module's formatter so this module
+/// doesn't duplicate the Pango-escape logic. Both call paths
+/// (`from_task_with_tags` here, the diff-applier in `task_list`)
+/// produce the same markup string.
+fn format_tag_names(pills: &[(String, Option<String>)]) -> String {
+    crate::ui::task_list::format_tag_names(pills)
 }
 
 fn format_schedule(s: &Option<ScheduledFor>) -> String {

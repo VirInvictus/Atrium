@@ -1,5 +1,204 @@
 # Atrium — Patch Notes
 
+## v0.4.0 (2026-05-07) — Phase 15.5: Calibre-Powered Search
+
+The search bar's filter language grew from the v0.1 flat shape (`tag:foo is:open due:today` — useful but limited) into a full Calibre-style expression grammar. Saved Perspectives inherit the new power for free since they store filter expressions verbatim. The full operator reference lives in `spec.md` §4.3; the highlights:
+
+### What's new
+
+**Boolean composition with grouping.**
+
+```text
+tag:work AND is:overdue            implicit-AND default still works
+tag:work OR tag:home               OR keyword (case-insensitive)
+NOT tag:archived                   NOT prefix; ! is the shorthand
+(tag:work OR tag:home) AND !done   parens override precedence
+```
+
+Standard precedence: **`NOT > AND > OR`** (matches Calibre, SQL, Python). `tag:work AND !done OR tag:home` parses as `(tag:work AND (NOT done)) OR tag:home`.
+
+**Calibre match modifiers on every text field.**
+
+```text
+tag:work        substring (default, case-insensitive) — matches "worker", "homework"
+tag:"work focus"  quoted substring for values with spaces
+tag:=work       exact match (case-insensitive)
+tag:"=work focus"  quoted exact for exact values with spaces
+tag:~mystery.*  regex match (RE2 syntax via the regex crate)
+tag:true        boolean existence — task has at least one tag
+tag:false       boolean none — task has no tags
+```
+
+**Comparison + range on date and numeric fields.**
+
+```text
+due:>today                    deadline strictly in the future
+due:<=lastweek                deadline anywhere through end of last week
+estimated:>=30                tasks needing 30+ minutes
+due:2026-05-01..2026-05-31    inclusive date range
+```
+
+**Date keywords** (Calibre's set plus future-tense forms Atrium needs):
+
+`today`, `yesterday`, `tomorrow`, `thisweek`, `lastweek`, `nextweek`, `thismonth`, `lastmonth`, `nextmonth`, `thisyear`, `Ndaysago`, `Ndaysout`.
+
+**State predicates** as `is:NAME` shortcuts:
+
+`is:open`, `is:done`, `is:overdue`, `is:scheduled`, `is:deadline`, `is:deferred`, `is:repeating`, `is:archived`, `is:logbook`, `is:project`, `is:area`, `is:tagged`, `is:queued`, `is:available`. Each pairs with `!is:NAME` for the inverse.
+
+**New field operators.** `area:`, `project:`, `title:`, `note:`, `created:`, `modified:`, `completed:`, `estimated:`, `repeats:` join the existing `tag:` / `due:` / `scheduled:` / `defer:` / `is:` set.
+
+### Architecture
+
+`atrium-core/src/search/` (new module, ~1100 lines):
+
+- `lex.rs` — tokenizer producing `Token` stream. Bare words, quoted strings with `\"` / `\\` escapes, single- and multi-byte operators (`<`, `<=`, `..`, `!=`).
+- `ast.rs` — `Expr` enum + supporting types (`Field`, `MatchKind`, `State`, `Comparator`, `Value`, `DateKeyword`). Round-trip-shaped: `Display` impls re-render to canonical text that re-parses to the same AST.
+- `parse.rs` — recursive-descent parser. `parse_or` → `parse_and` → `parse_not` → `parse_primary` → `parse_term`. Sense-corrects bare date keywords on date fields into `Compare(Eq, ...)` (so `due:today` means "due exactly today", not "due column contains the substring 'today'"). Unknown field names are non-fatal warnings — the token falls through to freeform text.
+- `eval.rs` — single-pass in-memory evaluator. Lazy regex compilation cached per-query in an `EvalContext` (same query against many tasks reuses the compiled `Regex`). Date-keyword resolution into `(low, high)` ranges; comparison operators interpret keyword-ranges sensibly (`due:>thisweek` is "after the end of this week").
+
+`atrium-core` adds a direct dependency on the `regex` crate (sign-off granted before implementation; already transitively in the dep graph via `tracing-subscriber`, so the artifact ships either way). In-memory only — SQLite has no built-in regex.
+
+`atrium/src/ui/filter.rs` is now a thin shim over `atrium_core::search`. Window-side call sites (search bar, Perspective load) keep their old shape — `parse(query)` returns a `FilterQuery` carrying the AST + warnings; `apply` filters a task vector against the parsed expression.
+
+### Visual feedback
+
+Search entry gains a yellow libadwaita `.warning` accent when the parsed expression has unrecognised tokens (`tga:work`, `is:fnord`). Tooltip on the entry surfaces the unknown tokens. Cleared the moment the user fixes the typo. Combines with the existing toast notification from v0.2.2 — toast for the explicit "you typed something wrong" hit, accent for the persistent-while-broken visual cue.
+
+### Numbers
+
+- 248 tests pass total: 82 atrium (binary), 165 atrium-core (lib, +41 from v0.3.0's 124 — search module), 1 mode-flip integration.
+- New crate dependency: `regex` 1.12 (MIT/Apache, already transitively in tree).
+- Clippy clean, fmt clean, regression script green at v0.4.0.
+
+### What's deferred to v0.4.x patches
+
+Three Phase 15.5 line items intentionally cut from v0.4.0 to keep the release focused; each is a polish addition, not a correctness gap:
+
+- **SQL-translation evaluator.** Translates the AST to a `WHERE` clause for views over the entire library so we don't load every task to filter. Pure perf optimization — the in-memory path handles 100K tasks within the §8 budget today; we'll add SQL translation when measurement says we need it.
+- **Search history ring buffer.** `↑` / `↓` to cycle the last 20 searches. Useful but additive.
+- **Operator reference popover.** `?` button at the right of the search bar showing the operator set inline. Until then, `spec.md` §4.3 is the authoritative reference, and the search-bar placeholder still hints at the basics.
+
+### Spec discipline
+
+`spec.md` §4.3 is the authoritative reference for the language. Keeping it in `spec.md` rather than a separate `docs/search.md` means schema changes that touch the search surface (a new field, a renamed column) edit one document not two.
+
+§4 was renumbered: the new §4.3 (Search Expression Language) shifts FTS5 → §4.4 and Migrations → §4.5.
+
+## v0.3.0 (2026-05-07) — Visual polish pass
+
+A focused minor release dedicated to making Atrium feel less utilitarian. No new features in the strict-spec sense — every change is a UI/UX refinement on top of what v0.2.2 ships. Two tiers of improvements landed:
+
+### Tier 1 — quick wins
+
+**Tag colours wired in.** The `tag.color` column has been in the schema since Phase 1 (v0.1.0) but no UI wrote to it or rendered it. v0.3.0 closes the loop:
+
+- New `prompt_for_tag` helper presents a six-swatch palette (Blue / Green / Yellow / Orange / Red / Purple, plus a "no colour" option) alongside the name entry. Both *New Tag* and *Rename Tag* go through this prompt; the rename flow pre-selects the tag's current colour.
+- Sidebar tag rows: the leading icon swaps for a coloured dot when a colour is set. Tooltip surfaces the hex value for power-user verification.
+- Task-row tag pills: each tag renders as a coloured `<span foreground="#hex">#name</span>` Pango span. Tags without a colour fall back to the existing dim-label accent treatment.
+- Stored as hex strings (`#3584e4`, etc.) — same values used in the swatch CSS classes (`.atrium-swatch-blue`, …) so the picker, sidebar dot, and task-row pill all render the same colour for a given tag.
+
+Data plumbing: new `read::tag_info_per_task` returns `HashMap<i64, Vec<(String, Option<String>)>>` (typed as `TagInfoMap`). Window-side caches a `tag_pills: TagPillMap` alongside the existing `tag_map: TagMap`; the renderer uses the rich form, the filter evaluator keeps the name-only form for substring matching.
+
+`format_tag_names` migrated from `&[String]` → `&[(String, Option<String>)]`; both call sites (`replace_store_with_tags_seq` and `apply_changes_seq`) updated. The `tags` GtkLabel in the row factory now has `use-markup=true`.
+
+**Row hover state.** `.atrium-task-row:hover` adds a subtle `alpha(@accent_bg_color, 0.08)` background tint with a 120ms transition. Selection highlight (libadwaita default) takes priority when both fire. The row also gets a 6px border-radius so the hover tint reads as a discrete chip rather than a flat band.
+
+**Per-list empty-state warmth.** Every empty-list state got a copy refresh with warmer phrasing — "Inbox zero" instead of "Inbox is empty"; "Clear plate today" instead of "Nothing today"; "Open horizon" for Upcoming and Forecast (the same phrase intentionally — both speak to "future is open"). The Someday icon swapped from the bizarre `user-home-symbolic` (a house) to `weather-clear-night-symbolic` (a moon) which actually evokes "later, after dark."
+
+**Search bar placeholder rephrased.** From the colon-delimited `Search · tag:errand · is:overdue · due:today` (which read like a config file) to `Find tasks — try tag:errand, due:today, or is:overdue` (which reads like an invitation).
+
+### Tier 2 — substantive polish
+
+**Completion micro-animation.** A 280ms keyframe (`atrium-task-check-pop`) gives the CheckButton a brief 1.0 → 1.25 → 0.95 → 1.0 scale pulse when the row's `.completed` class is added, plus a `@success_color` colour swap on the inner check glyph. The animation only fires going from open → done — toggling back to open just runs the existing opacity transition in reverse. Things-3-style satisfaction without confetti.
+
+**Sidebar visual rhythm.** Section headers (Areas / Tags / Builder / Perspectives) gained the new `.atrium-sidebar-section` class:
+
+- 600 weight, uppercased, 0.04em letter-spacing — reads as a label rather than a row title.
+- 0.78em font size — tighter than rows, so they don't compete.
+- 1px top border in `alpha(@borders, 0.4)` — visible separator between sections without a heavy rule.
+
+**Header bar context breadcrumb.** When viewing a Project, the header bar title now reads `Area › Project` instead of just the bare project name (when the project has an area). Falls back to the bare name for unfiled projects. `title_for(ActiveList::Project(_))` consults the existing `project_meta` and `area_titles` caches; no new SQL.
+
+**Inspector pane card treatment.** The Builder Mode side pane gets the new `.atrium-inspector-pane` class on its `AdwPreferencesPage`. Adds a 1px left border in `alpha(@borders, 0.4)` plus 12px padding around the prefs groups, so the pane reads as a separate sheet of paper rather than an extension of the main task list. Subtle but the form-vs-list distinction makes the editor more inviting.
+
+### CSS additions
+
+`data/style.css` grew several blocks:
+
+- `.atrium-swatch{,-blue,-green,-yellow,-orange,-red,-purple}` — circular toggle buttons in the tag-colour picker, plus a `:checked` ring.
+- `.atrium-tag-dot` — the sidebar tag-row colour dot.
+- `.atrium-sidebar-section` — section header treatment.
+- `.atrium-inspector-pane` — Inspector pane left-border + clamp padding.
+- `.atrium-task-row:hover` — hover tint.
+- `@keyframes atrium-task-check-pop` — completion pulse animation.
+
+### Tests
+
+- 215 tests pass (90 atrium + 124 atrium-core + 1 mode-flip integration). No new tests; this release is render-only.
+
+### What's intentionally NOT in v0.3.0
+
+Tier 3 from the audit triage stays open as future work:
+
+- **Per-area colour theming** — would need a new `area.color` column (additive migration) and a per-area accent on row left-edges. Belongs with a future phase that thinks about hierarchical visual identity holistically.
+- **Logbook day grouping** — "Today / Yesterday / Last 7 Days / Older" section headers. Transformative for retrospective scanning but a real bit of work; deserves its own follow-up rather than getting tucked into a polish release.
+
+## v0.2.2 (2026-05-07) — Audit-pass bug fixes
+
+A focused patch from the v0.2.x audit. Four bug fixes; no new features. The next minor (v0.3.0) will tackle the visual-polish pass to make the app feel less utilitarian; this release clears the rough edges first.
+
+### Filter typos surface a toast
+
+`atrium/src/ui/filter.rs::parse` now collects unrecognised `key:value` tokens into a `warnings: Vec<String>` field on `FilterQuery`. Window-side, `surface_filter_warnings` toasts the unknown tokens (capped at three previewed, with a "+N more" suffix when longer). Toasts deduplicate against `last_filter_warning: RefCell<Option<String>>` on the imp struct, so the same typo doesn't re-toast on every refresh tick.
+
+Wired into:
+
+- The search bar's `connect_search_changed` handler — typing `tga:errand` produces a toast immediately.
+- The Perspective load path (`refresh_active_list` for `ActiveList::Perspective(_)`) — saved perspectives with malformed expressions surface their warnings on first load.
+
+Four new filter-parse tests cover the warning collection: unknown prefix, unknown value under a known key, recognised filters producing zero warnings, and the freeform-text fallback that was already there.
+
+### Sidebar zero-state hint
+
+When areas, projects, *and* tags are all empty (true cold-start, or a fully-pruned library), a `GtkRevealer` slides up at the bottom of the sidebar with:
+
+- Caption-heading: "No projects yet"
+- Caption-dim: "Group tasks by what they're for. You can always add an area later to organise multiple projects."
+- Pill-styled `suggested-action` button: "New Project" → `app.new-project`
+
+The check fires from `rebuild_dynamic_sidebar` after the canonical / dynamic rows are built, so it stays in sync as the library fills out. Tags-only libraries (capture-by-tag workflow) and areas-without-projects (in-progress states) don't trigger the hint — only the genuinely-empty case.
+
+`data/window.ui` adds `sidebar_empty_hint: GtkRevealer` to the sidebar's vertical Box, below the existing scrolled-window-with-listbox.
+
+### Inbox chip fallback in the Area › Project context
+
+The chip introduced in v0.2.1 rendered blank when a task had no project — leaving users to wonder what the missing chip meant. `build_context_resolver` now returns `"Inbox"` for `project_id IS NULL` tasks when the chip mode is `AreaAndProject`. `ProjectOnly` mode (Area views) keeps the empty render — the area heading already names the scope, and there's no project to label.
+
+### Screen-reader badge labels
+
+`apply_badge_label` now sets `accessible::Property::Label` on each count badge with the *meaning* of the number, not just the digit. A badge showing "5" exposes its accessible label as `"5 open tasks"` (or `"1 open task"` for the singular case), so screen readers announce "Today, 5 open tasks" instead of "Today, 5".
+
+The visible label stays a bare number — sighted users see the existing tabular-nums column. Only the SR-announced text changes.
+
+### Numbers
+
+- 215 tests pass: 90 atrium (binary, +3 from v0.2.1's 87), 124 atrium-core (lib, unchanged), 1 mode-flip integration. New atrium tests are the four filter-warning round-trip cases (one was added in v0.2.1's path that's still active).
+- Clippy clean, fmt clean, regression script green at v0.2.2.
+
+### Out of scope (deferred)
+
+The audit also flagged a few items that turned out not to be actual bugs on closer reading:
+
+- **Perspective deletion fallback** — already correct in `apply_library_changes`; falls back to Today and selects the row.
+- **Perspective view skipping `refresh_dynamic_badges`** — already called after `refresh_active_list` in the relevant arm.
+- **Forecast drag-to-yesterday** — `group_by_date` only emits cards from `today` forward, so a past date isn't reachable through the UI.
+
+Two real items were flagged but explicitly deferred to future work:
+
+- **Filter expression v2** — the Calibre-style grammar (Phase 15.5) supersedes the warning-on-typo approach. The current toast is the right shape for Phase 7d's flat language; the v2 grammar will surface validation inline in the search bar.
+- **Sidebar accessibility on dynamic rows** — the audit overstated this. Each row already has `Property::Label` set via `sidebar_row()`; only the count badges were missing semantic meaning, and that's what this release fixed.
+
 ## v0.2.1 (2026-05-07) — Tag pill update fix + Area › Project chip
 
 Two task-row fixes that arrived together because they touch the same factory and diff applier.

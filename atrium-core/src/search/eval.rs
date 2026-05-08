@@ -1,0 +1,341 @@
+// SPDX-License-Identifier: MIT
+//! In-memory evaluator. Runs an [`Expr`] against a single [`Task`]
+//! and returns whether the task matches.
+//!
+//! The evaluator is the pure-Rust path that handles every operator
+//! the grammar exposes, including the SQL-incompatible ones (regex,
+//! tag-set predicates). The SQL-translation evaluator (in `sql.rs`,
+//! Phase 15.5 stage 3) handles the subset SQLite can express, falls
+//! back to in-memory when it can't.
+//!
+//! The eval loop traverses the expression once, short-circuits AND
+//! and OR. Regex compilation is lazy and cached per-call via a small
+//! HashMap keyed on the pattern string (a search bar refresh might
+//! evaluate the same regex against a thousand tasks; compiling once
+//! per query rather than once per task matters).
+
+use std::collections::HashMap;
+
+use chrono::{Datelike, Duration, NaiveDate};
+use regex::Regex;
+
+use crate::domain::{ScheduledFor, Task};
+
+use super::ast::{Comparator, DateKeyword, Expr, Field, MatchKind, State, Value};
+
+/// Read-only context the evaluator needs to resolve fields like
+/// `area:` and tag matches. Built once per query in the window-side
+/// caller.
+pub struct EvalContext<'a> {
+    pub today: NaiveDate,
+    pub tag_names: &'a HashMap<i64, Vec<String>>,
+    pub project_titles: &'a HashMap<i64, String>,
+    pub project_areas: &'a HashMap<i64, Option<i64>>,
+    pub area_titles: &'a HashMap<i64, String>,
+    /// Cache of compiled regexes — populated lazily as the evaluator
+    /// encounters `MatchKind::Regex` nodes. Same query against many
+    /// tasks reuses the compiled Regex.
+    regex_cache: std::cell::RefCell<HashMap<String, Option<Regex>>>,
+}
+
+impl<'a> EvalContext<'a> {
+    pub fn new(
+        today: NaiveDate,
+        tag_names: &'a HashMap<i64, Vec<String>>,
+        project_titles: &'a HashMap<i64, String>,
+        project_areas: &'a HashMap<i64, Option<i64>>,
+        area_titles: &'a HashMap<i64, String>,
+    ) -> Self {
+        Self {
+            today,
+            tag_names,
+            project_titles,
+            project_areas,
+            area_titles,
+            regex_cache: std::cell::RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// Compile and cache a regex. Returns `None` if the pattern is
+    /// malformed; the evaluator treats that as "no task matches" so
+    /// a typo'd regex doesn't crash the query.
+    fn compile_regex(&self, pattern: &str) -> bool {
+        let cache = self.regex_cache.borrow();
+        if cache.contains_key(pattern) {
+            return cache[pattern].is_some();
+        }
+        drop(cache);
+        let compiled = Regex::new(&format!("(?i){pattern}")).ok();
+        let ok = compiled.is_some();
+        self.regex_cache
+            .borrow_mut()
+            .insert(pattern.to_string(), compiled);
+        ok
+    }
+
+    fn regex_match(&self, pattern: &str, haystack: &str) -> bool {
+        if !self.compile_regex(pattern) {
+            return false;
+        }
+        let cache = self.regex_cache.borrow();
+        cache[pattern]
+            .as_ref()
+            .map(|r| r.is_match(haystack))
+            .unwrap_or(false)
+    }
+}
+
+/// Evaluate an expression against a single task. Returns `true` when
+/// the task matches.
+pub fn evaluate(expr: &Expr, task: &Task, ctx: &EvalContext<'_>) -> bool {
+    match expr {
+        Expr::Text(s) => match_text(task, s),
+        Expr::State(state) => match_state(task, *state, ctx),
+        Expr::Field { field, kind } => match_field(task, *field, kind, ctx),
+        Expr::Compare { field, comp, value } => match_compare(task, *field, *comp, value, ctx),
+        Expr::Range { field, low, high } => match_range(task, *field, low, high, ctx),
+        Expr::Not(inner) => !evaluate(inner, task, ctx),
+        Expr::And(items) => items.iter().all(|e| evaluate(e, task, ctx)),
+        Expr::Or(items) => items.iter().any(|e| evaluate(e, task, ctx)),
+    }
+}
+
+/// Bare-text match: case-insensitive substring on title + note.
+fn match_text(task: &Task, needle: &str) -> bool {
+    let n = needle.to_ascii_lowercase();
+    task.title.to_ascii_lowercase().contains(&n) || task.note.to_ascii_lowercase().contains(&n)
+}
+
+fn match_state(task: &Task, state: State, ctx: &EvalContext<'_>) -> bool {
+    let today = ctx.today;
+    match state {
+        State::Open => task.completed_at.is_none(),
+        State::Done | State::Logbook => task.completed_at.is_some(),
+        State::Overdue => task.completed_at.is_none() && task.deadline.is_some_and(|d| d < today),
+        State::Scheduled => task.scheduled_for.is_some(),
+        State::Deadline => task.deadline.is_some(),
+        State::Deferred => task.defer_until.is_some_and(|d| d > today),
+        State::Repeating => task.repeat_rule.is_some(),
+        State::Archived => false, // resolved via project-side cache; not a Task field
+        State::InProject => task.project_id.is_some(),
+        State::InArea => task
+            .project_id
+            .and_then(|pid| ctx.project_areas.get(&pid).copied().flatten())
+            .is_some(),
+        State::Tagged => ctx.tag_names.get(&task.id).is_some_and(|v| !v.is_empty()),
+        State::Queued | State::Available => false, // sequential-project state, not a task field
+    }
+}
+
+fn match_field(task: &Task, field: Field, kind: &MatchKind, ctx: &EvalContext<'_>) -> bool {
+    let candidates: Vec<String> = collect_field_values(task, field, ctx);
+    match kind {
+        MatchKind::Substring(needle) => {
+            let n = needle.to_ascii_lowercase();
+            candidates
+                .iter()
+                .any(|v| v.to_ascii_lowercase().contains(&n))
+        }
+        MatchKind::Exact(needle) => {
+            let n = needle.to_ascii_lowercase();
+            candidates.iter().any(|v| v.to_ascii_lowercase() == n)
+        }
+        MatchKind::Regex(pattern) => candidates.iter().any(|v| ctx.regex_match(pattern, v)),
+        MatchKind::HasAny => !candidates.iter().all(String::is_empty) && !candidates.is_empty(),
+        MatchKind::HasNone => candidates.iter().all(String::is_empty) || candidates.is_empty(),
+    }
+}
+
+/// Collect the string-shaped values for a field on a single task.
+/// Returns an empty Vec when the field has no value (e.g. `tag:` on
+/// a task with no tags). Numeric / date fields return an empty Vec
+/// here — those flow through `match_compare` instead.
+fn collect_field_values(task: &Task, field: Field, ctx: &EvalContext<'_>) -> Vec<String> {
+    match field {
+        Field::Tag => ctx.tag_names.get(&task.id).cloned().unwrap_or_default(),
+        Field::Project => task
+            .project_id
+            .and_then(|pid| ctx.project_titles.get(&pid).cloned())
+            .into_iter()
+            .collect(),
+        Field::Area => task
+            .project_id
+            .and_then(|pid| ctx.project_areas.get(&pid).copied().flatten())
+            .and_then(|aid| ctx.area_titles.get(&aid).cloned())
+            .into_iter()
+            .collect(),
+        Field::Title => vec![task.title.clone()],
+        Field::Note => vec![task.note.clone()],
+        Field::Repeats => match task.repeat_rule.as_ref() {
+            Some(rule) => vec![rule.clone()],
+            None => Vec::new(),
+        },
+        Field::Due
+        | Field::Scheduled
+        | Field::Defer
+        | Field::Created
+        | Field::Modified
+        | Field::Completed
+        | Field::Estimated => Vec::new(),
+    }
+}
+
+fn match_compare(
+    task: &Task,
+    field: Field,
+    comp: Comparator,
+    value: &Value,
+    ctx: &EvalContext<'_>,
+) -> bool {
+    if let Some(d) = field_date_value(task, field) {
+        let (lo, hi) = value_to_date_range(value, ctx.today);
+        return compare_date(d, lo, hi, comp);
+    }
+    if let Some(n) = field_numeric_value(task, field)
+        && let Value::Number(target) = value
+    {
+        return compare_number(n, *target, comp);
+    }
+    false
+}
+
+fn match_range(
+    task: &Task,
+    field: Field,
+    low: &Value,
+    high: &Value,
+    ctx: &EvalContext<'_>,
+) -> bool {
+    let Some(d) = field_date_value(task, field) else {
+        return false;
+    };
+    let (low_lo, _) = value_to_date_range(low, ctx.today);
+    let (_, high_hi) = value_to_date_range(high, ctx.today);
+    d >= low_lo && d <= high_hi
+}
+
+/// Pull a date out of the task for date-shaped fields.
+fn field_date_value(task: &Task, field: Field) -> Option<NaiveDate> {
+    match field {
+        Field::Due => task.deadline,
+        Field::Scheduled => match &task.scheduled_for {
+            Some(ScheduledFor::Date(d)) => Some(*d),
+            _ => None,
+        },
+        Field::Defer => task.defer_until,
+        Field::Created => Some(task.created_at.date_naive()),
+        Field::Modified => Some(task.modified_at.date_naive()),
+        Field::Completed => task.completed_at.map(|dt| dt.date_naive()),
+        _ => None,
+    }
+}
+
+fn field_numeric_value(task: &Task, field: Field) -> Option<i64> {
+    match field {
+        Field::Estimated => task.estimated_minutes,
+        _ => None,
+    }
+}
+
+/// Convert a search value into a `(low, high)` date range. A literal
+/// or `today`/`yesterday`/`tomorrow` collapses to a single-day range
+/// (low == high). The `thisweek`/`thismonth`/etc. families expand to
+/// the appropriate window. The comparator then operates against the
+/// range bounds.
+fn value_to_date_range(value: &Value, today: NaiveDate) -> (NaiveDate, NaiveDate) {
+    match value {
+        Value::Date(d) => (*d, *d),
+        Value::DateKeyword(k) => keyword_to_range(*k, today),
+        // Numeric or text without a date → fold to today; the caller
+        // gets a no-match because no real task date will land on the
+        // wrong shape.
+        _ => (today, today),
+    }
+}
+
+fn keyword_to_range(k: DateKeyword, today: NaiveDate) -> (NaiveDate, NaiveDate) {
+    match k {
+        DateKeyword::Today => (today, today),
+        DateKeyword::Yesterday => {
+            let d = today - Duration::days(1);
+            (d, d)
+        }
+        DateKeyword::Tomorrow => {
+            let d = today + Duration::days(1);
+            (d, d)
+        }
+        DateKeyword::ThisWeek => week_bounds(today, 0),
+        DateKeyword::LastWeek => week_bounds(today, -1),
+        DateKeyword::NextWeek => week_bounds(today, 1),
+        DateKeyword::ThisMonth => month_bounds(today, 0),
+        DateKeyword::LastMonth => month_bounds(today, -1),
+        DateKeyword::NextMonth => month_bounds(today, 1),
+        DateKeyword::ThisYear => {
+            let lo = NaiveDate::from_ymd_opt(today.year(), 1, 1).unwrap_or(today);
+            let hi = NaiveDate::from_ymd_opt(today.year(), 12, 31).unwrap_or(today);
+            (lo, hi)
+        }
+        DateKeyword::DaysAgo(n) => {
+            let d = today - Duration::days(n as i64);
+            (d, d)
+        }
+        DateKeyword::DaysOut(n) => {
+            let d = today + Duration::days(n as i64);
+            (d, d)
+        }
+    }
+}
+
+/// ISO Mon-start week. `offset_weeks` lets us shift to last/next.
+fn week_bounds(today: NaiveDate, offset_weeks: i32) -> (NaiveDate, NaiveDate) {
+    let weekday = today.weekday().num_days_from_monday() as i64;
+    let monday = today - Duration::days(weekday) + Duration::weeks(offset_weeks as i64);
+    let sunday = monday + Duration::days(6);
+    (monday, sunday)
+}
+
+fn month_bounds(today: NaiveDate, offset_months: i32) -> (NaiveDate, NaiveDate) {
+    let mut y = today.year();
+    let mut m = today.month() as i32 + offset_months;
+    while m < 1 {
+        m += 12;
+        y -= 1;
+    }
+    while m > 12 {
+        m -= 12;
+        y += 1;
+    }
+    let m = m as u32;
+    let lo = NaiveDate::from_ymd_opt(y, m, 1).unwrap_or(today);
+    let hi_month = if m == 12 { 1 } else { m + 1 };
+    let hi_year = if m == 12 { y + 1 } else { y };
+    let hi = NaiveDate::from_ymd_opt(hi_year, hi_month, 1)
+        .map(|d| d - Duration::days(1))
+        .unwrap_or(today);
+    (lo, hi)
+}
+
+fn compare_date(d: NaiveDate, lo: NaiveDate, hi: NaiveDate, comp: Comparator) -> bool {
+    // For range-valued keywords (this/last week, etc.), `Eq` means
+    // "in the range"; the others compare against the appropriate
+    // bound.
+    match comp {
+        Comparator::Eq => d >= lo && d <= hi,
+        Comparator::Ne => d < lo || d > hi,
+        Comparator::Lt => d < lo,
+        Comparator::Le => d <= hi,
+        Comparator::Gt => d > hi,
+        Comparator::Ge => d >= lo,
+    }
+}
+
+fn compare_number(n: i64, target: i64, comp: Comparator) -> bool {
+    match comp {
+        Comparator::Eq => n == target,
+        Comparator::Ne => n != target,
+        Comparator::Lt => n < target,
+        Comparator::Le => n <= target,
+        Comparator::Gt => n > target,
+        Comparator::Ge => n >= target,
+    }
+}

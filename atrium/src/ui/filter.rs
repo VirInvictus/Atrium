@@ -1,218 +1,160 @@
 // SPDX-License-Identifier: MIT
-//! Filter-expression parser for the search bar (Phase 7d).
+//! Search expression entry point for the binary — Phase 15.5 shim.
 //!
-//! Splits a user query into freeform text (for FTS5) and structured
-//! filter clauses (applied in Rust after the FTS5 hit list comes
-//! back). Spec §4.2 / spec §7's filter language is the model.
+//! The Phase 7d filter parser (flat `tag:foo is:overdue` shape) was
+//! superseded in v0.4.0 by `atrium_core::search`, a real recursive-
+//! descent parser with Calibre-style match modifiers, boolean
+//! composition, ranges, and date keywords. This module holds the
+//! window-side glue:
 //!
-//! Supported forms:
+//! - [`parse`] — wraps `atrium_core::search::parse` and surfaces
+//!   non-fatal warnings (unknown field names that fall through to
+//!   freeform text).
+//! - [`apply`] — runs the parsed expression against a task list,
+//!   building an `EvalContext` from the window's existing caches.
 //!
-//! - `tag:NAME` — task must bear the named tag (case-insensitive).
-//! - `is:open` — completion state is open (`completed_at IS NULL`).
-//! - `is:done` — completion state is done.
-//! - `is:overdue` — open task with `deadline < today`.
-//! - `due:today` — open task with `deadline == today`.
-//!
-//! Anything else stays in the freeform text. Unknown `foo:bar`
-//! tokens are kept in the title-search query (no silent dropping).
+//! The window's call sites keep their old shape: `parse(query)`
+//! returns a [`FilterQuery`] carrying the AST + warnings; `apply`
+//! filters a task vector. Saved Perspectives go through the same
+//! path so v0.1.17 perspective expressions inherit the new grammar
+//! the moment v0.4.0 ships.
+
+use std::collections::HashMap;
 
 use atrium_core::Task;
+use atrium_core::search::{EvalContext, Expr, evaluate};
 use chrono::NaiveDate;
 
-use crate::ui::task_list::TagMap;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Filter {
-    Tag(String),
-    IsOpen,
-    IsDone,
-    IsOverdue,
-    DueToday,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Output of [`parse`]. The window uses `expr.is_some()` as "the
+/// query is non-empty"; uses `warnings` to surface a toast.
+#[derive(Debug, Clone, Default)]
 pub struct FilterQuery {
-    /// Freeform text passed to FTS5. Empty = "match anything that
-    /// passes the structured filters".
-    pub text: String,
-    pub filters: Vec<Filter>,
+    /// Parsed expression. `None` when the input was empty or
+    /// fundamentally unparseable.
+    pub expr: Option<Expr>,
+    /// Warnings collected during parse — unknown field names,
+    /// unknown state predicates. Surfaced as toast in the search bar.
+    pub warnings: Vec<String>,
+    /// Raw input, kept around for the operator-reference popover and
+    /// the search history ring buffer.
+    pub raw: String,
 }
 
+/// Parse a search-bar / saved-perspective expression.
 pub fn parse(input: &str) -> FilterQuery {
-    let mut text_parts: Vec<&str> = Vec::new();
-    let mut filters: Vec<Filter> = Vec::new();
-
-    for word in input.split_whitespace() {
-        // `key:value` shape — try to recognise a known key.
-        if let Some((key, value)) = word.split_once(':') {
-            let key_lower = key.to_ascii_lowercase();
-            match key_lower.as_str() {
-                "tag" if !value.is_empty() => {
-                    filters.push(Filter::Tag(value.to_string()));
-                    continue;
-                }
-                "is" => match value.to_ascii_lowercase().as_str() {
-                    "open" => {
-                        filters.push(Filter::IsOpen);
-                        continue;
-                    }
-                    "done" | "completed" | "complete" => {
-                        filters.push(Filter::IsDone);
-                        continue;
-                    }
-                    "overdue" => {
-                        filters.push(Filter::IsOverdue);
-                        continue;
-                    }
-                    _ => {} // fall through
-                },
-                "due" => match value.to_ascii_lowercase().as_str() {
-                    "today" => {
-                        filters.push(Filter::DueToday);
-                        continue;
-                    }
-                    "overdue" => {
-                        filters.push(Filter::IsOverdue);
-                        continue;
-                    }
-                    _ => {} // fall through
-                },
-                _ => {} // unknown prefix — keep in text
-            }
-        }
-        text_parts.push(word);
-    }
-
-    FilterQuery {
-        text: text_parts.join(" "),
-        filters,
+    let raw = input.to_string();
+    match atrium_core::search::parse(input) {
+        Ok(result) => FilterQuery {
+            expr: Some(result.expr),
+            warnings: result.warnings,
+            raw,
+        },
+        Err(_) => FilterQuery {
+            expr: None,
+            warnings: Vec::new(),
+            raw,
+        },
     }
 }
 
-/// Apply the parsed filters to a task list. Returns only tasks that
-/// pass *every* filter (AND semantics).
+/// Apply a parsed expression against a task vector. When the query
+/// is empty, returns the input unchanged. Builds the `EvalContext`
+/// from the window-side caches the caller passes in.
+#[allow(clippy::too_many_arguments)]
 pub fn apply(
     tasks: Vec<Task>,
-    filters: &[Filter],
-    tag_map: &TagMap,
+    query: &FilterQuery,
     today: NaiveDate,
+    tag_names: &HashMap<i64, Vec<String>>,
+    project_titles: &HashMap<i64, String>,
+    project_areas: &HashMap<i64, Option<i64>>,
+    area_titles: &HashMap<i64, String>,
 ) -> Vec<Task> {
-    if filters.is_empty() {
+    let Some(expr) = &query.expr else {
         return tasks;
-    }
+    };
+    let ctx = EvalContext::new(today, tag_names, project_titles, project_areas, area_titles);
     tasks
         .into_iter()
-        .filter(|t| {
-            filters.iter().all(|f| match f {
-                Filter::Tag(name) => tag_map
-                    .get(&t.id)
-                    .is_some_and(|names| names.iter().any(|n| n.eq_ignore_ascii_case(name))),
-                Filter::IsOpen => t.completed_at.is_none(),
-                Filter::IsDone => t.completed_at.is_some(),
-                Filter::IsOverdue => {
-                    t.completed_at.is_none() && t.deadline.is_some_and(|d| d < today)
-                }
-                Filter::DueToday => {
-                    t.completed_at.is_none() && t.deadline.is_some_and(|d| d == today)
-                }
-            })
-        })
+        .filter(|t| evaluate(expr, t, &ctx))
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn plain_text_no_filters() {
-        let q = parse("buy milk");
-        assert_eq!(q.text, "buy milk");
-        assert!(q.filters.is_empty());
-    }
-
-    #[test]
-    fn tag_filter() {
-        let q = parse("tag:errand");
-        assert!(q.text.is_empty());
-        assert_eq!(q.filters, vec![Filter::Tag("errand".into())]);
-    }
-
-    #[test]
-    fn tag_with_text() {
-        let q = parse("milk tag:errand");
-        assert_eq!(q.text, "milk");
-        assert_eq!(q.filters, vec![Filter::Tag("errand".into())]);
-    }
-
-    #[test]
-    fn multiple_filters_and_text() {
-        let q = parse("Q3 tag:work is:overdue");
-        assert_eq!(q.text, "Q3");
-        assert_eq!(q.filters.len(), 2);
-        assert!(q.filters.contains(&Filter::Tag("work".into())));
-        assert!(q.filters.contains(&Filter::IsOverdue));
-    }
-
-    #[test]
-    fn is_done_synonyms() {
-        for s in ["is:done", "is:completed", "is:complete"] {
-            let q = parse(s);
-            assert_eq!(q.filters, vec![Filter::IsDone]);
-        }
-    }
-
-    #[test]
-    fn unknown_prefix_stays_in_text() {
-        let q = parse("foo:bar baz");
-        assert_eq!(q.text, "foo:bar baz");
-        assert!(q.filters.is_empty());
-    }
-
-    #[test]
-    fn due_today_and_due_overdue() {
-        assert_eq!(parse("due:today").filters, vec![Filter::DueToday]);
-        assert_eq!(parse("due:overdue").filters, vec![Filter::IsOverdue]);
-    }
-
-    #[test]
-    fn case_insensitive_keys_and_synonyms() {
-        let q = parse("TAG:Errand IS:Open");
-        assert_eq!(q.filters.len(), 2);
-        assert!(q.filters.contains(&Filter::Tag("Errand".into())));
-        assert!(q.filters.contains(&Filter::IsOpen));
-    }
+    use atrium_core::test_support::dummy_task;
 
     fn d(y: i32, m: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, day).unwrap()
     }
 
-    fn dummy_task(id: i64, deadline: Option<NaiveDate>, completed: bool) -> Task {
-        atrium_core::test_support::dummy_task_with(id, deadline, completed)
+    #[test]
+    fn parse_empty_input_returns_none_expr() {
+        let q = parse("");
+        assert!(q.expr.is_none());
+        assert!(q.warnings.is_empty());
     }
 
     #[test]
-    fn apply_overdue_keeps_only_open_late() {
-        let today = d(2026, 5, 15);
-        let tasks = vec![
-            dummy_task(1, Some(d(2026, 5, 1)), false),  // overdue
-            dummy_task(2, Some(d(2026, 5, 1)), true),   // overdue but done
-            dummy_task(3, Some(d(2026, 5, 20)), false), // future
-            dummy_task(4, None, false),                 // no deadline
-        ];
-        let kept = apply(tasks, &[Filter::IsOverdue], &TagMap::new(), today);
-        assert_eq!(kept.len(), 1);
-        assert_eq!(kept[0].id, 1);
+    fn parse_collects_warnings() {
+        let q = parse("tga:errand");
+        assert_eq!(q.warnings, vec!["tga:errand"]);
     }
 
     #[test]
-    fn apply_tag_filter_uses_tag_map() {
-        let today = d(2026, 5, 15);
-        let tasks = vec![dummy_task(1, None, false), dummy_task(2, None, false)];
-        let mut tag_map = TagMap::new();
-        tag_map.insert(1, vec!["errand".into()]);
-        let kept = apply(tasks, &[Filter::Tag("Errand".into())], &tag_map, today);
-        assert_eq!(kept.len(), 1);
-        assert_eq!(kept[0].id, 1);
+    fn apply_filters_by_text() {
+        let mut t1 = dummy_task(1);
+        t1.title = "Buy milk".into();
+        let mut t2 = dummy_task(2);
+        t2.title = "Read book".into();
+        let q = parse("milk");
+        let out = apply(
+            vec![t1.clone(), t2.clone()],
+            &q,
+            d(2026, 5, 15),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, 1);
+    }
+
+    #[test]
+    fn apply_filters_by_tag() {
+        let t1 = dummy_task(1);
+        let t2 = dummy_task(2);
+        let mut tag_names = HashMap::new();
+        tag_names.insert(1, vec!["work".to_string()]);
+        let q = parse("tag:work");
+        let out = apply(
+            vec![t1, t2],
+            &q,
+            d(2026, 5, 15),
+            &tag_names,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, 1);
+    }
+
+    #[test]
+    fn empty_expr_passes_tasks_through_unchanged() {
+        let t = vec![dummy_task(1), dummy_task(2)];
+        let q = parse("");
+        let out = apply(
+            t.clone(),
+            &q,
+            d(2026, 5, 15),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(out.len(), 2);
     }
 }

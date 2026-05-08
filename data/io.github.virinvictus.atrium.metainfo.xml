@@ -90,6 +90,55 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.4.0" date="2026-05-07">
+      <description>
+        <p>Phase 15.5 — Calibre-powered search. The search bar's
+           filter language grew from a flat <code>tag:foo is:open</code>
+           shape into a full Calibre-style expression grammar:
+           boolean operators (AND / OR / NOT), parens grouping,
+           comparison operators on date and numeric fields
+           (<code>due:&gt;today</code>, <code>estimated:&gt;=30</code>),
+           inclusive ranges (<code>due:2026-05-01..2026-05-31</code>),
+           date keywords (<code>thisweek</code>, <code>lastmonth</code>,
+           <code>5daysago</code>), state predicates
+           (<code>is:overdue</code>, <code>is:repeating</code>,
+           <code>is:tagged</code>), and Calibre-style match modifiers
+           (<code>tag:x</code> substring, <code>tag:=x</code> exact,
+           <code>tag:~x</code> regex, <code>tag:true</code>/false
+           existence). Saved Perspectives inherit the new grammar
+           for free since they store filter expressions verbatim.
+           The full operator reference lives in spec §4.3.</p>
+      </description>
+    </release>
+    <release version="0.3.0" date="2026-05-07">
+      <description>
+        <p>Visual polish pass. Tag colours land — six-swatch picker
+           in the tag editor, coloured dots in the sidebar, coloured
+           pills on every task row. Task rows light up gently on
+           hover; completing a task gives the checkbox a brief
+           celebratory pop. Per-list empty states get warmer copy
+           and the right icon (Someday gets a moon, no more weird
+           house glyph). Project headings now show the area
+           breadcrumb so you know where you are in the hierarchy.
+           The Builder Mode Inspector pane reads as its own sheet
+           with a subtle left border.</p>
+      </description>
+    </release>
+    <release version="0.2.2" date="2026-05-07">
+      <description>
+        <p>Audit-pass bug fixes. Filter typos in the search bar (or in
+           a saved Perspective) now surface a toast instead of silently
+           no-op-ing — type <code>tga:work</code> by mistake and you'll
+           see "Unknown filter" rather than empty results. New empty-
+           library hint at the bottom of the sidebar nudges first-run
+           users toward "New Project" when there's nothing in their
+           library yet. Inbox tasks now read "Inbox" in the
+           Area › Project context chip on Today and similar views,
+           rather than rendering blank. Screen-reader experience
+           improved: count badges now announce as "5 open tasks"
+           instead of bare "5".</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-05-07">
       <description>
         <p>Two task-row fixes. Adding or removing a tag in the

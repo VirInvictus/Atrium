@@ -125,17 +125,45 @@ window.atrium-high-legibility .atrium-task-deadline {
   padding: 1px 4px;
 }
 
-/* Completion fade. The .completed class is toggled in
- * task_list.rs::factory.connect_bind. The transition lands on the
- * row so child labels inherit. */
+/* Completion fade + hover state. The .completed class is toggled in
+ * task_list.rs::factory.connect_bind. The opacity transition lands
+ * on the row so child labels inherit. v0.3.0 adds the :hover tint —
+ * subtle background that rises with the accent colour gives the row
+ * tactile feedback when the pointer passes over. The selection
+ * highlight (libadwaita default) wins over hover when both fire,
+ * which is what users expect. */
 .atrium-task-row {
-  transition: opacity 180ms ease-out;
+  transition: opacity 180ms ease-out, background-color 120ms ease-out;
+  border-radius: 6px;
+}
+.atrium-task-row:hover {
+  background-color: alpha(@accent_bg_color, 0.08);
 }
 .atrium-task-row.completed {
   opacity: 0.55;
 }
 .atrium-task-row.completed .atrium-task-title {
   text-decoration: line-through;
+}
+
+/* v0.3.0 — completion micro-animation. The CheckButton briefly
+ * scales up + flashes the accent colour when the row's `.completed`
+ * class is added, then settles back to normal as the row's
+ * opacity-fade kicks in. Things-3-style satisfaction without being
+ * showy. The animation only fires going from open → done because
+ * the keyframe lives on the .completed selector; toggling back to
+ * open just runs the opacity transition in reverse. */
+@keyframes atrium-task-check-pop {
+  0%   { transform: scale(1.0); }
+  35%  { transform: scale(1.25); }
+  70%  { transform: scale(0.95); }
+  100% { transform: scale(1.0); }
+}
+.atrium-task-row.completed checkbutton {
+  animation: atrium-task-check-pop 280ms ease-out;
+}
+.atrium-task-row.completed checkbutton check {
+  color: @success_color;
 }
 
 /* Phase 11 — sequential project queueing. When a project has
@@ -269,4 +297,64 @@ window.atrium-quickentry-window {
 .atrium-debug-pane * {
   font-family: var(--atrium-font-mono);
   font-feature-settings: normal;
+}
+
+/* v0.3.0 — tag colour palette. The `prompt_for_tag` swatch row uses
+ * one ToggleButton per palette colour; the `.atrium-swatch-*` class
+ * supplies the background. Same hex values are used by the inline
+ * Pango spans in the task-row factory, so a tag with `colour=blue`
+ * renders as a blue pill on the row and a blue swatch in the picker.
+ *
+ * `:checked` lifts the ring so the user sees which swatch is
+ * currently selected. */
+.atrium-swatch {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border-radius: 50%;
+}
+.atrium-swatch-blue   { background: #3584e4; }
+.atrium-swatch-green  { background: #33d17a; }
+.atrium-swatch-yellow { background: #e5a50a; }
+.atrium-swatch-orange { background: #ff7800; }
+.atrium-swatch-red    { background: #e01b24; }
+.atrium-swatch-purple { background: #9141ac; }
+.atrium-swatch:checked {
+  box-shadow: 0 0 0 2px alpha(@accent_color, 0.45);
+}
+
+/* Tag dot in the sidebar tag-row — replaces the default tag icon
+ * for tags that have a colour set. Same swatch classes apply to the
+ * fill; the base class gives it a circular shape and a soft
+ * fallback for unknown hex values. */
+.atrium-tag-dot {
+  border-radius: 50%;
+  background: alpha(@accent_color, 0.5);
+}
+
+/* v0.3.0 — sidebar section headers ("Areas", "Tags", "Builder",
+ * "Perspectives"). Adds a subtle top border to mark the section
+ * change visually; the existing caption-heading + dim-label classes
+ * keep the type colour quiet. The border is set on the row's
+ * embedded label so the listboxrow's own selection styling
+ * doesn't compete. */
+.atrium-sidebar-section {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.78em;
+  border-top: 1px solid alpha(@borders, 0.4);
+  padding-top: 8px;
+}
+
+/* v0.3.0 — Builder Mode Inspector pane treatment. The pane lives in
+ * the OverlaySplitView's right-side sidebar (data/window.ui). Adds
+ * a subtle left border so the pane reads as a separate sheet of
+ * paper rather than a continuation of the main list, plus
+ * slightly more breathing room around the prefs groups. */
+.atrium-inspector-pane {
+  border-left: 1px solid alpha(@borders, 0.4);
+}
+.atrium-inspector-pane > scrolledwindow > viewport > clamp {
+  padding: 12px;
 }
