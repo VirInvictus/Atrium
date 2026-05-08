@@ -1603,84 +1603,108 @@ impl AtriumWindow {
             // filter has a typo. Deduped so we don't re-toast on
             // every refresh.
             self.surface_filter_warnings(&parsed);
-            // v0.4.0 — load the full task set and let the search
-            // evaluator filter in Rust. The SQL fast-path
-            // (`atrium_search::try_translate`, shipped v0.5.3 and
-            // wired into `refresh_board_page` at v0.6.6) is a
-            // future optimisation here too: when the saved filter
-            // translates cleanly we could load only the matching
-            // rows. The list-renderer perspective path also has to
-            // run sort-spec / bm25 ranking, so the integration is
-            // a bit more involved than the board path was.
-            let tasks = pool.with(atrium_core::db::read::list_all_tasks);
-            match tasks {
-                Ok(tasks) => {
-                    let tag_map: TagMap = pool
-                        .with(atrium_core::db::read::tag_names_per_task)
+            // v0.6.18 — SQL fast-path for the list-renderer
+            // perspective path. v0.5.3 shipped the translation
+            // evaluator and v0.6.6 wired it into the board path;
+            // this loop was the deferred case noted in the v0.5.3
+            // patchnote. Translatable filters (most: is:open,
+            // tag:work, due:today, …) load only matching rows
+            // instead of pulling the full task table and
+            // filtering in Rust. The fallback path keeps the
+            // in-memory `filter::apply` for expressions the
+            // translator can't yet express (regex, fuzzy,
+            // composite is:today / etc.).
+            //
+            // We need both the name-only `TagMap` (for filter
+            // evaluation) and the colour-bearing `TagPillMap`
+            // (for row rendering). Pre-v0.6.18 these were two
+            // separate DB roundtrips with the same JOIN; now
+            // we fetch the pill map once and derive the name
+            // map from it.
+            let tag_pills: crate::ui::task_list::TagPillMap = pool
+                .with(atrium_core::db::read::tag_info_per_task)
+                .unwrap_or_default();
+            let tag_map: TagMap = crate::ui::task_list::tag_names_from_pills(&tag_pills);
+            let project_areas = self.project_areas_map();
+            let mut tasks: Vec<Task> = if let Some(expr) = &parsed.expr
+                && let Some(clause) = atrium_search::try_translate(expr, today)
+            {
+                let params: Vec<atrium_core::SqlBindValue> =
+                    clause.params.iter().map(Into::into).collect();
+                pool.with(|conn| {
+                    atrium_core::db::read::list_tasks_matching(conn, &clause.sql, &params)
+                })
+                .unwrap_or_default()
+            } else {
+                let loaded = match pool.with(atrium_core::db::read::list_all_tasks) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        error!(?e, perspective_id = id, "failed to load perspective");
+                        store.remove_all();
+                        self.update_empty_state(&store);
+                        return;
+                    }
+                };
+                crate::ui::filter::apply(
+                    loaded,
+                    &parsed,
+                    today,
+                    &tag_map,
+                    &self.imp().project_titles.borrow(),
+                    &project_areas,
+                    &self.imp().area_titles.borrow(),
+                )
+            };
+            // sort: modifiers — both paths need this; only the
+            // in-memory `filter::apply` would have applied it
+            // pre-v0.6.18. Honour the modifier on either path.
+            if !parsed.sorts.is_empty() {
+                crate::ui::filter::sort_tasks_by_specs(&mut tasks, &parsed.sorts);
+            }
+            // v0.5.2 — bm25-rank a Perspective whose filter
+            // contains bare text and doesn't pin a sort.
+            // `bm25_pinned_sort` mirrors the meaning of
+            // `parsed.sorts.is_empty()` for the post-store
+            // sort_by_position skip below.
+            let bm25_pinned_sort = if parsed.sorts.is_empty() {
+                let terms = parsed
+                    .expr
+                    .as_ref()
+                    .map(atrium_search::collect_text_terms)
+                    .unwrap_or_default();
+                if !terms.is_empty() {
+                    let scores = pool
+                        .with(|conn| atrium_core::db::read::bm25_for_terms(conn, &terms))
                         .unwrap_or_default();
-                    let tag_pills: crate::ui::task_list::TagPillMap = pool
-                        .with(atrium_core::db::read::tag_info_per_task)
-                        .unwrap_or_default();
-                    let project_areas = self.project_areas_map();
-                    let mut tasks = crate::ui::filter::apply(
-                        tasks,
-                        &parsed,
-                        today,
-                        &tag_map,
-                        &self.imp().project_titles.borrow(),
-                        &project_areas,
-                        &self.imp().area_titles.borrow(),
-                    );
-                    // v0.5.2 — bm25-rank a Perspective whose filter
-                    // contains bare text and doesn't pin a sort.
-                    // `bm25_pinned_sort` mirrors the meaning of
-                    // `parsed.sorts.is_empty()` for the post-store
-                    // sort_by_position skip below.
-                    let bm25_pinned_sort = if parsed.sorts.is_empty() {
-                        let terms = parsed
-                            .expr
-                            .as_ref()
-                            .map(atrium_search::collect_text_terms)
-                            .unwrap_or_default();
-                        if !terms.is_empty() {
-                            let scores = pool
-                                .with(|conn| atrium_core::db::read::bm25_for_terms(conn, &terms))
-                                .unwrap_or_default();
-                            if !scores.is_empty() {
-                                crate::ui::filter::rank_by_bm25_recency(&mut tasks, &scores, today);
-                                true
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
+                    if !scores.is_empty() {
+                        crate::ui::filter::rank_by_bm25_recency(&mut tasks, &scores, today);
+                        true
                     } else {
                         false
-                    };
-                    let context_for = self.build_context_resolver(&active);
-                    let area_color_for = self.build_area_color_resolver();
-                    replace_store_with_tags_seq(
-                        &store,
-                        &tasks,
-                        &tag_pills,
-                        false,
-                        context_for,
-                        area_color_for,
-                    );
-                    // v0.4.1 — `sort:KEY` modifiers in the saved
-                    // perspective override position order. apply()
-                    // already sorted the Vec; just don't clobber it
-                    // with sort_by_position. v0.5.2 — same skip when
-                    // bm25 ranking ordered the Vec.
-                    if parsed.sorts.is_empty() && !bm25_pinned_sort {
-                        sort_by_position(&store);
                     }
+                } else {
+                    false
                 }
-                Err(e) => {
-                    error!(?e, perspective_id = id, "failed to load perspective");
-                    store.remove_all();
-                }
+            } else {
+                false
+            };
+            let context_for = self.build_context_resolver(&active);
+            let area_color_for = self.build_area_color_resolver();
+            replace_store_with_tags_seq(
+                &store,
+                &tasks,
+                &tag_pills,
+                false,
+                context_for,
+                area_color_for,
+            );
+            // v0.4.1 — `sort:KEY` modifiers in the saved
+            // perspective override position order. apply()
+            // already sorted the Vec; just don't clobber it
+            // with sort_by_position. v0.5.2 — same skip when
+            // bm25 ranking ordered the Vec.
+            if parsed.sorts.is_empty() && !bm25_pinned_sort {
+                sort_by_position(&store);
             }
             self.update_empty_state(&store);
             return;
@@ -1697,15 +1721,23 @@ impl AtriumWindow {
             ActiveList::Area(id) => atrium_core::db::read::list_area(conn, *id),
             ActiveList::Tag(id) => atrium_core::db::read::list_tasks_with_tag(conn, *id),
             ActiveList::SearchResults(query) => {
-                // v0.4.0 — search expressions go through the
-                // Calibre-style parser in atrium_search. The
-                // window-side `filter::apply` evaluates the parsed
-                // AST against the in-memory task set. Empty parse
-                // (no expression at all) returns the empty list so
-                // the user doesn't see the entire library on a
-                // blank search bar.
-                if crate::ui::filter::parse(query).expr.is_none() {
-                    Ok(Vec::new())
+                // v0.6.18 — search expressions take the SQL
+                // fast-path when the parser can translate them.
+                // For 80%+ of typed queries (`tag:work`,
+                // `is:overdue`, `due:today`, …) this avoids the
+                // load-everything-then-filter-in-Rust pattern.
+                // Untranslatable expressions (regex / fuzzy /
+                // composite is:today) fall through to the
+                // load-everything path; `filter::apply` below
+                // handles the rest.
+                let parsed = crate::ui::filter::parse(query);
+                let Some(expr) = parsed.expr.as_ref() else {
+                    return Ok(Vec::new());
+                };
+                if let Some(clause) = atrium_search::try_translate(expr, today) {
+                    let params: Vec<atrium_core::SqlBindValue> =
+                        clause.params.iter().map(Into::into).collect();
+                    atrium_core::db::read::list_tasks_matching(conn, &clause.sql, &params)
                 } else {
                     atrium_core::db::read::list_all_tasks(conn)
                 }
@@ -1721,12 +1753,11 @@ impl AtriumWindow {
 
         match result {
             Ok(tasks) => {
-                let tag_map: TagMap = pool
-                    .with(atrium_core::db::read::tag_names_per_task)
-                    .unwrap_or_default();
+                // v0.6.18 — single tag-info fetch covers both maps.
                 let tag_pills: crate::ui::task_list::TagPillMap = pool
                     .with(atrium_core::db::read::tag_info_per_task)
                     .unwrap_or_default();
+                let tag_map: TagMap = crate::ui::task_list::tag_names_from_pills(&tag_pills);
                 // v0.4.1 — capture whether the user's search expression
                 // pinned a sort order so the post-store sort_by_position
                 // call can skip when the query already sorted the Vec.

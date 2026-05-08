@@ -25,6 +25,17 @@ use crate::ui::task_object::AtriumTask;
 /// `apply_changes` to populate row pills. `HashMap<task_id, tag_names>`.
 pub type TagMap = HashMap<i64, Vec<String>>;
 
+/// v0.6.18 — derive the name-only `TagMap` from a `TagPillMap`
+/// (which carries the same names plus per-tag colours). Saves a
+/// second DB roundtrip on call sites that need both maps —
+/// `tag_info_per_task` already does the JOIN; reuse its output.
+pub fn tag_names_from_pills(pills: &TagPillMap) -> TagMap {
+    pills
+        .iter()
+        .map(|(id, entries)| (*id, entries.iter().map(|(name, _)| name.clone()).collect()))
+        .collect()
+}
+
 /// v0.5.0 (Slice B2) — list of every CSS class the area-accent
 /// renderer might apply to a task row. Used by `apply_area_accent`
 /// to clear stale classes before applying a new one (recycled rows

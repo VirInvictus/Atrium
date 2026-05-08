@@ -1,5 +1,77 @@
 # Atrium — Patch Notes
 
+## v0.6.18 (2026-05-08) — efficiency pass: SQL fast-path everywhere search runs
+
+Brandon asked for a top-to-bottom efficiency pass. After surveying
+the codebase the honest answer is: Atrium is already pretty efficient
+by construction (single-writer worker, read pool, prepared statements
+via `prepare_cached`, WAL + tuned pragmas, cold start consistently
+20–30 ms, ship-gate runs in under 2 seconds). The clippy pedantic
+pass surfaced 250+ items but they're cosmetic — `doc-markdown` nits,
+`module-name-repetitions`, etc. — not real efficiency wins.
+
+The actual hot-path wins came from finishing two earlier deferrals
+plus eliminating one duplicate DB query:
+
+- **List-renderer perspective path uses the SQL fast-path.** v0.5.3
+  shipped the SQL translation evaluator and v0.6.6 wired it into the
+  kanban refresh; the deferred case noted in the v0.5.3 patchnote
+  was the regular *list*-renderer perspective path — saved
+  Perspectives whose renderer is `"list"`. v0.6.18 wires the
+  fast-path here too. Translatable filters (most: `is:open`,
+  `tag:work`, `due:today`, …) load only matching rows from SQLite
+  instead of pulling every task and filtering in Rust. At
+  fixture scale (1k tasks) the win is measurable; at 10k+ it
+  dominates. Untranslatable expressions (regex / fuzzy / composite
+  `is:today` / etc.) keep the in-memory `filter::apply` path —
+  no semantic change.
+
+- **Search-bar (SearchResults) path uses the SQL fast-path.** Same
+  shape. The bar fired `list_all_tasks` on every keystroke (after
+  the 200ms debounce) when the parser successfully built an
+  expression; now it fires `list_tasks_matching` with the
+  translated `WHERE` clause instead. Same fallback behaviour for
+  expressions the translator can't yet express.
+
+- **Eliminate duplicate tag-map DB query on perspective + search
+  refresh.** Both paths fetched `tag_names_per_task` *and*
+  `tag_info_per_task` back-to-back — same JOIN with one extra
+  column on the second query. New helper
+  `crate::ui::task_list::tag_names_from_pills(&TagPillMap) ->
+  TagMap` derives the name-only view from the colour-bearing pill
+  map locally, so we fetch once and project twice. Saves one DB
+  roundtrip per refresh.
+
+What I deliberately *didn't* do:
+
+- **Did not download other Rust to-do apps for inspiration.**
+  Brandon authorised it but the time cost is high and the
+  marginal value is low — Atrium's architecture already follows
+  the canonical patterns (worker queue, read pool, GtkListView
+  factories with property bindings, FTS5 + bm25 ranking). The
+  three wins above came from our own deferred work, not from
+  external patterns. If a specific external technique becomes
+  relevant later we can attribute it then.
+
+- **Did not chase the 250+ pedantic clippy warnings.** They're
+  cosmetic — `doc-markdown`, `module-name-repetitions`,
+  `must-use-candidate`, etc. The standard `cargo clippy
+  --workspace --all-targets -- -D warnings` is and stays clean.
+
+- **Did not refactor HashMap closure captures into `Rc<HashMap>`.**
+  At our scale (typical user has < 200 areas + projects + tags
+  combined) the per-refresh clones cost less than 1ms. The
+  cleaner ownership model isn't worth the API churn until a real
+  workload pushes back.
+
+- **Did not chase `LIKE %x%` table scans.** Bare-text matches in
+  the SQL translator emit `LOWER(t.title) LIKE %?% ESCAPE '\\'`,
+  which can't use an index. At 100k tasks this would matter; at
+  fixture scale (1k) it's ~5ms. The right answer is FTS5 for
+  bare text — already used for bm25 ranking — but plumbing it
+  through the translator is a bigger surgery best done when
+  someone's actually feeling the pain.
+
 ## v0.6.17 (2026-05-08) — Forecast view: click-to-open
 
 Brandon flagged that clicking a task in the Forecast view did

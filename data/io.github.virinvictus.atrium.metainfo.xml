@@ -90,6 +90,24 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.18" date="2026-05-08">
+      <description>
+        <p>Efficiency pass — SQL fast-path everywhere search
+           runs. v0.5.3 shipped the SQL translation evaluator
+           and v0.6.6 wired it into the kanban refresh;
+           v0.6.18 closes the deferred-case loop by wiring it
+           into the regular list-renderer perspective path
+           AND the search-bar SearchResults path. Translatable
+           filters (most: is:open, tag:work, due:today, …) now
+           load only matching rows from SQLite on every refresh
+           instead of pulling every task and filtering in Rust.
+           Plus eliminated a duplicate tag-map DB query on
+           those refreshes — fetch tag_info once and derive
+           the name-only view locally. Untranslatable
+           expressions still take the in-memory fallback;
+           semantics unchanged.</p>
+      </description>
+    </release>
     <release version="0.6.17" date="2026-05-08">
       <description>
         <p>Forecast view click-to-open. Brandon flagged that
