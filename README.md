@@ -23,7 +23,7 @@ The dual surface is in service of that. **Simple Mode** for *what am I doing rig
 
 Both modes ship at v0.5.0. Phases 0–9 closed Simple Mode at v0.1.0; Phases 10–15 closed Builder Mode at v0.2.0; v0.3.0 was the visual-polish minor; v0.4.0 shipped Phase 15.5 (Calibre-powered search). v0.5.0 closes the Phase 15.5 deferred-list (state predicates, sort, history, popover, fuzzy match), extracts the search engine and a full headless CLI as their own workspace crates (`atrium-search` / `atrium-cli`), and lands Phase 15.75 Slices A + B + C (visual polish + per-area accent + canonical-list colour + Weekly Review seed + Logbook day-grouping).
 
-The v0.6.x line completed Phase 15.75 in full: **Slice D (kanban Perspective renderer + Agenda canonical page)** shipped end-to-end (v0.5.4 → v0.6.5), with drag-drop column reorganisation, an in-GUI renderer-config dialog, and a matching `atrium-cli kanban` / `atrium-cli perspective` write side. The search engine grew **FTS5 bm25 + recency ranking** for bare-text searches (v0.5.2) and a **SQL-translation evaluator** that pushes most expressions to SQLite at query time with an in-memory fallback for the rest (v0.5.3). v0.6.7 reorganised the sidebar so Agenda / Forecast / Review join the top tier alongside the canonical lists. **Phase 16 (Things 3 importer) is what's next.**
+The v0.6.x line completed Phase 15.75 in full: **Slice D (kanban Perspective renderer + Agenda canonical page)** shipped end-to-end (v0.5.4 → v0.6.5), with drag-drop column reorganisation, an in-GUI renderer-config dialog, and a matching `atrium-cli kanban` / `atrium-cli perspective` write side. The search engine grew **FTS5 bm25 + recency ranking** for bare-text searches (v0.5.2) and a **SQL-translation evaluator** that pushes most expressions to SQLite at query time with an in-memory fallback for the rest (v0.5.3). v0.6.7 reorganised the sidebar so Agenda / Forecast / Review join the top tier alongside the canonical lists. v0.6.10–v0.6.16 was a screenshot-driven cleanup arc (soft accents, state-aware row treatment, Inspector polish, sidebar reorder). v0.6.18 finished the SQL fast-path wiring across every search-running surface. **v0.6.19 revised the roadmap** based on a gap-analysis pass against Errands / Planify / Endeavour / Things 3 / OmniFocus / Taskwarrior / Todoist: the Things 3 import phase retired (macOS-only audience), Org-mode promoted to Phase 16/17 as the must-ship two-way mirror, Todoist promoted to its own Phase 18, and a new Phase 19.5 covers nine productivity essentials (notifications, subtasks UI, iCal calendar feed, preferences window, task dependencies, drag-drop external capture, templates, onboarding, backup). **Phase 16 (Org-mode import + vault writer) is what's next.**
 
 **Author's Note:** I'm a college student in my late thirties with no professional industry experience yet — Atrium is one in a string of native Linux desktop apps I'm building to learn the craft and assemble a portfolio. I came from Things 3 and OmniFocus on macOS / iOS, and Linux has nothing in their lane that isn't an Electron wrapper or a CalDAV form over a webview. Atrium is the answer I wanted to exist. I work on Fedora 44 on a ThinkPad T14s AMD Gen 6; that's the environment it'll be tested against. I welcome contributions but can only honestly support my own setup.
 
@@ -138,17 +138,29 @@ atrium-cli complete 42
 
 ## Imports and exports (toward 1.0)
 
-Direct importers ship for the apps users actually migrate *from*:
+Direct importers ship for the apps Linux users *actually* migrate from. The list trimmed in v0.6.19 — Things 3 retired (macOS export-only; vanishingly small GNOME audience), Org and Todoist promoted to first-class slots:
 
-- **Things 3** (JSON via the URL scheme on macOS) — Phase 16
-- **OmniFocus** (`.ofocus` bundle) — Phase 18
-- **Taskwarrior** (`task export` JSON) — Phase 19
-- **Todoist** (CSV via the official export tool) — Phase 19
-- **Org-mode** (two-way `.org` interop, with UUID round-trip via `:ID:`) — Phase 17 + 17.5
+- **Org-mode** (two-way `.org` interop, with UUID round-trip via `:ID:`) — Phase 16 (one-shot import + DB→vault writer), Phase 17 (full two-way `inotify` sync). Atrium's primary covenant; the agenda-parity test pins Atrium's Agenda canonical page against stock `org-agenda` over the same vault.
+- **Todoist** (CSV via the official export tool) — Phase 18
 - **VTODO / RFC 5545** (`.ics`) — covers Endeavour, Errands, Apple Reminders, Nextcloud Tasks, Planify — Phase 19
+- **Taskwarrior** (`task export` JSON) — Phase 19
 - **todo.txt** and **TaskPaper** (plain text) — Phase 19
+- **OmniFocus** (`.ofocus` bundle, macOS-export-only) — Phase 19 long-tail; small audience but the GTD-lineage migration path stays open
 
-VTODO export is one-way — Atrium does not become a CalDAV client. The plan is to reach the Linux task ecosystem through two interop covenants — Org-mode and VTODO — rather than per-app importer sprawl.
+VTODO export is one-way — Atrium does not become a CalDAV client. The plan is to reach the Linux task ecosystem through two interop covenants — Org-mode (primary) and VTODO (cross-app baseline) — rather than per-app importer sprawl.
+
+### Acknowledgments
+
+The v0.6.19 roadmap revision (retired Things 3 import; promoted Org-mode + Todoist; added Phase 19.5 productivity essentials) drew on a feature-survey pass against the apps below. No code was copied — the analysis read public README/docs/feature-pages and identified gaps relative to Atrium's existing roadmap. Each Phase 19.5 item names its source in `roadmap.md`.
+
+- [Errands](https://github.com/mrvladus/Errands) — GTK4 / Python; subtasks, drag-drop, accent colors, CalDAV/Nextcloud sync.
+- [Planify](https://github.com/alainm23/planify) — GTK4 / Vala; Todoist + Nextcloud sync, multi-reminder-per-task, attachments.
+- [Endeavour](https://gitlab.gnome.org/World/Endeavour) — GTK4 / C; GNOME Online Accounts integration.
+- [Things 3](https://culturedcode.com/things/features/) — macOS native; the calm-six-lists model Atrium's Simple Mode still echoes.
+- [OmniFocus 4](https://support.omnigroup.com/documentation/omnifocus/) — macOS native; the GTD-knob model Atrium's Builder Mode still echoes.
+- [Taskwarrior](https://taskwarrior.org/docs/) — CLI; the dependency-and-urgency model Phase 19.5 borrows from.
+- [Todoist](https://todoist.com/features) — cross-platform; the natural-language and template patterns Phase 18 will need.
+- [Super Productivity](https://super-productivity.com/blog/open-source-productivity-apps-comparison/) — the open-source comparison piece that anchored the survey.
 
 ## Status
 

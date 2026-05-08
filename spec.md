@@ -1,6 +1,6 @@
 # Atrium — Application Specification
 
-**Version:** 0.6.7 (Phase 15.75 complete — Slice D shipped end-to-end: kanban Perspective renderer with drag-drop + GUI editing dialog + atrium-cli `kanban` / `perspective` write side, Agenda canonical page, FTS5 bm25 ranking, SQL-translation evaluator, sidebar top-tier reorganisation)
+**Version:** 0.6.19 (Phase 15.75 complete; v0.6.x screenshot-cleanup arc complete; v0.6.18 efficiency pass; v0.6.19 roadmap revision retiring the Things 3 import phase, promoting Org-mode + Todoist to first-class import slots, and adding Phase 19.5 — productivity essentials surfaced by the gap-analysis pass against Errands / Planify / Endeavour / Things 3 / OmniFocus / Taskwarrior / Todoist)
 **Target:** GNOME 50+, GTK4 ≥ 4.16, libadwaita ≥ 1.7
 **Language:** Rust (2024 Edition)
 **Build System:** Cargo / Meson wrapper for Flatpak packaging
@@ -427,23 +427,24 @@ Imports are best-effort: each source has a documented mapping table; lossy field
 
 ### 7.1 Import sources
 
+v0.6.19 retired the Things 3 import phase — `.things` JSON requires a macOS export step the typical Linux user doesn't have access to ("how many people using GNOME are gonna be Things 3 users?"). OmniFocus's `.ofocus` bundle has the same access problem; it survives in the long-tail Phase 19 batch rather than its own phase. Org-mode and Todoist promote to first-class slots — Org-mode because it's the plain-text covenant Atrium was built around, Todoist because it's the cross-platform productivity app a Linux user is most likely actually leaving behind.
+
 | Source | Format | Phase | Notes |
 |---|---|---|---|
-| **Things 3** | JSON via Things URL scheme on macOS | 16 | Brandon's source app — primary user migration |
-| **Org-mode** | `.org` plain text | 17 | TODO/DONE keywords, SCHEDULED/DEADLINE/CLOSED, headline tags, properties drawer |
-| **OmniFocus** | `.ofocus` bundle XML | 18 | Bundle of XML files; transactions to fold |
+| **Org-mode** | `.org` plain text | 16 | First-class. Two-way mirror at Phase 17. TODO/DONE keywords, SCHEDULED/DEADLINE/CLOSED, headline tags, properties drawer. Stock `org-agenda` reads Atrium's vault directly. |
+| **Todoist** | CSV via Todoist's official export tool | 18 | Project hierarchy; sub-tasks; sections → headings; labels → tags; comments → notes |
+| **VTODO** (RFC 5545) | `.ics` | 19 | Covers Endeavour, Errands, Apple Reminders, Nextcloud Tasks, Planify (CalDAV-side) |
 | **Taskwarrior** | `task export` JSON | 19 | Well-documented; UDA fields → tags or notes per user choice |
-| **Todoist** | CSV via official export tool | 19 | Project hierarchy; comments → notes |
-| **VTODO** (RFC 5545) | `.ics` | 19 | Covers Endeavour, Errands, Apple Reminders, Nextcloud Tasks, Planify (CalDAV) |
 | **todo.txt** | plain text | 19 | `(A)` priority, `+project`, `@context`, `due:` |
 | **TaskPaper** | plain text | 19 | Headlines + `@tags`, `@done` |
+| **OmniFocus** | `.ofocus` bundle XML | 19 | macOS-export only; small Linux audience but kept open for the GTD-lineage migrant |
 
 ### 7.2 Export targets
 
 | Target | Format | Phase | Notes |
 |---|---|---|---|
-| **Atrium native backup** | JSON, includes UUIDs and Builder fields | 17 | Universal lossless dump |
-| **Org-mode** | `.org`, two-way-ready | 17 | First-class plain-text covenant |
+| **Atrium native backup** | JSON, includes UUIDs and Builder fields | 16 | Universal lossless dump; ships with the Org vault writer |
+| **Org-mode** | `.org`, two-way-ready | 16 / 17 | First-class plain-text covenant. Read-only DB→vault at 16; full two-way at 17. |
 | **VTODO** | `.ics` | 19 | One-way file dump for CalDAV apps |
 | **Markdown** | per-list `.md` | nice-to-have, no phase | Human-readable archive |
 
@@ -451,7 +452,7 @@ Atrium does **not** act as a CalDAV client in v1.0. VTODO export is a one-way fi
 
 ### 7.3 Org-mode mapping
 
-When an Org vault is configured (see §3.5), Atrium projects the data model into a directory of `.org` files. The mapping below is the contract for one-shot import, ongoing read-only sync (Phase 17), and the full two-way sync (Phase 17.5).
+When an Org vault is configured (see §3.5), Atrium projects the data model into a directory of `.org` files. The mapping below is the contract for one-shot import, ongoing read-only sync + writer (Phase 16, was 17), and the full two-way sync (Phase 17, was 17.5). v0.6.19 elevated this from a deferred two-stage plan to Atrium's primary interop direction; the agenda-parity acceptance test in Phase 17 pins it.
 
 #### 7.3.1 Vault layout
 
@@ -523,14 +524,14 @@ Apps Atrium will share users with, sorted by likely import demand:
 | **Endeavour** (formerly GNOME To Do) | GTK4 / C | Evolution Data Server | via VTODO (Phase 19) |
 | **Getting Things GNOME (GTG)** | GTK / Python | XML files | not yet — XML format research deferred post-1.0 |
 | **Taskwarrior** | TUI / C++ | JSON-on-disk | direct (Phase 19) |
-| **Things 3** | macOS native | proprietary | direct (Phase 16) |
-| **OmniFocus** | macOS native | `.ofocus` bundle | direct (Phase 18) |
-| **Todoist** | proprietary cloud | CSV/JSON export | direct (Phase 19) |
+| **Things 3** | macOS-only native | proprietary | not pursued — `.things` JSON requires macOS to extract; the GNOME-using-Things-3-user audience is too narrow (retired at v0.6.19) |
+| **OmniFocus** | macOS-only native | `.ofocus` bundle | direct (Phase 19, long-tail) |
+| **Todoist** | proprietary cloud | CSV/JSON export | direct (Phase 18 — first-class) |
 | **Vikunja** | self-hosted web | API | not yet — out of scope for v1.0 |
 | **Super Productivity** | Electron | JSON export | not yet — assess in v1.1 |
 | **Logseq / AppFlowy** | Electron block editors | JSON / Markdown | not yet — block-editor semantics differ enough to defer |
 
-The strategic choice: support **VTODO/CalDAV interop** (Phase 19) and **Org-mode** (Phase 17) as two complementary covenants. VTODO covers the GNOME/CalDAV ecosystem broadly; Org covers the Emacs/plain-text crowd. Together they reach almost every Linux task user without per-app importer sprawl.
+The strategic choice: support **VTODO/CalDAV interop** (Phase 19) and **Org-mode** (Phase 16/17 — primary covenant) as two complementary interop directions. VTODO covers the GNOME/CalDAV ecosystem broadly; Org covers the Emacs/plain-text crowd and is Atrium's must-ship two-way mirror. Together they reach almost every Linux task user without per-app importer sprawl. Todoist (Phase 18) is the first-class proprietary-app on-ramp because its install base on Linux is real and its CSV export is friction-free; Things 3 is intentionally absent (retired at v0.6.19 — `.things` JSON is macOS-export-only and the GNOME audience is vanishingly small).
 
 ---
 

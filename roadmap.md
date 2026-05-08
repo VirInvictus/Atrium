@@ -254,33 +254,25 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 
 ---
 
-## Phase 16: Things 3 Import
-*Brandon's source app. JSON via Things' URL scheme on macOS — exported externally, imported here.*
+## Phase 16: Org-Mode Import + Two-Way Vault Sync — Atrium ↔ Emacs Parity (was 17 + 17.5)
+*Brandon's primary-direction interop target. Atrium's vault is fully compatible with Emacs / Doom / vim-orgmode out of the box: open the same `~/Tasks/` directory in `org-agenda` and the result should look like Atrium's Agenda canonical page. v0.6.19 elevated this from a deferred two-stage plan (read-only first, then bidirectional) to a single must-ship goal.*
 
-- [ ] **Format research:** confirm current Things 3 JSON shape (URL scheme `things:///add-json`, AppleScript export).
-- [ ] **Importer module:** `src/import/things3.rs` — parser, mapper, dry-run mode.
-- [ ] **Mapping table:** Areas → areas, Projects → projects, Headings → headings, To-Dos → tasks, Tags → tags, "When" → `scheduled_for`, Deadline → `deadline`, Notes → `note`.
-- [ ] **Conflict handling:** existing UUID match → update; no match → create.
-- [ ] **Post-import report:** counts, lossy fields surfaced, file-by-file log.
-- [ ] **Test fixtures:** sample exports in `tests/fixtures/things3/`.
-
-## Phase 17: Org-Mode Import & Read-Only Sync (DB → Vault)
-*Atrium writes a clean vault any Org tool can open and read; existing Org libraries import in. The plain-text covenant, half realised.*
+The contract: a user can run Atrium and Emacs side-by-side against the same vault, edit tasks in either, and the other reflects the change without manual reconciliation. Org's `:ID:` property is the round-trip anchor; SCHEDULED / DEADLINE / CLOSED cookies map to `scheduled_for` / `deadline` / `completed_at`; headline tags map to Atrium tags; `:PROPERTIES:` drawers carry per-task metadata that doesn't have a native Org cookie. Conflict handling is explicit (loser preserved at `<file>.atrium.bak.<timestamp>`), never silent.
 
 - [ ] **Org parser/emitter research:** evaluate the `orgize` crate vs hand-rolled subset; flag for sign-off if `orgize` is added.
 - [ ] **Vault discovery + GSettings:** `vault-path` key; default `~/Tasks/`; Settings → Org Vault → Choose folder; "no vault" remains a valid configuration (Atrium runs DB-only).
 - [ ] **One-shot importer (`src/sync/org/import.rs`):** point at a directory or single file, dry-run mode showing what would land. Coverage: TODO/DONE/CANCELLED keywords, SCHEDULED/DEADLINE/CLOSED cookies, headline tags, `:PROPERTIES:` drawers, body text, nested subtasks. Maps per spec §7.3.
-- [ ] **Writer (`src/sync/org/write.rs`):** emits `<vault>/<Area>/<Project>.org` per spec §7.3 — `#+TITLE:` headers, `:PROPERTIES:` drawers, SCHEDULED/DEADLINE/CLOSED cookies, headline tags, full field mapping.
+- [ ] **Writer (`src/sync/org/write.rs`):** emits `<vault>/<Area>/<Project>.org` per spec §7.3 — `#+TITLE:` headers, `:PROPERTIES:` drawers, SCHEDULED/DEADLINE/CLOSED cookies, headline tags, full field mapping. The output must be readable by stock `org-agenda` *as a regular Org file* — no Atrium-specific tooling required on the Emacs side.
 - [ ] **`:ID:` allocation:** every task/project on first vault write receives a stable UUID; imported tasks keep their `:ID:` if present, get one assigned (and the file rewritten) if absent.
 - [ ] **Atomic file writes:** `write-temp + fsync + rename` for every vault write. Crash-safe.
-- [ ] **Sidecar (`<vault>/.atrium/config.toml`):** tag colors, perspectives placeholder, mode preference. Read on startup, written on relevant changes. Other Org tools ignore.
+- [ ] **Sidecar (`<vault>/.atrium/config.toml`):** tag colors, perspectives placeholder, mode preference. Read on startup, written on relevant changes. Other Org tools ignore the directory.
 - [ ] **Worker write hook:** every `TaskChanges` commit queues a vault-write job for affected projects; debounced 100 ms to coalesce bursts.
 - [ ] **Post-write integrity check:** newly-written file parses cleanly with Atrium's own reader; mismatch → toast + rollback.
 - [ ] **Atrium native JSON export ships in this phase too** — universal lossless backup format.
 - [ ] **Round-trip test fixture:** import → export → diff = empty (modulo whitespace and section ordering).
 
-## Phase 17.5: Two-Way Org Sync (Vault → DB)
-*Emacs / Doom / vim-orgmode edits flow back. The covenant fulfilled.*
+## Phase 17: Two-Way Org Sync — Vault → DB (was 17.5)
+*Emacs / Doom / vim-orgmode edits flow back. Atrium's Agenda view and Emacs's `org-agenda` buffer both read the same source of truth; whichever you edit, the other catches up.*
 
 - [ ] **`inotify` watcher:** vault root + subdirectories; events debounced 200 ms.
 - [ ] **Self-write filter:** worker tracks `(file_path, mtime)` of its own writes briefly; matching events ignored so the loop doesn't echo.
@@ -290,28 +282,43 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 - [ ] **Malformed-file handling:** parse failure → vault sync paused for that file, DB version preserved, toast surfaced; auto-resume when the file parses again.
 - [ ] **Custom-keyword + unknown-construct preservation:** verbatim round-trip per spec §7.3.3 rule 1.
 - [ ] **RRULE divergence detection:** SCHEDULED cookie semantically diverged from `:RRULE:` → surface in post-sync report; DB keeps the canonical RRULE.
+- [ ] **Agenda parity acceptance test:** with a synthesised vault containing tasks across Today / Tomorrow / This Week / Next Week / Overdue, Atrium's Agenda canonical page and `M-x org-agenda` (built-in `t` view in stock Emacs) must surface the same task set under the same buckets. Visual style differs; semantic groupings agree.
 - [ ] **Test scenarios:** synthesized concurrent edit, malformed-file recovery, round-trip across all field types, large-file (1K-task project) parse latency.
 
-## Phase 18: OmniFocus Import
-*The OF half of Atrium's bloodline. `.ofocus` is a bundle of XML files with a transaction log.*
+## Phase 18: Todoist Import (was bundled into Phase 19)
+*The cross-platform productivity app most likely-to-migrate Linux user is leaving behind. Web client + Linux Electron app + paid sync; users have a real export path.*
 
-- [ ] **`.ofocus` format research:** archive structure, transaction folding, content vs metadata files.
-- [ ] **Importer:** `src/import/omnifocus.rs` — handles the bundle as a directory.
-- [ ] **Mapping:** Folders → areas, Projects → projects with `sequential` flag, Actions → tasks, Contexts/Tags → tags, Defer → `defer_until`, Due → `deadline`, Estimated → `estimated_minutes`, Repeat → `repeat_rule`.
-- [ ] **Perspective definitions** imported as Atrium Perspectives where the filter language allows.
-- [ ] **Test fixture:** sanitised sample `.ofocus` bundle in `tests/fixtures/omnifocus/`.
+- [ ] **Format research:** Todoist offers a CSV per project + a JSON via their API. Pick CSV (no auth required) as the canonical input; document the API path as an alternative for power users with API tokens.
+- [ ] **Importer module:** `src/import/todoist.rs` — parser, mapper, dry-run mode.
+- [ ] **Mapping:** Projects → projects, Sections → headings, Tasks → tasks, Sub-tasks → tasks with `parent_id`, Labels → tags, Priority (1-4) → tag (`priority-1..4` or via the future numeric-priority column if Phase 19.5 lands first), Due → `deadline`, Comments → appended to `note`.
+- [ ] **Conflict handling:** existing UUID match → update; no match → create. Todoist UUIDs aren't UUIDv4 — wrap them in a deterministic v5 namespace so re-imports are stable.
+- [ ] **Post-import report:** counts, lossy fields surfaced (file attachments, reminders, recurring rules that don't translate cleanly), file-by-file log.
+- [ ] **Test fixtures:** sanitised sample CSVs in `tests/fixtures/todoist/`.
 
-## Phase 19: Taskwarrior, Todoist, VTODO, todo.txt, TaskPaper
-*Round out the import surface. One pass per source, sharing parser scaffolding. VTODO export ships here too.*
+## Phase 19: Plain-text + CalDAV imports + OmniFocus long-tail
+*Round out the import surface for users coming from formats Atrium doesn't speak natively yet. One pass per source, sharing parser scaffolding. VTODO export ships here too. OmniFocus moves here from its own phase — `.ofocus` is macOS-only, so the audience is small (same logic that retired the Things 3 phase at v0.6.19), but the OF half of Atrium's GTD lineage is worth keeping a path open for.*
 
-- [ ] **Taskwarrior:** `task export` JSON; UDA fields → tags or notes per user choice.
-- [ ] **Todoist:** CSV via Todoist's official export tool; project hierarchy mapping; comments → notes.
 - [ ] **VTODO (RFC 5545) import:** `.ics` parser; cover the standard properties; covers Endeavour, Errands, Apple Reminders, Nextcloud Tasks, Planify (CalDAV-side).
 - [ ] **VTODO export:** one-way `.ics` for hand-off to CalDAV apps. *Atrium does not become a CalDAV client.*
+- [ ] **Taskwarrior:** `task export` JSON; UDA fields → tags or notes per user choice.
 - [ ] **todo.txt:** plain text with `(A)` priority, `+project`, `@context`, `due:` extension.
 - [ ] **TaskPaper:** plain text headlines, `@tags`, `@done` metadata.
+- [ ] **OmniFocus:** `.ofocus` bundle XML; archive structure, transaction folding. Folders → areas, Projects → projects with `sequential` flag, Actions → tasks, Contexts/Tags → tags, Defer → `defer_until`, Due → `deadline`, Estimated → `estimated_minutes`, Repeat → `repeat_rule`. Perspective definitions imported as Atrium Perspectives where the filter language allows. Test fixture: sanitised sample `.ofocus` bundle in `tests/fixtures/omnifocus/`.
 - [ ] **Unified import dialog:** picks source, runs parser in worker, shows pre-import report, commits in batch (Phase 2 coalescer earns its keep).
 - [ ] **Dependency checks:** evaluate `ical` / `rustical` crates for VTODO; flag for sign-off if added.
+
+## Phase 19.5: Productivity essentials (post-research gap-fill, v0.6.19)
+*The gap analysis Brandon commissioned at v0.6.19 found nine items that competing native-Linux todo apps + Things 3 / OmniFocus / Todoist all expose, that Atrium doesn't yet. Most are pre-1.0 blockers — a productivity app without time-based reminders is hard to defend as "1.0 quality." Sources credited per item below; the analysis is in v0.6.19's patchnote.*
+
+- [ ] **System notifications / time-based reminders.** Things 3 / OmniFocus / Planify all push reminders via the system notification daemon. New `reminder_at TIMESTAMP` column on `task` (additive migration, schema rule). A `gio::Notification` with the task title fires when `reminder_at <= now()` AND the task is open. Reminders survive app restarts via a small "next pending reminder" worker timer. *Sources: Things 3, OmniFocus, Planify.*
+- [ ] **Subtasks UI exposure.** `parent_id` has been in the schema since `0001_initial.sql` ("Builder-only UI in v0.1 (schema supports any depth)") but the GUI doesn't render the hierarchy yet. Inspector pane gains a Subtasks group; the task list either indents children or surfaces them via a disclosure triangle. atrium-cli's `add` / `edit` gain `--parent ID` flag. *Source: schema TODO. UX reference: Errands, Todoist, Things 3 checklists.*
+- [ ] **Read-only iCal calendar feed.** Different from CalDAV sync (which is explicitly out of scope per spec §3.3 — that's two-way and network-bound). This is one-way, file-based: point Atrium at a `.ics` file (or a downloaded copy of one) and its events overlay onto the Forecast / Today views as read-only "calendar context." Lets users see meetings + scheduled tasks side-by-side without making Atrium a calendar client. *Sources: Things 3, OmniFocus, Planify.*
+- [ ] **`AdwPreferencesWindow`.** No app-level preferences dialog exists; GSettings keys are set programmatically. Build a real `AdwPreferencesWindow` covering: vault path, Quick Entry shortcut binding, mode default, notifications on/off, calendar feed paths, theme (auto / light / dark — already auto via Adwaita but expose the override). *Sources: every native GTK app.*
+- [ ] **Task dependencies (`blocked_by`).** Taskwarrior treats this as fundamental. New `task_dependency` table (`task_id`, `blocks_task_id`); a task with any unfinished prerequisites surfaces with a "blocked" pill in the row. Atrium's `is:available` predicate already has the right shape for sequential projects; extend to dependency-blocked tasks too. *Source: Taskwarrior.*
+- [ ] **Drag external files / URLs to capture.** Drop a PDF onto the window → quick-entry-style new task with the path stored as a link in the note. Drop a URL → task with the URL pre-filled. GTK4 `gtk::DropTarget` accepts MIME types directly. *Sources: standard Linux desktop pattern; explicit in Errands / Planify.*
+- [ ] **Task templates.** A reusable shape (project + standard subtasks + tags + estimated times) instantiable as a fresh project. `template` table or `project.is_template` flag; "Create from template…" in the project menu. *Source: Todoist; Org-mode capture templates as conceptual reference.*
+- [ ] **First-run / onboarding.** Empty database on first launch shows a welcoming `AdwStatusPage` with three suggested next-steps (create your first project, capture a task with Ctrl+N, set up an Org vault). Optional: seed a small "Welcome" project with three tasks. *Source: standard commercial app pattern; Brandon's v0.6.x cleanup arc already improved empty-state copy on canonical lists.*
+- [ ] **Backup / restore UI.** SQLite file-copy is the existing escape hatch but no in-app affordance exposes it. *Settings → Backups* with "Back up now" (writes a timestamped copy alongside the DB) and a quarterly automatic backup (off by default; opt-in via the new preferences dialog). *Source: gap surfaced by Brandon's v0.6.19 research.*
 
 ## Phase 20: 1.0 — Polish, Localisation, Flathub
 *The release that says Atrium is finished, not just shipped.*

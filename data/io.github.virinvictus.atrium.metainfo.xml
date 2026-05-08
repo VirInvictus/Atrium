@@ -90,6 +90,27 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.19" date="2026-05-08">
+      <description>
+        <p>Roadmap revision. The Things 3 import phase is
+           retired (`.things` JSON requires macOS export the
+           typical Linux user can't produce; the GNOME-using-
+           Things-3-user audience is too narrow). Org-mode
+           promoted to Phase 16 + 17 as Atrium's must-ship
+           two-way mirror — open the same vault in Emacs and
+           org-agenda there should look like Atrium's Agenda
+           canonical page here. Todoist promoted to its own
+           Phase 18 (was buried in 19's long-tail). New Phase
+           19.5 covers nine productivity essentials surfaced
+           by a feature-survey pass against Errands, Planify,
+           Endeavour, Things 3, OmniFocus, Taskwarrior, and
+           Todoist: system notifications, subtasks UI,
+           read-only iCal feed, AdwPreferencesWindow, task
+           dependencies, drag-drop external capture,
+           templates, first-run onboarding, backup UI. Pure
+           docs change; no code touched.</p>
+      </description>
+    </release>
     <release version="0.6.18" date="2026-05-08">
       <description>
         <p>Efficiency pass — SQL fast-path everywhere search

@@ -1,5 +1,104 @@
 # Atrium — Patch Notes
 
+## v0.6.19 (2026-05-08) — roadmap revision: drop Things 3, elevate Org-mode + Todoist, add Phase 19.5 (productivity essentials)
+
+Pure docs change. Brandon commissioned a feature-survey pass against
+competing native-Linux + cross-platform todo apps to identify gaps
+in Atrium's roadmap. The findings drove a four-part revision.
+
+**1. Phase 16 (Things 3 Import) retired.** `.things` JSON requires
+a macOS export step Linux users don't have access to. As Brandon
+put it: "how many people using GNOME are gonna be Things 3 users?"
+Things 3 stays in the inspiration paragraph (Simple Mode's calm
++ six-list shape comes from there) but the import phase goes
+away. Same logic applied indirectly to OmniFocus — kept open as a
+Phase 19 long-tail entry rather than its own phase, since
+`.ofocus` has the same macOS-only access problem.
+
+**2. Org-mode promoted to Phase 16 + 17 (was 17 + 17.5).** Brandon's
+"MUST" interop direction. Atrium's vault is fully compatible with
+Emacs / Doom / vim-orgmode out of the box: open the same
+`~/Tasks/` directory in `org-agenda` and the result should look
+like Atrium's Agenda canonical page. The two-stage plan (one-shot
+import + DB→vault writer at Phase 16; full two-way `inotify` sync
+at Phase 17) stays, but the framing tightens to a single must-ship
+goal and a new acceptance test pins the agenda parity (with a
+synthesised vault, both Atrium's Agenda and `M-x org-agenda`
+should bucket tasks the same way).
+
+**3. Todoist promoted to its own Phase 18.** Was bundled into the
+Phase 19 long-tail. Brandon's gap-analysis prompt explicitly said
+"Todoist would be a good one" — its install base on Linux is real
+(web client + Linux Electron app) and CSV export is friction-free.
+Now first-class with its own phase. Phase 19 becomes the long-tail
+batch (Taskwarrior, VTODO, todo.txt, TaskPaper, OmniFocus).
+
+**4. Phase 19.5 added — productivity essentials.** The gap-analysis
+surfaced nine items competing apps have that Atrium doesn't:
+
+- **System notifications / time-based reminders.** Things 3 /
+  OmniFocus / Planify all push reminders via the system
+  notification daemon. Atrium has zero notification code
+  (`libnotify` / `gio::Notification` not imported anywhere).
+  For a productivity app this is the biggest 1.0 blocker.
+- **Subtasks UI exposure.** `parent_id` has been in the schema
+  since `0001_initial.sql` but the GUI doesn't render the
+  hierarchy. Schema-supported, UI-missing.
+- **Read-only iCal calendar feed.** Different from CalDAV
+  (which is two-way and explicitly out of scope). One-way,
+  file-based: overlay external `.ics` events onto Forecast /
+  Today as read-only context. Things 3 / OmniFocus / Planify
+  all do this.
+- **`AdwPreferencesWindow`.** No app-level preferences dialog
+  exists; GSettings keys are set programmatically. Build one.
+- **Task dependencies (`blocked_by`).** Taskwarrior treats this
+  as fundamental. New `task_dependency` table; `is:available`
+  predicate extends to dependency-blocked tasks too.
+- **Drag external files / URLs to capture.** Standard Linux
+  desktop pattern; explicit in Errands / Planify.
+- **Task templates.** Reusable shapes (project + standard
+  subtasks). Todoist; Org-mode capture templates as
+  conceptual reference.
+- **First-run / onboarding.** Sample tasks, welcome project,
+  guided three-step intro. Standard commercial-app pattern.
+- **Backup / restore UI.** SQLite file-copy is the existing
+  escape hatch but no in-app affordance.
+
+Each Phase 19.5 item names its source in `roadmap.md`.
+
+**Sources** (read public README/docs/feature pages — no code
+copied):
+
+- Errands — GTK4 / Python — subtasks, drag-drop, accent colors,
+  CalDAV / Nextcloud sync.
+- Planify — GTK4 / Vala — Todoist + Nextcloud + CalDAV sync,
+  multi-reminder, attachments, recurring patterns.
+- Endeavour — GTK4 / C — GNOME Online Accounts integration.
+- Things 3 — macOS native — Today / This Evening / Upcoming /
+  Anytime / Someday / Logbook canonical lists, magic plus
+  button, calendar integration, share extensions, Things URL
+  scheme, Siri / Shortcuts.
+- OmniFocus 4 — macOS native — sequential vs parallel projects,
+  Mail Drop, Omni Automation, web access, weekly review, focus
+  mode.
+- Taskwarrior — CLI — real task dependencies, virtual tags,
+  urgency formula, UDA fields, hooks API, named dates, snooze.
+- Todoist — cross-platform — natural language input, sub-tasks,
+  sections, comments, file attachments, custom filters,
+  list/board/calendar view toggle, templates.
+- Super Productivity blog comparison piece — open-source
+  productivity-app survey.
+
+Files touched: `roadmap.md` (full Phase 16-19.5 rewrite),
+`spec.md` (§7.1 import sources table cleaned, §7.4 Linux
+landscape table updated, version line bumped), `CLAUDE.md`
+("Phase 16 is what's next" line updated), `README.md` (landing
+paragraph + Imports section + new Acknowledgments section).
+No code changes. No tests touched.
+
+VERSION / Cargo.toml / patchnotes / AppStream metainfo bump to
+0.6.19.
+
 ## v0.6.18 (2026-05-08) — efficiency pass: SQL fast-path everywhere search runs
 
 Brandon asked for a top-to-bottom efficiency pass. After surveying
