@@ -56,6 +56,11 @@ WRITE SUBCOMMANDS:
                       vocabulary as `add`; pass `none` to clear a
                       field (`--due none`, `--scheduled none`, etc.).
                       Use `--inbox` to move a task back to Inbox.
+                      Tag flags are additive — `--tag X` ensures the
+                      tag is attached, `--remove-tag X` (alias
+                      `--untag`) removes it, `--clear-tags` empties
+                      the set. Compose freely:
+                      `--clear-tags --tag work` replaces the set.
                       Field semantics are diff-only — only the flags
                       you pass change.
     complete ID       toggle a task's completion (same as the GTK
@@ -76,6 +81,8 @@ EXAMPLES:
     atrium-cli edit 42 --due none --scheduled today
     atrium-cli edit 42 --project 'Q3 plans'
     atrium-cli edit 42 --inbox            # move back to Inbox
+    atrium-cli edit 42 --tag urgent --remove-tag stale
+    atrium-cli edit 42 --clear-tags --tag work    # replace whole set
     atrium-cli complete 42
     atrium-cli list tags --json | jq '.[] | .name'
 ";
@@ -144,6 +151,28 @@ pub struct EditArgs {
     /// `None` = leave alone, `Some("none")` = clear, otherwise the
     /// raw integer text validated at parse time.
     pub estimated: Option<String>,
+    /// Tag names to ensure are attached after the field update. Ran
+    /// against the current tag set: anything in `tags_add` that
+    /// isn't already attached is added; anything already attached
+    /// stays. Created via WorkerHandle::ensure_tag if missing.
+    pub tags_add: Vec<String>,
+    /// Tag names to detach. Quietly no-ops on names that aren't
+    /// attached, so scripts don't have to check first.
+    pub tags_remove: Vec<String>,
+    /// When true, the current tag set is dropped before
+    /// `tags_add` applies — the net result is "replace with the
+    /// add-set." Composes with `tags_remove` as a no-op since the
+    /// set is empty by then.
+    pub clear_tags: bool,
+}
+
+impl EditArgs {
+    /// `true` when the user passed any tag-affecting flag. Used by
+    /// run_edit to skip the tag round-trip (read current set →
+    /// ensure → set_task_tags) when nothing tag-shaped changed.
+    pub fn touches_tags(&self) -> bool {
+        self.clear_tags || !self.tags_add.is_empty() || !self.tags_remove.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -460,6 +489,22 @@ fn parse_edit(rest: &[String], args: &mut Args) -> Result<EditArgs, String> {
                     })?;
                 }
                 edit.estimated = Some(v.clone());
+                i += 1;
+            }
+            "--tag" | "--add-tag" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--tag requires a value")?;
+                edit.tags_add.push(v.clone());
+                i += 1;
+            }
+            "--remove-tag" | "--untag" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--remove-tag requires a value")?;
+                edit.tags_remove.push(v.clone());
+                i += 1;
+            }
+            "--clear-tags" => {
+                edit.clear_tags = true;
                 i += 1;
             }
             // Global format flags can appear anywhere.

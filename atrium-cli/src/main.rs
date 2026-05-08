@@ -425,13 +425,13 @@ fn run_edit(
     let today = Local::now().date_naive();
     let mut update = TaskUpdate::new(id);
 
-    if let Some(t) = edit.title {
+    if let Some(t) = edit.title.clone() {
         update = update.title(t);
     }
-    if let Some(n) = edit.note {
+    if let Some(n) = edit.note.clone() {
         update = update.note(n);
     }
-    if let Some(p) = edit.project {
+    if let Some(p) = edit.project.clone() {
         match p {
             EditProject::Inbox => update = update.project(None),
             EditProject::Named(needle) => {
@@ -473,19 +473,80 @@ fn run_edit(
         }
     }
 
-    // No-op edit (just `atrium-cli edit ID`) — print the unchanged
-    // row so users can pipe `info` or grep against it.
+    // Run the field-update first; tag diff is applied separately
+    // because tags route through ensure_tag + set_task_tags rather
+    // than TaskUpdate's column-level setters.
+    let runtime = tokio::runtime::Handle::current();
     let task = if update.is_noop() {
         existing
     } else {
-        let runtime = tokio::runtime::Handle::current();
         runtime
             .block_on(async { handle.update_task(update).await })
             .map_err(CliError::from)?
     };
+
+    if edit.touches_tags() {
+        apply_tag_diff(handle, read_conn, task.id, &edit, &runtime)?;
+    }
+
+    // Re-read so the row reflects post-tag state, plus a fresh
+    // ContextData — tags landed since the open.
+    let task = read::task_by_id(read_conn, task.id)
+        .map_err(CliError::from)?
+        .ok_or(CliError::NotFound(task.id))?;
     let ctx_data = ContextData::load(read_conn)?;
     let row = build_row(&task, &ctx_data);
     print_single_row(&task, &row, format);
+    Ok(())
+}
+
+/// Apply the user's tag-edit intent against the task's current
+/// tag set. Resolves the diff in name-space (clear / remove / add),
+/// then ensure_tag for the final names and set_task_tags for the
+/// resulting id list. Quietly no-ops on remove-of-not-present.
+fn apply_tag_diff(
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
+    task_id: i64,
+    edit: &EditArgs,
+    runtime: &tokio::runtime::Handle,
+) -> CliResult<()> {
+    let current_names: Vec<String> = if edit.clear_tags {
+        Vec::new()
+    } else {
+        // Pull the current tag set for this task. Going through
+        // tag_names_per_task rather than per-task fetch keeps the
+        // round-trip count fixed (one query for any task count).
+        let map = read::tag_names_per_task(read_conn).map_err(CliError::from)?;
+        map.get(&task_id).cloned().unwrap_or_default()
+    };
+
+    let mut final_names: Vec<String> = current_names;
+    // Remove first so a remove+add of the same tag is a no-op
+    // rather than dropping it from the final set.
+    let remove_lower: std::collections::HashSet<String> = edit
+        .tags_remove
+        .iter()
+        .map(|s| s.to_ascii_lowercase())
+        .collect();
+    final_names.retain(|n| !remove_lower.contains(&n.to_ascii_lowercase()));
+    for name in &edit.tags_add {
+        let lower = name.to_ascii_lowercase();
+        if !final_names.iter().any(|n| n.to_ascii_lowercase() == lower) {
+            final_names.push(name.clone());
+        }
+    }
+
+    let mut ids: Vec<i64> = Vec::with_capacity(final_names.len());
+    for name in &final_names {
+        let tag = runtime
+            .block_on(async { handle.ensure_tag(name.clone()).await })
+            .map_err(CliError::from)?;
+        ids.push(tag.id);
+    }
+    runtime
+        .block_on(async { handle.set_task_tags(task_id, ids).await })
+        .map_err(CliError::from)?;
     Ok(())
 }
 

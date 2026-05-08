@@ -403,6 +403,63 @@ fn parse_edit_with_format_flag() {
 }
 
 #[test]
+fn parse_edit_tag_add_repeatable() {
+    let a = parse(&s(&["edit", "42", "--tag", "urgent", "--tag", "work"])).unwrap();
+    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert_eq!(edit.tags_add, vec!["urgent".to_string(), "work".into()]);
+    assert!(edit.tags_remove.is_empty());
+    assert!(!edit.clear_tags);
+    assert!(edit.touches_tags());
+}
+
+#[test]
+fn parse_edit_remove_tag_repeatable() {
+    let a = parse(&s(&[
+        "edit",
+        "42",
+        "--remove-tag",
+        "stale",
+        "--untag",
+        "urgent",
+    ]))
+    .unwrap();
+    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert_eq!(edit.tags_remove, vec!["stale".to_string(), "urgent".into()]);
+    assert!(edit.touches_tags());
+}
+
+#[test]
+fn parse_edit_clear_tags_flag() {
+    let a = parse(&s(&["edit", "42", "--clear-tags"])).unwrap();
+    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert!(edit.clear_tags);
+    assert!(edit.touches_tags());
+}
+
+#[test]
+fn parse_edit_replace_tags_via_clear_then_add() {
+    // The "replace whole set" idiom: --clear-tags --tag X.
+    let a = parse(&s(&["edit", "42", "--clear-tags", "--tag", "newtag"])).unwrap();
+    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert!(edit.clear_tags);
+    assert_eq!(edit.tags_add, vec!["newtag".to_string()]);
+}
+
+#[test]
+fn touches_tags_false_when_no_tag_flags() {
+    let edit = EditArgs::default();
+    assert!(!edit.touches_tags());
+}
+
+#[test]
 fn parse_complete_takes_id() {
     let a = parse(&s(&["complete", "42"])).unwrap();
     assert_eq!(a.subcommand, Some(Subcommand::Complete { id: 42 }));
