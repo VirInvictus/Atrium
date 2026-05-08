@@ -90,6 +90,22 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.20" date="2026-05-08">
+      <description>
+        <p>Phase 19.5 calendar-overlay item course-corrected
+           from "read-only iCal feed" to "Evolution Data
+           Server overlay." Atrium is a GNOME-native client
+           on Fedora; the right integration model isn't a
+           .ics file feed but reading the system's calendar
+           service. GNOME 50's default calendar
+           (`gnome-calendar`) consumes Evolution Data Server,
+           which the user has already configured with their
+           Google / Nextcloud / local / Exchange accounts via
+           GNOME Online Accounts. Atrium will read EDS via
+           D-Bus and overlay events onto Forecast / Today as
+           read-only context. Pure docs change.</p>
+      </description>
+    </release>
     <release version="0.6.19" date="2026-05-08">
       <description>
         <p>Roadmap revision. The Things 3 import phase is
@@ -105,7 +121,8 @@
            by a feature-survey pass against Errands, Planify,
            Endeavour, Things 3, OmniFocus, Taskwarrior, and
            Todoist: system notifications, subtasks UI,
-           read-only iCal feed, AdwPreferencesWindow, task
+           Evolution Data Server calendar overlay,
+           AdwPreferencesWindow, task
            dependencies, drag-drop external capture,
            templates, first-run onboarding, backup UI. Pure
            docs change; no code touched.</p>

@@ -1,5 +1,45 @@
 # Atrium — Patch Notes
 
+## v0.6.20 (2026-05-08) — Phase 19.5 calendar item: iCal feed → Evolution Data Server
+
+Brandon course-corrected the original "read-only iCal calendar
+feed" item that landed in v0.6.19's Phase 19.5 list. The right
+integration model for a GNOME-native client running on Fedora
+isn't a `.ics` file feed — it's reading the system's calendar
+service.
+
+GNOME 50's default calendar app (`gnome-calendar`) doesn't store
+its own calendar data; it consumes Evolution Data Server (EDS),
+the GNOME-wide calendar/contacts/tasks backend. The user has
+already configured their accounts (Google, Nextcloud, local,
+exchange-web-services, …) in EDS via GNOME Online Accounts. An
+iCal-file feed would either duplicate that work or sit awkwardly
+alongside it.
+
+Updated framing: Atrium reads EDS via D-Bus and overlays calendar
+events onto the Forecast / Today views as read-only context.
+Endeavour does the same shape for *tasks* — Atrium does it for
+*calendars* without becoming a calendar client. Dependency check
+deferred: either `libecal` / `libedataserver` bindings or a
+hand-rolled `zbus` D-Bus client. No `.ics` file plumbing.
+
+Files touched:
+- `roadmap.md` — Phase 19.5 third item rewritten.
+- `spec.md` — no change needed (it didn't reference the iCal
+  framing; the calendar overlay isn't in the import / export
+  table because it's not import / export — it's read-side
+  display-only context).
+- `CLAUDE.md` — "Phase 16 is what's next" paragraph item list
+  updated.
+- `README.md` — landing-paragraph item list updated.
+- `data/io.github.virinvictus.atrium.metainfo.xml` — v0.6.19
+  release description updated to match.
+
+Pure docs change; no code touched. Ship-gate green.
+
+VERSION / Cargo.toml / patchnotes / AppStream metainfo bump to
+0.6.20.
+
 ## v0.6.19 (2026-05-08) — roadmap revision: drop Things 3, elevate Org-mode + Todoist, add Phase 19.5 (productivity essentials)
 
 Pure docs change. Brandon commissioned a feature-survey pass against
@@ -44,11 +84,18 @@ surfaced nine items competing apps have that Atrium doesn't:
 - **Subtasks UI exposure.** `parent_id` has been in the schema
   since `0001_initial.sql` but the GUI doesn't render the
   hierarchy. Schema-supported, UI-missing.
-- **Read-only iCal calendar feed.** Different from CalDAV
-  (which is two-way and explicitly out of scope). One-way,
-  file-based: overlay external `.ics` events onto Forecast /
-  Today as read-only context. Things 3 / OmniFocus / Planify
-  all do this.
+- **Evolution Data Server (EDS) calendar overlay — read-only.**
+  Brandon course-corrected the original "iCal feed" framing:
+  Atrium is a GNOME-native client on a desktop that already
+  has a calendar service. EDS is the GNOME-wide
+  calendar/contacts/tasks backend that GNOME Calendar
+  (`gnome-calendar`, default in GNOME 50) consumes; the user
+  has already configured their accounts there. Read whatever
+  EDS exposes via D-Bus and overlay events onto Forecast /
+  Today. No `.ics` file plumbing — that would duplicate what
+  EDS already does properly. Endeavour does the same shape
+  for *tasks*; Atrium does it for *calendars* without
+  becoming a calendar client.
 - **`AdwPreferencesWindow`.** No app-level preferences dialog
   exists; GSettings keys are set programmatically. Build one.
 - **Task dependencies (`blocked_by`).** Taskwarrior treats this
