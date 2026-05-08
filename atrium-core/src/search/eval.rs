@@ -124,8 +124,60 @@ fn match_state(task: &Task, state: State, ctx: &EvalContext<'_>) -> bool {
             .is_some(),
         State::Tagged => ctx.tag_names.get(&task.id).is_some_and(|v| !v.is_empty()),
         State::Queued | State::Available => false, // sequential-project state, not a task field
+        // v0.4.1 — canonical-list mirrors. Each must agree with the
+        // corresponding read fn in `db::read` so the search predicate
+        // and the sidebar list select the same set. Spec §4.2 is the
+        // contract.
+        State::Today => is_in_today_list(task, today),
+        State::Inbox => task.completed_at.is_none() && task.project_id.is_none(),
+        State::Upcoming => task.completed_at.is_none() && is_scheduled_strictly_future(task, today),
+        State::Anytime => {
+            task.completed_at.is_none()
+                && task.scheduled_for.is_none()
+                && !is_deferred_to_future(task, today)
+        }
+        State::Someday => {
+            task.completed_at.is_none() && matches!(task.scheduled_for, Some(ScheduledFor::Someday))
+        }
     }
 }
+
+/// Mirror of `db::read::list_today` membership: open AND
+/// (Schedule ≤ today OR Deadline ≤ today + heads-up window) AND
+/// defer-resolved. The window matches `read::TODAY_DEADLINE_WINDOW_DAYS`
+/// (7 days, locked at v0.1; spec §4.2 notes a future Phase 8d
+/// preferences task to make it user-configurable).
+fn is_in_today_list(task: &Task, today: NaiveDate) -> bool {
+    if task.completed_at.is_some() {
+        return false;
+    }
+    if is_deferred_to_future(task, today) {
+        return false;
+    }
+    let scheduled_today_or_past = match &task.scheduled_for {
+        Some(ScheduledFor::Date(d)) => *d <= today,
+        Some(ScheduledFor::Someday) => false,
+        None => false,
+    };
+    let horizon = today + Duration::days(TODAY_DEADLINE_WINDOW_DAYS);
+    let deadline_approaching = task.deadline.is_some_and(|d| d <= horizon);
+    scheduled_today_or_past || deadline_approaching
+}
+
+fn is_scheduled_strictly_future(task: &Task, today: NaiveDate) -> bool {
+    matches!(&task.scheduled_for, Some(ScheduledFor::Date(d)) if *d > today)
+}
+
+fn is_deferred_to_future(task: &Task, today: NaiveDate) -> bool {
+    task.defer_until.is_some_and(|d| d > today)
+}
+
+/// Today list's deadline heads-up window, in days. Must agree with
+/// `db::read::TODAY_DEADLINE_WINDOW_DAYS` — both are the v0.1
+/// frozen constant per spec §4.2. Duplicated here rather than imported
+/// to keep the search module's dep graph independent of `db::`,
+/// which matters for the v0.4.2 atrium-search extraction.
+const TODAY_DEADLINE_WINDOW_DAYS: i64 = 7;
 
 fn match_field(task: &Task, field: Field, kind: &MatchKind, ctx: &EvalContext<'_>) -> bool {
     let candidates: Vec<String> = collect_field_values(task, field, ctx);

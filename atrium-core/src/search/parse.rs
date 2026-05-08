@@ -448,6 +448,14 @@ impl State {
             "tagged" => Some(Self::Tagged),
             "queued" => Some(Self::Queued),
             "available" => Some(Self::Available),
+            // v0.4.1 — canonical-list mirrors. Each maps `is:NAME` to
+            // the same membership query the corresponding sidebar list
+            // uses (per spec §4.2).
+            "today" => Some(Self::Today),
+            "inbox" => Some(Self::Inbox),
+            "upcoming" => Some(Self::Upcoming),
+            "anytime" => Some(Self::Anytime),
+            "someday" => Some(Self::Someday),
             _ => None,
         }
     }

@@ -259,6 +259,11 @@ Calibre's date-keyword vocabulary plus future-tense forms Atrium needs (Calibre'
 | `is:tagged` | has at least one tag |
 | `is:queued` | sequential project, not the first incomplete task |
 | `is:available` | first incomplete task in a sequential project, OR not in one and not deferred |
+| `is:today` | mirrors the Today list (§4.2): open AND (Schedule ≤ today OR Deadline ≤ today + 7) AND defer-resolved |
+| `is:inbox` | mirrors the Inbox list: open AND no project assignment |
+| `is:upcoming` | mirrors the Upcoming list: open AND `scheduled_for` is a date strictly in the future |
+| `is:anytime` | mirrors the Anytime list: open AND no `scheduled_for` AND defer-resolved |
+| `is:someday` | mirrors the Someday list: open AND `scheduled_for` = Someday sentinel |
 
 #### 4.3.8 Forgiving parser
 

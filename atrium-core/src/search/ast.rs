@@ -144,6 +144,22 @@ pub enum State {
     /// Sequential project's first incomplete task, OR not in a
     /// sequential project AND not deferred.
     Available,
+    /// v0.4.1 — mirrors the Today list per spec §4.2: open AND
+    /// (Schedule ≤ today OR Deadline ≤ today + N) AND defer-resolved.
+    /// `N` is `EvalContext::today_deadline_window_days`, default 7
+    /// (matches the binary's existing behaviour).
+    Today,
+    /// v0.4.1 — mirrors the Inbox list: open AND project_id IS NULL.
+    Inbox,
+    /// v0.4.1 — mirrors the Upcoming list: open AND scheduled_for is
+    /// a date strictly in the future.
+    Upcoming,
+    /// v0.4.1 — mirrors the Anytime list: open AND no scheduled_for
+    /// AND defer-resolved.
+    Anytime,
+    /// v0.4.1 — mirrors the Someday list: open AND scheduled_for ==
+    /// Someday sentinel.
+    Someday,
 }
 
 /// Comparison operator.
@@ -244,6 +260,11 @@ impl fmt::Display for State {
             Self::Tagged => "tagged",
             Self::Queued => "queued",
             Self::Available => "available",
+            Self::Today => "today",
+            Self::Inbox => "inbox",
+            Self::Upcoming => "upcoming",
+            Self::Anytime => "anytime",
+            Self::Someday => "someday",
         };
         write!(f, "is:{s}")
     }

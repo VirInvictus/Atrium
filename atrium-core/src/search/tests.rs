@@ -493,6 +493,124 @@ fn eval_deadline_alias_today() {
     assert!(match_simple(&r.expr, &t, d(2026, 5, 15)));
 }
 
+// ── v0.4.1 canonical-list mirrors ──────────────────────────────
+
+#[test]
+fn eval_is_today_open_with_schedule_today_matches() {
+    let mut t = dummy_task(1);
+    t.scheduled_for = Some(ScheduledFor::Date(d(2026, 5, 15)));
+    let r = parse("is:today").unwrap();
+    assert!(match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_today_open_with_deadline_in_window_matches() {
+    // Deadline 5 days out — within the 7-day heads-up horizon.
+    let mut t = dummy_task(1);
+    t.deadline = Some(d(2026, 5, 20));
+    let r = parse("is:today").unwrap();
+    assert!(match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_today_open_with_deadline_outside_window_no_match() {
+    // Deadline 8 days out — past the 7-day heads-up horizon.
+    let mut t = dummy_task(1);
+    t.deadline = Some(d(2026, 5, 23));
+    let r = parse("is:today").unwrap();
+    assert!(!match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_today_completed_no_match() {
+    let mut t = dummy_task(1);
+    t.scheduled_for = Some(ScheduledFor::Date(d(2026, 5, 15)));
+    t.completed_at = Some(Utc::now());
+    let r = parse("is:today").unwrap();
+    assert!(!match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_today_deferred_to_future_no_match() {
+    let mut t = dummy_task(1);
+    t.scheduled_for = Some(ScheduledFor::Date(d(2026, 5, 15)));
+    t.defer_until = Some(d(2026, 5, 20));
+    let r = parse("is:today").unwrap();
+    assert!(!match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_today_someday_no_match() {
+    let mut t = dummy_task(1);
+    t.scheduled_for = Some(ScheduledFor::Someday);
+    let r = parse("is:today").unwrap();
+    assert!(!match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_inbox_open_no_project_matches() {
+    let t = dummy_task(1);
+    let r = parse("is:inbox").unwrap();
+    assert!(match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_inbox_with_project_no_match() {
+    let mut t = dummy_task(1);
+    t.project_id = Some(7);
+    let r = parse("is:inbox").unwrap();
+    assert!(!match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_upcoming_open_with_future_schedule_matches() {
+    let mut t = dummy_task(1);
+    t.scheduled_for = Some(ScheduledFor::Date(d(2026, 5, 20)));
+    let r = parse("is:upcoming").unwrap();
+    assert!(match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_upcoming_open_with_today_schedule_no_match() {
+    // Today's schedule belongs in `is:today`, not `is:upcoming`.
+    let mut t = dummy_task(1);
+    t.scheduled_for = Some(ScheduledFor::Date(d(2026, 5, 15)));
+    let r = parse("is:upcoming").unwrap();
+    assert!(!match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_anytime_open_no_schedule_matches() {
+    let t = dummy_task(1);
+    let r = parse("is:anytime").unwrap();
+    assert!(match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_anytime_with_schedule_no_match() {
+    let mut t = dummy_task(1);
+    t.scheduled_for = Some(ScheduledFor::Date(d(2026, 5, 15)));
+    let r = parse("is:anytime").unwrap();
+    assert!(!match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_someday_with_someday_sentinel_matches() {
+    let mut t = dummy_task(1);
+    t.scheduled_for = Some(ScheduledFor::Someday);
+    let r = parse("is:someday").unwrap();
+    assert!(match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_is_someday_completed_no_match() {
+    let mut t = dummy_task(1);
+    t.scheduled_for = Some(ScheduledFor::Someday);
+    t.completed_at = Some(Utc::now());
+    let r = parse("is:someday").unwrap();
+    assert!(!match_simple(&r.expr, &t, d(2026, 5, 15)));
+}
+
 // ── Display / round-trip ─────────────────────────────────────────
 
 #[test]
