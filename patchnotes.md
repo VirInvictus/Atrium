@@ -1,5 +1,50 @@
 # Atrium — Patch Notes
 
+## v0.6.14 (2026-05-08) — Patch D (reframed): visible row separators + recurrence icon
+
+The original Patch D was "day-band grouping in the main task list."
+Walking through the implementation surfaced a scope problem: the
+Today list is a single-day view by definition (every row would
+read "Today"), Logbook already has day-bands (Slice C2), and Agenda
+is the explicit "everything across days" view. Day-band grouping
+inside Today / Inbox / Anytime would duplicate Agenda; the only
+sensible target was Upcoming, which is a single-view scope rather
+than a main-list-wide change.
+
+Reframed Patch D as two smaller polish wins that actually address
+what the screenshot showed:
+
+- **Visible row separators.** `GtkListView`'s `show-separators=true`
+  was on (window.ui) but the default separator on dark themes was
+  so faint that 20+ rows read as a wall of text. v0.6.14 adds a
+  1px `@borders`-tinted bottom border to each task row (constrained
+  by `:has(.atrium-task-row)` so kanban / agenda card rows don't
+  inherit). The eye now has a clear stride between rows without the
+  list looking like a heavy table.
+
+- **Recurrence icon (#9b).** Tasks whose `repeat_rule` is set now
+  show a small `view-refresh-symbolic` icon at the right edge of
+  the row, with a tooltip "Repeating task." The icon is a derived
+  state cue — the original screenshot bug was the *fixture* shoving
+  emoji into title strings (#9a, fixed in Patch A); the icon now
+  reads correctness from `repeat_rule` regardless of what the title
+  says. New `repeating: bool` glib property on `AtriumTask`,
+  computed at construction + on `refresh_from`. The row factory
+  appends a `gtk::Image` after the deadline pill (preserves the
+  existing `next_sibling` chain so other bind logic stays
+  unchanged) and toggles its visibility via
+  `connect_repeating_notify`. Handler stashed under
+  `atrium-repeating-handler` and disconnected on unbind. The icon
+  picks up the row-state tint when the task is overdue or today,
+  matching the date-pill pattern from Patch B.
+
+This closes the four-patch screenshot-cleanup arc:
+- v0.6.11 Patch A — eight quick wins (eight files, low risk).
+- v0.6.12 Patch B — state-aware row treatment (the biggest visual
+  win; overdue red / today amber / upcoming accent).
+- v0.6.13 Patch C — Inspector Notes placeholder.
+- v0.6.14 Patch D — visible row separators + recurrence icon.
+
 ## v0.6.13 (2026-05-08) — Patch C: Inspector Notes placeholder
 
 Small focused patch off the screenshot-cleanup arc. The Inspector

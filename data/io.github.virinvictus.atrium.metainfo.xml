@@ -90,6 +90,22 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.14" date="2026-05-08">
+      <description>
+        <p>Patch D, reframed — visible row separators and a
+           derived recurrence icon. The original "day-band
+           grouping in the main task list" plan didn't fit
+           any view well (Today is single-day; Logbook and
+           Agenda already group); reframed as two smaller
+           polish wins. Row separators get a 1px
+           @borders-tinted bottom border so the rows read as
+           distinct items rather than a wall of text. Tasks
+           with a repeat_rule show a small refresh icon at
+           the row's right edge — derived from data, not from
+           title text. Closes the four-patch
+           screenshot-cleanup arc that started at v0.6.11.</p>
+      </description>
+    </release>
     <release version="0.6.13" date="2026-05-08">
       <description>
         <p>Patch C — Inspector Notes placeholder. The Notes

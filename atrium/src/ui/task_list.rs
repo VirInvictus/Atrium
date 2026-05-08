@@ -325,12 +325,22 @@ where
         deadline.add_css_class("atrium-task-deadline");
         deadline.add_css_class("dim-label");
 
+        // v0.6.14 — small recurrence icon for tasks whose
+        // `repeat_rule` is set. Lives at the tail of the row so the
+        // existing next_sibling chain in `bind` doesn't shift.
+        let repeat_icon = gtk::Image::from_icon_name("view-refresh-symbolic");
+        repeat_icon.set_tooltip_text(Some("Repeating task"));
+        repeat_icon.set_visible(false);
+        repeat_icon.add_css_class("atrium-task-repeating");
+        repeat_icon.add_css_class("dim-label");
+
         row.append(&check);
         row.append(&title_stack);
         row.append(&tags);
         row.append(&context);
         row.append(&schedule);
         row.append(&deadline);
+        row.append(&repeat_icon);
 
         item.set_child(Some(&row));
     });
@@ -376,6 +386,10 @@ where
             .next_sibling()
             .and_downcast::<gtk::Label>()
             .expect("deadline");
+        let repeat_icon = deadline
+            .next_sibling()
+            .and_downcast::<gtk::Image>()
+            .expect("repeat icon");
 
         // Title bindings: model → display label is one-way. The
         // entry is populated from the label only when edit mode
@@ -472,6 +486,16 @@ where
                 "upcoming" => row_for_state.add_css_class("atrium-task-row-upcoming"),
                 _ => {}
             }
+        });
+
+        // v0.6.14 — show the repeat icon for tasks whose
+        // `repeat_rule` is set. Initial visibility from the
+        // property; notify keeps it in sync when the user adds /
+        // removes a repeat rule via the Inspector.
+        repeat_icon.set_visible(task.repeating());
+        let repeat_icon_for_notify = repeat_icon.clone();
+        let repeating_handler = task.connect_repeating_notify(move |t| {
+            repeat_icon_for_notify.set_visible(t.repeating());
         });
 
         // Phase 11 — .queued CSS class dims sequential-project
@@ -592,6 +616,7 @@ where
             row.set_data("atrium-context-handler", context_handler);
             row.set_data("atrium-area-color-handler", area_color_handler);
             row.set_data("atrium-row-state-handler", state_handler);
+            row.set_data("atrium-repeating-handler", repeating_handler);
             row.set_data("atrium-task-obj", task.clone());
             row.set_data("atrium-check", check.clone());
             row.set_data("atrium-title-stack", title_stack.clone());
@@ -798,8 +823,14 @@ where
                 task.disconnect(handler);
             }
             if let (Some(task), Some(handler)) = (
-                task_obj,
+                task_obj.clone(),
                 row.steal_data::<glib::SignalHandlerId>("atrium-row-state-handler"),
+            ) {
+                task.disconnect(handler);
+            }
+            if let (Some(task), Some(handler)) = (
+                task_obj,
+                row.steal_data::<glib::SignalHandlerId>("atrium-repeating-handler"),
             ) {
                 task.disconnect(handler);
             }

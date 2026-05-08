@@ -657,3 +657,40 @@ listview.navigation-sidebar > row:selected,
   color: inherit;
   font-weight: inherit;
 }
+
+/* ============================================================================
+ * v0.6.14 — recurrence icon + visible row separators.
+ * ============================================================================ */
+
+/* The repeat icon at the tail of a row. Smaller than a regular
+ * symbolic icon and quiet — it's a state indicator, not an action.
+ * Matches the dim-label colour by default; gains the row-state tint
+ * when the task is overdue or today (mirrors the date-pill pattern). */
+.atrium-task-repeating {
+  -gtk-icon-size: 14px;
+  opacity: 0.65;
+  margin-start: 4px;
+}
+.atrium-task-row-overdue .atrium-task-repeating {
+  color: alpha(@error_color, 0.85);
+  opacity: 0.9;
+}
+.atrium-task-row-today .atrium-task-repeating {
+  color: alpha(@warning_color, 0.85);
+  opacity: 0.9;
+}
+
+/* GtkListView's `show-separators=true` is on (window.ui), but the
+ * default separator on dark themes is so faint it reads as "no
+ * separator at all" (the user's screenshot showed the rows running
+ * together as a wall of text). Bump the separator's contrast a hair
+ * so it reads as a real divider without becoming a heavy gridline.
+ * We target the listview in `task_list_view` specifically by
+ * constraining to rows that contain our `.atrium-task-row` Box —
+ * otherwise the kanban / agenda card rows would inherit too. */
+listview > row:has(.atrium-task-row) {
+  border-bottom: 1px solid alpha(@borders, 0.3);
+}
+listview > row:has(.atrium-task-row):last-child {
+  border-bottom: none;
+}

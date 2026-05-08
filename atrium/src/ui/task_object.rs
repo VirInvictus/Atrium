@@ -70,6 +70,11 @@ mod imp {
         /// into a CSS class. See `classify_row_state`.
         #[property(get, set)]
         pub row_state: RefCell<String>,
+        /// True when the underlying task has a non-NULL repeat_rule.
+        /// The row factory shows a small ⟳ icon to the right of the
+        /// title for repeating tasks (v0.6.14, Patch D polish).
+        #[property(get, set)]
+        pub repeating: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -109,6 +114,7 @@ impl AtriumTask {
         obj.set_position(task.position);
         obj.set_tag_names_csv(format_tag_names(pills));
         obj.set_row_state(classify_row_state(task));
+        obj.set_repeating(task.repeat_rule.is_some());
         obj
     }
 
@@ -139,6 +145,10 @@ impl AtriumTask {
         let new_state = classify_row_state(task);
         if self.row_state() != new_state {
             self.set_row_state(new_state);
+        }
+        let new_repeating = task.repeat_rule.is_some();
+        if self.repeating() != new_repeating {
+            self.set_repeating(new_repeating);
         }
     }
 }
