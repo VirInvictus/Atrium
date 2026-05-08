@@ -414,3 +414,27 @@ window.atrium-quickentry-window {
 .atrium-inspector-pane > scrolledwindow > viewport > clamp {
   padding: 12px;
 }
+
+/* v0.6.0 (Slice D1 GUI) — kanban board styling. Each column is an
+ * Adwaita "card" so the columns read as discrete surfaces rather
+ * than a wall of rows. Slight vertical rhythm in row spacing keeps
+ * dense columns scannable; click feedback on rows uses the same
+ * hover lift the regular task list got at v0.3.0. */
+.atrium-board-column {
+  padding: 0;
+}
+.atrium-board-column-header {
+  border-bottom: 1px solid alpha(@borders, 0.35);
+  padding-bottom: 6px;
+}
+.atrium-board-task-row {
+  border-radius: 6px;
+  padding: 4px 6px;
+  transition: background-color 120ms ease-out;
+}
+.atrium-board-task-row:hover {
+  background-color: alpha(@card_shade_color, 0.08);
+}
+.atrium-board-row-scroll {
+  background: transparent;
+}

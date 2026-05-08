@@ -10,6 +10,7 @@
 //! Quick Entry modal; Phase 10 the Inspector pane.
 
 pub mod about;
+pub mod board;
 pub mod filter;
 pub mod forecast;
 pub mod inspector;

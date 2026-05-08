@@ -86,6 +86,11 @@ mod imp {
         /// `ActiveList::Logbook` is selected.
         #[template_child]
         pub logbook_host: TemplateChild<adw::Bin>,
+        /// v0.6.0 (Slice D1 GUI) — kanban board page host. Window
+        /// mounts the column layout from `board::build_page` here
+        /// whenever the active Perspective has `renderer = "board"`.
+        #[template_child]
+        pub board_host: TemplateChild<adw::Bin>,
         #[template_child]
         pub new_task_button: TemplateChild<gtk::Button>,
         #[template_child]
@@ -1491,6 +1496,33 @@ impl AtriumWindow {
         // owns the rendering — the perspective is a saved query, not
         // a separate page.
         if let ActiveList::Perspective(id) = &active {
+            // v0.6.0 (Slice D1 GUI) — perspective whose
+            // `renderer = "board"` renders as a kanban instead of
+            // a flat list. We branch *before* the list path: the
+            // board page has its own host AdwBin in the content
+            // stack, no shared GtkListView state.
+            let perspective_snapshot = self.imp().perspective_meta.borrow().get(id).cloned();
+            if let Some(p) = perspective_snapshot
+                && p.renderer.eq_ignore_ascii_case("board")
+            {
+                store.remove_all();
+                match self.refresh_board_page(&p) {
+                    Ok(()) => {
+                        self.imp().content_stack.set_visible_child_name("board");
+                        return;
+                    }
+                    Err(err) => {
+                        // Bad renderer_config — surface a toast and
+                        // fall through to the list path so the user
+                        // still sees their tasks.
+                        error!(
+                            ?err,
+                            perspective_id = id,
+                            "board renderer_config malformed; falling back to list"
+                        );
+                    }
+                }
+            }
             self.imp().content_stack.set_visible_child_name("list");
             let expr = self
                 .imp()
@@ -2455,6 +2487,91 @@ impl AtriumWindow {
             &tag_pills,
         );
         self.imp().logbook_host.set_child(Some(&widget));
+    }
+
+    /// v0.6.0 (Slice D1 GUI) — rebuild the kanban board page for a
+    /// saved Perspective whose `renderer = "board"`. The grouping
+    /// engine lives in `atrium_core::render`; this method just
+    /// orchestrates the load + group + mount. Returns `Ok(())`
+    /// when the page renders, `Err` when the perspective's renderer
+    /// config is malformed (caller falls back to list rendering).
+    fn refresh_board_page(
+        &self,
+        perspective: &atrium_core::Perspective,
+    ) -> Result<(), atrium_core::RendererError> {
+        let renderer = atrium_core::Renderer::from_columns(
+            &perspective.renderer,
+            perspective.renderer_config.as_deref(),
+        )?;
+        let cfg = match renderer {
+            atrium_core::Renderer::Board(cfg) => cfg,
+            atrium_core::Renderer::List => return Ok(()),
+        };
+        let Some(pool) = self.read_pool() else {
+            self.imp().board_host.set_child(None::<&gtk::Widget>);
+            return Ok(());
+        };
+        // Same load shape as the list-renderer perspective path —
+        // run the saved filter expression, apply sorts / bm25 /
+        // SQL fast-path, then group.
+        let parsed = crate::ui::filter::parse(&perspective.filter_expr);
+        let today = Local::now().date_naive();
+        let tag_map: HashMap<i64, Vec<String>> = pool
+            .with(atrium_core::db::read::tag_names_per_task)
+            .unwrap_or_default();
+        let project_titles = self.imp().project_titles.borrow().clone();
+        let project_areas = self.project_areas_map();
+        let area_titles = self.imp().area_titles.borrow().clone();
+        let tasks = pool
+            .with(atrium_core::db::read::list_all_tasks)
+            .unwrap_or_default();
+        let mut filtered = crate::ui::filter::apply(
+            tasks,
+            &parsed,
+            today,
+            &tag_map,
+            &project_titles,
+            &project_areas,
+            &area_titles,
+        );
+        // bm25 ranking still applies inside a board's rows when the
+        // saved expression has bare text and no explicit sort.
+        if parsed.sorts.is_empty()
+            && let Some(expr) = &parsed.expr
+        {
+            let terms = atrium_search::collect_text_terms(expr);
+            if !terms.is_empty() {
+                let scores = pool
+                    .with(|conn| atrium_core::db::read::bm25_for_terms(conn, &terms))
+                    .unwrap_or_default();
+                if !scores.is_empty() {
+                    crate::ui::filter::rank_by_bm25_recency(&mut filtered, &scores, today);
+                }
+            }
+        }
+        let columns = atrium_core::group_into_board(&filtered, &cfg, &tag_map);
+
+        // Click → open the task in the Inspector. Reuses the
+        // already-wired `win.edit-details-for(i64)` action that the
+        // regular list and the keyboard shortcut both go through.
+        let weak = self.downgrade();
+        let on_click = move |task_id: i64| {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            // Disambiguate: WidgetExt::activate_action walks up the
+            // hierarchy looking for a matching action group; we want
+            // the window's own action group (the "win." namespace).
+            let _ = WidgetExt::activate_action(
+                &window,
+                "win.edit-details-for",
+                Some(&task_id.to_variant()),
+            );
+        };
+
+        let widget = crate::ui::board::build_page(&perspective.name, &columns, on_click);
+        self.imp().board_host.set_child(Some(&widget));
+        Ok(())
     }
 
     /// Phase 10 — refresh the side pane based on the current

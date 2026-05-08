@@ -1,5 +1,45 @@
 # Atrium — Patch Notes
 
+## v0.6.0 (2026-05-08) — Slice D1 GUI (read-only kanban board page)
+
+The first GUI consumer for the v0.5.0 `perspective.renderer` /
+`renderer_config` columns. A saved Perspective whose `renderer =
+"board"` now renders as a horizontal column layout in the GTK
+binary instead of a flat list. Each column is a tag — leftmost
+match wins, "Other" trailing column for tasks that don't match
+any configured column. Same engine the v0.5.4 `atrium-cli kanban`
+subcommand uses (`atrium_core::render::group_into_board`).
+
+What's interactive in v0.6.0:
+
+- Click any task row → opens it in the Inspector (same
+  `win.edit-details-for(i64)` action the regular list and
+  keyboard shortcuts go through).
+- Vertical scrolling per column for tall task lists.
+- Horizontal scrolling across the whole board when the column
+  set exceeds the viewport.
+
+What's *not* interactive yet (deferred to a follow-up patch):
+
+- Drag-drop between columns. Today, moving a task between
+  columns is "edit the task's tags from the Inspector or via
+  `atrium-cli edit ID --tag X --remove-tag Y`."
+- The completion checkbox renders the state but isn't
+  click-toggleable from the board view (use the regular task
+  list or the Inspector).
+- No board-renderer editing UI yet — to convert a Perspective
+  to a board, edit `renderer` and `renderer_config` directly.
+  An editing dialog ships in a future slice.
+
+What's in the commit:
+
+- **`atrium/src/ui/board.rs`.** New module. `build_page(name, columns, on_row_click)` returns a horizontally-scrolling `gtk::Box` with one card-styled column per `Column<'_>`. Per-column scrolling caps at 420px tall; per-row click activates the inspector via the supplied callback.
+- **`data/window.ui`.** New `GtkStackPage` named `"board"` with an `AdwBin id="board_host"` host, mirroring the forecast/review/logbook pattern.
+- **`atrium/src/ui/window.rs`.** Window struct gains a `board_host` template child. New `refresh_board_page(perspective)` method orchestrates load → filter → bm25 rank → group → mount. The `ActiveList::Perspective(id)` branch in the active-list refresh checks the perspective's renderer; `"board"` switches to the board stack page, anything else falls through to the existing list rendering.
+- **`data/style.css`.** Adwaita-`card`-class kanban columns, subtle hover tint on rows, transparent scroller backgrounds so the board reads as one surface rather than nested boxes.
+
+VERSION / Cargo.toml / patchnotes / AppStream metainfo bump to 0.6.0.
+
 ## v0.5.4 (2026-05-08) — Slice D1 foundation (kanban renderer + atrium-cli)
 
 The first slice of Slice D — saved Perspectives can now render as

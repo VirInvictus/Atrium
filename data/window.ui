@@ -271,6 +271,22 @@
                             </child>
 
                             <child>
+                              <!-- v0.6.0 (Slice D1 GUI) — kanban board page.
+                                   Same pattern as the other custom pages —
+                                   the window builds the widget via
+                                   board::build_page and mounts it here when
+                                   the active Perspective has renderer=board.
+                                   Read-only in v0.6.0; row interactivity and
+                                   drag-drop follow in a sibling patch. -->
+                              <object class="GtkStackPage">
+                                <property name="name">board</property>
+                                <property name="child">
+                                  <object class="AdwBin" id="board_host"/>
+                                </property>
+                              </object>
+                            </child>
+
+                            <child>
                               <object class="GtkStackPage">
                                 <property name="name">list</property>
                                 <property name="child">

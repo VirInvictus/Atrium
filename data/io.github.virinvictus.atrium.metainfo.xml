@@ -90,6 +90,24 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.0" date="2026-05-08">
+      <description>
+        <p>Slice D1 GUI — saved Perspectives whose renderer is
+           <code>"board"</code> now render as a horizontal kanban
+           layout in the main window instead of a flat list.
+           Each column is a tag (leftmost match wins, trailing
+           "Other" bucket for tasks that don't match any
+           configured column), and clicking a task row opens it
+           in the Inspector. Read-only at v0.6.0: drag-drop
+           between columns, in-board completion toggles, and a
+           board-renderer editing dialog all follow in a sibling
+           patch — for now, moving tasks between columns is
+           <code>atrium-cli edit ID --tag X --remove-tag Y</code>
+           or the Inspector's tag editor. Same grouping engine
+           the v0.5.4 <code>atrium-cli kanban</code> subcommand
+           uses, so the GUI and CLI stay in lockstep.</p>
+      </description>
+    </release>
     <release version="0.5.4" date="2026-05-08">
       <description>
         <p>Slice D1 foundation — saved Perspectives can render
