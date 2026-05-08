@@ -6,8 +6,8 @@ use std::collections::HashMap;
 
 use chrono::{NaiveDate, Utc};
 
-use crate::domain::{ScheduledFor, Task};
-use crate::test_support::dummy_task;
+use atrium_core::domain::{ScheduledFor, Task};
+use atrium_core::test_support::dummy_task;
 
 use super::ast::{
     Comparator, DateKeyword, Expr, Field, MatchKind, SortDirection, SortKey, SortSpec, State, Value,

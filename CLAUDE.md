@@ -10,7 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **v0.2.x patches + v0.3.0 visual polish landed (May 2026).** v0.2.1 fixed the tag-pill update path and shipped the *Area › Project* row context chip. v0.2.2 was an audit-pass patch — filter-typo toast warnings, sidebar zero-state hint, screen-reader badge labels, Inbox chip fallback. v0.3.0 was a focused visual-polish minor: tag colours wired end-to-end (six-swatch picker, sidebar dots, Pango-coloured pills), row hover states, completion micro-animation, per-list empty-state warmth, sidebar section dividers, header-bar `Area › Project` breadcrumb, Inspector-pane card treatment.
 
-**Phase 15.5 shipped at v0.4.0 (May 2026).** Calibre-powered search: the search bar's flat filter language grew into a full expression grammar — boolean operators (AND / OR / NOT, `NOT > AND > OR` precedence), parens grouping, comparison + range operators on date and numeric fields, date keywords (`thisweek`, `5daysago`, etc.), state predicates (`is:overdue`, `is:repeating`, etc.), and Calibre-style match modifiers (`tag:x` substring, `tag:=x` exact, `tag:~regex`, `tag:true`/false). Saved Perspectives inherit the new grammar for free since they store filter expressions verbatim. New module at `atrium-core/src/search/`; full reference in `spec.md` §4.3. Three Phase 15.5 line items deferred to v0.4.x patches: SQL-translation evaluator (perf optimization), search history (`↑`/`↓`), operator reference popover (`?` button on the search bar).
+**Phase 15.5 shipped at v0.4.0 (May 2026).** Calibre-powered search: the search bar's flat filter language grew into a full expression grammar — boolean operators (AND / OR / NOT, `NOT > AND > OR` precedence), parens grouping, comparison + range operators on date and numeric fields, date keywords (`thisweek`, `5daysago`, etc.), state predicates (`is:overdue`, `is:repeating`, etc.), and Calibre-style match modifiers (`tag:x` substring, `tag:=x` exact, `tag:~regex`, `tag:true`/false). Saved Perspectives inherit the new grammar for free since they store filter expressions verbatim. Full reference in `spec.md` §4.3.
+
+**Search engine v0.4.x patch sequence in flight (May 2026).** v0.4.1 closed the Phase 15.5 deferred-list: canonical-list state predicates (`is:today` / `is:inbox` / `is:upcoming` / `is:anytime` / `is:someday`), `sort:KEY` / `sort:-KEY` modifier with primary→secondary composition, ↑/↓ search history (in-memory ring buffer, 20 entries), `?` operator-reference popover on the search bar, and the `tag:?word` fuzzy modifier (Damerau-Levenshtein with length-aware threshold). v0.4.2 extracted the engine into its own `atrium-search` workspace crate so the parser/evaluator live independently of the GTK binary and the SQLite layer. v0.4.3 (SQL pushdown for the predicates SQLite can express) and v0.4.4 (FTS5 bm25 + recency ranking on bare-text searches) remain.
 
 **Phase 16 (Things 3 import) is what's next** — JSON via the `things:///add-json` URL scheme; importer module at `atrium-core/src/import/things3.rs`; mapping table per `spec.md` §7.
 
@@ -141,23 +143,24 @@ When implementing the data layer, **`~/.gitrepos/Viaduct/`** is the reference fo
 
 `~/.gitrepos/Hermitage/` and `~/.gitrepos/Framework/` are the other native GTK4/libadwaita apps in the portfolio — useful for cross-checking GTK idioms, Flatpak manifest shape, and AppStream metainfo conventions.
 
-## Codebase map (current — v0.3.0)
+## Codebase map (current — v0.4.x)
 
-The workspace split adopted in v0.0.3 mirrors the Phase 20 `atriumd` daemon plan and the post-1.0 TUI plan — the data layer must be reusable from multiple frontends.
+Three workspace crates split by responsibility. The data layer (`atrium-core`) and the search engine (`atrium-search`, extracted v0.4.2) both stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them without dragging GTK along.
 
 ```
-atrium-core/                          ← headless library
+atrium-search/                        ← Calibre-powered search engine (v0.4.2 — extracted from atrium-core)
+├── src/lib.rs                        ← module root, re-exports (parse / evaluate / Expr / …)
+├── src/lex.rs                        ← Token enum + tokenizer
+├── src/parse.rs                      ← recursive-descent parser → Expr AST + sort modifiers
+├── src/ast.rs                        ← Expr + Field + State + MatchKind + Comparator + Value + DateKeyword + SortSpec
+├── src/eval.rs                       ← in-memory evaluator + EvalContext (lazy regex cache, Damerau-Levenshtein for fuzzy)
+└── src/tests.rs                      ← integration tests (parse + eval round-trips)
+
+atrium-core/                          ← headless data layer
 ├── src/lib.rs                        ← re-exports (Task / WorkerHandle / RepeatRule / …)
 ├── src/paths.rs                      ← XDG path helpers, APP_ID
 ├── src/error.rs                      ← thiserror hierarchy (DbError::BadRepeatRule v0.2.0)
 ├── src/repeat.rs                     ← RFC 5545 RRULE wrapper, RepeatMode, CountStep (Phase 15)
-├── src/search/                       ← Calibre-powered search expression language (Phase 15.5)
-│   ├── mod.rs                        ← module root, re-exports
-│   ├── lex.rs                        ← Token enum + tokenizer
-│   ├── parse.rs                      ← recursive-descent parser → Expr AST
-│   ├── ast.rs                        ← Expr + Field + State + MatchKind + Comparator + Value + DateKeyword
-│   ├── eval.rs                       ← in-memory evaluator + EvalContext (lazy regex cache)
-│   └── tests.rs                      ← integration tests
 ├── src/test_support.rs               ← dummy_task helpers behind `test-support` feature (v0.2.0 maintenance)
 ├── src/domain/                       ← Task / Project / Area / Tag / Perspective / ScheduledFor types
 └── src/db/

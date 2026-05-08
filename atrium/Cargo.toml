@@ -10,6 +10,10 @@ default-run = "atrium"
 
 [dependencies]
 atrium-core = { path = "../atrium-core" }
+# v0.4.2 — the search expression engine ships as its own workspace
+# crate so it can be exercised independently and reused from a
+# future TUI / atriumd / search server.
+atrium-search = { path = "../atrium-search" }
 
 # Phase 0 set.
 anyhow.workspace = true

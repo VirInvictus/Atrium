@@ -44,6 +44,7 @@ version = "0.4.0"
 dependencies = [
  "anyhow",
  "atrium-core",
+ "atrium-search",
  "chrono",
  "gtk4",
  "libadwaita",
@@ -59,7 +60,6 @@ version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",
- "regex",
  "rrule",
  "rusqlite",
  "serde",
@@ -68,6 +68,15 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "atrium-search"
+version = "0.4.0"
+dependencies = [
+ "atrium-core",
+ "chrono",
+ "regex",
 ]
 
 [[package]]

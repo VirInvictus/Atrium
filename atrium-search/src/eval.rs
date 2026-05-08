@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use chrono::{Datelike, Duration, NaiveDate};
 use regex::Regex;
 
-use crate::domain::{ScheduledFor, Task};
+use atrium_core::domain::{ScheduledFor, Task};
 
 use super::ast::{Comparator, DateKeyword, Expr, Field, MatchKind, State, Value};
 

@@ -2,29 +2,32 @@
 //! Search expression entry point for the binary — Phase 15.5 shim.
 //!
 //! The Phase 7d filter parser (flat `tag:foo is:overdue` shape) was
-//! superseded in v0.4.0 by `atrium_core::search`, a real recursive-
-//! descent parser with Calibre-style match modifiers, boolean
-//! composition, ranges, and date keywords. This module holds the
-//! window-side glue:
+//! superseded in v0.4.0 by a real recursive-descent parser with
+//! Calibre-style match modifiers, boolean composition, ranges, and
+//! date keywords; v0.4.2 lifted that engine into its own
+//! `atrium_search` crate so it can be exercised independently. This
+//! module is the window-side glue between the engine and Atrium's
+//! caches:
 //!
-//! - [`parse`] — wraps `atrium_core::search::parse` and surfaces
+//! - [`parse`] — wraps [`atrium_search::parse`] and surfaces
 //!   non-fatal warnings (unknown field names that fall through to
 //!   freeform text).
 //! - [`apply`] — runs the parsed expression against a task list,
-//!   building an `EvalContext` from the window's existing caches.
+//!   building an `EvalContext` from the window's existing caches,
+//!   plus applies any `sort:KEY` modifiers the parser captured.
 //!
 //! The window's call sites keep their old shape: `parse(query)`
-//! returns a [`FilterQuery`] carrying the AST + warnings; `apply`
-//! filters a task vector. Saved Perspectives go through the same
-//! path so v0.1.17 perspective expressions inherit the new grammar
-//! the moment v0.4.0 ships.
+//! returns a [`FilterQuery`] carrying the AST + warnings + sorts;
+//! `apply` filters and (if sorts are present) orders a task vector.
+//! Saved Perspectives go through the same path, so expressions
+//! written against any v0.4.x grammar evaluate identically.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use atrium_core::ScheduledFor;
 use atrium_core::Task;
-use atrium_core::search::{EvalContext, Expr, SortDirection, SortKey, SortSpec, evaluate};
+use atrium_search::{EvalContext, Expr, SortDirection, SortKey, SortSpec, evaluate};
 use chrono::NaiveDate;
 
 /// Output of [`parse`]. The window uses `expr.is_some()` as "the
@@ -49,7 +52,7 @@ pub struct FilterQuery {
 /// Parse a search-bar / saved-perspective expression.
 pub fn parse(input: &str) -> FilterQuery {
     let raw = input.to_string();
-    match atrium_core::search::parse(input) {
+    match atrium_search::parse(input) {
         Ok(result) => FilterQuery {
             expr: Some(result.expr),
             warnings: result.warnings,

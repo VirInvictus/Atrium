@@ -70,7 +70,7 @@ pub enum Expr {
 /// deadline descending, ties broken alphabetically by title.
 ///
 /// Sort is metadata on the result set, not a per-task predicate, so
-/// it lives on [`crate::search::parse::ParseResult`] alongside
+/// it lives on [`crate::parse::ParseResult`] alongside
 /// `expr` rather than inside the `Expr` AST itself. Tasks lacking
 /// the sort field (e.g. no deadline for `sort:due`) sort *last*
 /// regardless of direction — the SQL convention.

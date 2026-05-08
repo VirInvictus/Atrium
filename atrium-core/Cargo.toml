@@ -30,11 +30,9 @@ tokio.workspace = true
 # storage, regenerate-on-complete, and Org-mode round-trip.
 rrule.workspace = true
 
-# Phase 15.5: regex matching for the Calibre-style `tag:~regex`
-# modifier in the search expression language. In-memory evaluator
-# only — SQLite has no built-in regex, so the SQL-translation path
-# falls back to in-memory when an expression contains regex.
-regex.workspace = true
+# v0.4.2 — `regex` no longer lives here; the search engine that
+# uses it was extracted to the sibling `atrium-search` crate.
+# atrium-core stays focused on the data layer.
 
 [features]
 # v0.2.0 — opt-in test helpers for downstream test crates (the

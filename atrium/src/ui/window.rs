@@ -1558,7 +1558,7 @@ impl AtriumWindow {
             ActiveList::Tag(id) => atrium_core::db::read::list_tasks_with_tag(conn, *id),
             ActiveList::SearchResults(query) => {
                 // v0.4.0 — search expressions go through the
-                // Calibre-style parser in atrium_core::search. The
+                // Calibre-style parser in atrium_search. The
                 // window-side `filter::apply` evaluates the parsed
                 // AST against the in-memory task set. Empty parse
                 // (no expression at all) returns the empty list so

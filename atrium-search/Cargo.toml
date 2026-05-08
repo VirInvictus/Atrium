@@ -1,0 +1,28 @@
+[package]
+name = "atrium-search"
+description = "Calibre-style search expression language for Atrium — parser, AST, evaluator. Decoupled from the GTK binary so the engine can be exercised, fuzzed, and reused (TUI / atriumd / future backends) without dragging GUI deps."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Domain types — Task, ScheduledFor — supplied by atrium-core. The
+# evaluator runs against in-memory tasks; the search engine doesn't
+# know about SQLite or anything heavier than the data shape.
+atrium-core = { path = "../atrium-core" }
+
+# Date arithmetic for the comparison / range / date-keyword paths.
+chrono.workspace = true
+
+# Calibre's `tag:~regex` modifier compiles to RE2 via the regex crate.
+# In-memory only — SQLite has no built-in regex, so a future
+# SQL-translation evaluator falls back to in-memory eval whenever an
+# expression contains a Regex MatchKind.
+regex.workspace = true
+
+[dev-dependencies]
+# Reuse atrium-core's dummy_task helpers so search tests don't have
+# to hand-roll Task literals on every column addition.
+atrium-core = { path = "../atrium-core", features = ["test-support"] }
