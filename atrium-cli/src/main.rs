@@ -36,7 +36,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use atrium_core::db::read;
-use atrium_core::domain::{NewTask, ScheduledFor, Task};
+use atrium_core::domain::{NewTask, ScheduledFor, Task, TaskUpdate};
 use atrium_search::{EvalContext, evaluate};
 use chrono::{Local, NaiveDate};
 use rusqlite::{Connection, OpenFlags};
@@ -47,7 +47,7 @@ mod output;
 #[cfg(test)]
 mod tests;
 
-use args::{AddArgs, Format, Subcommand};
+use args::{AddArgs, EditArgs, EditProject, Format, Subcommand};
 use output::{Row, format_row, format_rows, format_task_detail};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -98,6 +98,9 @@ fn run(args: args::Args) -> ExitCode {
         }),
         Subcommand::Capture { line } => with_writer(&db_path, |handle, conn| {
             run_capture(handle, conn, &line, args.format)
+        }),
+        Subcommand::Edit { id, edit } => with_writer(&db_path, |handle, conn| {
+            run_edit(handle, conn, id, edit, args.format)
         }),
         Subcommand::Complete { id } => with_writer(&db_path, |handle, conn| {
             run_complete(handle, conn, id, args.format)
@@ -396,6 +399,90 @@ fn run_capture(
     let task = read::task_by_id(read_conn, task.id)
         .map_err(CliError::from)?
         .ok_or(CliError::NotFound(task.id))?;
+    let ctx_data = ContextData::load(read_conn)?;
+    let row = build_row(&task, &ctx_data);
+    print_single_row(&task, &row, format);
+    Ok(())
+}
+
+/// `edit ID [FLAGS]` — diff-based modify. Each EditArgs field that's
+/// `Some` becomes a TaskUpdate setter; the magic value `"none"`
+/// clears a nullable field. `--inbox` (or `--project inbox`) maps
+/// to project_id = NULL.
+fn run_edit(
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
+    id: i64,
+    edit: EditArgs,
+    format: Format,
+) -> CliResult<()> {
+    // Verify the task exists upfront — gives a cleaner error than
+    // an opaque worker NotFound.
+    let existing = read::task_by_id(read_conn, id)
+        .map_err(CliError::from)?
+        .ok_or(CliError::NotFound(id))?;
+
+    let today = Local::now().date_naive();
+    let mut update = TaskUpdate::new(id);
+
+    if let Some(t) = edit.title {
+        update = update.title(t);
+    }
+    if let Some(n) = edit.note {
+        update = update.note(n);
+    }
+    if let Some(p) = edit.project {
+        match p {
+            EditProject::Inbox => update = update.project(None),
+            EditProject::Named(needle) => {
+                let pid = resolve_project_by_name(read_conn, &needle)?;
+                update = update.project(Some(pid));
+            }
+        }
+    }
+    if let Some(s) = edit.scheduled.as_deref() {
+        if s.eq_ignore_ascii_case("none") {
+            update = update.schedule(None);
+        } else {
+            update = update.schedule(Some(parse_scheduled(s, today)?));
+        }
+    }
+    if let Some(s) = edit.due.as_deref() {
+        if s.eq_ignore_ascii_case("none") {
+            update = update.deadline_value(None);
+        } else {
+            update = update.deadline_value(Some(parse_date(s, today)?));
+        }
+    }
+    if let Some(s) = edit.defer.as_deref() {
+        if s.eq_ignore_ascii_case("none") {
+            update = update.defer_value(None);
+        } else {
+            update = update.defer_value(Some(parse_date(s, today)?));
+        }
+    }
+    if let Some(s) = edit.estimated.as_deref() {
+        if s.eq_ignore_ascii_case("none") {
+            update = update.estimated_minutes_value(None);
+        } else {
+            // Already validated at parse time, but defensive.
+            let n: i64 = s
+                .parse()
+                .map_err(|_| CliError::Args(format!("--estimated: not an integer: {s}")))?;
+            update = update.estimated_minutes_value(Some(n));
+        }
+    }
+
+    // No-op edit (just `atrium-cli edit ID`) — print the unchanged
+    // row so users can pipe `info` or grep against it.
+    let task = if update.is_noop() {
+        existing
+    } else {
+        let runtime = tokio::runtime::Handle::current();
+        runtime
+            .block_on(async { handle.update_task(update).await })
+            .map_err(CliError::from)?
+    };
     let ctx_data = ContextData::load(read_conn)?;
     let row = build_row(&task, &ctx_data);
     print_single_row(&task, &row, format);

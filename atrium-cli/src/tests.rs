@@ -6,7 +6,7 @@
 //! database, which is more painful than scripting `atrium-cli` for
 //! the same coverage.
 
-use crate::args::{AddArgs, Format, Subcommand, parse};
+use crate::args::{AddArgs, EditArgs, EditProject, Format, Subcommand, parse};
 use crate::output::{Row, format_row, format_rows, format_rows_human, row_to_json, rows_to_json};
 
 fn s(args: &[&str]) -> Vec<String> {
@@ -292,6 +292,114 @@ fn parse_capture_with_format_flag() {
 fn parse_capture_empty_errors() {
     let err = parse(&s(&["capture"])).unwrap_err();
     assert!(err.contains("capture"));
+}
+
+// ── Edit subcommand ───────────────────────────────────────────
+
+#[test]
+fn parse_edit_with_no_flags_is_noop_shape() {
+    // `edit ID` with no flags is allowed — run_edit returns the
+    // unchanged row so users can use it as a "show single task"
+    // alternative to `info`.
+    let a = parse(&s(&["edit", "42"])).unwrap();
+    let Some(Subcommand::Edit { id, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert_eq!(id, 42);
+    assert_eq!(edit, EditArgs::default());
+}
+
+#[test]
+fn parse_edit_invalid_id_errors() {
+    let err = parse(&s(&["edit", "abc"])).unwrap_err();
+    assert!(err.contains("invalid task id"));
+}
+
+#[test]
+fn parse_edit_title_and_note() {
+    let a = parse(&s(&[
+        "edit",
+        "42",
+        "--title",
+        "Buy milk and eggs",
+        "--note",
+        "before 6pm",
+    ]))
+    .unwrap();
+    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert_eq!(edit.title, Some("Buy milk and eggs".into()));
+    assert_eq!(edit.note, Some("before 6pm".into()));
+}
+
+#[test]
+fn parse_edit_project_named() {
+    let a = parse(&s(&["edit", "42", "--project", "Q3 plans"])).unwrap();
+    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert_eq!(edit.project, Some(EditProject::Named("Q3 plans".into())));
+}
+
+#[test]
+fn parse_edit_inbox_via_project_keyword() {
+    // --project inbox routes to EditProject::Inbox, same as --inbox.
+    let a = parse(&s(&["edit", "42", "--project", "inbox"])).unwrap();
+    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert_eq!(edit.project, Some(EditProject::Inbox));
+}
+
+#[test]
+fn parse_edit_inbox_via_short_flag() {
+    let a = parse(&s(&["edit", "42", "--inbox"])).unwrap();
+    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert_eq!(edit.project, Some(EditProject::Inbox));
+}
+
+#[test]
+fn parse_edit_clear_field_via_none_keyword() {
+    let a = parse(&s(&["edit", "42", "--due", "none"])).unwrap();
+    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert_eq!(edit.due, Some("none".into()));
+}
+
+#[test]
+fn parse_edit_estimated_validates_integer() {
+    // Anything that isn't `none` must parse as i64 at parse-time.
+    let err = parse(&s(&["edit", "42", "--estimated", "thirty"])).unwrap_err();
+    assert!(err.contains("--estimated"));
+    assert!(err.contains("integer"));
+}
+
+#[test]
+fn parse_edit_estimated_accepts_none_keyword() {
+    let a = parse(&s(&["edit", "42", "--estimated", "none"])).unwrap();
+    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert_eq!(edit.estimated, Some("none".into()));
+}
+
+#[test]
+fn parse_edit_modify_alias() {
+    let a = parse(&s(&["modify", "42", "--inbox"])).unwrap();
+    assert!(matches!(
+        a.subcommand,
+        Some(Subcommand::Edit { id: 42, .. })
+    ));
+}
+
+#[test]
+fn parse_edit_with_format_flag() {
+    let a = parse(&s(&["edit", "42", "--due", "tomorrow", "--json"])).unwrap();
+    assert_eq!(a.format, Format::Json);
 }
 
 #[test]

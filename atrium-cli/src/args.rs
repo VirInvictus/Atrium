@@ -52,6 +52,12 @@ WRITE SUBCOMMANDS:
                       / `@someday` / `@yyyy-mm-dd` / `@deadline ...`
                       syntax exactly like the GUI's bottom-of-list
                       entry and Quick Entry modal. Drops to Inbox.
+    edit ID [FLAGS]   modify an existing task. Flags accept the same
+                      vocabulary as `add`; pass `none` to clear a
+                      field (`--due none`, `--scheduled none`, etc.).
+                      Use `--inbox` to move a task back to Inbox.
+                      Field semantics are diff-only — only the flags
+                      you pass change.
     complete ID       toggle a task's completion (same as the GTK
                       checkbox; calling twice un-completes).
     delete ID         delete a task. Prints the row before deletion
@@ -66,6 +72,10 @@ EXAMPLES:
     atrium-cli add 'Q3 retrospective notes' --project 'Q3 plans' --scheduled today
     atrium-cli capture 'Buy milk #errand @today'
     atrium-cli capture 'File taxes #urgent @deadline 2026-04-15'
+    atrium-cli edit 42 --due tomorrow
+    atrium-cli edit 42 --due none --scheduled today
+    atrium-cli edit 42 --project 'Q3 plans'
+    atrium-cli edit 42 --inbox            # move back to Inbox
     atrium-cli complete 42
     atrium-cli list tags --json | jq '.[] | .name'
 ";
@@ -104,12 +114,42 @@ pub enum Subcommand {
     Capture {
         line: String,
     },
+    Edit {
+        id: i64,
+        edit: EditArgs,
+    },
     Complete {
         id: i64,
     },
     Delete {
         id: i64,
     },
+}
+
+/// Flag values for the `edit` subcommand. Each `Option<String>` is
+/// `None` when the user didn't pass the flag (no change), `Some("none")`
+/// for an explicit clear, and `Some(other)` for an explicit set.
+/// run_edit (in main.rs) converts these into TaskUpdate field setters.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EditArgs {
+    pub title: Option<String>,
+    pub note: Option<String>,
+    /// `None` = leave alone, `Some(EditProject::Inbox)` = unfile,
+    /// `Some(EditProject::Named(s))` = move to the project matched
+    /// by `s`.
+    pub project: Option<EditProject>,
+    pub scheduled: Option<String>,
+    pub due: Option<String>,
+    pub defer: Option<String>,
+    /// `None` = leave alone, `Some("none")` = clear, otherwise the
+    /// raw integer text validated at parse time.
+    pub estimated: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditProject {
+    Inbox,
+    Named(String),
 }
 
 /// Fields populated from the `add` subcommand's flag soup. Resolved
@@ -233,6 +273,15 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
             }
             Subcommand::Capture { line }
         }
+        "edit" | "modify" => {
+            let id_str = raw.get(i).ok_or("edit requires a task id")?;
+            i += 1;
+            let id: i64 = id_str
+                .parse()
+                .map_err(|_| format!("invalid task id: {id_str}"))?;
+            let edit = parse_edit(&raw[i..], &mut args)?;
+            Subcommand::Edit { id, edit }
+        }
         "complete" | "done" | "toggle" => {
             let id_str = raw.get(i).ok_or("complete requires a task id")?;
             i += 1;
@@ -345,6 +394,100 @@ fn parse_add(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
         return Err("add requires a title".into());
     }
     Ok(Subcommand::Add(add))
+}
+
+/// Walk argv after `edit ID` pulling out per-field flags. Each flag
+/// is recorded as Some-or-None on EditArgs; run_edit translates that
+/// into TaskUpdate. Magic value `none` clears a nullable field.
+fn parse_edit(rest: &[String], args: &mut Args) -> Result<EditArgs, String> {
+    let mut edit = EditArgs::default();
+    let mut i = 0;
+    while i < rest.len() {
+        let tok = rest[i].as_str();
+        match tok {
+            "--title" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--title requires a value")?;
+                edit.title = Some(v.clone());
+                i += 1;
+            }
+            "--note" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--note requires a value")?;
+                edit.note = Some(v.clone());
+                i += 1;
+            }
+            "--project" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--project requires a value")?;
+                if v.eq_ignore_ascii_case("inbox") {
+                    edit.project = Some(EditProject::Inbox);
+                } else {
+                    edit.project = Some(EditProject::Named(v.clone()));
+                }
+                i += 1;
+            }
+            "--inbox" | "--unfile" => {
+                edit.project = Some(EditProject::Inbox);
+                i += 1;
+            }
+            "--scheduled" | "--when" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--scheduled requires a value")?;
+                edit.scheduled = Some(v.clone());
+                i += 1;
+            }
+            "--due" | "--deadline" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--due requires a value")?;
+                edit.due = Some(v.clone());
+                i += 1;
+            }
+            "--defer" | "--defer-until" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--defer requires a value")?;
+                edit.defer = Some(v.clone());
+                i += 1;
+            }
+            "--estimated" | "--est" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--estimated requires a value")?;
+                if !v.eq_ignore_ascii_case("none") {
+                    // Validate at parse time so the user sees a
+                    // syntax error before we open the database.
+                    v.parse::<i64>().map_err(|_| {
+                        format!("--estimated must be an integer or 'none', got {v}")
+                    })?;
+                }
+                edit.estimated = Some(v.clone());
+                i += 1;
+            }
+            // Global format flags can appear anywhere.
+            "--json" => {
+                args.format = Format::Json;
+                i += 1;
+            }
+            "--tsv" => {
+                args.format = Format::Tsv;
+                i += 1;
+            }
+            "--human" => {
+                args.format = Format::Human;
+                i += 1;
+            }
+            "--db" => {
+                i += 1;
+                let path = rest.get(i).ok_or("--db requires a path argument")?;
+                args.db_path = Some(PathBuf::from(path));
+                i += 1;
+            }
+            other => return Err(format!("unknown flag: {other}")),
+        }
+    }
+    // edit with no flags is a no-op; we accept it (run_edit prints
+    // the unchanged row) so users can use `edit ID` as a "show
+    // single task in the list-row format" companion to `info`.
+    Ok(edit)
 }
 
 /// Pull non-flag tokens into a space-joined expression, leaving
