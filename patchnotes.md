@@ -1,5 +1,51 @@
 # Atrium — Patch Notes
 
+## v0.6.16 (2026-05-08) — sidebar order: Logbook bookends the top tier
+
+Brandon flagged that Logbook in the middle of the top-tier set
+(between Someday and Agenda) read as out of place — completed
+work was interrupting the flow of active / future-facing lists.
+v0.6.16 moves Logbook to the trailing slot so the past lives
+where the past belongs.
+
+New top-tier order (both modes):
+
+```
+Inbox       capture
+Today       today's plate
+Upcoming    future scheduled
+Anytime     no time commitment
+Someday     parked
+Agenda      now-picture across days
+Forecast    calendar projection (Builder-only)
+Review      project review queue (Builder-only)
+Logbook     completed past
+```
+
+The active/future-facing lists run unbroken from Inbox through
+Agenda; Builder mode inserts Forecast + Review without
+disturbing the bookends; Logbook closes the top tier so the
+sidebar reads as "now → future → past" top to bottom.
+
+What's in the patch:
+
+- **`atrium/src/ui/window.rs`.** Logbook removed from
+  `CANONICAL_LISTS` (now five entries: Inbox / Today / Upcoming
+  / Anytime / Someday). `top_tier_extras` extended to always
+  include Agenda + Logbook; Forecast + Review still gated on
+  Builder mode and still sit between Agenda and Logbook.
+- **`refresh_canonical_badges`** updated. Logbook's count
+  badge moved from the canonical Vec to its own
+  `logbook_badge: Option<gtk::Label>` cell; the refresher
+  updates both. The `rebuild_dynamic_sidebar` loop captures the
+  Logbook badge as it builds the top-tier rows so the count
+  stays live across `TaskChanges`.
+- **Three unit tests updated** to match the new shape (`CANONICAL_LISTS.len()` is 5, simple-mode extras are Agenda + Logbook, builder-mode extras are Agenda + Forecast + Review + Logbook).
+
+CSS, behaviour, and badge tinting are unchanged — Logbook keeps
+its `.atrium-canonical-logbook` purple-2 accent, just at a
+different visual position.
+
 ## v0.6.15 (2026-05-08) — Memory Watch background + Debug → Generate Fixtures fix
 
 Two real bugs Brandon surfaced testing v0.6.14:

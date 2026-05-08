@@ -163,6 +163,11 @@ mod imp {
         /// in place on `TaskChanges` without rebuilding the sidebar.
         /// Vec aligns with `CANONICAL_LISTS`; HashMaps key on row id.
         pub canonical_badges: RefCell<Vec<gtk::Label>>,
+        /// v0.6.16 — Logbook moved from `CANONICAL_LISTS` to the
+        /// trailing slot of `top_tier_extras`, so its badge isn't
+        /// in the `canonical_badges` Vec. Tracked separately so
+        /// `refresh_canonical_badges` can still update its count.
+        pub logbook_badge: RefCell<Option<gtk::Label>>,
         pub project_badges: RefCell<HashMap<i64, gtk::Label>>,
         pub area_badges: RefCell<HashMap<i64, gtk::Label>>,
         pub tag_badges: RefCell<HashMap<i64, gtk::Label>>,
@@ -306,13 +311,19 @@ enum ContextMode {
     AreaAndProject,
 }
 
+/// Sidebar's persistent top-tier rows in display order.
+///
+/// v0.6.16 dropped `Logbook` from this set and moved it to the
+/// trailing slot of `top_tier_extras` — the original ordering put
+/// "completed past" between the active lists and the
+/// Agenda / Forecast / Review block, which read as out of place.
+/// Logbook now bookends the top tier where the past belongs.
 const CANONICAL_LISTS: &[ActiveList] = &[
     ActiveList::Inbox,
     ActiveList::Today,
     ActiveList::Upcoming,
     ActiveList::Anytime,
     ActiveList::Someday,
-    ActiveList::Logbook,
 ];
 
 fn icon_for(list: &ActiveList) -> &'static str {
@@ -626,7 +637,11 @@ impl AtriumWindow {
         }
     }
 
-    /// Update canonical-row badges from `canonical_counts`.
+    /// Update canonical-row badges from `canonical_counts`. v0.6.16
+    /// split out the Logbook badge — it lives in the trailing slot
+    /// of `top_tier_extras` now and is tracked in `logbook_badge`
+    /// rather than `canonical_badges`. Both still refresh here so
+    /// callers don't need to remember the split.
     fn refresh_canonical_badges(&self) {
         let counts = self.imp().canonical_counts.borrow().clone();
         let badges = self.imp().canonical_badges.borrow();
@@ -636,10 +651,12 @@ impl AtriumWindow {
             counts.upcoming,
             counts.anytime,
             counts.someday,
-            counts.logbook,
         ];
         for (badge, n) in badges.iter().zip(values.iter()) {
             apply_badge_label(badge, *n);
+        }
+        if let Some(badge) = self.imp().logbook_badge.borrow().as_ref() {
+            apply_badge_label(badge, counts.logbook);
         }
     }
 
@@ -722,20 +739,30 @@ impl AtriumWindow {
         let mut titles: Vec<Option<String>> = vec![None; CANONICAL_LISTS.len()];
 
         // v0.6.7 — top-tier rows. Agenda joins the canonical set in
-        // both modes; Forecast and Review join only in Builder.
+        // both modes; Forecast and Review join only in Builder;
+        // Logbook trails as the "completed past" bookend (v0.6.16
+        // moved it here from CANONICAL_LISTS — see `top_tier_extras`).
         // No section header — these read as kindred to Inbox /
         // Today / etc., with their own accent tints (see
         // `canonical_accent_class` and `data/style.css`).
         let builder = self.imp().current_mode_is_builder.get();
+        let mut new_logbook_badge: Option<gtk::Label> = None;
         for (active, label) in top_tier_extras(builder) {
-            let (row, _badge) = sidebar_row(icon_for(&active), label, 8);
+            let (row, badge) = sidebar_row(icon_for(&active), label, 8);
             if let Some(class) = canonical_accent_class(&active) {
                 row.add_css_class(class);
+            }
+            // v0.6.16 — Logbook's badge needs to update on TaskChanges
+            // just like a canonical row. Stash it for
+            // `refresh_canonical_badges` to find.
+            if matches!(active, ActiveList::Logbook) {
+                new_logbook_badge = Some(badge);
             }
             list_box.append(&row);
             targets.push(Some(active));
             titles.push(None); // top-tier rows don't filter
         }
+        self.imp().logbook_badge.replace(new_logbook_badge);
 
         // v0.6.7 — Perspectives section moves up to right after
         // the top-tier group (was previously at the end of the
@@ -4477,18 +4504,25 @@ fn canonical_accent_class(active: &ActiveList) -> Option<&'static str> {
 }
 
 /// v0.6.7 — non-canonical rows that join the top tier (alongside
-/// Inbox / Today / etc.). Agenda is mode-agnostic — it's a plain
-/// read view of the user's now-picture and surfaces in both
-/// Simple and Builder. Forecast and Review carry Builder-only
-/// concepts (calendar projection / project review cadence) so
-/// they only appear in Builder mode.
+/// Inbox / Today / etc.). v0.6.16 reordered the trailing block:
+///
+/// - Agenda: mode-agnostic now-picture across days. Right after
+///   Someday so the active-lists block hands off into "broader
+///   now" cleanly.
+/// - Forecast / Review: Builder-only — calendar projection and
+///   project review queue. Sit between Agenda and Logbook so
+///   the Builder-mode block reads as a contiguous group.
+/// - Logbook: completed past. Always last so the sidebar's top
+///   tier ends on "what's done" rather than interrupting the
+///   future-facing flow.
 fn top_tier_extras(builder: bool) -> Vec<(ActiveList, &'static str)> {
-    let mut out: Vec<(ActiveList, &'static str)> = Vec::with_capacity(3);
+    let mut out: Vec<(ActiveList, &'static str)> = Vec::with_capacity(4);
     out.push((ActiveList::Agenda, "Agenda"));
     if builder {
         out.push((ActiveList::Forecast, "Forecast"));
         out.push((ActiveList::Review, "Review"));
     }
+    out.push((ActiveList::Logbook, "Logbook"));
     out
 }
 
@@ -4902,29 +4936,34 @@ mod tests {
 
     #[test]
     fn sidebar_lists_cover_simple_mode() {
-        assert_eq!(CANONICAL_LISTS.len(), 6);
+        // v0.6.16 — Logbook moved to the trailing slot of
+        // top_tier_extras; CANONICAL_LISTS holds five rows now.
+        assert_eq!(CANONICAL_LISTS.len(), 5);
         assert!(CANONICAL_LISTS.contains(&ActiveList::Inbox));
         assert!(CANONICAL_LISTS.contains(&ActiveList::Today));
-        assert!(CANONICAL_LISTS.contains(&ActiveList::Logbook));
+        assert!(!CANONICAL_LISTS.contains(&ActiveList::Logbook));
     }
 
     #[test]
-    fn top_tier_extras_in_simple_mode_is_just_agenda() {
+    fn top_tier_extras_simple_mode_has_agenda_and_logbook() {
         let extras = top_tier_extras(false);
-        assert_eq!(extras.len(), 1);
+        // v0.6.16 — Agenda + Logbook trail the canonical set in
+        // both modes; Forecast and Review only appear in Builder.
+        assert_eq!(extras.len(), 2);
         assert_eq!(extras[0].0, ActiveList::Agenda);
-        assert_eq!(extras[0].1, "Agenda");
+        assert_eq!(extras[1].0, ActiveList::Logbook);
     }
 
     #[test]
-    fn top_tier_extras_in_builder_mode_adds_forecast_and_review() {
+    fn top_tier_extras_builder_mode_inserts_forecast_and_review() {
         let extras = top_tier_extras(true);
-        assert_eq!(extras.len(), 3);
-        // Order matters — Agenda first because it's mode-agnostic
-        // and the user's most likely "where am I now?" entry.
+        // v0.6.16 — Logbook is the trailing bookend; Forecast and
+        // Review sit between Agenda and Logbook.
+        assert_eq!(extras.len(), 4);
         assert_eq!(extras[0].0, ActiveList::Agenda);
         assert_eq!(extras[1].0, ActiveList::Forecast);
         assert_eq!(extras[2].0, ActiveList::Review);
+        assert_eq!(extras[3].0, ActiveList::Logbook);
     }
 
     #[test]

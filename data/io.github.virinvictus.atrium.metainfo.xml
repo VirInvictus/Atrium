@@ -90,6 +90,20 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.16" date="2026-05-08">
+      <description>
+        <p>Sidebar order — Logbook bookends the top tier.
+           Brandon flagged that Logbook between Someday and
+           Agenda read as out of place; completed work was
+           interrupting the flow of active / future-facing
+           lists. v0.6.16 moves Logbook to the trailing slot
+           so the top tier reads "now → future → past" top
+           to bottom: Inbox, Today, Upcoming, Anytime,
+           Someday, Agenda, Forecast (Builder), Review
+           (Builder), Logbook. Logbook keeps its accent
+           tint and live count badge.</p>
+      </description>
+    </release>
     <release version="0.6.15" date="2026-05-08">
       <description>
         <p>Two debug-surface bugfixes from a v0.6.14 eyes-on
