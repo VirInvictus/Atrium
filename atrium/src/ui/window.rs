@@ -2506,8 +2506,28 @@ impl AtriumWindow {
         let overdue = pool
             .with(|conn| atrium_core::db::read::list_overdue(conn, today))
             .unwrap_or_default();
-        let widget =
-            crate::ui::forecast::build_page(today, &forecast_tasks, &overdue, self.worker());
+        // v0.6.17 — click → open in Inspector. Same shape board /
+        // agenda use; reuses the existing `win.edit-details-for(id)`
+        // action so keyboard shortcut + row click + this callback
+        // all funnel through one path.
+        let weak = self.downgrade();
+        let on_click = move |task_id: i64| {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            let _ = WidgetExt::activate_action(
+                &window,
+                "win.edit-details-for",
+                Some(&task_id.to_variant()),
+            );
+        };
+        let widget = crate::ui::forecast::build_page(
+            today,
+            &forecast_tasks,
+            &overdue,
+            self.worker(),
+            on_click,
+        );
         self.imp().forecast_host.set_child(Some(&widget));
     }
 

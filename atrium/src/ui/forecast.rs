@@ -114,13 +114,21 @@ pub fn group_by_date(
 /// Build the Forecast page widget. Returns a scrollable container
 /// that the window mounts into the content stack's "forecast"
 /// page. Drag-to-reschedule on each day card writes
-/// `scheduled_for` via the supplied `worker`.
-pub fn build_page(
+/// `scheduled_for` via the supplied `worker`. v0.6.17 wires
+/// click-to-open: the supplied `on_row_click` callback fires on
+/// any forecast row activation, mirroring the board and agenda
+/// row callbacks (window.rs hooks it to `win.edit-details-for(id)`
+/// so a single click opens the task in the Inspector).
+pub fn build_page<F>(
     today: NaiveDate,
     forecast_tasks: &[Task],
     overdue_tasks: &[Task],
     worker: Option<WorkerHandle>,
-) -> gtk::Widget {
+    on_row_click: F,
+) -> gtk::Widget
+where
+    F: Fn(i64) + 'static + Clone,
+{
     let body = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(12)
@@ -130,11 +138,17 @@ pub fn build_page(
         .margin_bottom(16)
         .build();
 
-    body.append(&build_overdue_block(overdue_tasks));
+    body.append(&build_overdue_block(overdue_tasks, on_row_click.clone()));
 
     let groups = group_by_date(forecast_tasks, today, FORECAST_WINDOW_DAYS);
     for (date, entries) in groups {
-        body.append(&build_day_card(date, &entries, today, worker.clone()));
+        body.append(&build_day_card(
+            date,
+            &entries,
+            today,
+            worker.clone(),
+            on_row_click.clone(),
+        ));
     }
 
     let scroller = gtk::ScrolledWindow::builder()
@@ -146,7 +160,10 @@ pub fn build_page(
     scroller.upcast()
 }
 
-fn build_overdue_block(tasks: &[Task]) -> gtk::Widget {
+fn build_overdue_block<F>(tasks: &[Task], on_row_click: F) -> gtk::Widget
+where
+    F: Fn(i64) + 'static + Clone,
+{
     let card = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(8)
@@ -206,7 +223,7 @@ fn build_overdue_block(tasks: &[Task]) -> gtk::Widget {
                 task: t.clone(),
                 reason,
             };
-            card.append(&build_entry_row(&entry));
+            card.append(&build_entry_row(&entry, on_row_click.clone()));
         }
         // Bottom padding inside the card.
         let pad = gtk::Box::builder()
@@ -219,12 +236,16 @@ fn build_overdue_block(tasks: &[Task]) -> gtk::Widget {
     card.upcast()
 }
 
-fn build_day_card(
+fn build_day_card<F>(
     date: NaiveDate,
     entries: &[DayEntry],
     today: NaiveDate,
     worker: Option<WorkerHandle>,
-) -> gtk::Widget {
+    on_row_click: F,
+) -> gtk::Widget
+where
+    F: Fn(i64) + 'static + Clone,
+{
     let card = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(6)
@@ -276,7 +297,7 @@ fn build_day_card(
         card.append(&blank);
     } else {
         for entry in entries {
-            card.append(&build_entry_row(entry));
+            card.append(&build_entry_row(entry, on_row_click.clone()));
         }
         let pad = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -314,7 +335,10 @@ fn build_day_card(
 
 /// Compact entry row for a forecast day card. Layout:
 /// `[reason-chip] [title (ellipsised)] [tags? — future polish]`
-fn build_entry_row(entry: &DayEntry) -> gtk::Widget {
+fn build_entry_row<F>(entry: &DayEntry, on_row_click: F) -> gtk::Widget
+where
+    F: Fn(i64) + 'static,
+{
     let row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .spacing(8)
@@ -346,12 +370,30 @@ fn build_entry_row(entry: &DayEntry) -> gtk::Widget {
     }
     row.append(&title);
 
+    let id = entry.task.id;
+
+    // v0.6.17 — click → open in Inspector. Same callback shape
+    // board / agenda use; the window-side closure activates
+    // `win.edit-details-for(id)`. Without this controller the
+    // forecast row was a dead-end visually — drag worked, click
+    // did nothing.
+    let click = gtk::GestureClick::new();
+    click.set_button(gdk::BUTTON_PRIMARY);
+    click.connect_pressed(move |_, n_press, _, _| {
+        if n_press == 1 {
+            on_row_click(id);
+        }
+    });
+    row.add_controller(click);
+
     // Drag source — carry the task id so a day card's drop target
-    // can reschedule.
+    // can reschedule. GTK4's drag threshold lets the GestureClick
+    // above and the DragSource coexist on the same widget — a
+    // press that doesn't drift far enough fires as a click; a
+    // press-and-drag past the threshold initiates the drag.
     let drag_source = gtk::DragSource::builder()
         .actions(gdk::DragAction::MOVE)
         .build();
-    let id = entry.task.id;
     drag_source
         .connect_prepare(move |_, _, _| Some(gdk::ContentProvider::for_value(&id.to_value())));
     row.add_controller(drag_source);

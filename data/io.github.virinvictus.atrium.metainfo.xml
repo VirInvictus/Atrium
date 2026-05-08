@@ -90,6 +90,19 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.17" date="2026-05-08">
+      <description>
+        <p>Forecast view click-to-open. Brandon flagged that
+           clicking a task in Forecast did nothing. The row
+           had a DragSource (so drag-to-reschedule worked)
+           but no GestureClick. v0.6.17 adds the same
+           click-to-Inspector callback the board and agenda
+           rows already use; GTK4's drag-threshold lets the
+           click and drag controllers coexist on the same
+           row. List / kanban / agenda / forecast all open
+           Inspector on single-click now.</p>
+      </description>
+    </release>
     <release version="0.6.16" date="2026-05-08">
       <description>
         <p>Sidebar order — Logbook bookends the top tier.

@@ -1,5 +1,37 @@
 # Atrium — Patch Notes
 
+## v0.6.17 (2026-05-08) — Forecast view: click-to-open
+
+Brandon flagged that clicking a task in the Forecast view did
+nothing. The forecast row had a `gtk::DragSource` (so drag-to-
+reschedule worked) but no `gtk::GestureClick` — the row was a
+visual dead-end for tap-to-open.
+
+v0.6.17 adds the same `on_row_click` callback shape board and
+agenda already use. Single-click on any forecast row (including
+the trailing rows under the Overdue card) activates
+`win.edit-details-for(id)` and opens the task in the Inspector.
+GTK4's drag-threshold means the click + drag controllers
+coexist cleanly: a press that doesn't drift past the threshold
+fires as a click; a press-and-drag past the threshold initiates
+the reschedule drag.
+
+What's in the patch:
+
+- **`atrium/src/ui/forecast.rs`.** `build_page` /
+  `build_overdue_block` / `build_day_card` / `build_entry_row`
+  all gain an `on_row_click: F` parameter (`F: Fn(i64) +
+  'static + Clone`). The callback plumbs from `build_page`
+  through the day cards down to each row's `GestureClick`.
+- **`atrium/src/ui/window.rs::refresh_forecast_page`.** Builds
+  the closure with a `downgrade`d window weak ref and routes
+  through `WidgetExt::activate_action(window, "win.edit-details-for", id)`.
+  Identical pattern to the board and agenda click handlers.
+
+This closes the last "row doesn't open" gap I'm aware of —
+list / kanban / agenda / forecast all open Inspector on
+single-click now.
+
 ## v0.6.16 (2026-05-08) — sidebar order: Logbook bookends the top tier
 
 Brandon flagged that Logbook in the middle of the top-tier set
