@@ -47,7 +47,7 @@ mod output;
 #[cfg(test)]
 mod tests;
 
-use args::{AddArgs, EditArgs, EditProject, Format, Subcommand};
+use args::{AddArgs, EditArgs, EditProject, Format, Subcommand, TargetSpec};
 use output::{Row, format_row, format_rows, format_task_detail};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -102,11 +102,11 @@ fn run(args: args::Args) -> ExitCode {
         Subcommand::Edit { id, edit } => with_writer(&db_path, |handle, conn| {
             run_edit(handle, conn, id, edit, args.format)
         }),
-        Subcommand::Complete { id } => with_writer(&db_path, |handle, conn| {
-            run_complete(handle, conn, id, args.format)
+        Subcommand::Complete { target } => with_writer(&db_path, |handle, conn| {
+            run_complete(handle, conn, target, args.format)
         }),
-        Subcommand::Delete { id } => with_writer(&db_path, |handle, conn| {
-            run_delete(handle, conn, id, args.format)
+        Subcommand::Delete { target, force } => with_writer(&db_path, |handle, conn| {
+            run_delete(handle, conn, target, force, args.format)
         }),
     }
 }
@@ -553,6 +553,18 @@ fn apply_tag_diff(
 fn run_complete(
     handle: &atrium_core::WorkerHandle,
     read_conn: &Connection,
+    target: TargetSpec,
+    format: Format,
+) -> CliResult<()> {
+    match target {
+        TargetSpec::Id(id) => run_complete_one(handle, read_conn, id, format),
+        TargetSpec::Where(expr) => run_complete_bulk(handle, read_conn, &expr, format),
+    }
+}
+
+fn run_complete_one(
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
     id: i64,
     format: Format,
 ) -> CliResult<()> {
@@ -575,7 +587,49 @@ fn run_complete(
     Ok(())
 }
 
+/// `complete --where EXPR` — toggle each task matching the search
+/// expression. Same semantics as multi-select bulk-complete in the
+/// GUI: each task is toggled independently, so a mix of open/done
+/// rows would invert each. For "mark these done" specifically,
+/// users compose `is:open AND ...` into the where clause.
+fn run_complete_bulk(
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
+    expr: &str,
+    format: Format,
+) -> CliResult<()> {
+    let matched = resolve_matching_tasks(read_conn, expr)?;
+    if matched.is_empty() {
+        eprintln!("no tasks matched the expression");
+        return Ok(());
+    }
+    let runtime = tokio::runtime::Handle::current();
+    let mut after: Vec<atrium_core::Task> = Vec::with_capacity(matched.len());
+    for task in &matched {
+        let toggled = runtime
+            .block_on(async { handle.toggle_complete(task.id).await })
+            .map_err(CliError::from)?;
+        after.push(toggled);
+    }
+    let ctx_data = ContextData::load(read_conn)?;
+    print_tasks(&after, &ctx_data, format);
+    Ok(())
+}
+
 fn run_delete(
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
+    target: TargetSpec,
+    force: bool,
+    format: Format,
+) -> CliResult<()> {
+    match target {
+        TargetSpec::Id(id) => run_delete_one(handle, read_conn, id, format),
+        TargetSpec::Where(expr) => run_delete_bulk(handle, read_conn, &expr, force, format),
+    }
+}
+
+fn run_delete_one(
     handle: &atrium_core::WorkerHandle,
     read_conn: &Connection,
     id: i64,
@@ -594,6 +648,58 @@ fn run_delete(
         .map_err(CliError::from)?;
     print_single_row(&task, &row, format);
     Ok(())
+}
+
+/// `delete --where EXPR [--force]` — destructive bulk. Without
+/// `--force` we run in dry-run mode: print the rows that *would*
+/// be deleted and exit with status 2 so a calling script can
+/// review the output and re-run with `--force` to commit.
+fn run_delete_bulk(
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
+    expr: &str,
+    force: bool,
+    format: Format,
+) -> CliResult<()> {
+    let matched = resolve_matching_tasks(read_conn, expr)?;
+    if matched.is_empty() {
+        eprintln!("no tasks matched the expression");
+        return Ok(());
+    }
+    let ctx_data = ContextData::load(read_conn)?;
+    if !force {
+        eprintln!(
+            "would delete {} task(s); pass --force to actually delete:",
+            matched.len()
+        );
+        print_tasks(&matched, &ctx_data, format);
+        return Err(CliError::DryRun(matched.len()));
+    }
+    let runtime = tokio::runtime::Handle::current();
+    for task in &matched {
+        runtime
+            .block_on(async { handle.delete_task(task.id).await })
+            .map_err(CliError::from)?;
+    }
+    print_tasks(&matched, &ctx_data, format);
+    Ok(())
+}
+
+/// Run a search expression against the full task set and return
+/// the matches. Shared by complete --where and delete --where.
+fn resolve_matching_tasks(read_conn: &Connection, expr: &str) -> CliResult<Vec<Task>> {
+    let parsed = atrium_search::parse(expr).map_err(|e| CliError::Search(format!("{e:?}")))?;
+    if !parsed.warnings.is_empty() {
+        for w in &parsed.warnings {
+            eprintln!("warning: unrecognised token: {w}");
+        }
+    }
+    let today = Local::now().date_naive();
+    let ctx_data = ContextData::load(read_conn)?;
+    let ctx = ctx_data.eval_context(today);
+    let mut tasks = read::list_all_tasks(read_conn).map_err(CliError::from)?;
+    tasks.retain(|t| atrium_search::evaluate(&parsed.expr, t, &ctx));
+    Ok(tasks)
 }
 
 fn print_single_row(task: &Task, row: &Row, format: Format) {
@@ -868,6 +974,11 @@ enum CliError {
     Search(String),
     Db(atrium_core::DbError),
     NotFound(i64),
+    /// `delete --where EXPR` ran without `--force`. Carries the
+    /// match count so the message is concrete; UnwrapOrExitCode
+    /// maps this to exit status 2 so a script can branch on it
+    /// (vs status 1 for real failures).
+    DryRun(usize),
 }
 
 impl From<atrium_core::DbError> for CliError {
@@ -883,6 +994,7 @@ impl std::fmt::Display for CliError {
             CliError::Search(m) => write!(f, "search expression: {m}"),
             CliError::Db(e) => write!(f, "database: {e}"),
             CliError::NotFound(id) => write!(f, "task {id} not found"),
+            CliError::DryRun(n) => write!(f, "dry run: {n} task(s) would be deleted"),
         }
     }
 }
@@ -897,6 +1009,11 @@ impl UnwrapOrExitCode for CliResult<()> {
     fn unwrap_or_exit_code(self) -> ExitCode {
         match self {
             Ok(()) => ExitCode::SUCCESS,
+            // DryRun is an explicit "no work was done because the
+            // user didn't pass --force" — exit 2 so a script can
+            // distinguish it from a real error (1) or success (0).
+            // The diagnostic was already printed inline.
+            Err(CliError::DryRun(_)) => ExitCode::from(2),
             Err(e) => {
                 eprintln!("error: {e}");
                 ExitCode::from(1)

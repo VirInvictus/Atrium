@@ -65,8 +65,17 @@ WRITE SUBCOMMANDS:
                       you pass change.
     complete ID       toggle a task's completion (same as the GTK
                       checkbox; calling twice un-completes).
+    complete --where EXPR
+                      toggle completion for every task matching the
+                      search expression. Prints each affected row.
     delete ID         delete a task. Prints the row before deletion
                       so the deletion is auditable in pipelines.
+    delete --where EXPR --force
+                      delete every task matching the search
+                      expression. Requires --force to actually
+                      delete; without it, prints the would-be-
+                      deleted rows and exits with status 2 so a
+                      script can review-then-confirm.
 
 EXAMPLES:
     atrium-cli list today
@@ -84,6 +93,9 @@ EXAMPLES:
     atrium-cli edit 42 --tag urgent --remove-tag stale
     atrium-cli edit 42 --clear-tags --tag work    # replace whole set
     atrium-cli complete 42
+    atrium-cli complete --where 'is:overdue AND tag:work'
+    atrium-cli delete --where 'is:done AND completed:<lastmonth'   # dry run
+    atrium-cli delete --where 'is:done AND completed:<lastmonth' --force
     atrium-cli list tags --json | jq '.[] | .name'
 ";
 
@@ -125,12 +137,29 @@ pub enum Subcommand {
         id: i64,
         edit: EditArgs,
     },
+    /// Toggle completion. `target` is either a single task id or a
+    /// search expression; bulk-complete walks every match and
+    /// toggles each in turn (matching the GUI's multi-select bulk
+    /// shape).
     Complete {
-        id: i64,
+        target: TargetSpec,
     },
+    /// Delete one or many. `force` only applies to bulk deletes —
+    /// without it, `--where` runs in dry-run mode (prints what
+    /// would be deleted, exits status 2).
     Delete {
-        id: i64,
+        target: TargetSpec,
+        force: bool,
     },
+}
+
+/// "What does this command operate on?" — either an explicit task
+/// id or a saved-shape search expression. Mutually exclusive at
+/// parse time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TargetSpec {
+    Id(i64),
+    Where(String),
 }
 
 /// Flag values for the `edit` subcommand. Each `Option<String>` is
@@ -312,22 +341,12 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
             Subcommand::Edit { id, edit }
         }
         "complete" | "done" | "toggle" => {
-            let id_str = raw.get(i).ok_or("complete requires a task id")?;
-            i += 1;
-            let id: i64 = id_str
-                .parse()
-                .map_err(|_| format!("invalid task id: {id_str}"))?;
-            apply_trailing_flags(&raw[i..], &mut args)?;
-            Subcommand::Complete { id }
+            let (target, _force) = parse_target_and_flags(&raw[i..], false, &mut args)?;
+            Subcommand::Complete { target }
         }
         "delete" | "rm" => {
-            let id_str = raw.get(i).ok_or("delete requires a task id")?;
-            i += 1;
-            let id: i64 = id_str
-                .parse()
-                .map_err(|_| format!("invalid task id: {id_str}"))?;
-            apply_trailing_flags(&raw[i..], &mut args)?;
-            Subcommand::Delete { id }
+            let (target, force) = parse_target_and_flags(&raw[i..], true, &mut args)?;
+            Subcommand::Delete { target, force }
         }
         other => return Err(format!("unknown subcommand: {other}")),
     });
@@ -423,6 +442,88 @@ fn parse_add(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
         return Err("add requires a title".into());
     }
     Ok(Subcommand::Add(add))
+}
+
+/// Parse the rest-of-argv for a `complete` or `delete` subcommand.
+/// Returns the resolved `TargetSpec` (either an explicit task id
+/// or a `--where EXPR` search expression) and the `force` boolean
+/// (only meaningful for `delete`; ignored by `complete`).
+///
+/// The two forms are mutually exclusive: either pass an id as the
+/// first positional, or pass `--where EXPR` (where EXPR can span
+/// multiple non-flag tokens, like `search`). `--force` is only
+/// recognised when `accept_force` is true.
+fn parse_target_and_flags(
+    rest: &[String],
+    accept_force: bool,
+    args: &mut Args,
+) -> Result<(TargetSpec, bool), String> {
+    let mut id: Option<i64> = None;
+    let mut where_words: Vec<String> = Vec::new();
+    let mut where_active = false;
+    let mut force = false;
+    let mut i = 0;
+    while i < rest.len() {
+        let tok = rest[i].as_str();
+        match tok {
+            "--where" | "--filter" => {
+                i += 1;
+                where_active = true;
+            }
+            "--force" | "--yes" if accept_force => {
+                force = true;
+                i += 1;
+                where_active = false;
+            }
+            "--json" => {
+                args.format = Format::Json;
+                i += 1;
+                where_active = false;
+            }
+            "--tsv" => {
+                args.format = Format::Tsv;
+                i += 1;
+                where_active = false;
+            }
+            "--human" => {
+                args.format = Format::Human;
+                i += 1;
+                where_active = false;
+            }
+            "--db" => {
+                i += 1;
+                let path = rest.get(i).ok_or("--db requires a path argument")?;
+                args.db_path = Some(PathBuf::from(path));
+                i += 1;
+                where_active = false;
+            }
+            other if other.starts_with("--") => return Err(format!("unknown flag: {other}")),
+            // Positional: first non-flag is the id when --where
+            // hasn't been seen, otherwise it's a where-expression word.
+            _ => {
+                if where_active {
+                    where_words.push(rest[i].clone());
+                    i += 1;
+                } else if id.is_none() {
+                    id = Some(
+                        rest[i]
+                            .parse::<i64>()
+                            .map_err(|_| format!("invalid task id: {}", rest[i]))?,
+                    );
+                    i += 1;
+                } else {
+                    return Err(format!("unexpected positional: {}", rest[i]));
+                }
+            }
+        }
+    }
+    let target = match (id, where_words.is_empty()) {
+        (Some(_), false) => return Err("pass either an id or --where EXPR, not both".into()),
+        (Some(id), true) => TargetSpec::Id(id),
+        (None, false) => TargetSpec::Where(where_words.join(" ")),
+        (None, true) => return Err("requires a task id or --where EXPR".into()),
+    };
+    Ok((target, force))
 }
 
 /// Walk argv after `edit ID` pulling out per-field flags. Each flag

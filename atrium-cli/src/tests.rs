@@ -6,7 +6,7 @@
 //! database, which is more painful than scripting `atrium-cli` for
 //! the same coverage.
 
-use crate::args::{AddArgs, EditArgs, EditProject, Format, Subcommand, parse};
+use crate::args::{AddArgs, EditArgs, EditProject, Format, Subcommand, TargetSpec, parse};
 use crate::output::{Row, format_row, format_rows, format_rows_human, row_to_json, rows_to_json};
 
 fn s(args: &[&str]) -> Vec<String> {
@@ -462,7 +462,12 @@ fn touches_tags_false_when_no_tag_flags() {
 #[test]
 fn parse_complete_takes_id() {
     let a = parse(&s(&["complete", "42"])).unwrap();
-    assert_eq!(a.subcommand, Some(Subcommand::Complete { id: 42 }));
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Complete {
+            target: TargetSpec::Id(42)
+        })
+    );
 }
 
 #[test]
@@ -470,25 +475,38 @@ fn parse_complete_aliases() {
     // `done` and `toggle` route to the same Complete branch.
     assert_eq!(
         parse(&s(&["done", "7"])).unwrap().subcommand,
-        Some(Subcommand::Complete { id: 7 })
+        Some(Subcommand::Complete {
+            target: TargetSpec::Id(7)
+        })
     );
     assert_eq!(
         parse(&s(&["toggle", "7"])).unwrap().subcommand,
-        Some(Subcommand::Complete { id: 7 })
+        Some(Subcommand::Complete {
+            target: TargetSpec::Id(7)
+        })
     );
 }
 
 #[test]
 fn parse_delete_takes_id() {
     let a = parse(&s(&["delete", "42"])).unwrap();
-    assert_eq!(a.subcommand, Some(Subcommand::Delete { id: 42 }));
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Delete {
+            target: TargetSpec::Id(42),
+            force: false
+        })
+    );
 }
 
 #[test]
 fn parse_delete_rm_alias() {
     assert_eq!(
         parse(&s(&["rm", "9"])).unwrap().subcommand,
-        Some(Subcommand::Delete { id: 9 })
+        Some(Subcommand::Delete {
+            target: TargetSpec::Id(9),
+            force: false
+        })
     );
 }
 
@@ -496,6 +514,99 @@ fn parse_delete_rm_alias() {
 fn parse_complete_invalid_id_errors() {
     let err = parse(&s(&["complete", "not-a-number"])).unwrap_err();
     assert!(err.contains("invalid task id"));
+}
+
+// ── Bulk --where ────────────────────────────────────────────────
+
+#[test]
+fn parse_complete_with_where_expression() {
+    let a = parse(&s(&[
+        "complete",
+        "--where",
+        "tag:work",
+        "AND",
+        "is:overdue",
+    ]))
+    .unwrap();
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Complete {
+            target: TargetSpec::Where("tag:work AND is:overdue".into())
+        })
+    );
+}
+
+#[test]
+fn parse_complete_where_alias_filter() {
+    let a = parse(&s(&["complete", "--filter", "is:overdue"])).unwrap();
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Complete {
+            target: TargetSpec::Where("is:overdue".into())
+        })
+    );
+}
+
+#[test]
+fn parse_delete_with_where_default_no_force() {
+    let a = parse(&s(&["delete", "--where", "is:done"])).unwrap();
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Delete {
+            target: TargetSpec::Where("is:done".into()),
+            force: false
+        })
+    );
+}
+
+#[test]
+fn parse_delete_with_where_and_force() {
+    let a = parse(&s(&["delete", "--where", "is:done", "--force"])).unwrap();
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Delete {
+            target: TargetSpec::Where("is:done".into()),
+            force: true
+        })
+    );
+}
+
+#[test]
+fn parse_delete_yes_aliases_force() {
+    let a = parse(&s(&["delete", "--where", "is:done", "--yes"])).unwrap();
+    let Some(Subcommand::Delete { force, .. }) = a.subcommand else {
+        panic!("expected Delete");
+    };
+    assert!(force);
+}
+
+#[test]
+fn parse_complete_force_flag_unrecognised() {
+    // --force is delete-only; complete shouldn't accept it.
+    let err = parse(&s(&["complete", "--where", "is:overdue", "--force"])).unwrap_err();
+    assert!(err.contains("unknown flag"));
+}
+
+#[test]
+fn parse_complete_id_and_where_mutually_exclusive() {
+    let err = parse(&s(&["complete", "42", "--where", "is:overdue"])).unwrap_err();
+    assert!(err.contains("either"));
+}
+
+#[test]
+fn parse_complete_no_target_errors() {
+    let err = parse(&s(&["complete"])).unwrap_err();
+    assert!(err.contains("task id") || err.contains("--where"));
+}
+
+#[test]
+fn parse_delete_with_where_and_format_flag() {
+    let a = parse(&s(&["delete", "--where", "is:done", "--force", "--json"])).unwrap();
+    assert_eq!(a.format, Format::Json);
+    let Some(Subcommand::Delete { force, .. }) = a.subcommand else {
+        panic!("expected Delete");
+    };
+    assert!(force);
 }
 
 #[test]
