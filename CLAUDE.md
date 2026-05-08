@@ -12,7 +12,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Phase 15.5 shipped at v0.4.0 (May 2026).** Calibre-powered search: the search bar's flat filter language grew into a full expression grammar — boolean operators (AND / OR / NOT, `NOT > AND > OR` precedence), parens grouping, comparison + range operators on date and numeric fields, date keywords (`thisweek`, `5daysago`, etc.), state predicates (`is:overdue`, `is:repeating`, etc.), and Calibre-style match modifiers (`tag:x` substring, `tag:=x` exact, `tag:~regex`, `tag:true`/false). Saved Perspectives inherit the new grammar for free since they store filter expressions verbatim. Full reference in `spec.md` §4.3.
 
-**Search engine v0.4.x patch sequence in flight (May 2026).** v0.4.1 closed the Phase 15.5 deferred-list: canonical-list state predicates (`is:today` / `is:inbox` / `is:upcoming` / `is:anytime` / `is:someday`), `sort:KEY` / `sort:-KEY` modifier with primary→secondary composition, ↑/↓ search history (in-memory ring buffer, 20 entries), `?` operator-reference popover on the search bar, and the `tag:?word` fuzzy modifier (Damerau-Levenshtein with length-aware threshold). v0.4.2 extracted the engine into its own `atrium-search` workspace crate so the parser/evaluator live independently of the GTK binary and the SQLite layer. v0.4.3 (SQL pushdown for the predicates SQLite can express) and v0.4.4 (FTS5 bm25 + recency ranking on bare-text searches) remain.
+**Search engine v0.4.x patch sequence in flight (May 2026).** v0.4.1 closed the Phase 15.5 deferred-list: canonical-list state predicates (`is:today` / `is:inbox` / `is:upcoming` / `is:anytime` / `is:someday`), `sort:KEY` / `sort:-KEY` modifier with primary→secondary composition, ↑/↓ search history (in-memory ring buffer, 20 entries), `?` operator-reference popover on the search bar, and the `tag:?word` fuzzy modifier (Damerau-Levenshtein with length-aware threshold). v0.4.2 extracted the engine into its own `atrium-search` workspace crate so the parser/evaluator live independently of the GTK binary and the SQLite layer. v0.4.3 added `atrium-cli` — a headless binary that exercises the search engine and canonical lists from the shell (TSV by default for `cut`/`grep`, `--json` for `jq`, `--human` for terminal viewing); it opens the database read-only and never touches the worker channel, so any CLI invocation is a guaranteed-safe peek. SQL pushdown for the predicates SQLite can express, and FTS5 bm25 + recency ranking on bare-text searches, remain on the v0.4.x deferred list.
+
+**Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines are all designed so they can be exercised through `atrium-cli` (or future siblings like `atrium-import`, `atrium-export`). The 2.0-era TUI (`atrium-tui`) is the same shape: another headless consumer of `atrium-core` + `atrium-search`. Don't add functionality to the GTK binary that can't be reached from the shell.
 
 **Phase 16 (Things 3 import) is what's next** — JSON via the `things:///add-json` URL scheme; importer module at `atrium-core/src/import/things3.rs`; mapping table per `spec.md` §7.
 
@@ -145,7 +147,7 @@ When implementing the data layer, **`~/.gitrepos/Viaduct/`** is the reference fo
 
 ## Codebase map (current — v0.4.x)
 
-Three workspace crates split by responsibility. The data layer (`atrium-core`) and the search engine (`atrium-search`, extracted v0.4.2) both stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them without dragging GTK along.
+Four workspace crates split by responsibility. The data layer (`atrium-core`), the search engine (`atrium-search`, extracted v0.4.2), and the headless CLI (`atrium-cli`, added v0.4.3) all stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them without dragging GTK along.
 
 ```
 atrium-search/                        ← Calibre-powered search engine (v0.4.2 — extracted from atrium-core)
@@ -155,6 +157,12 @@ atrium-search/                        ← Calibre-powered search engine (v0.4.2 
 ├── src/ast.rs                        ← Expr + Field + State + MatchKind + Comparator + Value + DateKeyword + SortSpec
 ├── src/eval.rs                       ← in-memory evaluator + EvalContext (lazy regex cache, Damerau-Levenshtein for fuzzy)
 └── src/tests.rs                      ← integration tests (parse + eval round-trips)
+
+atrium-cli/                           ← headless CLI (v0.4.3 — search + list + info from the shell)
+├── src/main.rs                       ← subcommand dispatch, DB open (read-only), EvalContext build
+├── src/args.rs                       ← stdlib argv parser; Args / Format / Subcommand types
+├── src/output.rs                     ← TSV / JSON / human-readable formatters
+└── src/tests.rs                      ← argv parsing + output formatting tests
 
 atrium-core/                          ← headless data layer
 ├── src/lib.rs                        ← re-exports (Task / WorkerHandle / RepeatRule / …)

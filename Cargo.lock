@@ -55,6 +55,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "atrium-cli"
+version = "0.4.0"
+dependencies = [
+ "atrium-core",
+ "atrium-search",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "atrium-core"
 version = "0.4.0"
 dependencies = [
