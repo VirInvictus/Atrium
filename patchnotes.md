@@ -1,5 +1,32 @@
 # Atrium — Patch Notes
 
+## v0.6.9 (2026-05-08) — fix two startup-log warnings
+
+Brandon ran the v0.6.8 binary and surfaced two real warnings in
+the log that were going unnoticed in CI:
+
+- **CSS theme parser error at `style.css:488`.** A no-op
+  placeholder rule from v0.6.1 used `:not(:last-child)::after`,
+  which GTK4's CSS doesn't recognise (`:not()` and pseudo-element
+  combinators differ from browser CSS). The rule never rendered
+  anything anyway — replaced with a one-line comment explaining
+  that visual separation between metadata segments comes from
+  the parent box's spacing, not a pseudo-element.
+
+- **Search bar warning on every keystroke.** GTK was emitting
+  *"The search bar does not have an entry connected to it. Call
+  `gtk_search_bar_connect_entry()` to connect one."* on every
+  captured key event. The fix is a one-liner — `bar.connect_entry(&entry)`
+  in `wire_search_bar`. This had been missing because the entry
+  lives inside a wrapper Box (so the `?` help button can sit
+  alongside it), and `GtkSearchBar` only auto-discovers an entry
+  that's a direct child. Without the explicit connection, the
+  bar's `key-capture-widget=task_list_view` had nowhere to route
+  forwarded keystrokes — they fell through and the warning fired.
+
+Both fixes are surgical and surfaced no other warnings in the
+log Brandon shared.
+
 ## v0.6.8 (2026-05-08) — v0.6.x cleanup pass: docs catch-up + small code hygiene
 
 End-of-session maintenance pass. Eleven v0.6.x releases shipped

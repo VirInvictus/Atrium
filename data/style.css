@@ -485,10 +485,8 @@ window.atrium-quickentry-window {
   font-size: 0.85em;
   margin-top: 2px;
 }
-.atrium-board-row-meta > .atrium-board-row-project:not(:last-child)::after,
-.atrium-board-row-meta > .atrium-board-row-date:not(:last-child)::after {
-  /* Note: pseudo-elements aren't actually rendered by Adwaita's
-   * label, so the visual separation comes from the spacing between
-   * boxed children. Keep this rule as a no-op placeholder so a
-   * future styling tweak can land cleanly. */
-}
+/* Visual separation between metadata segments (project · date · tags)
+ * comes from the spacing between boxed children, not a CSS pseudo-
+ * element — GTK4's CSS doesn't render `::after` on label widgets
+ * the way browser CSS does. Adjust spacing on the parent box if
+ * the layout needs more breathing room. */

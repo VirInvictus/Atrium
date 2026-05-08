@@ -90,6 +90,21 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.6.9" date="2026-05-08">
+      <description>
+        <p>Two startup-log warning fixes surfaced by an
+           eyes-on test of v0.6.8. A no-op placeholder CSS rule
+           (v0.6.1) used a pseudo-element selector GTK4 doesn't
+           recognise — replaced with a comment, since the rule
+           never rendered anything. And the main search bar's
+           SearchEntry wasn't explicitly connected to the
+           SearchBar (it lives inside a wrapper Box for the `?`
+           help button, so auto-discovery missed it), causing
+           a "search bar does not have an entry connected"
+           warning on every key event. One-line
+           `bar.connect_entry(&entry)` fix.</p>
+      </description>
+    </release>
     <release version="0.6.8" date="2026-05-08">
       <description>
         <p>v0.6.x cleanup pass — end-of-session maintenance.

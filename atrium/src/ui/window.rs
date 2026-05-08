@@ -2852,6 +2852,17 @@ impl AtriumWindow {
         let button = self.imp().search_button.clone();
         let help_button = self.imp().search_help_button.clone();
 
+        // v0.6.9 — register the SearchEntry as the bar's input. GTK
+        // emits "The search bar does not have an entry connected to
+        // it. Call gtk_search_bar_connect_entry() to connect one."
+        // on every captured key event when this isn't done. The
+        // `key-capture-widget=task_list_view` property on the bar
+        // forwards keystrokes; without `connect_entry` they have
+        // nowhere to land. Our entry sits inside a wrapper Box (so
+        // the `?` help button can sit alongside), so the bar can't
+        // auto-discover it as a direct child.
+        bar.connect_entry(&entry);
+
         // Hook the toggle button to the search bar's search-mode.
         button
             .bind_property("active", &bar, "search-mode-enabled")
