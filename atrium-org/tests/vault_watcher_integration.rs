@@ -171,6 +171,46 @@ async fn external_edit_completes_db_task() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn external_add_under_subheading_creates_db_task() {
+    // Regression for the flatten_one early-return: TODOs nested
+    // under a non-keyword heading must still flow into the DB.
+    // The import path already handled this; the watcher used to
+    // bail on the first non-keyword headline and silently drop
+    // every TODO underneath.
+    let (conn, vault, pool) = fresh_setup("ext-add-subheading");
+    let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
+
+    let project_path = vault.join("Errands.org");
+    let existing = std::fs::read_to_string(&project_path).unwrap();
+    let appended = format!("{existing}\n* Backlog\n** TODO Real task under heading\n");
+    std::fs::write(&project_path, appended).unwrap();
+
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let tasks = pool
+        .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+        .unwrap();
+    let titles: Vec<&str> = tasks.iter().map(|t| t.title.as_str()).collect();
+    assert!(
+        titles.contains(&"Real task under heading"),
+        "TODO under sub-heading should land in DB; got: {titles:?}"
+    );
+    // The new task attaches at project root (parent_id = None) —
+    // sub-headings are organisational, not structural.
+    let new_task = tasks
+        .iter()
+        .find(|t| t.title == "Real task under heading")
+        .unwrap();
+    assert!(
+        new_task.parent_id.is_none(),
+        "tasks under a sub-heading should attach at project level, not under a parent task"
+    );
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&vault);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn external_delete_removes_db_task() {
     let (conn, vault, pool) = fresh_setup("ext-delete");
     let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;

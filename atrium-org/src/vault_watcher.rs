@@ -378,13 +378,17 @@ fn flatten_with_uuids(headlines: &[OrgTask]) -> Vec<ParsedTask<'_>> {
 }
 
 fn flatten_one<'a>(task: &'a OrgTask, parent_uuid: Option<String>, out: &mut Vec<ParsedTask<'a>>) {
-    // Project sub-headings (no keyword) aren't tasks — they're
-    // structural. v0.10.0 skips them; the writer round-trips them
-    // through the existing `Heading` table path. Future work: sync
-    // them too.
-    if task.keyword.is_none() {
+    // Headlines without a TODO keyword are project sub-headings:
+    // organisational, not structural. They aren't tasks themselves,
+    // but TODOs nested under them are real tasks and attach at the
+    // same parent level as the heading. Mirrors the import path's
+    // treatment in `org::import::import_task`.
+    let Some(_) = task.keyword else {
+        for child in &task.children {
+            flatten_one(child, parent_uuid.clone(), out);
+        }
         return;
-    }
+    };
     let uuid = match task.properties.get("ID") {
         Some(id) if !id.is_empty() => id.clone(),
         _ => Uuid::new_v4().to_string(),
