@@ -208,22 +208,26 @@ const INLINE_PER_CELL: usize = 3;
 /// Callback bundle for the calendar page. `on_prev` / `on_next` /
 /// `on_today` drive the nav header; `on_pick_month(year, month)`
 /// opens the month picker; `on_row_click(task_id)` opens a task in
-/// the inspector when clicked inside an overflow popover. Bundled
-/// so [`build_page`]'s argument list stays under clippy's
-/// `too_many_arguments` threshold.
-pub struct CalendarCallbacks<PrevFn, NextFn, TodayFn, PickFn, RowFn>
+/// the inspector when clicked inside an overflow popover; and
+/// `on_day_drill(date)` fires on a double-click anywhere in a
+/// cell so the caller can swap the content pane to a date-scoped
+/// view. Bundled so [`build_page`]'s argument list stays under
+/// clippy's `too_many_arguments` threshold.
+pub struct CalendarCallbacks<PrevFn, NextFn, TodayFn, PickFn, RowFn, DrillFn>
 where
     PrevFn: Fn() + 'static + Clone,
     NextFn: Fn() + 'static + Clone,
     TodayFn: Fn() + 'static,
     PickFn: Fn(i32, u32) + 'static,
     RowFn: Fn(i64) + 'static + Clone,
+    DrillFn: Fn(NaiveDate) + 'static + Clone,
 {
     pub on_prev: PrevFn,
     pub on_next: NextFn,
     pub on_today: TodayFn,
     pub on_pick_month: PickFn,
     pub on_row_click: RowFn,
+    pub on_day_drill: DrillFn,
 }
 
 /// Build the calendar page widget for the month containing
@@ -232,12 +236,12 @@ where
 /// [`CalendarCallbacks`]. `worker`, when present, enables drag-
 /// to-reschedule between days; `None` keeps the page read-only
 /// (used by tests / future read-only contexts).
-pub fn build_page<PrevFn, NextFn, TodayFn, PickFn, RowFn>(
+pub fn build_page<PrevFn, NextFn, TodayFn, PickFn, RowFn, DrillFn>(
     viewed: NaiveDate,
     today: NaiveDate,
     tasks: &[Task],
     worker: Option<WorkerHandle>,
-    cb: CalendarCallbacks<PrevFn, NextFn, TodayFn, PickFn, RowFn>,
+    cb: CalendarCallbacks<PrevFn, NextFn, TodayFn, PickFn, RowFn, DrillFn>,
 ) -> gtk::Widget
 where
     PrevFn: Fn() + 'static + Clone,
@@ -245,6 +249,7 @@ where
     TodayFn: Fn() + 'static,
     PickFn: Fn(i32, u32) + 'static,
     RowFn: Fn(i64) + 'static + Clone,
+    DrillFn: Fn(NaiveDate) + 'static + Clone,
 {
     let CalendarCallbacks {
         on_prev,
@@ -252,6 +257,7 @@ where
         on_today,
         on_pick_month,
         on_row_click,
+        on_day_drill,
     } = cb;
     let grid = build_month_grid(viewed, today, tasks);
 
@@ -273,7 +279,7 @@ where
         on_pick_month,
     ));
     body.append(&build_weekday_strip());
-    body.append(&build_grid(&grid, worker, on_row_click));
+    body.append(&build_grid(&grid, worker, on_row_click, on_day_drill));
 
     let scroller = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
@@ -461,9 +467,15 @@ fn build_weekday_strip() -> gtk::Widget {
     strip.upcast()
 }
 
-fn build_grid<F>(grid: &MonthGrid, worker: Option<WorkerHandle>, on_row_click: F) -> gtk::Widget
+fn build_grid<F, DrillFn>(
+    grid: &MonthGrid,
+    worker: Option<WorkerHandle>,
+    on_row_click: F,
+    on_day_drill: DrillFn,
+) -> gtk::Widget
 where
     F: Fn(i64) + 'static + Clone,
+    DrillFn: Fn(NaiveDate) + 'static + Clone,
 {
     let g = gtk::Grid::builder()
         .row_homogeneous(true)
@@ -477,7 +489,12 @@ where
     for (row_i, week) in grid.weeks.iter().enumerate() {
         for (col, cell) in week.iter().enumerate() {
             g.attach(
-                &build_cell(cell, worker.clone(), on_row_click.clone()),
+                &build_cell(
+                    cell,
+                    worker.clone(),
+                    on_row_click.clone(),
+                    on_day_drill.clone(),
+                ),
                 col as i32,
                 row_i as i32,
                 1,
@@ -488,9 +505,15 @@ where
     g.upcast()
 }
 
-fn build_cell<F>(cell: &DayCell, worker: Option<WorkerHandle>, on_row_click: F) -> gtk::Widget
+fn build_cell<F, DrillFn>(
+    cell: &DayCell,
+    worker: Option<WorkerHandle>,
+    on_row_click: F,
+    on_day_drill: DrillFn,
+) -> gtk::Widget
 where
     F: Fn(i64) + 'static + Clone,
+    DrillFn: Fn(NaiveDate) + 'static + Clone,
 {
     let card = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -554,7 +577,7 @@ where
             .css_classes(["flat", "caption"])
             .halign(gtk::Align::Start)
             .build();
-        let pop = build_overflow_popover(&cell.tasks[INLINE_PER_CELL..], on_row_click);
+        let pop = build_overflow_popover(&cell.tasks[INLINE_PER_CELL..], on_row_click.clone());
         more_btn.set_popover(Some(&pop));
         card.append(&more_btn);
     }
@@ -567,7 +590,110 @@ where
         attach_drop_target_for_date(&card, cell.date, worker);
     }
 
+    // Click gestures — single click pops a "day's tasks"
+    // overview popover (handy when there are 0..3 tasks and the
+    // "+N more" affordance never appears); double click drills
+    // into a date-scoped search so the user can edit the tasks
+    // in the standard list view.
+    attach_day_click_handlers(
+        &card,
+        cell.date,
+        cell.tasks.clone(),
+        on_row_click,
+        on_day_drill,
+    );
+
     card.upcast()
+}
+
+/// Single-click → popover with the day's tasks; double-click →
+/// invoke `on_day_drill(date)` so the caller can swap the
+/// content pane to a date-scoped view. The popover anchors to
+/// the cell card, so successive clicks on the same cell stay
+/// on screen until the user dismisses.
+fn attach_day_click_handlers<F, DrillFn>(
+    card: &gtk::Box,
+    date: NaiveDate,
+    tasks_for_day: Vec<Task>,
+    on_row_click: F,
+    on_day_drill: DrillFn,
+) where
+    F: Fn(i64) + 'static + Clone,
+    DrillFn: Fn(NaiveDate) + 'static + Clone,
+{
+    let click = gtk::GestureClick::new();
+    click.set_button(gdk::BUTTON_PRIMARY);
+    let card_weak = card.downgrade();
+    let on_row_click = on_row_click.clone();
+    click.connect_pressed(move |_, n_press, _, _| {
+        match n_press {
+            2 => on_day_drill(date),
+            1 => {
+                // Single click: anchor a popover to the card
+                // and show the day's tasks inline. Empty days
+                // still pop a "Nothing scheduled" affordance —
+                // confirms the user clicked a real day, not a
+                // gutter.
+                let Some(card) = card_weak.upgrade() else {
+                    return;
+                };
+                let pop = build_day_popover(date, &tasks_for_day, on_row_click.clone());
+                pop.set_parent(&card);
+                pop.popup();
+            }
+            _ => {}
+        }
+    });
+    card.add_controller(click);
+}
+
+fn build_day_popover<F>(date: NaiveDate, tasks: &[Task], on_row_click: F) -> gtk::Popover
+where
+    F: Fn(i64) + 'static + Clone,
+{
+    let pop = gtk::Popover::builder().build();
+    let body = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(4)
+        .margin_start(8)
+        .margin_end(8)
+        .margin_top(8)
+        .margin_bottom(8)
+        .build();
+    let header = gtk::Label::builder()
+        .label(date.format("%A, %B %-d, %Y").to_string())
+        .css_classes(["heading"])
+        .halign(gtk::Align::Start)
+        .build();
+    body.append(&header);
+    if tasks.is_empty() {
+        let empty = gtk::Label::builder()
+            .label("Nothing scheduled.")
+            .css_classes(["dim-label", "caption"])
+            .halign(gtk::Align::Start)
+            .build();
+        body.append(&empty);
+    } else {
+        for task in tasks {
+            let id = task.id;
+            let btn = gtk::Button::builder()
+                .label(&task.title)
+                .css_classes(["flat"])
+                .halign(gtk::Align::Start)
+                .build();
+            let cb = on_row_click.clone();
+            let pop_weak = pop.downgrade();
+            btn.connect_clicked(move |_| {
+                cb(id);
+                if let Some(p) = pop_weak.upgrade() {
+                    p.popdown();
+                }
+            });
+            body.append(&btn);
+        }
+    }
+    pop.set_child(Some(&body));
+    pop
 }
 
 /// Wire up a `gtk::DragSource` carrying the task id as an `i64`

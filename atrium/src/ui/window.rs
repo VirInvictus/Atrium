@@ -3058,6 +3058,20 @@ impl AtriumWindow {
                 Some(&task_id.to_variant()),
             );
         };
+        // Double-click on a calendar cell drills into the standard
+        // list view scoped to `scheduled:<DATE>`. Reuses the
+        // SearchResults active list so the user gets the full
+        // editing affordances (drag, multi-select, complete) on
+        // the day's tasks rather than being stuck in the calendar
+        // peek-popover.
+        let weak_drill = self.downgrade();
+        let on_day_drill = move |target: chrono::NaiveDate| {
+            let Some(win) = weak_drill.upgrade() else {
+                return;
+            };
+            let expr = format!("scheduled:{}", target.format("%Y-%m-%d"));
+            win.set_active_list(ActiveList::SearchResults(expr));
+        };
         let widget = crate::ui::calendar::build_page(
             viewed,
             today,
@@ -3069,6 +3083,7 @@ impl AtriumWindow {
                 on_today,
                 on_pick_month: on_pick,
                 on_row_click,
+                on_day_drill,
             },
         );
         self.imp().calendar_host.set_child(Some(&widget));
