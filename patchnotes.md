@@ -1,5 +1,21 @@
 # Atrium — Patch Notes
 
+## v0.13.1 (2026-05-09) — sidecar: perspective definitions round-trip
+
+A small follow-up patch closing the v0.10.1 sidecar carryover. The Phase 17 sidecar (`<vault>/.atrium/config.toml`) shipped tag colors + mode preference at v0.10.1; saved Perspectives reserved a `[perspectives]` placeholder section ("for future use") because perspective definitions cross more boundaries (renderer config, column lists) and the round-trip path wasn't fleshed out yet. Phase 18's Todoist mapper showed the shape — a `Vec<entry>` flowing cleanly through the worker — and v0.13.1 applies it to perspectives.
+
+**Format:** TOML's array-of-tables (`[[perspectives]]`), one block per entry, in stored position order. Each block carries `name`, `filter`, optional `icon`, `renderer` (`"list"` / `"board"`, defaults to `"list"` when omitted), and optional `renderer_config` (opaque JSON, survives the TOML basic-string layer's escape rules including embedded double-quotes). DB-generated fields (id, uuid, timestamps, position) are deliberately omitted — they'd confuse a hand-edit and re-import assigns fresh values matching source-file order anyway.
+
+**Backward-compat is verbatim.** Pre-v0.13.1 sidecars carried a single-bracket `[perspectives]` placeholder followed by a `# Reserved for future use.` comment. The v0.13.1 parser still parses those cleanly — the section is treated as Unknown, contents silently dropped. The empty-Vec emit path now produces a *commented* `# [[perspectives]]` example so hand-editors see the new format's intent without breaking external tools that scanned for the old placeholder.
+
+**Implementation note.** The hand-rolled TOML parser learned one new shape — array-of-tables. The `parse_text` cursor became a typed `Cursor` enum (`Toplevel` / `Tags` / `Perspective(usize)` / `Unknown`) so key/value lines bind structurally instead of through a string-match cascade. The "no `toml` crate dependency" decision still holds; the schema growth is bounded and explicit.
+
+**`build_from_db`** now reads `list_perspectives` (sorted by position) and projects each row into a `PerspectiveEntry`. The end-to-end test creates two perspectives through the real worker, builds the sidecar, asserts every field including the `renderer_config` JSON survives, then verifies a text round-trip preserves the structure.
+
+**Test count: 824 across the workspace** (up from 817 at v0.13.0; 7 new sidecar tests). Schema unchanged at version 7. No new third-party crates. Regression gate clean.
+
+VERSION + Cargo.toml + patchnotes.md + AppStream metainfo bumped to 0.13.1. spec.md and roadmap.md unchanged — the spec already named saved Perspectives as a sidecar slot at v0.10.1; this patch implements behavior the contract already documented.
+
 ## v0.13.0 (2026-05-09) — atrium-inline: shared inline-syntax engine + tab completion
 
 A polish + extraction arc on top of v0.12.0's Phase 18 work. The inline-syntax parser (`#tag`, `@today`, etc.) was small in v0.1 and grew steadily — Phase 6c shipped the original Quick Entry parser; Phase 18 added Todoist's mapper alongside it; v0.13.0 unifies the vocabulary, expands it (`!N` priority, `@<weekday>`), lifts the parser out of `atrium-core` into its own `atrium-inline` workspace crate, and adds a tab-completion popover so the syntax becomes discoverable instead of memorised.

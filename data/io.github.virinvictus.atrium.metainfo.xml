@@ -90,6 +90,28 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.13.1" date="2026-05-09">
+      <description>
+        <p>Sidecar follow-up — saved Perspectives now round-trip
+           through &lt;vault&gt;/.atrium/config.toml. The slot was
+           reserved at v0.10.1 with a placeholder section; v0.13.1
+           ships the real format using TOML's array-of-tables
+           shape (one block per perspective with name / filter /
+           icon / renderer / renderer_config). Forward-compat
+           default for renderer ("list" when omitted) and
+           backward-compat for pre-v0.13.1 placeholder sidecars
+           (still parse cleanly).</p>
+        <p>build_from_db reads list_perspectives in stored
+           position order so the sidebar ordering survives the
+           round-trip. The hand-rolled minimal-TOML parser
+           learned one new shape — array-of-tables — and stays
+           dependency-free.</p>
+        <p>Test count: 824 across the workspace (up from 817 at
+           v0.13.0; 7 new sidecar tests including a worker-driven
+           build_from_db acceptance test).</p>
+      </description>
+      <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
+    </release>
     <release version="0.13.0" date="2026-05-09">
       <description>
         <p>The atrium-inline arc — a polish + extraction cycle on
