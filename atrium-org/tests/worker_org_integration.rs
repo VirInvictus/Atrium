@@ -163,3 +163,68 @@ async fn spawn_with_vault_writes_org_file_on_task_create() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+#[tokio::test]
+async fn spawn_with_vault_emits_sidecar_after_tag_change() {
+    use atrium_core::NewTag;
+
+    let (conn, scratch) = fresh_conn("sidecar");
+    let pool = ReadPool::new(scratch.join("atrium.db"), 4);
+    let vault_config = atrium_org::spawn_org_vault(scratch.clone(), pool);
+    let (handle, _changes_rx, _library_rx) = spawn_worker_with_vault(conn, Some(vault_config));
+
+    // Seed a project + task so the writer has a flush trigger.
+    let project = handle
+        .create_project(NewProject {
+            title: "Sidecar test".to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let _ = handle
+        .create_task(NewTask {
+            title: "first".to_string(),
+            project_id: Some(project.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    // Add a tag with a colour. The tag CRUD doesn't itself trigger
+    // a project flush, but a subsequent task touch will, and the
+    // writer's flush_due path refreshes the sidecar from DB.
+    let tag = handle
+        .create_tag(NewTag {
+            name: "work".to_string(),
+            color: Some("#3584e4".to_string()),
+        })
+        .await
+        .unwrap();
+    let _ = handle
+        .create_task(NewTask {
+            title: "second".to_string(),
+            project_id: Some(project.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let _ = handle.set_task_tags(1, vec![tag.id]).await.ok();
+
+    // Wait long enough for debounce + tick + sidecar refresh.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    let sidecar_path = scratch.join(".atrium").join("config.toml");
+    assert!(
+        sidecar_path.exists(),
+        "expected sidecar at {}",
+        sidecar_path.display()
+    );
+    let text = std::fs::read_to_string(&sidecar_path).unwrap();
+    assert!(text.contains("[tags]"), "got: {text}");
+    assert!(
+        text.contains("work = \"#3584e4\""),
+        "expected tag colour in sidecar; got: {text}"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}

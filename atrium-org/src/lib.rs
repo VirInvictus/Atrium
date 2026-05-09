@@ -44,10 +44,12 @@ use tokio::sync::mpsc;
 
 pub mod org;
 pub mod self_write;
+pub mod sidecar;
 pub mod vault_watcher;
 pub mod vault_writer;
 
 pub use self_write::RecentWrites;
+pub use sidecar::{Sidecar, read_sidecar, sidecar_path, write_sidecar};
 pub use vault_watcher::{VaultWatcher, spawn_vault_watcher, spawn_vault_watcher_with_events};
 pub use vault_writer::{
     OrgVaultNotifier, VaultWriteRequest, VaultWriter, spawn_vault_writer,

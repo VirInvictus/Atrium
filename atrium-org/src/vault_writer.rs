@@ -113,7 +113,9 @@ impl VaultDirtyNotifier for OrgVaultNotifier {
 /// suppress inotify events the writer just generated. The
 /// `events_tx` field, when set, ferries operational notices
 /// ([`VaultEvent::ConflictBackup`]) up to the GUI for toast
-/// surfacing.
+/// surfacing. `last_sidecar` caches the most recently emitted
+/// sidecar contents so we skip rewriting `<vault>/.atrium/config.toml`
+/// on flushes that don't change tag colours.
 pub struct VaultWriter {
     root: PathBuf,
     pool: ReadPool,
@@ -122,6 +124,7 @@ pub struct VaultWriter {
     debounce: Duration,
     recent_writes: Arc<RwLock<RecentWrites>>,
     events_tx: Option<mpsc::UnboundedSender<VaultEvent>>,
+    last_sidecar: Option<crate::sidecar::Sidecar>,
 }
 
 impl VaultWriter {
@@ -164,6 +167,7 @@ impl VaultWriter {
             debounce: Duration::from_millis(100),
             recent_writes,
             events_tx,
+            last_sidecar: None,
         }
     }
 
@@ -193,7 +197,8 @@ impl VaultWriter {
         }
     }
 
-    /// Flush every project whose deadline has passed.
+    /// Flush every project whose deadline has passed, then refresh
+    /// the sidecar if its DB-derived state has changed.
     fn flush_due(&mut self) {
         let now = Instant::now();
         let due: Vec<i64> = self
@@ -202,19 +207,53 @@ impl VaultWriter {
             .filter(|(_, deadline)| **deadline <= now)
             .map(|(pid, _)| *pid)
             .collect();
+        if due.is_empty() {
+            return;
+        }
         for pid in due {
             self.pending.remove(&pid);
             self.write_project(pid);
         }
+        self.refresh_sidecar_if_changed();
     }
 
-    /// Flush every pending project regardless of deadline. Used
-    /// during clean shutdown.
+    /// Flush every pending project regardless of deadline + write
+    /// the sidecar. Used during clean shutdown.
     fn flush_all(&mut self) {
         let pids: Vec<i64> = self.pending.keys().copied().collect();
+        let had_pending = !pids.is_empty();
         for pid in pids {
             self.pending.remove(&pid);
             self.write_project(pid);
+        }
+        if had_pending {
+            self.refresh_sidecar_if_changed();
+        }
+    }
+
+    /// Re-read the sidecar-shaped slice of the DB (tag colours)
+    /// and write `<vault>/.atrium/config.toml` when the result
+    /// differs from the last write. Idempotent: a flush burst
+    /// that doesn't touch tag colours produces no sidecar IO.
+    fn refresh_sidecar_if_changed(&mut self) {
+        let next = match self.pool.with(crate::sidecar::build_from_db) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(error = %e, "sidecar refresh: DB read failed; skipping");
+                return;
+            }
+        };
+        if self.last_sidecar.as_ref() == Some(&next) {
+            return;
+        }
+        match crate::sidecar::write_sidecar(&self.root, &next) {
+            Ok(()) => {
+                trace!("sidecar refreshed");
+                self.last_sidecar = Some(next);
+            }
+            Err(e) => {
+                warn!(error = %e, "sidecar write failed; will retry next flush");
+            }
         }
     }
 
