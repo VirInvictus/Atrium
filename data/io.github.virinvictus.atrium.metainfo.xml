@@ -90,6 +90,32 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.2" date="2026-05-08">
+      <description>
+        <p>Confusion-killer patch. Two problems from Brandon's
+           after-v0.7.1 review: the canonical Review page and
+           the seeded "Weekly Review" perspective lived
+           side-by-side in the sidebar under almost the same
+           name and showed completely different content; and
+           the upper-left corner still had the centered "Lists"
+           header from libadwaita's default sidebar auto-title.</p>
+        <p>v0.7.2 fixes both. The canonical Review page now
+           renders two sections — "Projects to review" (the
+           Phase 13 review queue) and "This week" (the
+           open-tasks-this-week filter formerly seeded as the
+           Weekly Review perspective). Section 2 reuses the
+           Agenda page's task-row treatment for visual
+           consistency; clicking a row opens the Inspector. The
+           seeded perspective is retired (existing user DBs
+           keep their row; fresh DBs land clean). The sidebar's
+           "Lists" auto-title is suppressed via an empty
+           title-widget, mirroring the title-suppression v0.7.0
+           applied to the content side.</p>
+        <p>Pure code patch. No schema changes, no new
+           dependencies. 501 tests green (down 4 from v0.7.1's
+           505 because the seeded-perspective tests are gone).</p>
+      </description>
+    </release>
     <release version="0.7.1" date="2026-05-08">
       <description>
         <p>Surface continuity patch — kills the visible

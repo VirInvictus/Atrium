@@ -202,10 +202,23 @@ case "$KANBAN_JSON" in
   *'"perspective":"Fixture Board"'*) : ;;
   *) fail "atrium-cli --json kanban did not include perspective field" ;;
 esac
-# Trying to render a list-renderer perspective as a kanban must
+
+# Slice D follow-up — perspective write side. Create a list
+# perspective from scratch, exercise it (incl. the "kanban
+# against a list-renderer perspective must fail" assertion +
+# the "perspective edit with no flags is a no-op" assertion),
+# convert + edit its columns, convert back to list, delete.
+# v0.7.2 — these used to ride on the seeded "Weekly Review"
+# perspective; that seed retired alongside the canonical Review
+# page absorbing its content, so the script self-seeds.
+"${CLI[@]}" perspective create 'CLI Smoke Persp' --filter 'is:open AND tag:tag-0' \
+  >/dev/null \
+  || fail "atrium-cli perspective create failed"
+
+# Trying to render the list-renderer perspective as a kanban must
 # error (exit non-zero) with a clear message.
 set +e
-ERR="$("${CLI[@]}" kanban Weekly Review 2>&1)"
+ERR="$("${CLI[@]}" kanban CLI Smoke Persp 2>&1)"
 RC=$?
 set -e
 if [[ "$RC" -eq 0 ]]; then
@@ -216,12 +229,10 @@ case "$ERR" in
   *) fail "atrium-cli kanban error message changed: $ERR" ;;
 esac
 
-# Slice D follow-up — perspective write side. Create a board
-# perspective from scratch, edit its columns + renderer, then
-# delete it. The fixture's seeded "Fixture Board" stays put.
-"${CLI[@]}" perspective create 'CLI Smoke Persp' --filter 'is:open AND tag:tag-0' \
-  >/dev/null \
-  || fail "atrium-cli perspective create failed"
+# `perspective edit` with no flags is a no-op that prints the row.
+"${CLI[@]}" perspective edit 'CLI Smoke Persp' >/dev/null \
+  || fail "atrium-cli perspective edit (noop) failed"
+
 "${CLI[@]}" perspective edit 'CLI Smoke Persp' --renderer board \
   --columns 'todo,doing,done' \
   >/dev/null \
@@ -241,9 +252,6 @@ case "$PERSP_LIST" in
   *'CLI Smoke Persp'*) fail "atrium-cli perspective delete left the row behind" ;;
   *) : ;;
 esac
-# `perspective edit` with no flags is a no-op that prints the row.
-"${CLI[@]}" perspective edit 'Weekly Review' >/dev/null \
-  || fail "atrium-cli perspective edit (noop) failed"
 
 echo "  atrium-cli: 17 read commands + write round-trip + bulk dry-run + bulk force + kanban + perspective all OK"
 

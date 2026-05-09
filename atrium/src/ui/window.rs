@@ -2599,10 +2599,14 @@ impl AtriumWindow {
         self.imp().forecast_host.set_child(Some(&widget));
     }
 
-    /// Phase 13 — rebuild the Review queue page from the read pool
-    /// and mount it into the `review_host` AdwBin. Called when the
-    /// active list becomes Review, and from `apply_library_changes`
-    /// (so a Mark Reviewed click drops the row visibly).
+    /// Phase 13 → v0.7.2 — rebuild the Review page. Renders two
+    /// sections in one surface: the project review queue (Phase 13),
+    /// and the canonical Weekly Walk (the open-tasks-this-week
+    /// filter formerly seeded as the "Weekly Review" Perspective).
+    /// Called when the active list becomes Review, and from
+    /// `apply_library_changes` so Mark-Reviewed clicks drop the
+    /// row immediately, and from `apply_task_changes` so
+    /// completions in the weekly walk drop their row immediately.
     fn refresh_review_page(&self) {
         let Some(pool) = self.read_pool() else {
             self.imp().review_host.set_child(None::<&gtk::Widget>);
@@ -2612,8 +2616,58 @@ impl AtriumWindow {
         let queue = pool
             .with(|conn| atrium_core::db::read::list_review_queue(conn, today))
             .unwrap_or_default();
+
+        // Weekly walk — open tasks matching REVIEW_WEEKLY_WALK_FILTER.
+        // We load every task and filter in-memory; the weekly walk
+        // isn't a hot path (it rebuilds only on Review-page open or
+        // a relevant delta), and the filter expression has predicates
+        // that the SQL fast-path can't all translate cleanly.
+        let all_tasks = pool
+            .with(atrium_core::db::read::list_all_tasks)
+            .unwrap_or_default();
+        let tag_names = pool
+            .with(atrium_core::db::read::tag_names_per_task)
+            .unwrap_or_default();
+        let project_titles = self.imp().project_titles.borrow().clone();
         let area_titles = self.imp().area_titles.borrow().clone();
-        let widget = crate::ui::review::build_page(today, &queue, &area_titles, self.worker());
+        let project_areas = self.project_areas_map();
+        let query = crate::ui::filter::parse(atrium_core::db::REVIEW_WEEKLY_WALK_FILTER);
+        let weekly_tasks = crate::ui::filter::apply(
+            all_tasks,
+            &query,
+            today,
+            &tag_names,
+            &project_titles,
+            &project_areas,
+            &area_titles,
+        );
+
+        let tag_pills: crate::ui::task_list::TagPillMap = pool
+            .with(atrium_core::db::read::tag_info_per_task)
+            .unwrap_or_default();
+
+        let weak = self.downgrade();
+        let on_click = move |task_id: i64| {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            let _ = WidgetExt::activate_action(
+                &window,
+                "win.edit-details-for",
+                Some(&task_id.to_variant()),
+            );
+        };
+
+        let widget = crate::ui::review::build_page(
+            today,
+            &queue,
+            &weekly_tasks,
+            &project_titles,
+            &area_titles,
+            &tag_pills,
+            self.worker(),
+            on_click,
+        );
         self.imp().review_host.set_child(Some(&widget));
     }
 

@@ -1,62 +1,84 @@
 // SPDX-License-Identifier: MIT
-//! Builder Mode Review queue (Phase 13).
+//! Builder Mode Review queue (Phase 13) + canonical Weekly Walk (v0.7.2).
 //!
-//! Projects with a `review_interval_days` set surface here when
-//! their last review is older than the interval allows. Each card
-//! shows the project's title, area (when filed), how stale the
-//! review is, and a *Mark Reviewed* button that stamps
-//! `last_reviewed_at = now()` and drops the row out of the queue.
+//! The Review page renders two sections in one surface:
 //!
-//! Phase 13 is purely UI on top of two new data-layer pieces:
-//! `read::list_review_queue` (the SELECT) and `Worker::mark_reviewed`
-//! (the UPDATE). Schema unchanged — `review_interval_days` and
-//! `last_reviewed_at` have lived in the project table since
-//! Phase 1's superset migration.
+//! 1. **Projects to review** — projects whose `review_interval_days`
+//!    has elapsed since `last_reviewed_at`. Each card shows the
+//!    project's title, area (when filed), how stale the review is,
+//!    and a *Mark Reviewed* button that stamps `last_reviewed_at =
+//!    now()` and drops the row out of the queue.
+//!
+//! 2. **This week** — open tasks matching the
+//!    `REVIEW_WEEKLY_WALK_FILTER` expression: anything overdue,
+//!    anything scheduled this week, deadlines reaching next week,
+//!    or tasks just freed from a defer. Compact rows reuse the
+//!    `agenda::build_row` treatment; clicking a row opens the
+//!    Inspector for that task.
+//!
+//! v0.7.2 merged what used to be a separately-seeded "Weekly
+//! Review" Perspective into this canonical surface, killing the
+//! confusion of having "Review" and "Weekly Review" both present
+//! and showing different things.
 
 use std::collections::HashMap;
 
 use adw::prelude::*;
-use atrium_core::{Project, WorkerHandle};
+use atrium_core::{Project, Task, WorkerHandle};
 use chrono::NaiveDate;
 use gtk::glib;
 use tracing::error;
 
+use crate::ui::agenda;
+use crate::ui::task_list::TagPillMap;
+
 /// Build the Review page widget. Returns a scrollable container
 /// the window mounts into the content stack's `review` page.
-/// Empty queue gets an `AdwStatusPage` "No projects due for
-/// review" placeholder.
-pub fn build_page(
+///
+/// The page renders up to two sections — Projects to review
+/// (the `queue` argument; Phase 13's list_review_queue) and This
+/// week (the `weekly_tasks` argument; REVIEW_WEEKLY_WALK_FILTER).
+/// If both are empty, an `AdwStatusPage` "All caught up"
+/// placeholder shows instead.
+#[allow(clippy::too_many_arguments)]
+pub fn build_page<F: Fn(i64) + 'static + Clone>(
     today: NaiveDate,
     queue: &[Project],
+    weekly_tasks: &[Task],
+    project_titles: &HashMap<i64, String>,
     area_titles: &HashMap<i64, String>,
+    tag_pills: &TagPillMap,
     worker: Option<WorkerHandle>,
+    on_row_click: F,
 ) -> gtk::Widget {
-    if queue.is_empty() {
+    if queue.is_empty() && weekly_tasks.is_empty() {
         let status = adw::StatusPage::builder()
             .icon_name("checkmark-symbolic")
             .title("All caught up")
-            .description("No projects are due for review right now.")
+            .description("No projects need review and nothing is pressing this week.")
             .build();
         return status.upcast();
     }
 
     let body = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
-        .spacing(12)
+        .spacing(16)
         .margin_start(16)
         .margin_end(16)
         .margin_top(12)
         .margin_bottom(16)
         .build();
 
-    for project in queue {
-        body.append(&build_project_card(
-            project,
-            today,
-            area_titles,
-            worker.clone(),
-        ));
-    }
+    // Section 1 — Projects to review.
+    body.append(&build_queue_section(queue, today, area_titles, worker));
+
+    // Section 2 — This week (Weekly Walk).
+    body.append(&build_weekly_section(
+        weekly_tasks,
+        project_titles,
+        tag_pills,
+        on_row_click,
+    ));
 
     let scroller = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
@@ -64,6 +86,98 @@ pub fn build_page(
         .child(&body)
         .build();
     scroller.upcast()
+}
+
+/// "Projects to review" section. Renders the existing project
+/// cards when the queue has rows, or a quiet inline note when it
+/// doesn't. The note shape is intentional — it tells the user
+/// nothing actionable is here right now without pretending the
+/// section doesn't exist.
+fn build_queue_section(
+    queue: &[Project],
+    today: NaiveDate,
+    area_titles: &HashMap<i64, String>,
+    worker: Option<WorkerHandle>,
+) -> gtk::Widget {
+    let section = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(8)
+        .build();
+    section.append(&build_section_header("Projects to review"));
+
+    if queue.is_empty() {
+        section.append(&build_inline_note(
+            "No projects are due for review right now.",
+        ));
+    } else {
+        for project in queue {
+            section.append(&build_project_card(
+                project,
+                today,
+                area_titles,
+                worker.clone(),
+            ));
+        }
+    }
+    section.upcast()
+}
+
+/// "This week" section. Reuses `agenda::build_row` for visual
+/// consistency with the Agenda canonical page. Empty state gets
+/// the same inline note treatment.
+fn build_weekly_section<F: Fn(i64) + 'static + Clone>(
+    weekly_tasks: &[Task],
+    project_titles: &HashMap<i64, String>,
+    tag_pills: &TagPillMap,
+    on_row_click: F,
+) -> gtk::Widget {
+    let section = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(4)
+        .build();
+    section.append(&build_section_header("This week"));
+
+    if weekly_tasks.is_empty() {
+        section.append(&build_inline_note("Nothing pressing this week."));
+    } else {
+        let list = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(2)
+            .build();
+        for task in weekly_tasks {
+            list.append(&agenda::build_row(
+                task,
+                project_titles,
+                tag_pills,
+                on_row_click.clone(),
+            ));
+        }
+        section.append(&list);
+    }
+    section.upcast()
+}
+
+fn build_section_header(text: &str) -> gtk::Label {
+    let label = gtk::Label::builder()
+        .label(text)
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .build();
+    label.add_css_class("heading");
+    label.add_css_class("atrium-review-section-header");
+    label
+}
+
+fn build_inline_note(text: &str) -> gtk::Label {
+    let label = gtk::Label::builder()
+        .label(text)
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .margin_start(6)
+        .build();
+    label.add_css_class("dim-label");
+    label.add_css_class("caption");
+    label
 }
 
 fn build_project_card(

@@ -20,21 +20,25 @@ pub mod worker;
 
 use std::path::Path;
 
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 use crate::error::DbError;
 
-/// v0.6.0 — name of the seeded Weekly Review Perspective. Public so
-/// tests can assert against a stable string.
-pub const WEEKLY_REVIEW_NAME: &str = "Weekly Review";
-
-/// Filter expression for the Weekly Review seed. Matches anything
-/// the user should look at this week per spec §4.2 + §4.3:
-/// overdue items, anything scheduled this week, deadlines next week
-/// (heads-up window), and tasks just freed from a defer.
-pub const WEEKLY_REVIEW_FILTER: &str = "is:overdue OR scheduled:thisweek OR (is:deadline AND due:nextweek) OR (is:deferred AND defer:<=today)";
+/// v0.6.0 → v0.7.2 — filter expression for the canonical Review
+/// page's "This week" weekly walk section. Matches anything the
+/// user should look at this week per spec §4.2 + §4.3: overdue
+/// items, anything scheduled this week, deadlines reaching next
+/// week (heads-up window), and tasks just freed from a defer.
+///
+/// Originally seeded as a saved Perspective named "Weekly Review";
+/// v0.7.2 retired the seed (Brandon's "Review and Weekly Review
+/// showed two different things — confusing" feedback). The
+/// canonical Review page now renders this same content as its
+/// secondary section, alongside the project-review queue. The
+/// constant survives so the GUI window-side fetch can use the
+/// same expression atrium_search would parse.
+pub const REVIEW_WEEKLY_WALK_FILTER: &str = "is:overdue OR scheduled:thisweek OR (is:deadline AND due:nextweek) OR (is:deferred AND defer:<=today)";
 
 /// Open the Atrium database at `path`, applying pragmas and migrations.
 ///
@@ -56,48 +60,13 @@ pub fn open(path: &Path) -> Result<Connection, DbError> {
     let mut conn = Connection::open(path)?;
     configure_pragmas(&conn)?;
     migrations::migrate(&mut conn)?;
-    seed_initial_perspectives(&conn)?;
+    // v0.6.0 → v0.7.2 — the Weekly Review perspective is no
+    // longer auto-seeded. The canonical Review page now renders
+    // the same content as its weekly-walk section; seeding a
+    // duplicate as a saved Perspective just created the
+    // confusion Brandon flagged. Existing user DBs keep their
+    // row (we don't delete data); fresh DBs land clean.
     Ok(conn)
-}
-
-/// v0.6.0 — Phase 15.75 Slice C1. Insert the Weekly Review
-/// Perspective on first open. Idempotent: dedupes against an
-/// existing row with the same `name`, so users who delete it
-/// don't get it re-seeded on next launch (the dedup key is the
-/// visible name, not a synthetic flag column — keeps the seed
-/// invisible to future migrations).
-///
-/// The filter matches anything the user should look at this week:
-/// overdue tasks, anything scheduled this week, deadlines reaching
-/// into next week (the §4.2 Today-list heads-up window), and
-/// tasks whose defer just passed today.
-pub fn seed_initial_perspectives(conn: &Connection) -> Result<(), DbError> {
-    let existing: i64 = conn.query_row(
-        "SELECT count(*) FROM perspective WHERE name = ?1",
-        params![WEEKLY_REVIEW_NAME],
-        |r| r.get(0),
-    )?;
-    if existing > 0 {
-        return Ok(());
-    }
-    let uuid = Uuid::new_v4().to_string();
-    // Position 1.0 puts it first alphabetically among any future
-    // perspectives users add; the row reads as the "default" entry
-    // even after sort by position then name.
-    conn.execute(
-        "INSERT INTO perspective \
-         (uuid, name, icon, filter_expr, position) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![
-            uuid,
-            WEEKLY_REVIEW_NAME,
-            "object-select-symbolic",
-            WEEKLY_REVIEW_FILTER,
-            1.0_f64,
-        ],
-    )?;
-    debug!(uuid, name = WEEKLY_REVIEW_NAME, "seeded perspective");
-    Ok(())
 }
 
 /// Apply pragmas to a connection (writable or read-only). Per spec §3.2
@@ -398,104 +367,15 @@ mod tests {
         let _ = std::fs::remove_file(tmp.with_extension("db-wal"));
     }
 
-    // ── v0.6.0 Slice C1: Weekly Review seed ────────────────────────
-
-    #[test]
-    fn seed_weekly_review_inserts_on_fresh_db() {
-        let conn = fresh_db();
-        // fresh_db() didn't seed; should be zero perspectives.
-        let count_before: i64 = conn
-            .query_row("SELECT count(*) FROM perspective", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(count_before, 0);
-        seed_initial_perspectives(&conn).unwrap();
-        let count_after: i64 = conn
-            .query_row("SELECT count(*) FROM perspective", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(count_after, 1);
-        let (name, icon, filter): (String, Option<String>, String) = conn
-            .query_row(
-                "SELECT name, icon, filter_expr FROM perspective WHERE name = ?1",
-                params![WEEKLY_REVIEW_NAME],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .unwrap();
-        assert_eq!(name, WEEKLY_REVIEW_NAME);
-        assert_eq!(icon.as_deref(), Some("object-select-symbolic"));
-        assert_eq!(filter, WEEKLY_REVIEW_FILTER);
-    }
-
-    #[test]
-    fn seed_weekly_review_idempotent() {
-        let conn = fresh_db();
-        seed_initial_perspectives(&conn).unwrap();
-        seed_initial_perspectives(&conn).unwrap();
-        seed_initial_perspectives(&conn).unwrap();
-        let count: i64 = conn
-            .query_row("SELECT count(*) FROM perspective", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(count, 1, "second + third seed pass must dedupe");
-    }
-
-    #[test]
-    fn seed_weekly_review_respects_user_deletion() {
-        // If the user deletes the seeded perspective, re-running the
-        // seed must not re-insert (we dedupe by name; deleted means
-        // intentional). But a different perspective also named
-        // "Weekly Review" *would* satisfy the dedup — that's the
-        // user's choice, not ours.
-        let conn = fresh_db();
-        seed_initial_perspectives(&conn).unwrap();
-        conn.execute(
-            "DELETE FROM perspective WHERE name = ?1",
-            params![WEEKLY_REVIEW_NAME],
-        )
-        .unwrap();
-        seed_initial_perspectives(&conn).unwrap();
-        let count: i64 = conn
-            .query_row(
-                "SELECT count(*) FROM perspective WHERE name = ?1",
-                params![WEEKLY_REVIEW_NAME],
-                |r| r.get(0),
-            )
-            .unwrap();
-        // After deletion + re-seed, it should be back. The deletion-
-        // sticks behaviour relies on the seed only running at open(),
-        // not on subsequent calls — open() is single-shot per process,
-        // so a delete during a session stays gone until next launch.
-        // (Interactive sessions don't re-call open mid-flight; the
-        // GUI holds one Connection for its lifetime.)
-        assert_eq!(
-            count, 1,
-            "seed re-creates after deletion when invoked directly"
-        );
-    }
-
-    #[test]
-    fn seed_weekly_review_runs_through_open() {
-        let tmp = std::env::temp_dir().join(format!("atrium-seed-test-{}.db", std::process::id()));
-        let _ = std::fs::remove_file(&tmp);
-        let conn = open(&tmp).unwrap();
-        let count: i64 = conn
-            .query_row(
-                "SELECT count(*) FROM perspective WHERE name = ?1",
-                params![WEEKLY_REVIEW_NAME],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(count, 1);
-        drop(conn);
-
-        // Reopen the same path — the seed must NOT double up.
-        let conn = open(&tmp).unwrap();
-        let count: i64 = conn
-            .query_row("SELECT count(*) FROM perspective", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(count, 1, "reopen must not duplicate the seed");
-        drop(conn);
-
-        let _ = std::fs::remove_file(&tmp);
-        let _ = std::fs::remove_file(tmp.with_extension("db-shm"));
-        let _ = std::fs::remove_file(tmp.with_extension("db-wal"));
-    }
+    // ── v0.6.0 → v0.7.2: Weekly Review seed retired ───────────────
+    //
+    // The four `seed_weekly_review_*` tests that lived here covered
+    // the seeded Weekly Review perspective. v0.7.2 removed the seed
+    // (the canonical Review page now renders the same content as
+    // its weekly-walk section; the saved-search duplicate was the
+    // source of Brandon's "Review and Weekly Review show two
+    // different things" confusion). The constants and the
+    // seed_initial_perspectives helper are gone; only
+    // REVIEW_WEEKLY_WALK_FILTER survives, used by the GUI window
+    // when fetching the weekly walk.
 }

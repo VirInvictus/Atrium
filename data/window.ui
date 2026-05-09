@@ -73,6 +73,17 @@
                     <child type="top">
                       <object class="AdwHeaderBar">
                         <property name="show-end-title-buttons">false</property>
+                        <!-- v0.7.2 — empty title-widget suppresses the
+                             auto-rendered "Lists" centered AdwWindowTitle.
+                             The sidebar header becomes pure chrome
+                             (empty); the filter entry below acts as the
+                             sidebar's visual top. Mirrors the content
+                             pane's title-suppression from v0.7.0. -->
+                        <property name="title-widget">
+                          <object class="AdwWindowTitle">
+                            <property name="title"></property>
+                          </object>
+                        </property>
                       </object>
                     </child>
                     <property name="content">

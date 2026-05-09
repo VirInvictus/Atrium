@@ -263,7 +263,12 @@ fn build_section<F: Fn(i64) + 'static + Clone>(
     card.upcast()
 }
 
-fn build_row<F: Fn(i64) + 'static>(
+/// v0.7.2 — `pub(crate)` so the canonical Review page can reuse
+/// the same task-row treatment for its weekly-walk section. Same
+/// shape (title + date chip + project-and-tags meta line + click
+/// → Inspector); same CSS class so any styling tweaks apply
+/// uniformly across both pages.
+pub(crate) fn build_row<F: Fn(i64) + 'static>(
     task: &Task,
     project_titles: &HashMap<i64, String>,
     tag_pills: &TagPillMap,

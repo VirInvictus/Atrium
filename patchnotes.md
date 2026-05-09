@@ -1,5 +1,62 @@
 # Atrium — Patch Notes
 
+## v0.7.2 (2026-05-08) — Confusion-killer patch
+
+Brandon's after-v0.7.1 review of the Review page surfaced two
+problems we'd previously planned to fix in tier 3 of the v0.7
+polish arc but hadn't gotten to: the canonical Review page and
+the seeded "Weekly Review" perspective both lived in the sidebar
+under almost the same name and showed completely different
+content (Review page: "All caught up"; Weekly Review perspective:
+a long list of tasks). And the upper-left corner still had the
+centered "Lists" header from libadwaita's default sidebar
+auto-title, which contradicted the magazine-spread treatment
+v0.7.0 introduced for the right side.
+
+**v0.7.2 fixes both:**
+
+1. **Review = Weekly Review merge.** The canonical Review page
+   now renders two sections in one surface — "Projects to
+   review" (the existing Phase 13 review queue) followed by
+   "This week" (the open-tasks-this-week filter that was
+   formerly seeded as a saved perspective). Both sections show
+   inline notes when empty; the page falls back to "All caught
+   up" only when both are empty. Section 2 reuses
+   `agenda::build_row` for visual consistency with the Agenda
+   canonical page; clicking a row opens the Inspector for that
+   task. The seeded "Weekly Review" perspective is retired (the
+   `seed_initial_perspectives` helper, the
+   `WEEKLY_REVIEW_NAME` constant, and the four
+   `seed_weekly_review_*` tests removed; the filter constant
+   survives as `REVIEW_WEEKLY_WALK_FILTER`, used by the GUI's
+   refresh path). Existing user DBs keep their row (we don't
+   delete data); fresh DBs and fixtures land clean.
+
+2. **Drop the "Lists" centered title.** The sidebar's
+   AdwHeaderBar now carries an empty AdwWindowTitle as its
+   title-widget, suppressing the auto-rendered "Lists" label.
+   The header becomes pure chrome (which is empty, since
+   show-end-title-buttons=false), and the filter entry below
+   acts as the sidebar's visual top. Mirrors the
+   title-suppression on the content side from v0.7.0.
+
+**Test count:** 119 + 169 + 1 + 106 + 106 = **501** (down 4
+from v0.7.1's 505 because the seeded-perspective tests are
+gone). Ship-gate runs in under 2 seconds; the regression script
+self-seeds a "CLI Smoke Persp" list-renderer perspective for
+the kanban-against-list-renderer error case (was riding on the
+seeded Weekly Review).
+
+Pure code patch — no schema changes, no new dependencies, no
+spec semantics shifted. Roadmap: this is the tier-3 functional
+work from the v0.7 polish arc landing earlier than planned, at
+Brandon's call. The visual refinement (tag pills, inspector
+empty-state, filter ghost, row separators, sidebar selection
+softening) ships next as v0.7.3.
+
+VERSION / Cargo.toml / patchnotes / AppStream metainfo bump to
+**0.7.2**.
+
 ## v0.7.1 (2026-05-08) — Surface continuity (kill the colour breaking)
 
 Brandon's first reaction to v0.7.0: the magazine-spread title
