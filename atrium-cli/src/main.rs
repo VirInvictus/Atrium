@@ -1342,7 +1342,8 @@ fn run_capture(
     format: Format,
 ) -> CliResult<()> {
     let parsed = atrium_core::quick_entry::parse(line);
-    if parsed.title.trim().is_empty() && parsed.tag_names.is_empty() {
+    let projected_tags = parsed.projected_tag_names();
+    if parsed.title.trim().is_empty() && projected_tags.is_empty() {
         return Err(CliError::Args(
             "capture line is empty after parsing inline syntax".into(),
         ));
@@ -1356,9 +1357,9 @@ fn run_capture(
     let task = runtime
         .block_on(async { handle.create_task(new).await })
         .map_err(CliError::from)?;
-    if !parsed.tag_names.is_empty() {
-        let mut tag_ids: Vec<i64> = Vec::with_capacity(parsed.tag_names.len());
-        for name in &parsed.tag_names {
+    if !projected_tags.is_empty() {
+        let mut tag_ids: Vec<i64> = Vec::with_capacity(projected_tags.len());
+        for name in &projected_tags {
             let tag = runtime
                 .block_on(async { handle.ensure_tag(name.clone()).await })
                 .map_err(CliError::from)?;

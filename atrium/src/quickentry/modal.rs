@@ -101,7 +101,8 @@ pub fn open(parent: &impl IsA<gtk::Window>, worker: Option<WorkerHandle>) {
 
 fn commit(raw_input: &str, worker: Option<WorkerHandle>) {
     let parsed = parser::parse(raw_input);
-    if parsed.title.is_empty() && parsed.tag_names.is_empty() {
+    let projected_tags = parsed.projected_tag_names();
+    if parsed.title.is_empty() && projected_tags.is_empty() {
         debug!("quick entry: empty input, ignoring");
         return;
     }
@@ -119,9 +120,9 @@ fn commit(raw_input: &str, worker: Option<WorkerHandle>) {
         match worker.create_task(new).await {
             Ok(task) => {
                 debug!(id = task.id, "quick-entry task created");
-                if !parsed.tag_names.is_empty() {
-                    let mut tag_ids = Vec::with_capacity(parsed.tag_names.len());
-                    for name in parsed.tag_names {
+                if !projected_tags.is_empty() {
+                    let mut tag_ids = Vec::with_capacity(projected_tags.len());
+                    for name in projected_tags {
                         match worker.ensure_tag(name).await {
                             Ok(t) => tag_ids.push(t.id),
                             Err(e) => warn!(?e, "ensure_tag (quick entry) failed; skipping"),

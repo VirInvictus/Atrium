@@ -2349,6 +2349,22 @@ impl AtriumWindow {
         let existing_tag_ids = pool
             .with(|c| atrium_core::db::read::tag_ids_for_task(c, id))
             .unwrap_or_default();
+        // When the user typed `!N`, we need to swap any stale
+        // `priority-*` tag for the new one (single-valued field
+        // pretending to be a tag). Pull the names of the existing
+        // tags now so the async block can filter by them without a
+        // second read.
+        let priority_override = parsed.priority;
+        let stale_priority_ids: Vec<i64> = if priority_override.is_some() {
+            pool.with(atrium_core::db::read::list_tags)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|t| atrium_core::quick_entry::is_priority_tag_name(&t.name))
+                .map(|t| t.id)
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         glib::MainContext::default().spawn_local(async move {
             // Single update for title + scheduled + deadline so the
@@ -2366,10 +2382,15 @@ impl AtriumWindow {
                 return;
             }
 
-            // Tag side: ensure each parsed name, then merge with
-            // existing IDs. The merge keeps the prior set intact —
-            // rename never removes a tag.
-            let mut merged: Vec<i64> = existing_tag_ids;
+            // Tag merge — start from the existing set, drop any
+            // stale `priority-*` when the user typed `!N`, then
+            // append the parsed free-form tags + the priority
+            // projection. Free-form tags are never removed by a
+            // rename (the rename surface doesn't show them).
+            let mut merged: Vec<i64> = existing_tag_ids
+                .into_iter()
+                .filter(|tid| !stale_priority_ids.contains(tid))
+                .collect();
             for name in &parsed.tag_names {
                 match worker.ensure_tag(name.clone()).await {
                     Ok(tag) => {
@@ -2379,6 +2400,20 @@ impl AtriumWindow {
                     }
                     Err(e) => {
                         error!(?e, ?name, id, "ensure_tag failed during inline rename");
+                        return;
+                    }
+                }
+            }
+            if let Some(level) = priority_override {
+                let proj = format!("priority-{level}");
+                match worker.ensure_tag(proj.clone()).await {
+                    Ok(tag) => {
+                        if !merged.contains(&tag.id) {
+                            merged.push(tag.id);
+                        }
+                    }
+                    Err(e) => {
+                        error!(?e, ?proj, id, "ensure_tag (priority) failed");
                         return;
                     }
                 }
@@ -2473,7 +2508,8 @@ impl AtriumWindow {
         };
         let active = self.active_list();
         let parsed = atrium_core::quick_entry::parse(&raw_input);
-        if parsed.title.is_empty() && parsed.tag_names.is_empty() {
+        let projected_tags = parsed.projected_tag_names();
+        if parsed.title.is_empty() && projected_tags.is_empty() {
             return;
         }
         glib::MainContext::default().spawn_local(async move {
@@ -2498,12 +2534,15 @@ impl AtriumWindow {
             match worker.create_task(new).await {
                 Ok(task) => {
                     debug!(id = task.id, "task created");
-                    if !parsed.tag_names.is_empty() {
+                    if !projected_tags.is_empty() {
                         // Resolve tag names → ids, creating any new
                         // tags via `ensure_tag`. Run sequentially so
                         // we collect ids before SetTaskTags fires.
-                        let mut tag_ids = Vec::with_capacity(parsed.tag_names.len());
-                        for name in parsed.tag_names {
+                        // `projected_tags` includes the v0.13 `!N`
+                        // priority projection appended after the
+                        // user's free-form `#tag` set.
+                        let mut tag_ids = Vec::with_capacity(projected_tags.len());
+                        for name in projected_tags {
                             match worker.ensure_tag(name).await {
                                 Ok(t) => tag_ids.push(t.id),
                                 Err(e) => warn!(?e, "ensure_tag failed; skipping"),

@@ -416,11 +416,18 @@ The widget tree is the same; Inspector and Forecast / Agenda / Review are added 
 A global GTK shortcut (default `Ctrl+Alt+Space`) opens a small modal that:
 
 - Drops a new task into Inbox
-- Accepts inline `#tag` syntax (creates tag on first use)
-- Accepts inline `@today`, `@tomorrow`, `@yyyy-mm-dd`, `@deadline yyyy-mm-dd` syntax
+- Accepts the same inline-syntax vocabulary as the bottom-of-list entry, the inline-rename surface, and the CLI's `capture` subcommand:
+  - `#tag` — attach (creates the tag on first use; case-insensitive)
+  - `@today` / `@tomorrow` / `@someday` — set `scheduled_for`
+  - `@yyyy-mm-dd` — set `scheduled_for` to a specific date
+  - `@<weekday>` (`@mon` / `@monday`, all forms case-insensitive) — set `scheduled_for` to the next occurrence of that weekday on or after today (Slice 2, v0.13.0)
+  - `@deadline yyyy-mm-dd` — set `deadline`
+  - `!1` / `!2` / `!3` — set priority (single-valued, projected onto a `priority-N` tag until Phase 19.5's numeric column lands; Slice 2, v0.13.0). `!4` and beyond stay in the title verbatim — Todoist treats 4 as "no priority" and Atrium follows.
 - Closes on Enter (commit) or Esc (discard)
 - Is identical in both modes
 - Does not steal focus from the previously focused window
+
+The same parser (`atrium-core::quick_entry`) drives the inline-rename surface in the GTK task list — F2 / right-click → Rename / double-click into edit. Renames take a fast path identical to pre-v0.13 behaviour when the new title contains no inline-syntax tokens; when tokens are present the title's parsed scalars set in a single `update_task` and tag side effects merge into the task's existing set (rename never removes a free-form tag, but `!N` does swap one priority tag for another since priority is single-valued).
 
 If Atrium is closed, in v0.1 the shortcut launches it minimised and posts the task. v0.2 introduces `atriumd` (user systemd) for true zero-launch capture.
 
