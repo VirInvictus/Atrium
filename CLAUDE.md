@@ -4,7 +4,7 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.12.0** (May 2026). **Phase 18 (Todoist CSV import) shipped at v0.12.0** — three hand-rolled stdlib parsers (CSV, NL recurrence, mapper) compose into `atrium-cli import todoist PATH --into PROJECT_NAME [--dry-run]`; new `WorkerHandle::ensure_heading` API; Org writer learned to emit project sub-headings as depth-1 keyword-less headlines with tasks interleaved by `position`; deterministic v5 UUID namespace for re-import stability; the home.csv "butter test" pins Todoist → DB → vault → re-parse round-trip. Phase 12.5 (Calendar Month View) shipped at v0.11.0. Phase 17 (vault → DB two-way sync) closed at v0.10.3 across four slices. Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0; v0.9.0 lifted the Org projection into its own `atrium-org` workspace crate. Phase 18.5 (Org-mode power features) and Phase 19.5 (productivity essentials) are next.
+**Current release: v0.13.0** (May 2026). **atrium-inline arc shipped at v0.13.0** — three slices on top of v0.12.0's Phase 18 surface: Slice 1 routes the GTK inline-rename through `quick_entry::parse` (a rename of "Wash dishes" → "Wash dishes #urgent @today" picks up the tag and schedule); Slice 2 adds `!1` / `!2` / `!3` priority + `@<weekday>` tokens (Todoist convention, single-valued priority semantics in the rename surface); Slice 3 lifts the parser into its own `atrium-inline` workspace crate (atrium-core stays inline-syntax-agnostic) and adds a tab-completion popover wired into the bottom-of-list entry and Quick Entry modal. **Phase 18 (Todoist CSV import) shipped at v0.12.0** — three hand-rolled stdlib parsers (CSV, NL recurrence, mapper) compose into `atrium-cli import todoist PATH --into PROJECT_NAME [--dry-run]`; new `WorkerHandle::ensure_heading` API; Org writer learned to emit project sub-headings as depth-1 keyword-less headlines with tasks interleaved by `position`; deterministic v5 UUID namespace for re-import stability; the home.csv "butter test" pins Todoist → DB → vault → re-parse round-trip. Phase 12.5 (Calendar Month View) shipped at v0.11.0. Phase 17 (vault → DB two-way sync) closed at v0.10.3 across four slices. Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0; v0.9.0 lifted the Org projection into its own `atrium-org` workspace crate. Phase 18.5 (Org-mode power features) and Phase 19.5 (productivity essentials) are next.
 
 Where each phase landed:
 
@@ -57,9 +57,14 @@ Where each phase landed:
   - **CLI subcommand.** `atrium-cli import todoist PATH --into PROJECT_NAME [--dry-run]`. `ImportSource::Org | Todoist { project_name }` enum. Trying `--into` on `import org` errors out (org file's `#+TITLE:` is canonical). TSV / `--json` / `--human` output mirrors the Org importer's shape.
   - **The home.csv butter test** (`home_csv_round_trips_through_db_and_vault`). 10 sections, 46 tasks, recurring tasks, 2 distinct labels — round-trips Todoist → DB → vault → re-parse with structural fidelity. Lossy report covers `UnparseableRecurrence`, `DroppedTimeOfDay`, `DroppedTimezone`, `DroppedDuration`, `DroppedDeadline`.
 
+- **v0.13.0 — atrium-inline arc.**
+  - **Slice 1: inline rename → `quick_entry`.** F2 / right-click → Rename / double-click into edit on a task row routes the new title through `atrium_inline::parse`. Plain titles take a fast path identical to pre-v0.13 (single `update_task` with the new title); when the parser sees inline syntax, the title's parsed scalars (title + scheduled + deadline) land in one `update_task`, and tag side effects merge with the existing tag set. **Rename never removes a free-form tag** — the rename surface doesn't show existing tags so a destructive merge would surprise. Empty title after parsing rejects.
+  - **Slice 2: `!N` priority + `@<weekday>` tokens.** `!1` / `!2` / `!3` set priority (Todoist convention, 1 = high). Strict 1-3 — Todoist's default 4 emits no token. `@<weekday>` (`@mon` / `@monday`, case-insensitive, full day names + `tues` / `weds` / `thur` / `thurs` aliases) sets `scheduled_for` to the next occurrence on or after today. Today's weekday returns today (not next week). New `priority: Option<u8>` on `ParsedEntry`; new `projected_tag_names()` for capture surfaces (Quick Entry modal, bottom-of-list entry, CLI `capture`); new `is_priority_tag_name(&str)` helper. The rename surface uses the typed `priority` field directly so it can swap one priority tag for another atomically (single-valued semantics) without losing the user's free-form `#tag` set.
+  - **Slice 3: atrium-inline crate extraction + tab-completion popover.** `atrium-core::quick_entry` lifted into its own `atrium-inline` workspace crate — atrium-core stays inline-syntax-agnostic; atrium-inline pulls atrium-core for `ScheduledFor`, never the reverse. Same shape as v0.9.0 atrium-org extraction. New `atrium_inline::completions` module exposes `CompletionContext { Tag/Schedule/Priority/None }` + `context_at(text, cursor)` + `replace_token(text, cursor, chosen)` + `matches(prefix, candidates)` + `SCHEDULE_KEYWORDS` + `PRIORITY_LEVELS`. New `atrium/src/ui/inline_complete.rs` wires the popover (Tab / Enter / ↓ accept; Esc dismisses; cursor-position notify keeps the popover tracking partial tokens). Wired into the bottom-of-list `new_task_entry` (via `attach_data_layer`) and the Quick Entry modal (`open()` gained `tag_pool: Option<ReadPool>` parameter). Inline-rename in the task-list factory deliberately deferred to v0.13.x — the row's edit Entry recycles frequently and the popover lifecycle would need additional teardown bookkeeping.
+
 **Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atriumd`, the post-1.0 `atrium-tui`). Don't add functionality to the GTK binary that can't be reached from the shell.
 
-**Test count: 798 across the workspace at v0.12.0**, all green. `bash scripts/regression.sh` runs in under 2 seconds. Schema version: 7.
+**Test count: 817 across the workspace at v0.13.0**, all green. `bash scripts/regression.sh` runs in under 2 seconds. Schema version: 7.
 
 ## Authoritative documents
 
@@ -172,7 +177,7 @@ The v0.1 freeze's good instinct still applies: when a feature seems to need a ne
 ## Build / test / lint
 
 ```bash
-cargo test --workspace            # all tests (798 at v0.12.0)
+cargo test --workspace            # all tests (817 at v0.13.0)
 cargo test <test_name>            # single test
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
@@ -212,6 +217,10 @@ Features that miss budget get gated or revised. If a proposed approach has obvio
 Five workspace crates split by responsibility. The data layer (`atrium-core`), search engine (`atrium-search`, extracted v0.4.2), Org projection (`atrium-org`, extracted v0.9.0), and headless CLI (`atrium-cli`, added v0.4.3) all stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them. atrium-core knows nothing about Org; the projection plugs in via the `VaultDirtyNotifier` trait so a future Markdown / TaskPaper / Todoist sibling can use the same hook.
 
 ```
+atrium-inline/                        ← inline-syntax parser shared by every capture surface (extracted v0.13.0)
+├── src/lib.rs                        ← `parse_with_today` + `ParsedEntry` (`#tag` / `@today` / `@<weekday>` / `@deadline` / `!N`); was `atrium-core/src/quick_entry.rs` pre-v0.13
+└── src/completions.rs                ← `CompletionContext` + `context_at` + `replace_token` + `matches` + `SCHEDULE_KEYWORDS` + `PRIORITY_LEVELS`; consumed by atrium/src/ui/inline_complete.rs
+
 atrium-search/                        ← Calibre-powered search engine (extracted v0.4.2)
 ├── src/lex.rs                        ← Token enum + tokenizer
 ├── src/parse.rs                      ← recursive-descent parser → Expr AST + sort modifiers

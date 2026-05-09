@@ -1,5 +1,38 @@
 # Atrium — Patch Notes
 
+## v0.13.0 (2026-05-09) — atrium-inline: shared inline-syntax engine + tab completion
+
+A polish + extraction arc on top of v0.12.0's Phase 18 work. The inline-syntax parser (`#tag`, `@today`, etc.) was small in v0.1 and grew steadily — Phase 6c shipped the original Quick Entry parser; Phase 18 added Todoist's mapper alongside it; v0.13.0 unifies the vocabulary, expands it (`!N` priority, `@<weekday>`), lifts the parser out of `atrium-core` into its own `atrium-inline` workspace crate, and adds a tab-completion popover so the syntax becomes discoverable instead of memorised.
+
+Three slices, six commits in this release:
+
+**Slice 1 — inline rename routes through `quick_entry`.** F2 / right-click → Rename / double-click into edit on a task row now runs the new title through `atrium_inline::parse`. A user can rename "Wash dishes" → "Wash dishes #urgent @today" and pick up the urgent tag plus a today schedule in one keystroke instead of opening the Inspector. Plain-text renames take a fast path identical to the pre-Slice-1 single-update flow — no behaviour change for the common case. Empty title after parsing rejects (the row never goes nameless). Title + scheduled + deadline land in a single `update_task` so the listener side sees one notify cycle. Tags are *added*, never removed (the rename surface doesn't show existing tags, so a destructive merge would surprise users — the Inspector and tag editor stay the channels for tag removal). New `ParsedEntry::is_plain_title()` lets the rename path branch on a structural check rather than a string comparison.
+
+**Slice 2 — `!priority` + `@weekday` tokens.** Two new token shapes, both matching Phase 18's Todoist mapper vocabulary so the import → edit → re-import loop stays consistent:
+
+- `!1` / `!2` / `!3` — set priority. 1 = high, 3 = low (Todoist convention). Strict 1-3 range matches the v0.12.0 mapper's policy: priority 4 is Todoist's default "no priority" and emits no token. `!none` / `!4` / `!9` / `!high` fall through to the title verbatim. Multi-`!N` tokens — last wins (mirrors `@today` / `@tomorrow` override semantics).
+- `@<weekday>` — set scheduled_for to the next occurrence of that weekday on or after today. Both 3-letter (`@mon`) and full-name (`@monday`) forms accepted, plus aliases (`@tues`, `@weds`, `@thur`, `@thurs`). Case-insensitive (`@MON`, `@Mon`, `@mOn` all parse). When today's weekday matches the target, returns today (the "you typed `@mon` on a Monday, you mean today" call). ISO `@yyyy-mm-dd` continues to win over weekday parsing.
+
+New `priority: Option<u8>` field on `ParsedEntry`. The typed enum sticks around so a future Phase 19.5 numeric priority column can adopt it directly without a parser change. New `ParsedEntry::projected_tag_names()` augments the free-form `#tag` set with a `priority-N` projection for capture-flavoured surfaces (Quick Entry modal, bottom-of-list entry, CLI `capture`). New `is_priority_tag_name(&str) -> bool` helper for the rename surface so it can identify stale `priority-*` tags during the merge. The rename surface uses the typed `priority` field directly so it can swap one priority tag for another atomically (single-valued semantics) without losing the user's free-form `#tag` set.
+
+Backward compat preserved verbatim. Unrecognised `@foo` still falls through to the title (regression test pinned). Plain text renames still take the same single-update fast path.
+
+**Slice 3 — atrium-inline crate extraction + tab completion.** Two-part slice that lifts the parser into its own crate, then wires a discovery affordance on top.
+
+- *Crate extraction.* `atrium-core::quick_entry` → `atrium-inline` workspace member. atrium-core stays inline-syntax-agnostic; the extraction goes one way, atrium-inline → atrium-core (atrium-inline pulls atrium-core for `ScheduledFor`, never the reverse). atrium-inline's dep graph stays at chrono + atrium-core — no rusqlite, tokio, or gtk reaches it, so the post-1.0 `atrium-tui` and the v1.0 `atriumd` capture daemon can pull the parser without dragging in the storage layer. atrium-cli + the GTK binary depend on `atrium-inline` directly. Same shape as the v0.9.0 atrium-org extraction.
+
+- *Tab-completion popover.* New `atrium/src/ui/inline_complete.rs` wires the new `atrium_inline::completions` module (pure context-detection + candidate-filtering helpers, fully unit-tested) into a small `gtk::Popover` that floats below an inline-syntax-aware `gtk::Entry`. Active when the user types `#` / `@` / `!` and shows candidates that match what they've typed so far. Tab and Enter accept the highlighted candidate; ↓ opens the popover from the closed state when the cursor is on a recognised token (mirrors how a desktop-search box reveals its suggestions on first arrow-key); Escape dismisses without committing. Focus-leave dismisses too so a click elsewhere doesn't strand the popover. `accept_candidate` swaps the partial token for the chosen candidate while preserving the user's marker character. GTK ↔ atrium-inline byte / char conversion handled by tested utf8_byte_offset / char_count_at_byte helpers.
+
+Wired into the bottom-of-list capture entry and the Quick Entry modal. The Quick Entry modal's `open()` signature gained a third argument — `tag_pool: Option<ReadPool>` — pulled via the new `AtriumWindow::read_pool_for_quickentry` accessor (mirror of the existing `worker_handle_for_quickentry`). Inline-rename in the task-list factory deliberately stays out of scope for this slice — the row's edit `Entry` recycles frequently and the popover lifecycle would need additional teardown bookkeeping. Renames still parse through atrium-inline at commit time so `@mon` blindly typed there still applies; only the visible suggestions defer to a v0.13.x patch.
+
+**Vocabulary curation.** The popover surfaces full-name keywords (`today` / `tomorrow` / `someday` / `deadline` / `monday` … `sunday`) and the three priority levels (`1`, `2`, `3`). The 3-letter weekday shortcuts (`@mon` / `@tue` / …) stay parser-recognised but don't clutter the suggestion list. A `schedule_keywords_match_parser` regression guard fails loudly if a new full-name keyword lands in the parser without being added to the candidate list.
+
+**spec.md §6 — Quick Entry vocabulary.** Updated to document the v0.13 tokens and to surface the architectural commitment that the same parser drives Quick Entry, the bottom-of-list entry, the inline-rename surface, and the CLI `capture`. The same parser, the same vocabulary, four surfaces.
+
+**Test count: 817** across the workspace (up from 798 at v0.12.0). atrium-inline itself contributes 49 tests (was 31 in atrium-core::quick_entry — 18 new, of which 13 cover Slice 2's parser additions and 5 cover the new helpers); inline_complete adds 3 byte/char-conversion tests. Schema unchanged at version 7. The regression gate (`scripts/regression.sh`) stays under 2 seconds.
+
+VERSION + Cargo.toml + spec.md + roadmap.md + patchnotes.md + README.md + CLAUDE.md + AppStream metainfo bumped to 0.13.0.
+
 ## v0.12.0 (2026-05-09) — Phase 18: Todoist CSV import
 
 The cross-platform productivity app most likely-to-migrate Linux user is leaving behind now has a real export path into Atrium. New `atrium-cli import todoist PATH --into PROJECT_NAME [--dry-run]` reads a Todoist CSV export, walks its row stream, and materialises the project + sections + tasks + tags + recurrence rules through the single-writer worker. Anchored to the home.csv "butter test" — Brandon's daughter Rin's chore-tracker — which round-trips Todoist → DB → vault → re-parse without losing data or scrambling structure.
