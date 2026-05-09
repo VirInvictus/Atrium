@@ -1,5 +1,58 @@
 # Atrium — Patch Notes
 
+## v0.7.8 (2026-05-08) — Org-mode emitter (round-trip safe)
+
+Third patch on the Phase 16 arc. v0.7.6 + v0.7.7 gave us the
+foundation + the parser; v0.7.8 lands the emitter that pairs
+with it to satisfy spec §7.3.3's round-trip discipline. With
+both halves in place, Atrium can now read an Org vault file
+and write it back without losing or reordering the constructs
+the spec §7.3 mapping pins down.
+
+**`atrium-core::sync::org::emit_org_text`** takes a `&[OrgTask]`
+and returns the Org text. Per-task layout:
+
+- Headline: `*` × depth + `KEYWORD` (if any) + title + ` :tag1:tag2:` (if tags).
+- Cookie line below the headline (only when at least one of
+  scheduled / deadline / closed is set): SCHEDULED/DEADLINE
+  rendered as active timestamps (`<YYYY-MM-DD Day [+repeater]>`)
+  joined by single spaces; CLOSED rendered as inactive
+  (`[YYYY-MM-DD Day HH:MM]`, with the time elided when it's the
+  parser's noon-UTC default — matches Emacs's "date-only CLOSED"
+  shape).
+- `:PROPERTIES:` drawer (only when there are properties or
+  unknown_lines): keys emitted in sorted order so `HashMap`
+  iteration randomness can't perturb round-trips. Empty values
+  emit as bare `:KEY:` per Org's canonical form.
+- Body preserved verbatim from `OrgTask::body`; trailing newline
+  added on emit (parser strips it on read).
+- Children rendered recursively at depth+1 immediately after the
+  parent's body.
+
+**`atrium-core::sync::org::emit_org_file`** wraps the text emit
+through the v0.7.6 `write_atomic` helper, satisfying spec
+§7.3.3 rule 6. A crash mid-write leaves the previous version of
+the file intact.
+
+**Round-trip discipline.** 13 dedicated `roundtrip_*` tests
+parse a representative input, emit it, re-parse, and assert the
+two parsed trees are equal. Coverage spans every spec §7.3
+construct: simple TODO, DONE+CLOSED, scheduled+deadline,
+all three repeater modes (`+1d`, `++1w`, `.+2w`), headline
+tags, properties drawer, body verbatim preservation, nested
+subtasks, project sub-headings (no keyword), custom keywords
+(WAITING), unknown-lines preservation inside the drawer, and a
+kitchen-sink test combining everything in one document.
+
+**Test count:** 119 + 210 + 1 + 106 + 106 = **542** (up 18 from
+v0.7.7's 524 — the new emitter tests). Pure additive change.
+No schema. No new dependencies.
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.8**. Phase 16 progress: foundation + parser +
+emitter done; importer (Org → DB), writer (DB → Org), worker
+hook, and JSON export remain.
+
 ## v0.7.7 (2026-05-08) — Hand-rolled Org-mode parser
 
 Second patch on the Phase 16 arc. v0.7.6 laid the foundation

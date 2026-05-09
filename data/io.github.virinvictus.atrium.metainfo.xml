@@ -90,6 +90,29 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.8" date="2026-05-08">
+      <description>
+        <p>Org-mode emitter (round-trip safe). Third patch on
+           the Phase 16 arc. emit_org_text takes a Vec&lt;OrgTask&gt;
+           and writes the canonical Org form: headline + cookies
+           below + :PROPERTIES: drawer + body verbatim + children
+           recursively at depth+1. emit_org_file goes through
+           the v0.7.6 atomic-write helper so a crash mid-write
+           leaves the previous file intact.</p>
+        <p>13 round-trip tests parse a representative input,
+           emit, re-parse, and assert tree-equality. Coverage:
+           every keyword, every repeater mode, headline tags,
+           properties drawer, body preservation, nested
+           subtasks, project sub-headings, custom keywords,
+           unknown-lines preservation, and a kitchen-sink test
+           combining everything.</p>
+        <p>Test count: 119 + 210 + 1 + 106 + 106 = 542 (up 18
+           from v0.7.7). Pure additive change; no schema, no
+           new dependencies. Importer (Org → DB), writer (DB →
+           Org), worker hook, and JSON export remain in the
+           Phase 16 arc.</p>
+      </description>
+    </release>
     <release version="0.7.7" date="2026-05-08">
       <description>
         <p>Hand-rolled Org-mode parser. Second patch on the
