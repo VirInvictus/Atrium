@@ -531,6 +531,150 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Phase 18 v0.12.0 — the butter test. End-to-end acceptance:
+    ///
+    ///   home.csv  →  DB  →  vault  →  re-parse the .org file
+    ///
+    /// Asserts the round-trip preserves enough fidelity that the
+    /// resulting Org file is the kind a DoomEmacs user would
+    /// recognise: the project's sections render as depth-1
+    /// headlines, every task lands at depth 2 under its section
+    /// with the right keyword, recurring tasks carry an
+    /// `:RRULE:` property, and labels survive as Org tags.
+    ///
+    /// This is the closing acceptance gate for the v0.12.0 slice
+    /// per roadmap §18.
+    #[tokio::test]
+    async fn home_csv_round_trips_through_db_and_vault() {
+        use super::super::parser::parse_csv;
+        use atrium_core::spawn_worker;
+
+        let dir = std::env::temp_dir().join(format!("atrium-butter-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("atrium-test.db");
+        let vault_path = dir.join("vault");
+        std::fs::create_dir_all(&vault_path).unwrap();
+        let mut writer_conn = rusqlite::Connection::open(&db_path).unwrap();
+        atrium_core::db::configure_pragmas(&writer_conn).unwrap();
+        atrium_core::db::migrations::migrate(&mut writer_conn).unwrap();
+        let read_conn = rusqlite::Connection::open(&db_path).unwrap();
+        atrium_core::db::configure_pragmas(&read_conn).unwrap();
+        let (handle, _changes_rx, _library_rx) = spawn_worker(writer_conn);
+
+        let csv = include_str!("../../../tests/fixtures/todoist/home.csv");
+        let rows = parse_csv(csv).expect("home.csv parses");
+        let today = NaiveDate::from_ymd_opt(2026, 5, 9).unwrap();
+        let summary = import_todoist(&handle, &rows, "Weekly chores", today, false)
+            .await
+            .expect("import succeeds");
+
+        assert_eq!(summary.headings_created, 10);
+        assert_eq!(summary.tasks_created, 46);
+        // 2 distinct labels (chore, home) — priority-4 emits no
+        // tag because Todoist treats 4 as "no priority".
+        assert_eq!(summary.tags_created, 2);
+        // view_style=board is the only meta row.
+        assert_eq!(summary.meta_entries, vec!["view_style=board"]);
+
+        // Write the project to a vault directory.
+        let project_id = summary.project_id.unwrap();
+        let write_summary =
+            atrium_org::org::write_project_to_vault(&read_conn, &vault_path, project_id)
+                .expect("vault write succeeds");
+        assert_eq!(write_summary.task_count, 46);
+        assert!(write_summary.file_path.exists());
+
+        // Re-parse the emitted file and verify the structure
+        // a DoomEmacs user would see.
+        let parsed = atrium_org::org::parse_org_file_with_meta(&write_summary.file_path)
+            .expect("emitted file parses");
+
+        assert_eq!(
+            parsed.directives.get("TITLE").map(String::as_str),
+            Some("Weekly chores"),
+        );
+
+        // 10 top-level depth-1 headlines, all keyword-less
+        // (project sub-headings).
+        assert_eq!(parsed.headlines.len(), 10);
+        for h in &parsed.headlines {
+            assert_eq!(h.depth, 1, "section {:?} should be depth 1", h.title);
+            assert!(
+                h.keyword.is_none(),
+                "section {:?} should have no TODO keyword",
+                h.title
+            );
+        }
+
+        let section_titles: Vec<&str> = parsed.headlines.iter().map(|h| h.title.as_str()).collect();
+        assert_eq!(
+            section_titles[0], "Sunday: Prep for the week",
+            "first section preserved"
+        );
+        assert_eq!(section_titles[9], "One offs", "last section preserved");
+
+        // Total tasks across all sections (top-level depth-2
+        // children plus their nested subtasks).
+        fn count_tasks(node: &atrium_org::org::OrgTask) -> usize {
+            // node may itself be a task (with a keyword) or a
+            // section (no keyword); either way descendants count.
+            let self_count = if node.keyword.is_some() { 1 } else { 0 };
+            self_count + node.children.iter().map(count_tasks).sum::<usize>()
+        }
+        let total_tasks: usize = parsed.headlines.iter().map(count_tasks).sum();
+        assert_eq!(total_tasks, 46, "all 46 tasks emitted");
+
+        // Sunday section has the nested "Check for essentials"
+        // shopping list (1 indent-1 task + 7 indent-2 children).
+        let sunday = &parsed.headlines[0];
+        let essentials = sunday
+            .children
+            .iter()
+            .find(|t| t.title == "Check for essentials")
+            .expect("Check for essentials present");
+        assert_eq!(essentials.depth, 2);
+        assert_eq!(essentials.keyword, Some(atrium_org::org::OrgKeyword::Todo),);
+        assert_eq!(essentials.children.len(), 7, "7 shopping subtasks");
+        assert_eq!(
+            essentials.children[0].title, "Check for milk, add to list",
+            "first child carries the embedded comma intact"
+        );
+        assert_eq!(essentials.children[0].depth, 3);
+
+        // Recurrence — "Every Sunday" → FREQ=WEEKLY;BYDAY=SU.
+        // Stored as :RRULE: on the task's properties.
+        assert_eq!(
+            essentials.properties.get("RRULE").map(String::as_str),
+            Some("FREQ=WEEKLY;BYDAY=SU"),
+            "RRULE round-trips for the recurring parent task"
+        );
+
+        // Tags: @chore @home from the source content survive as
+        // Org headline tags. We strip them from the title and
+        // emit them in the trailing :tag1:tag2: slot.
+        assert!(
+            essentials.tags.contains(&"chore".to_string())
+                && essentials.tags.contains(&"home".to_string()),
+            "tags survive: got {:?}",
+            essentials.tags
+        );
+
+        // The parser dropped the @label tokens from the title.
+        // No "@chore" / "@home" should remain in any title.
+        for section in &parsed.headlines {
+            for task in &section.children {
+                assert!(
+                    !task.title.contains('@'),
+                    "title shouldn't carry @label leftovers: {:?}",
+                    task.title
+                );
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[tokio::test]
     async fn import_subtasks_use_parent_id() {
         use atrium_core::spawn_worker;
