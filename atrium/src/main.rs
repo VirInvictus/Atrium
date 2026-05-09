@@ -182,17 +182,18 @@ fn boot_data_layer() -> std::result::Result<BootedDataLayer, AtriumError> {
     let conn = atrium_core::db::open(&db_path)?;
     let pool = ReadPool::new(db_path.clone(), 4);
 
-    let (vault_config, vault_loop, events_rx) = match read_vault_setup_from_settings(&pool) {
-        Ok(Some((cfg, vl, rx))) => (Some(cfg), Some(vl), Some(rx)),
-        Ok(None) => (None, None, None),
-        Err(e) => {
-            // A bad vault setting shouldn't lock the user out of
-            // their tasks. Surface the failure in the log and
-            // fall back to DB-only.
-            warn!(error = %e, "vault config unusable; running DB-only");
-            (None, None, None)
-        }
-    };
+    let (vault_config, vault_loop, events_rx, vault_root) =
+        match read_vault_setup_from_settings(&pool) {
+            Ok(Some((cfg, vl, rx, root))) => (Some(cfg), Some(vl), Some(rx), Some(root)),
+            Ok(None) => (None, None, None, None),
+            Err(e) => {
+                // A bad vault setting shouldn't lock the user out
+                // of their tasks. Surface the failure in the log
+                // and fall back to DB-only.
+                warn!(error = %e, "vault config unusable; running DB-only");
+                (None, None, None, None)
+            }
+        };
 
     let _enter = runtime().handle().enter();
     let (handle, changes_rx, library_rx) = atrium_core::spawn_worker_with_vault(conn, vault_config);
@@ -208,6 +209,33 @@ fn boot_data_layer() -> std::result::Result<BootedDataLayer, AtriumError> {
         }
     }
 
+    // v0.13.x — initial backfill on fresh vaults. Detected via the
+    // sidecar's absence: the writer creates `.atrium/config.toml`
+    // after every project flush, so on the first boot against a
+    // freshly-configured vault path the sidecar is missing → we
+    // sweep `list_projects` and write each one to disk. Subsequent
+    // boots find the sidecar and skip the seed (the writer's
+    // ongoing change-driven mirror takes over from there).
+    //
+    // Spawned on the tokio runtime so a 10K-task DB doesn't block
+    // the GTK main loop. Errors are best-effort — log + continue;
+    // the user can always run `atrium-cli export org PATH` if the
+    // background seed silently fails. The atomic-write helper +
+    // v0.10.1 conflict-detection backstop keeps existing files
+    // safe (any pre-existing `.org` files in the vault get backed
+    // up to `<file>.atrium.bak.<timestamp>` before being
+    // overwritten).
+    if let Some(root) = vault_root {
+        let sidecar = root.join(".atrium").join("config.toml");
+        if !sidecar.exists() {
+            let pool_for_seed = pool.clone();
+            let db_path_for_seed = db_path.clone();
+            runtime().handle().spawn(async move {
+                seed_fresh_vault(&pool_for_seed, &db_path_for_seed, &root);
+            });
+        }
+    }
+
     Ok(BootedDataLayer {
         handle,
         task_changes_rx: changes_rx,
@@ -217,10 +245,69 @@ fn boot_data_layer() -> std::result::Result<BootedDataLayer, AtriumError> {
     })
 }
 
+/// Synchronously dump every project to the vault and then write
+/// the sidecar. Called once on a fresh-vault boot. Two phases
+/// because `write_all_projects_to_vault` doesn't touch the
+/// sidecar (the runtime writer does that on each flush); without
+/// the sidecar write here, every subsequent boot would think the
+/// vault is still fresh and re-seed.
+///
+/// Opens a fresh read-only `Connection` rather than going through
+/// `pool.with` because the writer's `WriteError` type doesn't
+/// satisfy `pool.with`'s `Result<_, DbError>` constraint. The
+/// connection is dropped when the function returns.
+fn seed_fresh_vault(pool: &ReadPool, db_path: &std::path::Path, root: &std::path::Path) {
+    // Phase 1: every project's .org file.
+    let conn = match atrium_core::db::open(db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(error = %e, "fresh-vault seed: open read connection failed");
+            return;
+        }
+    };
+    let count = match atrium_org::org::write_all_projects_to_vault(&conn, root) {
+        Ok(summaries) => summaries.len(),
+        Err(e) => {
+            warn!(error = %e, "fresh-vault seed: project write failed");
+            return;
+        }
+    };
+
+    // Phase 2: sidecar via the existing pool — `build_from_db`
+    // returns `Result<_, DbError>` so it threads through
+    // `pool.with` cleanly.
+    let sidecar_result = pool.with(atrium_org::sidecar::build_from_db);
+    match sidecar_result {
+        Ok(sidecar) => {
+            if let Err(e) = atrium_org::sidecar::write_sidecar(root, &sidecar) {
+                warn!(error = %e, "fresh-vault seed: sidecar write failed");
+                return;
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "fresh-vault seed: sidecar build failed");
+            return;
+        }
+    }
+
+    info!(
+        count,
+        path = %root.display(),
+        "fresh vault seeded from DB",
+    );
+}
+
 /// Read the `vault-path` GSettings key and, when set + usable,
 /// build the writer-side wiring of the Phase 17 two-way loop.
 /// Returns `Ok(None)` when the key is empty (the default — DB-only
 /// mode); `Err` when the key is set but the path can't be used.
+///
+/// The path itself is surfaced alongside the wiring tuple so
+/// `boot_data_layer` can detect a freshly-configured vault and
+/// trigger an initial backfill (the writer is change-driven; on
+/// first attach to an empty directory there's nothing to mirror
+/// until the user edits something).
+#[allow(clippy::type_complexity)]
 fn read_vault_setup_from_settings(
     pool: &ReadPool,
 ) -> std::result::Result<
@@ -228,6 +315,7 @@ fn read_vault_setup_from_settings(
         atrium_core::VaultConfig,
         atrium_org::VaultLoopHandle,
         mpsc::UnboundedReceiver<atrium_org::VaultEvent>,
+        std::path::PathBuf,
     )>,
     UiError,
 > {
@@ -250,7 +338,8 @@ fn read_vault_setup_from_settings(
         "vault path configured; two-way sync (writer + watcher) enabled"
     );
     let _enter = runtime().handle().enter();
-    Ok(Some(atrium_org::spawn_vault_loop(path, pool.clone())))
+    let (cfg, vl, rx) = atrium_org::spawn_vault_loop(path.clone(), pool.clone());
+    Ok(Some((cfg, vl, rx, path)))
 }
 
 /// Bridge worker → UI. tokio mpsc receivers are runtime-agnostic at
