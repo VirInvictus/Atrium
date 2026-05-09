@@ -218,7 +218,73 @@ impl VaultWatcher {
                 source: path.to_path_buf(),
             });
         }
-        self.diff_and_apply(path, parsed).await
+        // RRULE divergence detection (spec §7.3.3 rule 3): a
+        // headline whose SCHEDULED cookie doesn't match its own
+        // `:RRULE:` property means the user edited the cookie
+        // alone in Emacs. `:RRULE:` is canonical; we surface the
+        // divergence and rewrite the file so the cookie matches.
+        // The check runs before diff_and_apply so the caller can
+        // post-flush the rewrite.
+        let divergences = collect_rrule_divergences(&parsed.headlines);
+        for d in &divergences {
+            warn!(
+                path = %path.display(),
+                title = %d.title,
+                cookie = %d.cookie,
+                rrule = %d.rrule,
+                "vault watcher: SCHEDULED cookie disagrees with :RRULE:; rewriting file"
+            );
+            if let Some(tx) = &self.events_tx {
+                let _ = tx.send(VaultEvent::RruleDiverged {
+                    source: path.to_path_buf(),
+                    title: d.title.clone(),
+                    cookie: d.cookie.clone(),
+                    rrule: d.rrule.clone(),
+                });
+            }
+        }
+        let project_id_opt = self.diff_and_apply(path, parsed).await?;
+        // If we found divergences, rewrite the file. The writer's
+        // scheduled_repeater_from_task projects the canonical
+        // `:RRULE:` back to the right cookie, so the file becomes
+        // self-consistent. RecentWrites swallows the resulting
+        // inotify echo.
+        if !divergences.is_empty()
+            && let Some(project_id) = project_id_opt
+        {
+            self.rewrite_project_file(project_id);
+        }
+        Ok(())
+    }
+
+    /// Synchronously rewrite a project's vault file from DB state.
+    /// Bypasses the writer's debounce — divergence detection wants
+    /// the file fixed immediately, not at the next 100 ms tick.
+    /// Failures log but don't propagate; the next normal flush
+    /// will recover.
+    fn rewrite_project_file(&self, project_id: i64) {
+        let result = self.pool.with(|conn| {
+            crate::org::write_project_to_vault(conn, &self.root, project_id)
+                .map_err(|e| DbError::Sync(e.to_string()))
+        });
+        match result {
+            Ok(summary) => {
+                if let Ok(mut rw) = self.recent_writes.write() {
+                    let _ = rw.record(summary.file_path);
+                }
+                trace!(
+                    project_id,
+                    "vault watcher: rewrote file to fix RRULE divergence"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    project_id,
+                    error = %e,
+                    "vault watcher: divergence-fix rewrite failed"
+                );
+            }
+        }
     }
 
     /// Mark `path` as paused; returns `true` if it was already in
@@ -236,7 +302,7 @@ impl VaultWatcher {
         paused.remove(path)
     }
 
-    async fn diff_and_apply(&self, path: &Path, parsed: OrgFile) -> Result<(), DbError> {
+    async fn diff_and_apply(&self, path: &Path, parsed: OrgFile) -> Result<Option<i64>, DbError> {
         // Resolve or create the project this file maps to.
         let project_id = self.resolve_or_create_project(path, &parsed).await?;
 
@@ -299,7 +365,7 @@ impl VaultWatcher {
             uuid_to_task_id.insert(parsed_task.uuid.clone(), new_id);
         }
 
-        Ok(())
+        Ok(Some(project_id))
     }
 
     async fn resolve_or_create_project(
@@ -475,6 +541,10 @@ impl<'a> ParsedTask<'a> {
             }
             _ => None,
         };
+        // `:RRULE:` in the properties drawer is canonical per spec
+        // §7.3.3 rule 3. The cookie is best-fit projection only;
+        // we ignore it here and trust the property drawer.
+        let repeat_rule = self.org.properties.get("RRULE").cloned();
         NewTask {
             uuid: Some(self.uuid.clone()),
             title: self.org.title.clone(),
@@ -484,6 +554,7 @@ impl<'a> ParsedTask<'a> {
             deadline: self.org.deadline,
             completed_at,
             orig_keyword: org_keyword_to_orig(self.org.keyword.as_ref()),
+            repeat_rule,
             note: self.org.body.clone(),
             ..Default::default()
         }
@@ -532,6 +603,16 @@ impl<'a> ParsedTask<'a> {
         let parsed_orig = org_keyword_to_orig(self.org.keyword.as_ref());
         if parsed_orig != existing.orig_keyword {
             update = update.orig_keyword(parsed_orig);
+            dirty = true;
+        }
+
+        // `:RRULE:` (canonical RRULE per spec §7.3.3 rule 3). The
+        // SCHEDULED cookie is best-fit projection — divergence
+        // detection at the file level is a separate concern (see
+        // detect_rrule_divergences in the watcher).
+        let parsed_rrule = self.org.properties.get("RRULE").cloned();
+        if parsed_rrule != existing.repeat_rule {
+            update = update.repeat_rule_value(parsed_rrule);
             dirty = true;
         }
 
@@ -602,4 +683,42 @@ pub fn spawn_vault_watcher_with_events(
         _watcher: watcher,
     };
     Ok(tokio::spawn(task.run()))
+}
+
+/// One headline's cookie-vs-RRULE disagreement, captured for the
+/// `RruleDiverged` event.
+struct RruleDivergence {
+    title: String,
+    cookie: String,
+    rrule: String,
+}
+
+/// Walk a parsed headline tree and find every task whose
+/// SCHEDULED cookie disagrees with its `:RRULE:` property on the
+/// FREQ + INTERVAL axis. BY-clauses in `:RRULE:` don't count as
+/// divergence — the cookie can't express them by design (spec
+/// §7.3.3 rule 3 explicitly allows the lossy projection).
+fn collect_rrule_divergences(headlines: &[OrgTask]) -> Vec<RruleDivergence> {
+    let mut out = Vec::new();
+    for h in headlines {
+        collect_rrule_divergences_one(h, &mut out);
+    }
+    out
+}
+
+fn collect_rrule_divergences_one(task: &OrgTask, out: &mut Vec<RruleDivergence>) {
+    if let (Some(repeater), Some(rrule)) = (
+        task.scheduled_repeater.as_ref(),
+        task.properties.get("RRULE"),
+    ) && !crate::rrule_cookie::cookie_matches_rrule(repeater, rrule)
+    {
+        out.push(RruleDivergence {
+            title: task.title.clone(),
+            cookie: format!("{}{}{}", repeater.mode, repeater.interval, repeater.unit),
+            rrule: rrule.clone(),
+        });
+    }
+    for child in &task.children {
+        collect_rrule_divergences_one(child, out);
+    }
 }

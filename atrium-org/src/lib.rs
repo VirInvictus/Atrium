@@ -93,6 +93,18 @@ pub enum VaultEvent {
     /// toast so the user knows the projection is now stale on
     /// disk. The next project flush recreates the file.
     FileRemoved { source: PathBuf },
+
+    /// A headline's SCHEDULED cookie disagrees with the canonical
+    /// `:RRULE:` property in its drawer. Per spec §7.3.3 rule 3,
+    /// `:RRULE:` wins — DB stays canonical, the watcher rewrites
+    /// the file so the cookie matches. The user's cookie edit
+    /// gets reverted; the toast tells them so.
+    RruleDiverged {
+        source: PathBuf,
+        title: String,
+        cookie: String,
+        rrule: String,
+    },
 }
 
 /// Write-only Org vault setup. Spins up a [`VaultWriter`] against

@@ -735,3 +735,191 @@ async fn external_file_removal_preserves_tasks_and_toasts() {
     drop(handle);
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rrule_divergence_on_cookie_only_edit_rewrites_to_canonical() {
+    // Spec §7.3.3 rule 3: :RRULE: is canonical, the SCHEDULED
+    // cookie is best-fit projection. When the user edits only
+    // the cookie in Emacs (e.g. +1w → +2w) without touching
+    // :RRULE:, the file is internally inconsistent. The watcher
+    // surfaces RruleDiverged and rewrites the file so the
+    // cookie matches the canonical rule. DB stays canonical.
+    let scratch = std::env::temp_dir().join(format!("atrium-watcher-rrule-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let db_path = scratch.join("atrium.db");
+    let conn = open(&db_path).unwrap();
+    let pool = ReadPool::new(&db_path, 4);
+
+    let (vault_config, vault_loop, mut events_rx) =
+        atrium_org::spawn_vault_loop(scratch.clone(), pool.clone());
+    let (handle, _changes_rx, _library_rx) = spawn_worker_with_vault(conn, Some(vault_config));
+
+    let project = handle
+        .create_project(NewProject {
+            title: "Repeats".to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let scheduled = chrono::NaiveDate::from_ymd_opt(2026, 5, 11).unwrap(); // Mon
+    let _ = handle
+        .create_task(NewTask {
+            title: "Weekly".to_string(),
+            project_id: Some(project.id),
+            scheduled_for: Some(atrium_core::ScheduledFor::Date(scheduled)),
+            repeat_rule: Some("FREQ=WEEKLY".to_string()),
+            repeat_mode: Some("CUMULATIVE".to_string()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let project_path = scratch.join("Repeats.org");
+    let written = std::fs::read_to_string(&project_path).unwrap();
+    assert!(
+        written.contains("SCHEDULED: <2026-05-11 Mon ++1w>"),
+        "initial cookie should be ++1w; got:\n{written}"
+    );
+
+    let _watcher = vault_loop.attach_watcher(handle.clone()).unwrap();
+
+    // Drain pre-existing events so we observe only what comes
+    // from the upcoming edit.
+    while events_rx.try_recv().is_ok() {}
+
+    // User edits ONLY the cookie in Emacs: ++1w → ++2w. The
+    // :RRULE: property still says FREQ=WEEKLY (interval = 1).
+    let edited = written.replace(
+        "SCHEDULED: <2026-05-11 Mon ++1w>",
+        "SCHEDULED: <2026-05-11 Mon ++2w>",
+    );
+    assert!(edited != written, "the replace must take effect");
+    std::fs::write(&project_path, edited).unwrap();
+
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // RruleDiverged event surfaced.
+    let mut diverged: Option<(String, String, String)> = None;
+    while let Ok(event) = events_rx.try_recv() {
+        if let atrium_org::VaultEvent::RruleDiverged {
+            title,
+            cookie,
+            rrule,
+            ..
+        } = event
+        {
+            diverged = Some((title, cookie, rrule));
+        }
+    }
+    let (title, cookie, rrule) =
+        diverged.expect("cookie-only edit should produce a RruleDiverged event");
+    assert_eq!(title, "Weekly");
+    assert_eq!(cookie, "++2w");
+    assert!(rrule.contains("FREQ=WEEKLY"));
+
+    // File rewritten — cookie back to ++1w (canonical from
+    // :RRULE: FREQ=WEEKLY).
+    let rewritten = std::fs::read_to_string(&project_path).unwrap();
+    assert!(
+        rewritten.contains("SCHEDULED: <2026-05-11 Mon ++1w>"),
+        "watcher must rewrite cookie to canonical; got:\n{rewritten}"
+    );
+    assert!(
+        !rewritten.contains("++2w"),
+        "the user's edit must be reverted: {rewritten}"
+    );
+
+    // DB still has the canonical FREQ=WEEKLY (no INTERVAL=2
+    // sneaked in via the watcher's :RRULE: sync).
+    let tasks = pool
+        .with(|conn| atrium_core::db::read::list_all_in_project(conn, project.id))
+        .unwrap();
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(
+        tasks[0].repeat_rule.as_deref(),
+        Some("FREQ=WEEKLY"),
+        "DB rule should remain canonical"
+    );
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn external_rrule_property_edit_syncs_to_db() {
+    // Counterpart to the divergence test: when the user edits
+    // the :RRULE: property in Emacs without touching the cookie,
+    // the watcher syncs the new rule to DB. The cookie is
+    // best-fit projection so it can be consistent with several
+    // RRULE shapes — no divergence event fires.
+    let scratch =
+        std::env::temp_dir().join(format!("atrium-watcher-rrule-sync-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let db_path = scratch.join("atrium.db");
+    let conn = open(&db_path).unwrap();
+    let pool = ReadPool::new(&db_path, 4);
+
+    let (vault_config, vault_loop, mut events_rx) =
+        atrium_org::spawn_vault_loop(scratch.clone(), pool.clone());
+    let (handle, _changes_rx, _library_rx) = spawn_worker_with_vault(conn, Some(vault_config));
+
+    let project = handle
+        .create_project(NewProject {
+            title: "RuleSync".to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let scheduled = chrono::NaiveDate::from_ymd_opt(2026, 5, 11).unwrap();
+    let _ = handle
+        .create_task(NewTask {
+            title: "Recurrent".to_string(),
+            project_id: Some(project.id),
+            scheduled_for: Some(atrium_core::ScheduledFor::Date(scheduled)),
+            repeat_rule: Some("FREQ=WEEKLY".to_string()),
+            repeat_mode: Some("CUMULATIVE".to_string()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let _watcher = vault_loop.attach_watcher(handle.clone()).unwrap();
+
+    let project_path = scratch.join("RuleSync.org");
+    let written = std::fs::read_to_string(&project_path).unwrap();
+
+    // User adds BYDAY=MO,WE to :RRULE:; cookie unchanged.
+    let edited = written.replace(":RRULE: FREQ=WEEKLY", ":RRULE: FREQ=WEEKLY;BYDAY=MO,WE");
+    assert!(edited != written);
+    std::fs::write(&project_path, edited).unwrap();
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // No RruleDiverged event — the cookie is still consistent
+    // with the new rule (cookie can't express BYDAY anyway).
+    let mut saw_diverged = false;
+    while let Ok(event) = events_rx.try_recv() {
+        if matches!(event, atrium_org::VaultEvent::RruleDiverged { .. }) {
+            saw_diverged = true;
+        }
+    }
+    assert!(
+        !saw_diverged,
+        "consistent cookie + richer :RRULE: must not produce divergence"
+    );
+
+    // DB has the new rule.
+    let tasks = pool
+        .with(|conn| atrium_core::db::read::list_all_in_project(conn, project.id))
+        .unwrap();
+    assert_eq!(
+        tasks[0].repeat_rule.as_deref(),
+        Some("FREQ=WEEKLY;BYDAY=MO,WE"),
+        ":RRULE: edit should sync to DB"
+    );
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&scratch);
+}

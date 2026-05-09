@@ -353,6 +353,11 @@ fn bridge_vault_events(
                         "{src_name} was removed from the vault — Atrium tasks retained"
                     ));
                 }
+                atrium_org::VaultEvent::RruleDiverged { title, .. } => {
+                    win.show_toast(&format!(
+                        "“{title}”: Org cookie diverged from :RRULE: — DB kept the canonical rule"
+                    ));
+                }
             }
         }
         tracing::info!("vault-event channel closed; bridge exiting");
