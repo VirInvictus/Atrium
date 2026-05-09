@@ -2412,6 +2412,12 @@ impl AtriumWindow {
                             // the worker generate a fresh UUID rather
                             // than reusing the deleted task's ID.
                             uuid: None,
+                            // Preserve the orig_keyword from the
+                            // pre-deletion row so an Org-imported
+                            // custom-keyword task survives an Atrium
+                            // delete/undo cycle without losing its
+                            // round-trip anchor.
+                            orig_keyword: task.orig_keyword,
                         };
                         match worker.create_task(new).await {
                             Ok(restored) => {

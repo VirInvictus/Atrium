@@ -36,6 +36,14 @@ pub struct Task {
     /// whose `last_reviewed_at` is within the last 7 days from
     /// the weekly walk; otherwise the column is unused.
     pub last_reviewed_at: Option<DateTime<Utc>>,
+    /// v0.7.12 — Phase 16 round-trip anchor for non-canonical Org
+    /// keywords (e.g. `WAITING`, `BLOCKED`, `IN-PROGRESS`). NULL
+    /// when the task was created in Atrium or imported with a
+    /// canonical TODO / DONE / CANCELLED. The Org writer consults
+    /// this column when emitting so the original keyword survives
+    /// a vault round-trip; otherwise it falls back to the
+    /// canonical keyword implied by `completed_at`.
+    pub orig_keyword: Option<String>,
     pub position: f64,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
@@ -72,6 +80,12 @@ pub struct NewTask {
     /// vault file (spec §7.3.3 rule 2: ":ID: is the round-trip
     /// anchor"). Empty strings are rejected by the worker.
     pub uuid: Option<String>,
+    /// v0.7.12 — non-canonical Org keyword to stash on the task.
+    /// `None` for canonical TODO / DONE / CANCELLED (the worker
+    /// stores NULL); `Some(name)` for things like `WAITING`,
+    /// `BLOCKED`, `IN-PROGRESS`. The Org writer consults the
+    /// resulting column when emitting.
+    pub orig_keyword: Option<String>,
 }
 
 impl NewTask {

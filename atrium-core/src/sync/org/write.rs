@@ -261,7 +261,14 @@ fn build_org_tree(tasks: &[Task], tag_names: &HashMap<i64, Vec<String>>) -> Vec<
 }
 
 fn task_to_org(task: &Task, depth: usize, tag_names: &HashMap<i64, Vec<String>>) -> OrgTask {
-    let keyword = if task.completed_at.is_some() {
+    // v0.7.12 — when the importer stashed a non-canonical Org
+    // keyword (WAITING, BLOCKED, IN-PROGRESS, etc.) we restore
+    // it on emit. The completed_at column still drives whether
+    // the task counts as done in Atrium; the Org keyword is
+    // purely a label round-trip.
+    let keyword = if let Some(orig) = &task.orig_keyword {
+        Some(OrgKeyword::Custom(orig.clone()))
+    } else if task.completed_at.is_some() {
         Some(OrgKeyword::Done)
     } else {
         Some(OrgKeyword::Todo)
@@ -488,6 +495,60 @@ mod tests {
         assert_eq!(parsed[0].children.len(), 1);
         assert_eq!(parsed[0].children[0].title, "Pick brand");
         assert_eq!(parsed[0].children[0].depth, 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// v0.7.12 — the custom-keyword round-trip end-to-end.
+    /// Import an .org file with a `WAITING` headline; export the
+    /// resulting DB; the regenerated file's headline carries
+    /// `WAITING` again. orig_keyword is the only data path that
+    /// makes this work — without it the writer would emit `TODO`.
+    #[tokio::test]
+    async fn custom_keyword_round_trips_through_db() {
+        use crate::db::worker::spawn;
+        use crate::sync::org::{import_org_file, parse_org_text};
+
+        let dir = std::env::temp_dir().join(format!("atrium-orig-kw-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = dir.join("source.org");
+        std::fs::write(
+            &src,
+            "* WAITING External signoff\n* IN-PROGRESS Refactor\n* TODO Plain task\n",
+        )
+        .unwrap();
+
+        let db_path = dir.join("db.sqlite");
+        let mut writer_conn = rusqlite::Connection::open(&db_path).unwrap();
+        crate::db::configure_pragmas(&writer_conn).unwrap();
+        crate::db::migrations::migrate(&mut writer_conn).unwrap();
+        let read_conn = rusqlite::Connection::open(&db_path).unwrap();
+        crate::db::configure_pragmas(&read_conn).unwrap();
+
+        let (handle, _changes_rx, _library_rx) = spawn(writer_conn);
+        let summary = import_org_file(&handle, &src, false).await.unwrap();
+        assert_eq!(summary.tasks_created, 3);
+        let project_id = summary.project_id.unwrap();
+
+        let written = write_project_to_vault(&read_conn, &dir, project_id).unwrap();
+        let text = std::fs::read_to_string(&written.file_path).unwrap();
+        let parsed = parse_org_text(&text);
+
+        // Parser orders headlines as written; we expect the same
+        // three keywords back. Match on .keyword.as_str() so the
+        // assertion message is readable on failure.
+        let kws: Vec<String> = parsed
+            .iter()
+            .map(|t| {
+                t.keyword
+                    .as_ref()
+                    .map(|k| k.as_str().to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
+        assert_eq!(kws, vec!["WAITING", "IN-PROGRESS", "TODO"]);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

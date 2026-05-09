@@ -23,7 +23,10 @@ use crate::error::DbError;
 /// v0.5.0) add `area.color` and `perspective.{renderer, renderer_config}`
 /// for the beauty pass and the kanban-board renderer respectively.
 /// Version 6 (v0.7.4) adds `task.last_reviewed_at` for the canonical
-/// Review page's task-level Mark Reviewed action.
+/// Review page's task-level Mark Reviewed action. Version 7
+/// (v0.7.12) adds `task.orig_keyword` so the Org importer can stash
+/// non-canonical keywords (WAITING, BLOCKED, etc.) for round-trip
+/// preservation by the writer.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
@@ -31,6 +34,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (4, include_str!("0004_area_color.sql")),
     (5, include_str!("0005_perspective_renderer.sql")),
     (6, include_str!("0006_task_last_reviewed_at.sql")),
+    (7, include_str!("0007_task_orig_keyword.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

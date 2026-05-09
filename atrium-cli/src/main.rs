@@ -1103,6 +1103,7 @@ fn run_add(
         repeat_rule: None,
         repeat_mode: None,
         uuid: None,
+        orig_keyword: None,
     };
 
     let task = runtime

@@ -90,6 +90,25 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.12" date="2026-05-09">
+      <description>
+        <p>Custom-keyword Org round-trip via migration 0007.
+           Seventh patch on the Phase 16 arc. Spec §7.3.3 rule
+           1 calls for non-canonical TODO keywords (WAITING,
+           BLOCKED, IN-PROGRESS, etc.) to round-trip cleanly.
+           v0.7.12 implements this at the data-model level via
+           a new task.orig_keyword TEXT NULL column. The Org
+           importer stashes the original; the writer consults
+           the column when emitting so the original keyword
+           survives a vault round-trip. Atrium's UI never
+           surfaces the column — completion semantics still
+           flow through completed_at alone.</p>
+        <p>End-to-end test verifies WAITING / IN-PROGRESS /
+           TODO survive an import → DB → export round-trip.
+           user_version 6 → 7. 564 tests green (up 2). No new
+           dependencies.</p>
+      </description>
+    </release>
     <release version="0.7.11" date="2026-05-09">
       <description>
         <p>JSON snapshot export. Sixth patch on the Phase 16

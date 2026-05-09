@@ -1,0 +1,28 @@
+-- 0007_task_orig_keyword.sql — v0.7.12
+--
+-- Adds `task.orig_keyword` to satisfy spec §7.3.3 rule 1's
+-- "custom keywords map to a sentinel state on import; the
+-- original is stashed in :ORIG_KEYWORD: and restored on
+-- export" — at the data-model level rather than as a generic
+-- property string in the .org file. The Phase 16 importer
+-- writes this column when it sees a non-canonical TODO keyword
+-- (e.g. WAITING, BLOCKED, IN-PROGRESS) on a headline; the
+-- writer consults it when emitting so the original keyword
+-- round-trips cleanly.
+--
+-- One new column on `task`:
+--
+--   orig_keyword     TEXT NULL
+--                    The original Org-mode keyword the
+--                    importer encountered, when not one of
+--                    Atrium's canonical TODO / DONE /
+--                    CANCELLED. NULL means "use the canonical
+--                    keyword that completed_at implies."
+--                    Atrium's UI doesn't surface this column;
+--                    it's purely a round-trip anchor.
+--
+-- Backwards-compatible additive change. Existing tasks default
+-- NULL = "no custom keyword recorded." v0.7.11 binaries reading
+-- a v0.7.12 DB ignore the column. user_version 6 → 7.
+
+ALTER TABLE task ADD COLUMN orig_keyword TEXT NULL;

@@ -2,7 +2,7 @@
 
 This document is the **rationale** for the schema. The **contract** lives in [`spec.md`](../spec.md) §4 and the canonical SQL in [`atrium-core/src/db/migrations/0001_initial.sql`](../atrium-core/src/db/migrations/0001_initial.sql). When in doubt, the SQL wins.
 
-> **Schema discipline.** Migration `0001_initial.sql` shipped the full OmniFocus superset. The v0.1 line was schema-frozen — every Builder-mode column already existed. The freeze ended at v0.2.0. Migrations are now **append-only and backwards-compatible**: add columns / tables / triggers / indexes; renames + drops are major-bump-only. Current `user_version`: **6**. Migration history below.
+> **Schema discipline.** Migration `0001_initial.sql` shipped the full OmniFocus superset. The v0.1 line was schema-frozen — every Builder-mode column already existed. The freeze ended at v0.2.0. Migrations are now **append-only and backwards-compatible**: add columns / tables / triggers / indexes; renames + drops are major-bump-only. Current `user_version`: **7**. Migration history below.
 
 ## Migration history
 
@@ -14,6 +14,7 @@ This document is the **rationale** for the schema. The **contract** lives in [`s
 | `0004_area_color.sql` | Phase 15.75 Slice A / v0.5.0 | Adds `area.color` (`TEXT NULL`, `'#RRGGBB'`) for per-area accent |
 | `0005_perspective_renderer.sql` | Phase 15.75 Slice A / v0.5.0 | Adds `perspective.renderer` (`'list'` / `'board'`, default `'list'`) + `perspective.renderer_config` (TEXT, JSON config — used by the kanban renderer for column definitions) |
 | `0006_task_last_reviewed_at.sql` | Phase 13 follow-up / v0.7.4 | Adds `task.last_reviewed_at` (TEXT NULL) for the canonical Review page's task-level Mark Reviewed action. Mirror of `project.last_reviewed_at`; rows reviewed within the last 7 days hide from the weekly walk. |
+| `0007_task_orig_keyword.sql` | Phase 16 / v0.7.12 | Adds `task.orig_keyword` (TEXT NULL) so the Org importer can stash non-canonical Org keywords (`WAITING`, `BLOCKED`, `IN-PROGRESS`, etc.) for round-trip preservation by the writer. Atrium's domain keeps three canonical states (TODO / DONE / CANCELLED); this column is the file-level label round-trip anchor only. |
 
 ## Entity-Relationship diagram
 
@@ -124,6 +125,7 @@ The central row. Several columns deserve specific notes:
 - **`repeat_rule`** stores the canonical RFC 5545 RRULE as text. Org-mode export renders a best-effort approximation in the SCHEDULED cookie (spec §7.3.3 rule 3).
 - **`repeat_mode`** (added in `0003`) controls completion semantics for repeating tasks: `NULL` (no repeat), `'next'` (advance to next occurrence — Things 3 default), `'all'` (regenerate the whole rule), `'org-mode'` (preserve original schedule, log completion to LOGBOOK). See `atrium-core/src/repeat.rs`.
 - **`last_reviewed_at`** (added in `0006`) is the task-level analogue of `project.last_reviewed_at`. Stamped by the `MarkTaskReviewed` worker command from the canonical Review page's per-row Mark Reviewed button. The Review page's weekly-walk filter excludes tasks reviewed within the last 7 days; otherwise the column is unread. NULL means "never reviewed."
+- **`orig_keyword`** (added in `0007`) is the Phase 16 round-trip anchor for non-canonical Org keywords. The Org importer stashes the original (`WAITING`, `BLOCKED`, `IN-PROGRESS`, etc.) here when it sees a TODO state Atrium doesn't model; the Org writer consults the column when emitting so the original keyword survives a vault round-trip. Atrium's UI never surfaces this column — completion semantics still flow through `completed_at` alone.
 - **`position`** is `REAL` — midpoint insertion enables arbitrary reorder without renumbering siblings.
 
 ### `tag`

@@ -1,5 +1,63 @@
 # Atrium — Patch Notes
 
+## v0.7.12 (2026-05-09) — Custom-keyword Org round-trip (migration 0007)
+
+Seventh patch on the Phase 16 arc. Closes the loop on spec
+§7.3.3 rule 1 — "Custom keywords map to a sentinel state on
+import; the original is stashed in :ORIG_KEYWORD: and restored
+on export" — at the data-model level rather than as a generic
+property string in the .org file.
+
+**Migration `0007_task_orig_keyword.sql`** adds a `task.orig_keyword`
+TEXT NULL column. user_version 6 → 7. Existing tasks default
+NULL = "no custom keyword recorded." v0.7.11 binaries reading a
+v0.7.12 DB ignore the column.
+
+**Domain Task + NewTask gain `orig_keyword: Option<String>`.**
+Threaded through the read mapper, the worker INSERT, and every
+NewTask / Task literal site (test_support, worker.rs's repeating-
+task respawn, atrium-cli's run_add, atrium/src/ui/window.rs's
+undo restore). Repeating-task respawn carries the value forward
+so a `WAITING` task that completes still respawns as `WAITING`.
+
+**Importer maps `OrgKeyword::Custom(name)` → `orig_keyword =
+Some(name)` + canonical TODO sentinel.** No more lossy note;
+the original is preserved in the DB.
+
+**Writer's `task_to_org` checks `orig_keyword` first** when
+choosing the headline keyword. Falls back to canonical TODO /
+DONE based on `completed_at` when the column is NULL. Atrium's
+UI never surfaces the column — completion semantics still flow
+through `completed_at` alone.
+
+**Why a column instead of `:ORIG_KEYWORD:`?** Atrium's task
+model already has typed columns for everything else (tags,
+defer, repeat, etc.); a generic property bag would be
+out-of-character. The column is purely a round-trip anchor; if
+a user removes the source vault file, the original keyword
+still survives in the DB. The downside — a non-vault user
+sees `WAITING` tasks rendered as TODO in Atrium's UI — is
+intentional: Atrium's three canonical states are the surface
+contract; the orig_keyword is upstream interop.
+
+End-to-end test (`custom_keyword_round_trips_through_db`)
+imports a file with `WAITING`, `IN-PROGRESS`, and `TODO`
+headlines; exports the resulting DB; the regenerated file's
+keyword sequence matches the source. Without this column the
+test would fail with three `TODO` headlines.
+
+**Test count:** 119 + 232 + 1 + 106 + 106 = **564** (up 2 from
+v0.7.11's 562 — the round-trip test plus a re-counted
+write::tests after the additive insertion). Pure additive
+schema change. No new dependencies.
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
++ docs/schema.md migration history bumped to **0.7.12**. Phase
+16 progress: foundation + parser + emitter + importer + writer
++ JSON export + custom-keyword preservation done; multi-file
+vault walk, file-level project metadata, integrity check, and
+the auto-debounced worker write hook remain.
+
 ## v0.7.11 (2026-05-09) — JSON snapshot export
 
 Sixth patch on the Phase 16 arc. The Org vault projection (v0.7.6

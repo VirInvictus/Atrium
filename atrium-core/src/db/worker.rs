@@ -640,11 +640,13 @@ impl Worker {
         };
         let position = self.next_task_position(new.parent_id, new.project_id)?;
 
+        // v0.7.12 — orig_keyword is appended; existing call sites
+        // pass `None` (Default::default()) so the value is NULL.
         self.conn.execute(
             "INSERT INTO task \
              (uuid, title, note, project_id, parent_id, scheduled_for, deadline, \
-              defer_until, estimated_minutes, repeat_rule, repeat_mode, position) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              defer_until, estimated_minutes, repeat_rule, repeat_mode, orig_keyword, position) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 uuid,
                 new.title,
@@ -657,6 +659,7 @@ impl Worker {
                 new.estimated_minutes,
                 new.repeat_rule,
                 new.repeat_mode,
+                new.orig_keyword,
                 position,
             ],
         )?;
@@ -887,6 +890,10 @@ impl Worker {
             // the completed instance's ID. The :ID: contract is
             // per-Org-headline, not per-Atrium-row.
             uuid: None,
+            // Carry the orig_keyword forward — if the user named
+            // a custom keyword on the original they expect the
+            // re-spawned instance to wear the same label.
+            orig_keyword: completed.orig_keyword.clone(),
         };
         let inserted = self.create_task(new_task)?;
 

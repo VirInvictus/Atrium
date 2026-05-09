@@ -175,14 +175,20 @@ fn import_task<'a>(
             return Ok(());
         };
 
-        // Custom keywords get a lossy note + open-task default.
+        // Custom keywords are stashed on the task's orig_keyword
+        // column (v0.7.12) so the writer can round-trip them
+        // unchanged. The keyword itself sits at TODO sentinel
+        // because Atrium's domain model only knows three
+        // canonical states; the orig_keyword column carries the
+        // original text. When v0.7.13's writer revision lands,
+        // emitting this task to Org will use orig_keyword as the
+        // headline keyword.
         let is_done = matches!(keyword, OrgKeyword::Done | OrgKeyword::Cancelled);
-        if let OrgKeyword::Custom(name) = keyword {
-            summary.lossy.push(format!(
-                "task “{}”: custom keyword {} folded to TODO (the original is preserved as :ORIG_KEYWORD: when v0.7.10 lands the writer)",
-                org.title, name
-            ));
-        }
+        let orig_keyword = if let OrgKeyword::Custom(name) = keyword {
+            Some(name.clone())
+        } else {
+            None
+        };
 
         // Property-derived fields. We pull each defensively so
         // a malformed value falls back to None + a lossy note.
@@ -238,6 +244,7 @@ fn import_task<'a>(
             repeat_rule,
             repeat_mode: None,
             uuid: id_property,
+            orig_keyword,
         };
         let created = handle.create_task(new).await?;
         summary.tasks_created += 1;
