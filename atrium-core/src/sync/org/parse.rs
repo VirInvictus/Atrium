@@ -151,19 +151,58 @@ impl OrgTask {
     }
 }
 
-/// Parse a `.org` file from disk. Returns the top-level headlines
-/// (project sub-headings or root tasks) with subtasks nested.
-pub fn parse_org_file(path: &Path) -> io::Result<Vec<OrgTask>> {
-    let text = fs::read_to_string(path)?;
-    Ok(parse_org_text(&text))
+/// v0.7.13 — file-level Org metadata captured alongside the
+/// headline tree. `directives` carries `#+TITLE:`, `#+CATEGORY:`,
+/// etc. as case-insensitive keys (uppercased). `file_properties`
+/// carries the entries of any top-level `:PROPERTIES: ... :END:`
+/// block that appeared before the first headline. Both are empty
+/// for the common case (a file that opens with a headline).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct OrgFile {
+    pub directives: std::collections::HashMap<String, String>,
+    pub file_properties: HashMap<String, String>,
+    pub headlines: Vec<OrgTask>,
 }
 
-/// Parse Org text directly. Useful in tests and any in-memory
-/// flow (e.g. atrium-cli reading from stdin).
+/// Parse a `.org` file from disk. Returns the top-level headlines
+/// (project sub-headings or root tasks) with subtasks nested.
+///
+/// Drops file-level preamble — use [`parse_org_file_with_meta`]
+/// when the caller needs `#+TITLE:` or file-level properties.
+pub fn parse_org_file(path: &Path) -> io::Result<Vec<OrgTask>> {
+    Ok(parse_org_file_with_meta(path)?.headlines)
+}
+
+/// v0.7.13 — Phase 16 entry point that captures file-level
+/// metadata alongside the headline tree.
+pub fn parse_org_file_with_meta(path: &Path) -> io::Result<OrgFile> {
+    let text = fs::read_to_string(path)?;
+    Ok(parse_org_text_with_meta(&text))
+}
+
+/// Parse Org text and return the headline tree only. Drops
+/// file-level preamble for backwards compatibility — use
+/// [`parse_org_text_with_meta`] when the caller needs `#+TITLE:`
+/// or file-level properties.
 pub fn parse_org_text(text: &str) -> Vec<OrgTask> {
+    parse_org_text_with_meta(text).headlines
+}
+
+/// Parse Org text directly, returning headlines + file-level
+/// directives + file-level properties.
+pub fn parse_org_text_with_meta(text: &str) -> OrgFile {
+    let mut directives: HashMap<String, String> = HashMap::new();
+    let mut file_properties: HashMap<String, String> = HashMap::new();
     let mut flat: Vec<OrgTask> = Vec::new();
     let mut current: Option<OrgTask> = None;
     let mut in_properties = false;
+    /// Where a `:PROPERTIES:` block belongs while the parser is
+    /// inside one.
+    enum PropsTarget {
+        File,
+        Headline,
+    }
+    let mut props_target = PropsTarget::Headline;
 
     for raw_line in text.lines() {
         // Detect a headline first — it terminates the current
@@ -180,35 +219,58 @@ pub fn parse_org_text(text: &str) -> Vec<OrgTask> {
             continue;
         }
 
-        let Some(task) = current.as_mut() else {
-            // Anything before the first headline is file-level
-            // preamble (#+TITLE:, #+CATEGORY:, etc.). v0.7.7
-            // discards it; v0.7.8 will capture it for the
-            // file-level project metadata.
-            continue;
-        };
-
-        // :PROPERTIES: drawer state machine.
+        // :PROPERTIES: drawer state machine — runs whether or not
+        // we've seen a headline yet (a top-level drawer carries
+        // file-level project metadata in v0.7.13).
         if in_properties {
             if raw_line.trim_end().eq_ignore_ascii_case(":END:") {
                 in_properties = false;
                 continue;
             }
             if let Some((key, value)) = parse_property_line(raw_line) {
-                task.properties.insert(key, value);
-            } else {
-                // Garbage inside a properties drawer — preserve
-                // verbatim so we can round-trip even malformed
-                // upstream files.
+                match props_target {
+                    PropsTarget::File => {
+                        file_properties.insert(key, value);
+                    }
+                    PropsTarget::Headline => {
+                        if let Some(task) = current.as_mut() {
+                            task.properties.insert(key, value);
+                        }
+                    }
+                }
+            } else if let Some(task) = current.as_mut() {
+                // Garbage inside a headline-attached properties
+                // drawer — preserve verbatim so we can round-trip
+                // even malformed upstream files.
                 task.unknown_lines.push(raw_line.to_string());
             }
+            // Stray garbage in a file-level drawer is dropped (rare;
+            // we don't have an unknown_lines collector at the file
+            // level yet).
             continue;
         }
 
         if raw_line.trim_end().eq_ignore_ascii_case(":PROPERTIES:") {
             in_properties = true;
+            props_target = if current.is_some() {
+                PropsTarget::Headline
+            } else {
+                PropsTarget::File
+            };
             continue;
         }
+
+        let Some(task) = current.as_mut() else {
+            // No headline yet — this is file-level preamble.
+            // Capture #+DIRECTIVE: VALUE lines. Other lines
+            // (blank, comments, etc.) are dropped silently;
+            // round-tripping the entire preamble verbatim is a
+            // future polish item.
+            if let Some((key, value)) = parse_directive(raw_line) {
+                directives.insert(key, value);
+            }
+            continue;
+        };
 
         // Cookie line — SCHEDULED / DEADLINE / CLOSED. The same
         // line can carry multiple cookies in Org, so we scan
@@ -238,7 +300,26 @@ pub fn parse_org_text(text: &str) -> Vec<OrgTask> {
         }
     }
 
-    nest_by_depth(flat)
+    OrgFile {
+        directives,
+        file_properties,
+        headlines: nest_by_depth(flat),
+    }
+}
+
+/// Parse a `#+KEY: value` directive line. Returns
+/// `(key_uppercased, value_trimmed)` on match. Case-insensitive
+/// — `#+title:` and `#+TITLE:` both produce the key `"TITLE"`.
+fn parse_directive(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim_start();
+    let after_pound = trimmed.strip_prefix("#+")?;
+    let colon = after_pound.find(':')?;
+    let key = after_pound[..colon].to_uppercase();
+    if key.is_empty() {
+        return None;
+    }
+    let value = after_pound[colon + 1..].trim().to_string();
+    Some((key, value))
 }
 
 /// Re-organise a flat list of tasks into a tree by depth. A task
@@ -727,6 +808,9 @@ fn foo() {}
 
     #[test]
     fn ignores_preamble_before_first_headline() {
+        // The legacy parse_org_text flow continues to discard
+        // preamble silently — preserves backwards compat for
+        // existing callers.
         let input = "\
 #+TITLE: Q3 Plans
 #+CATEGORY: work
@@ -736,6 +820,82 @@ fn foo() {}
         let tasks = parse_org_text(input);
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].title, "Real headline");
+    }
+
+    #[test]
+    fn captures_file_directives_with_meta() {
+        // v0.7.13 — parse_org_text_with_meta surfaces the same
+        // preamble that parse_org_text drops.
+        let input = "\
+#+TITLE: Q3 Plans
+#+CATEGORY: work
+#+filetags: :work:roadmap:
+
+* TODO Real headline
+";
+        let file = parse_org_text_with_meta(input);
+        assert_eq!(file.headlines.len(), 1);
+        assert_eq!(
+            file.directives.get("TITLE").map(String::as_str),
+            Some("Q3 Plans")
+        );
+        assert_eq!(
+            file.directives.get("CATEGORY").map(String::as_str),
+            Some("work")
+        );
+        // Directive keys are upper-cased on parse so callers
+        // can do case-insensitive lookups.
+        assert_eq!(
+            file.directives.get("FILETAGS").map(String::as_str),
+            Some(":work:roadmap:")
+        );
+    }
+
+    #[test]
+    fn captures_file_level_properties_block() {
+        // v0.7.13 — a top-level :PROPERTIES: ... :END: block
+        // before the first headline lands in
+        // OrgFile::file_properties; headline-attached drawers
+        // still go to OrgTask::properties.
+        let input = "\
+#+TITLE: Q3 Plans
+:PROPERTIES:
+:SEQUENTIAL: t
+:REVIEW_INTERVAL: 14
+:END:
+
+* TODO Headline
+:PROPERTIES:
+:ID: per-task-uuid
+:END:
+";
+        let file = parse_org_text_with_meta(input);
+        assert_eq!(file.headlines.len(), 1);
+        assert_eq!(
+            file.file_properties.get("SEQUENTIAL").map(String::as_str),
+            Some("t")
+        );
+        assert_eq!(
+            file.file_properties
+                .get("REVIEW_INTERVAL")
+                .map(String::as_str),
+            Some("14")
+        );
+        // Headline-attached drawer untouched — sanity that the
+        // file-vs-headline split doesn't leak.
+        assert_eq!(
+            file.headlines[0].properties.get("ID").map(String::as_str),
+            Some("per-task-uuid")
+        );
+        assert!(!file.headlines[0].properties.contains_key("SEQUENTIAL"));
+    }
+
+    #[test]
+    fn empty_with_meta_has_no_directives_or_properties() {
+        let file = parse_org_text_with_meta("* TODO Plain\n");
+        assert!(file.directives.is_empty());
+        assert!(file.file_properties.is_empty());
+        assert_eq!(file.headlines.len(), 1);
     }
 
     #[test]

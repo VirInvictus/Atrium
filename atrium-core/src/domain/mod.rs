@@ -293,6 +293,14 @@ pub struct NewProject {
     /// generates a fresh v4 UUID. The Org importer uses this to
     /// preserve project `:ID:` values from a source vault.
     pub uuid: Option<String>,
+    /// v0.7.13 — caller-provided last-reviewed timestamp. The
+    /// Org importer threads `:LAST_REVIEWED:` from the file-level
+    /// properties drawer. None falls through to the schema's
+    /// NULL default.
+    pub last_reviewed_at: Option<DateTime<Utc>>,
+    /// v0.7.13 — caller-provided archived timestamp. The Org
+    /// importer threads `:ARCHIVED:`. None falls through to NULL.
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 impl NewProject {

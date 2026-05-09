@@ -1,5 +1,68 @@
 # Atrium — Patch Notes
 
+## v0.7.13 (2026-05-09) — File-level Org metadata round-trip
+
+Eighth patch on the Phase 16 arc. v0.7.12 closed the per-task
+half of the round-trip discipline; v0.7.13 closes the
+per-project half. With both in place, an .org file's preamble
++ headlines + drawer entries all survive a vault → Atrium →
+vault round-trip cleanly.
+
+**Parser additions.** `parse.rs` gains an additive
+`parse_org_text_with_meta` / `parse_org_file_with_meta` pair
+that returns an `OrgFile { directives, file_properties,
+headlines }` instead of just a `Vec<OrgTask>`. The legacy
+`parse_org_text` / `parse_org_file` keep their shape (call the
+with-meta path and discard the preamble) so existing callers
+don't break. Directives keys are upper-cased on parse for
+case-insensitive lookups (`#+title:` and `#+TITLE:` both
+produce the key `"TITLE"`). The :PROPERTIES: state machine
+now distinguishes file-level (no current headline) from
+headline-attached drawers; the former lands in
+`file_properties`, the latter stays on the OrgTask.
+
+**Emitter additions.** `emit.rs` gains
+`emit_org_text_with_meta` / `emit_org_file_with_meta` that
+takes the OrgFile shape. Directives sorted before emit so
+`HashMap` iteration order can't perturb round-trips. A blank
+line separates preamble from the first headline only when both
+exist.
+
+**Importer threading.** `import_org_file` reads `#+TITLE:`
+(falls back to the file stem) and the file-level :PROPERTIES:
+drawer for `:ID:` / `:SEQUENTIAL:` / `:REVIEW_INTERVAL:` /
+`:LAST_REVIEWED:` / `:ARCHIVED:`. NewProject grows additive
+`last_reviewed_at` and `archived_at` fields (Option<DateTime>)
+to receive the imported values. The worker's `create_project`
+SQL extends to include the two columns.
+
+**Writer threading.** `write_project_to_vault` now builds an
+OrgFile with `#+TITLE:` directive + a file-level :PROPERTIES:
+block carrying every project metadata field that's set,
+emitted via `emit_org_file_with_meta`. Project-level fields
+that are NULL / default don't emit, keeping clean projects'
+preambles minimal.
+
+**Round-trip test** (`project_metadata_round_trips_through_db`)
+imports a vault file with full project metadata, verifies the
+DB row carries the expected values, exports back, and asserts
+the regenerated file's preamble matches the source's project-
+level fields. With this in place, projects round-trip cleanly
+without losing project-scope flags.
+
+**Test count:** 119 + 239 + 1 + 106 + 106 = **571** (up 7 from
+v0.7.12's 564 — three new parser tests, three new emitter
+tests for the with-meta path, and one new end-to-end project
+metadata round-trip test). Pure additive change; no schema, no
+new dependencies.
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.13**. Phase 16 progress: foundation + parser +
+emitter + importer + writer + JSON export + custom-keyword
+preservation + file-level metadata done; multi-file vault
+walk, post-write integrity check, and the auto-debounced
+worker write hook remain.
+
 ## v0.7.12 (2026-05-09) — Custom-keyword Org round-trip (migration 0007)
 
 Seventh patch on the Phase 16 arc. Closes the loop on spec

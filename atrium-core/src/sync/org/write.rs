@@ -59,12 +59,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Timelike, Utc};
 use rusqlite::Connection;
 
-use super::emit::emit_org_file;
-use super::parse::{OrgKeyword, OrgRepeater, OrgTask};
-use crate::domain::{ScheduledFor, Task};
+use super::emit::emit_org_file_with_meta;
+use super::parse::{OrgFile, OrgKeyword, OrgRepeater, OrgTask};
+use crate::domain::{Project, ScheduledFor, Task};
 use crate::error::DbError;
 
 /// Result of writing one project to the vault.
@@ -113,6 +113,15 @@ pub fn write_project_to_vault(
     let tag_names = crate::db::read::tag_names_per_task(conn)?;
 
     let tree = build_org_tree(&tasks, &tag_names);
+    // v0.7.13 — file-level preamble carries the project title +
+    // project metadata so the importer can round-trip them
+    // cleanly. The OrgFile struct bundles directives +
+    // file_properties + headlines.
+    let file = OrgFile {
+        directives: build_file_directives(&project),
+        file_properties: build_file_properties(&project),
+        headlines: tree,
+    };
 
     // Destination path.
     let mut path = vault_root.to_path_buf();
@@ -129,7 +138,7 @@ pub fn write_project_to_vault(
         })?;
     }
 
-    emit_org_file(&path, &tree).map_err(|e| WriteError::Io {
+    emit_org_file_with_meta(&path, &file).map_err(|e| WriteError::Io {
         path: path.display().to_string(),
         source: e,
     })?;
@@ -258,6 +267,67 @@ fn build_org_tree(tasks: &[Task], tag_names: &HashMap<i64, Vec<String>>) -> Vec<
     }
 
     top
+}
+
+/// v0.7.13 — file-level directives for a project's `.org` file.
+/// Currently emits `#+TITLE:`. Other directives (`#+CATEGORY:`,
+/// `#+FILETAGS:`, `#+STARTUP:` …) follow when Atrium grows
+/// project-level analogues; v0.7.13 starts with the one
+/// directive every Org tool reads.
+fn build_file_directives(project: &Project) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    out.insert("TITLE".to_string(), project.title.clone());
+    out
+}
+
+/// v0.7.13 — file-level :PROPERTIES: drawer for a project. The
+/// keys mirror spec §7.3.2's project mapping:
+///
+/// | Atrium field | Org property |
+/// |---|---|
+/// | `Project.uuid` | `:ID:` |
+/// | `Project.sequential` (true) | `:SEQUENTIAL: t` |
+/// | `Project.review_interval_days` (Some) | `:REVIEW_INTERVAL:` |
+/// | `Project.last_reviewed_at` (Some) | `:LAST_REVIEWED:` (inactive timestamp) |
+/// | `Project.archived_at` (Some) | `:ARCHIVED:` (inactive timestamp) |
+///
+/// `Project.note` is currently dropped on write (no Org-side
+/// home for project-level free-text yet); a future patch can
+/// surface it as a body block above the first headline.
+fn build_file_properties(project: &Project) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    if !project.uuid.is_empty() {
+        out.insert("ID".to_string(), project.uuid.clone());
+    }
+    if project.sequential {
+        out.insert("SEQUENTIAL".to_string(), "t".to_string());
+    }
+    if let Some(days) = project.review_interval_days {
+        out.insert("REVIEW_INTERVAL".to_string(), days.to_string());
+    }
+    if let Some(when) = project.last_reviewed_at {
+        out.insert("LAST_REVIEWED".to_string(), inactive_timestamp(when));
+    }
+    if let Some(when) = project.archived_at {
+        out.insert("ARCHIVED".to_string(), inactive_timestamp(when));
+    }
+    out
+}
+
+fn inactive_timestamp(when: chrono::DateTime<chrono::Utc>) -> String {
+    let date = when.date_naive();
+    let day = date.format("%a");
+    let time = when.time();
+    if time.hour() == 12 && time.minute() == 0 && time.second() == 0 {
+        format!("[{} {}]", date.format("%Y-%m-%d"), day)
+    } else {
+        format!(
+            "[{} {} {}]",
+            date.format("%Y-%m-%d"),
+            day,
+            time.format("%H:%M")
+        )
+    }
 }
 
 fn task_to_org(task: &Task, depth: usize, tag_names: &HashMap<i64, Vec<String>>) -> OrgTask {
@@ -495,6 +565,83 @@ mod tests {
         assert_eq!(parsed[0].children.len(), 1);
         assert_eq!(parsed[0].children[0].title, "Pick brand");
         assert_eq!(parsed[0].children[0].depth, 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// v0.7.13 — file-level project metadata round-trip end-to-end.
+    /// Import an .org file with `#+TITLE:` + a top-level
+    /// `:PROPERTIES:` block carrying `:SEQUENTIAL:` /
+    /// `:REVIEW_INTERVAL:` / `:LAST_REVIEWED:` / `:ARCHIVED:`;
+    /// export the resulting DB; the regenerated file's preamble
+    /// matches the source's project-level fields.
+    #[tokio::test]
+    async fn project_metadata_round_trips_through_db() {
+        use crate::db::worker::spawn;
+        use crate::sync::org::{import_org_file, parse_org_file_with_meta};
+
+        let dir =
+            std::env::temp_dir().join(format!("atrium-project-meta-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = dir.join("source.org");
+        std::fs::write(
+            &src,
+            "\
+#+TITLE: Q3 Plans
+:PROPERTIES:
+:ID: 99999999-aaaa-bbbb-cccc-dddddddddddd
+:SEQUENTIAL: t
+:REVIEW_INTERVAL: 14
+:END:
+
+* TODO First task
+",
+        )
+        .unwrap();
+
+        let db_path = dir.join("db.sqlite");
+        let mut writer_conn = rusqlite::Connection::open(&db_path).unwrap();
+        crate::db::configure_pragmas(&writer_conn).unwrap();
+        crate::db::migrations::migrate(&mut writer_conn).unwrap();
+        let read_conn = rusqlite::Connection::open(&db_path).unwrap();
+        crate::db::configure_pragmas(&read_conn).unwrap();
+
+        let (handle, _changes_rx, _library_rx) = spawn(writer_conn);
+        let summary = import_org_file(&handle, &src, false).await.unwrap();
+        let project_id = summary.project_id.unwrap();
+
+        // Project should carry the imported metadata.
+        let projects = crate::db::read::list_all_projects(&read_conn).unwrap();
+        let project = projects.iter().find(|p| p.id == project_id).unwrap();
+        assert_eq!(project.title, "Q3 Plans");
+        assert_eq!(project.uuid, "99999999-aaaa-bbbb-cccc-dddddddddddd");
+        assert!(project.sequential);
+        assert_eq!(project.review_interval_days, Some(14));
+
+        let written = write_project_to_vault(&read_conn, &dir, project_id).unwrap();
+        let parsed = parse_org_file_with_meta(&written.file_path).unwrap();
+
+        assert_eq!(
+            parsed.directives.get("TITLE").map(String::as_str),
+            Some("Q3 Plans")
+        );
+        assert_eq!(
+            parsed.file_properties.get("ID").map(String::as_str),
+            Some("99999999-aaaa-bbbb-cccc-dddddddddddd")
+        );
+        assert_eq!(
+            parsed.file_properties.get("SEQUENTIAL").map(String::as_str),
+            Some("t")
+        );
+        assert_eq!(
+            parsed
+                .file_properties
+                .get("REVIEW_INTERVAL")
+                .map(String::as_str),
+            Some("14")
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

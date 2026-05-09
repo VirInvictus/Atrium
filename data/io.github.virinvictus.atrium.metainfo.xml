@@ -90,6 +90,28 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.13" date="2026-05-09">
+      <description>
+        <p>File-level Org metadata round-trip. Eighth patch on
+           the Phase 16 arc. v0.7.12 closed the per-task half
+           of the round-trip discipline; v0.7.13 closes the
+           per-project half. An .org file's #+TITLE: directive
+           plus a top-level :PROPERTIES: block carrying :ID: /
+           :SEQUENTIAL: / :REVIEW_INTERVAL: / :LAST_REVIEWED:
+           / :ARCHIVED: now round-trips cleanly through
+           import → DB → export.</p>
+        <p>Parser gains additive parse_org_text_with_meta /
+           parse_org_file_with_meta returning an OrgFile struct
+           (directives + file_properties + headlines). Legacy
+           parse_org_text/_file keep their Vec&lt;OrgTask&gt;
+           shape for backwards compat. Emitter gains the
+           matching with_meta variants. NewProject gains
+           last_reviewed_at and archived_at fields to thread
+           the imported values into the worker.</p>
+        <p>571 tests green (up 7 from v0.7.12). Pure additive
+           change; no schema, no new dependencies.</p>
+      </description>
+    </release>
     <release version="0.7.12" date="2026-05-09">
       <description>
         <p>Custom-keyword Org round-trip via migration 0007.

@@ -51,7 +51,7 @@ use std::path::Path;
 use crate::WorkerHandle;
 use crate::domain::{NewProject, NewTask, ScheduledFor};
 use crate::error::DbError;
-use crate::sync::org::parse::{OrgKeyword, OrgTask, parse_org_file};
+use crate::sync::org::parse::{OrgKeyword, OrgTask, parse_org_file_with_meta};
 
 /// Result of an import. Counts + lossy notes the caller surfaces
 /// to the user via the CLI / GUI.
@@ -93,16 +93,47 @@ pub async fn import_org_file(
     dry_run: bool,
 ) -> Result<ImportSummary, ImportError> {
     let path_display = path.display().to_string();
-    let tasks = parse_org_file(path).map_err(|source| ImportError::Io {
+    let file = parse_org_file_with_meta(path).map_err(|source| ImportError::Io {
         path: path_display.clone(),
         source,
     })?;
+    let tasks = file.headlines;
 
-    let project_title = path
-        .file_stem()
-        .and_then(|os| os.to_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "Imported".to_string());
+    // v0.7.13 — file-level metadata threading. #+TITLE: wins over
+    // the file stem when present (matches Org's own convention).
+    // The file-level :PROPERTIES: drawer carries project-level
+    // fields (:SEQUENTIAL: / :REVIEW_INTERVAL: / :LAST_REVIEWED:
+    // / :ARCHIVED: / :ID:) per spec §7.3.2.
+    let project_title = file
+        .directives
+        .get("TITLE")
+        .cloned()
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| {
+            path.file_stem()
+                .and_then(|os| os.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Imported".to_string())
+        });
+
+    let project_uuid = file.file_properties.get("ID").cloned();
+    let project_sequential = file
+        .file_properties
+        .get("SEQUENTIAL")
+        .map(|v| matches!(v.as_str(), "t" | "T" | "true" | "TRUE" | "1"))
+        .unwrap_or(false);
+    let project_review_interval = file
+        .file_properties
+        .get("REVIEW_INTERVAL")
+        .and_then(|v| v.parse::<i64>().ok());
+    let project_last_reviewed = file
+        .file_properties
+        .get("LAST_REVIEWED")
+        .and_then(|v| parse_inactive_or_active_datetime(v));
+    let project_archived = file
+        .file_properties
+        .get("ARCHIVED")
+        .and_then(|v| parse_inactive_or_active_datetime(v));
 
     let mut summary = ImportSummary {
         project_title: Some(project_title.clone()),
@@ -122,7 +153,11 @@ pub async fn import_org_file(
     let project = handle
         .create_project(NewProject {
             title: project_title.clone(),
-            uuid: None,
+            uuid: project_uuid,
+            sequential: project_sequential,
+            review_interval_days: project_review_interval,
+            last_reviewed_at: project_last_reviewed,
+            archived_at: project_archived,
             ..Default::default()
         })
         .await?;
@@ -133,6 +168,39 @@ pub async fn import_org_file(
     }
 
     Ok(summary)
+}
+
+/// Permissive Org timestamp parser. Accepts `[YYYY-MM-DD ...]`
+/// (inactive — what `:LAST_REVIEWED:` and `:ARCHIVED:` use) and
+/// `<YYYY-MM-DD ...>` (active — rare for these properties but
+/// not invalid). Falls back to plain `YYYY-MM-DD`. Drops
+/// time-of-day if absent (defaults to noon UTC).
+fn parse_inactive_or_active_datetime(text: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let trimmed = text.trim();
+    let inner = if let Some(s) = trimmed.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+        s
+    } else if let Some(s) = trimmed.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
+        s
+    } else {
+        trimmed
+    };
+    let mut parts = inner.split_whitespace();
+    let date_part = parts.next()?;
+    let date = chrono::NaiveDate::parse_from_str(date_part, "%Y-%m-%d").ok()?;
+    let time = parts.find_map(|p| {
+        let mut split = p.split(':');
+        let h: u32 = split.next()?.parse().ok()?;
+        let m: u32 = split.next()?.parse().ok()?;
+        if split.next().is_some() {
+            return None;
+        }
+        chrono::NaiveTime::from_hms_opt(h, m, 0)
+    });
+    let dt = match time {
+        Some(t) => date.and_time(t),
+        None => date.and_hms_opt(12, 0, 0)?,
+    };
+    Some(dt.and_utc())
 }
 
 /// Recursive walker for dry-run mode. Counts headings vs tasks

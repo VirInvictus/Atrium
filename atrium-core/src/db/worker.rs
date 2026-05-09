@@ -996,10 +996,13 @@ impl Worker {
             _ => Uuid::new_v4().to_string(),
         };
         let position = self.next_project_position(new.area_id)?;
+        // v0.7.13 — last_reviewed_at + archived_at honor caller-
+        // provided values (Org importer path). NULL otherwise.
         self.conn.execute(
             "INSERT INTO project \
-             (uuid, title, note, area_id, sequential, review_interval_days, position) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (uuid, title, note, area_id, sequential, review_interval_days, \
+              last_reviewed_at, archived_at, position) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 uuid,
                 new.title,
@@ -1007,6 +1010,8 @@ impl Worker {
                 new.area_id,
                 i32::from(new.sequential),
                 new.review_interval_days,
+                new.last_reviewed_at,
+                new.archived_at,
                 position,
             ],
         )?;

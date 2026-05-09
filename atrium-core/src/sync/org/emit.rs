@@ -29,13 +29,74 @@
 use std::io;
 use std::path::Path;
 
-use super::parse::{OrgRepeater, OrgTask};
+use super::parse::{OrgFile, OrgRepeater, OrgTask};
 use crate::sync::atomic::write_atomic;
 
-/// Emit a tree of `OrgTask` values back to Org text.
+/// Emit a tree of `OrgTask` values back to Org text. No preamble
+/// — use [`emit_org_text_with_meta`] when the caller has
+/// `#+TITLE:` / file-level properties to surface.
 pub fn emit_org_text(tasks: &[OrgTask]) -> String {
     let mut out = String::new();
     for task in tasks {
+        emit_task(task, &mut out);
+    }
+    out
+}
+
+/// v0.7.13 — emit an `OrgFile` (preamble + headlines).
+/// Directives render as `#+KEY: value` lines (sorted for stable
+/// output); the file-level `:PROPERTIES:` block follows when
+/// non-empty; a blank line separates preamble from the first
+/// headline. Callers that want only the legacy headline-stream
+/// shape pass through [`emit_org_text`].
+pub fn emit_org_text_with_meta(file: &OrgFile) -> String {
+    let mut out = String::new();
+
+    // #+DIRECTIVES first. Sort keys so HashMap iteration order
+    // doesn't rotate the preamble on each emit.
+    let mut directive_keys: Vec<&String> = file.directives.keys().collect();
+    directive_keys.sort();
+    for key in directive_keys {
+        let value = &file.directives[key];
+        out.push_str("#+");
+        out.push_str(key);
+        out.push(':');
+        if !value.is_empty() {
+            out.push(' ');
+            out.push_str(value);
+        }
+        out.push('\n');
+    }
+
+    // File-level :PROPERTIES: block. Same sorted-keys discipline
+    // as the headline-attached drawer in `emit_task`.
+    if !file.file_properties.is_empty() {
+        out.push_str(":PROPERTIES:\n");
+        let mut keys: Vec<&String> = file.file_properties.keys().collect();
+        keys.sort();
+        for key in keys {
+            let value = &file.file_properties[key];
+            out.push(':');
+            out.push_str(key);
+            out.push(':');
+            if !value.is_empty() {
+                out.push(' ');
+                out.push_str(value);
+            }
+            out.push('\n');
+        }
+        out.push_str(":END:\n");
+    }
+
+    // Blank line between preamble and the first headline so the
+    // file is human-readable. Only emit when both preamble and
+    // headlines are present.
+    let had_preamble = !file.directives.is_empty() || !file.file_properties.is_empty();
+    if had_preamble && !file.headlines.is_empty() {
+        out.push('\n');
+    }
+
+    for task in &file.headlines {
         emit_task(task, &mut out);
     }
     out
@@ -46,6 +107,14 @@ pub fn emit_org_text(tasks: &[OrgTask]) -> String {
 /// mid-write never corrupts the destination (spec §7.3.3 rule 6).
 pub fn emit_org_file(path: &Path, tasks: &[OrgTask]) -> io::Result<()> {
     let text = emit_org_text(tasks);
+    write_atomic(path, text.as_bytes())
+}
+
+/// v0.7.13 — atomically write an `OrgFile` (preamble + headlines)
+/// to `path`. Goes through the same `write_atomic` helper as
+/// [`emit_org_file`].
+pub fn emit_org_file_with_meta(path: &Path, file: &OrgFile) -> io::Result<()> {
+    let text = emit_org_text_with_meta(file);
     write_atomic(path, text.as_bytes())
 }
 
@@ -178,6 +247,8 @@ use chrono::Timelike;
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::super::parse::{OrgKeyword, parse_org_text};
     use super::*;
 
@@ -418,6 +489,81 @@ CLOSED: [2026-05-08 Fri 09:00]
         assert_eq!(
             OrgKeyword::Custom("WAITING".to_string()).as_str(),
             "WAITING"
+        );
+    }
+
+    #[test]
+    fn roundtrip_with_meta_directives_and_file_properties() {
+        // v0.7.13 — file-level metadata round-trips through the
+        // new with_meta path: parse → emit → re-parse and check
+        // the directives / file_properties / headlines come back
+        // equal.
+        use super::super::parse::parse_org_text_with_meta;
+
+        let input = "\
+#+CATEGORY: work
+#+TITLE: Q3 Plans
+:PROPERTIES:
+:REVIEW_INTERVAL: 14
+:SEQUENTIAL: t
+:END:
+
+* TODO Real headline
+:PROPERTIES:
+:ID: per-task-uuid
+:END:
+";
+        let first = parse_org_text_with_meta(input);
+        let emitted = emit_org_text_with_meta(&first);
+        let second = parse_org_text_with_meta(&emitted);
+        assert_eq!(
+            first.directives, second.directives,
+            "directives drifted on round-trip\nemitted:\n{emitted}"
+        );
+        assert_eq!(
+            first.file_properties, second.file_properties,
+            "file_properties drifted on round-trip\nemitted:\n{emitted}"
+        );
+        assert_eq!(
+            first.headlines, second.headlines,
+            "headlines drifted on round-trip\nemitted:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn emit_with_meta_writes_no_blank_line_when_no_preamble() {
+        // No directives, no file properties → output should
+        // start directly with the headline (no leading blank
+        // line that the parser would tolerate but a human
+        // reader would call ugly).
+        use super::super::parse::OrgFile;
+
+        let file = OrgFile {
+            directives: HashMap::new(),
+            file_properties: HashMap::new(),
+            headlines: parse_org_text("* TODO Plain\n"),
+        };
+        let emitted = emit_org_text_with_meta(&file);
+        assert!(emitted.starts_with("* TODO Plain"), "got: {emitted}");
+    }
+
+    #[test]
+    fn emit_with_meta_writes_blank_line_between_preamble_and_first_headline() {
+        // With preamble, a blank line separates it from the
+        // first headline so the file reads cleanly in Emacs.
+        use super::super::parse::OrgFile;
+
+        let mut directives = HashMap::new();
+        directives.insert("TITLE".to_string(), "Q3 Plans".to_string());
+        let file = OrgFile {
+            directives,
+            file_properties: HashMap::new(),
+            headlines: parse_org_text("* TODO Plain\n"),
+        };
+        let emitted = emit_org_text_with_meta(&file);
+        assert!(
+            emitted.contains("#+TITLE: Q3 Plans\n\n* TODO Plain\n"),
+            "got: {emitted}"
         );
     }
 }
