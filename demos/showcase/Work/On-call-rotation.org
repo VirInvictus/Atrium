@@ -1,0 +1,83 @@
+#+TITLE: On-call rotation
+:PROPERTIES:
+:ID: cccccccc-2222-2222-2222-cccccccccccc
+:REVIEW_INTERVAL: 7
+:END:
+
+* TODO Pager check at start of week :oncall:routine:
+SCHEDULED: <2026-05-12 Tue ++1w>
+:PROPERTIES:
+:ID: dddddddd-2222-2222-2222-000000000001
+:RRULE: FREQ=WEEKLY;BYDAY=MO
+:EFFORT: 0:15
+:END:
+Confirm pager rotation, secondaries, escalation chain
+for the week. Cumulative weekly repeater.
+
+* TODO Weekly incident review :oncall:review:
+SCHEDULED: <2026-05-15 Fri ++1w>
+:PROPERTIES:
+:ID: dddddddd-2222-2222-2222-000000000002
+:RRULE: FREQ=WEEKLY;BYDAY=FR
+:EFFORT: 1:00
+:END:
+Walk through any pages from the past week. Document the
+root-cause for each, log the action items, update
+runbooks where the response was rough.
+
+* WAITING Runbook update: dashboard 503s :runbook:high-stakes:
+:PROPERTIES:
+:ID: dddddddd-2222-2222-2222-000000000003
+:END:
+Waiting on the Phase 1 schema migration above to land in
+prod before I can finalise the recovery steps. Should
+unblock around 2026-05-12.
+
+* IN-PROGRESS PagerDuty integration cleanup :infra:
+SCHEDULED: <2026-05-11 Mon> DEADLINE: <2026-05-25 Mon>
+:PROPERTIES:
+:ID: dddddddd-2222-2222-2222-000000000004
+:EFFORT: 2:30
+:END:
+Three integrations duplicate-page during business hours.
+Audit + dedupe.
+
+** DONE Catalog every active service in PD
+CLOSED: [2026-05-09 Sat 11:30]
+:PROPERTIES:
+:ID: dddddddd-2222-2222-2222-000000000005
+:END:
+
+** IN-PROGRESS Identify duplicates
+:PROPERTIES:
+:ID: dddddddd-2222-2222-2222-000000000006
+:EFFORT: 1:00
+:END:
+
+** TODO Consolidate via the PD API
+:PROPERTIES:
+:ID: dddddddd-2222-2222-2222-000000000007
+:EFFORT: 1:00
+:END:
+
+** TODO Update the runbook with the new mapping
+:PROPERTIES:
+:ID: dddddddd-2222-2222-2222-000000000008
+:EFFORT: 0:30
+:END:
+
+* CANCELLED Old PagerDuty escalation policy :legacy:
+CLOSED: [2026-04-01 Wed 14:00]
+:PROPERTIES:
+:ID: dddddddd-2222-2222-2222-000000000009
+:END:
+Replaced by the new on-call rotation tooling. Kept here
+so the audit log shows when it ended.
+
+* BLOCKED Capacity planning (stalled) :planning:blocked:
+:PROPERTIES:
+:ID: dddddddd-2222-2222-2222-000000000010
+:END:
+Need Q3 traffic projections from the data team before I
+can size next quarter's on-call coverage. Asked Tariq
+2026-05-05.

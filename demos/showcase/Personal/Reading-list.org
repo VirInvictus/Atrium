@@ -1,0 +1,57 @@
+#+TITLE: Reading list
+:PROPERTIES:
+:ID: aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa
+:END:
+
+* TODO Designing Data-Intensive Applications :tech:book:
+:PROPERTIES:
+:ID: bbbbbbbb-1111-1111-1111-000000000001
+:EFFORT: 20:00
+:END:
+Kleppmann. Re-read Ch. 5-7 for the Q3 work. Notes go in
+the body when I get to them.
+
+* TODO Programming Rust :tech:book:rust:
+SCHEDULED: <2026-06-01 Mon>
+:PROPERTIES:
+:ID: bbbbbbbb-1111-1111-1111-000000000002
+:EFFORT: 30:00
+:END:
+Blandy / Orendorff / Tindall. 2nd edition. Want to finish
+before I tackle the atriumd Phase 20 work — it's the
+async chapter I want to brush up on.
+
+* DONE The Pragmatic Programmer (20th anniversary) :tech:book:
+CLOSED: [2026-04-22 Wed]
+:PROPERTIES:
+:ID: bbbbbbbb-1111-1111-1111-000000000003
+:END:
+
+* WAITING The Manager's Path (queued at the library) :leadership:book:
+:PROPERTIES:
+:ID: bbbbbbbb-1111-1111-1111-000000000004
+:END:
+Three holds ahead of me at Sault Library. Estimated
+2026-06-15 pickup.
+
+* TODO Article: SQLite WAL mode internals :tech:article:
+SCHEDULED: <2026-05-12 Tue>
+DEADLINE: <2026-05-14 Thu>
+:PROPERTIES:
+:ID: bbbbbbbb-1111-1111-1111-000000000005
+:EFFORT: 0:45
+:END:
+[[https://www.sqlite.org/wal.html][SQLite WAL docs]] —
+relevant to Atrium's single-writer architecture. Read +
+take notes for the spec.md §3.2 update I owe.
+
+* TODO Daily reading habit (basic repeater) :habit:routine:
+SCHEDULED: <2026-05-10 Sun +1d>
+:PROPERTIES:
+:ID: bbbbbbbb-1111-1111-1111-000000000006
+:RRULE: FREQ=DAILY
+:EFFORT: 0:30
+:END:
+30 minutes every day. Anything counts — book, article,
+paper. Basic repeater so a missed day doesn't shift the
+schedule by N days; the next instance is always tomorrow.

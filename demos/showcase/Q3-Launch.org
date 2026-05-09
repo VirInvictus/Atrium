@@ -1,0 +1,228 @@
+#+TITLE: Q3 Product Launch Plan
+:PROPERTIES:
+:ID: 11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+:SEQUENTIAL: t
+:REVIEW_INTERVAL: 14
+:END:
+
+* TODO Kick-off meeting :launch:milestone:
+SCHEDULED: <2026-05-15 Fri> DEADLINE: <2026-05-15 Fri>
+:PROPERTIES:
+:ID: 22222222-aaaa-aaaa-aaaa-000000000001
+:EFFORT: 0:30
+:END:
+Set the stage for the quarter. Walk the team through the
+launch plan, surface blockers, agree on weekly cadence.
+
+Background reading:
+- [[https://docs.example.com/q3-launch][Project doc]]
+- [[file:./meeting-notes/2026-05-08-prep.org][Prep notes (last week)]]
+
+** TODO Confirm attendees :coordination:
+:PROPERTIES:
+:ID: 22222222-aaaa-aaaa-aaaa-000000000002
+:EFFORT: 0:15
+:END:
+
+** TODO Prep agenda :coordination:
+:PROPERTIES:
+:ID: 22222222-aaaa-aaaa-aaaa-000000000003
+:EFFORT: 0:15
+:END:
+
+* IN-PROGRESS Migrate the dashboard module :work:refactor:high-stakes:
+SCHEDULED: <2026-05-20 Wed> DEADLINE: <2026-05-30 Sat>
+:PROPERTIES:
+:ID: 33333333-bbbb-bbbb-bbbb-000000000001
+:EFFORT: 4:00
+:END:
+Refactor the dashboard to share the new analytics pipeline.
+Three phases; each lands as its own subtask. Phase 1 done,
+Phase 2 in flight.
+
+#+BEGIN_SRC sql
+SELECT
+    user_id,
+    COUNT(*) AS event_count,
+    MAX(created_at) AS last_seen
+FROM events
+WHERE created_at >= '2026-05-01'
+GROUP BY user_id
+ORDER BY event_count DESC
+LIMIT 10;
+#+END_SRC
+
+| Sub-module     | Status      | Owner   |
+|----------------+-------------+---------|
+| Charts         | DONE        | Brandon |
+| Filters        | IN-PROGRESS | Brandon |
+| Widget gallery | TODO        | Rin     |
+| Theming        | BLOCKED     | -       |
+
+** DONE Phase 1: schema migration
+CLOSED: [2026-05-08 Fri 14:30]
+:PROPERTIES:
+:ID: 33333333-bbbb-bbbb-bbbb-000000000002
+:EFFORT: 2:00
+:END:
+Migration 0042 landed cleanly; backfill ran in 11 minutes
+on the staging mirror. Production rollout next Monday.
+
+** IN-PROGRESS Phase 2: API rewrite
+:PROPERTIES:
+:ID: 33333333-bbbb-bbbb-bbbb-000000000003
+:EFFORT: 1:30
+:END:
+*** TODO Endpoint /api/dashboard/v2 :api:
+:PROPERTIES:
+:ID: 33333333-bbbb-bbbb-bbbb-000000000004
+:EFFORT: 0:45
+:END:
+*** TODO Endpoint /api/dashboard/v2/filters :api:
+:PROPERTIES:
+:ID: 33333333-bbbb-bbbb-bbbb-000000000005
+:EFFORT: 0:30
+:END:
+*** TODO Migrate existing dashboard clients :api:client:
+:PROPERTIES:
+:ID: 33333333-bbbb-bbbb-bbbb-000000000006
+:EFFORT: 0:15
+:END:
+
+** TODO Phase 3: client integration
+:PROPERTIES:
+:ID: 33333333-bbbb-bbbb-bbbb-000000000007
+:EFFORT: 0:30
+:END:
+
+* WAITING External dependency: vendor SDK update :blocked:vendor:
+:PROPERTIES:
+:ID: 44444444-cccc-cccc-cccc-000000000001
+:END:
+Vendor estimated 2 weeks from 2026-05-01. Ping their CSM
+on the first of June if no movement by then.
+
+* TODO Weekly review (basic +1w repeater) :review:routine:
+SCHEDULED: <2026-05-15 Fri +1w>
+:PROPERTIES:
+:ID: 55555555-dddd-dddd-dddd-000000000001
+:RRULE: FREQ=WEEKLY
+:EFFORT: 0:30
+:END:
+Friday wrap-up: blockers, next-week priorities, retro of
+what shipped. Basic repeater — schedule slips one week
+forward on completion only if completed; otherwise the
+date sits there as a pending overdue.
+
+* TODO Bi-weekly retrospective (cumulative ++2w repeater) :review:routine:
+SCHEDULED: <2026-05-15 Fri ++2w>
+:PROPERTIES:
+:ID: 55555555-dddd-dddd-dddd-000000000002
+:RRULE: FREQ=WEEKLY;INTERVAL=2
+:EFFORT: 1:00
+:END:
+Cumulative repeater — the next instance lands two weeks
+after the most recent due date, even if completion was
+late. Default Atrium repeater mode.
+
+* TODO Monthly KPI review (next-from-completion .+1m) :review:metrics:
+SCHEDULED: <2026-06-01 Mon .+1m>
+:PROPERTIES:
+:ID: 55555555-dddd-dddd-dddd-000000000003
+:RRULE: FREQ=MONTHLY
+:EFFORT: 1:30
+:END:
+Next-from-completion repeater — the next instance schedules
+one month after the user actually completes the task, not
+from the original due date. Rare, but useful for things
+where "30 days from when you actually did it" is the spec.
+
+* TODO Multi-day weekly cadence (Mon + Wed + Fri) :ops:routine:
+SCHEDULED: <2026-05-18 Mon ++1w>
+:PROPERTIES:
+:ID: 55555555-dddd-dddd-dddd-000000000004
+:RRULE: FREQ=WEEKLY;BYDAY=MO,WE,FR
+:EFFORT: 0:15
+:END:
+Multi-weekday RRULE that the SCHEDULED cookie can't
+express alone (Org cookies only encode FREQ + INTERVAL).
+The :RRULE: property is canonical; the cookie is best-fit
+projection. Stock org-agenda renders the cookie; Atrium
+reads :RRULE: on read-back.
+
+* CANCELLED Old approach (deprecated) :legacy:
+CLOSED: [2026-04-15 Wed 16:42]
+:PROPERTIES:
+:ID: 66666666-eeee-eeee-eeee-000000000001
+:END:
+Replaced by the new pipeline architecture (see Phase 1
+above). Kept for reference; will get archived after the
+launch ships.
+
+* BLOCKED Compliance review :blocked:legal:
+:PROPERTIES:
+:ID: 66666666-eeee-eeee-eeee-000000000002
+:END:
+Waiting on legal team's review of the new data flow.
+Brandon's note from 2026-05-01: expect 2-3 weeks.
+
+* DONE Initial setup :setup:
+CLOSED: [2026-05-01 Fri 09:15]
+:PROPERTIES:
+:ID: 77777777-ffff-ffff-ffff-000000000001
+:END:
+Repository configured, CI pipeline running, branch
+protection in place. Below are the receipts.
+
+** DONE Branch protection rules
+CLOSED: [2026-05-01 Fri 09:30]
+:PROPERTIES:
+:ID: 77777777-ffff-ffff-ffff-000000000002
+:END:
+
+** DONE CI workflow
+CLOSED: [2026-05-01 Fri 10:00]
+:PROPERTIES:
+:ID: 77777777-ffff-ffff-ffff-000000000003
+:END:
+
+** DONE Issue + PR templates
+CLOSED: [2026-05-01 Fri 10:45]
+:PROPERTIES:
+:ID: 77777777-ffff-ffff-ffff-000000000004
+:END:
+
+* TODO Internationalisation: 「日本語」support :i18n:research:
+:PROPERTIES:
+:ID: 88888888-9999-9999-9999-000000000001
+:END:
+Verify multi-byte titles round-trip cleanly through the
+DB → vault → DoomEmacs loop. Test cases in the body:
+
+- ASCII baseline: ~Plan the dashboard~
+- Cyrillic: ~Файл переименовать~
+- Japanese: ~研究プロジェクト~
+- Emoji: ~Buy milk 🛒~
+- RTL (display-only — Atrium doesn't reorder): ~مرحبا~
+
+* TODO Capture flow: support deeply-nested subtasks :ux:research:
+:PROPERTIES:
+:ID: 99999999-aaaa-aaaa-aaaa-000000000001
+:END:
+Builder Mode supports parent_id chains of arbitrary depth.
+This task tests the 4-level case.
+
+** TODO Level 2: research
+:PROPERTIES:
+:ID: 99999999-aaaa-aaaa-aaaa-000000000002
+:END:
+*** TODO Level 3: design
+:PROPERTIES:
+:ID: 99999999-aaaa-aaaa-aaaa-000000000003
+:END:
+**** TODO Level 4: implementation
+:PROPERTIES:
+:ID: 99999999-aaaa-aaaa-aaaa-000000000004
+:END:
+The deepest level — anything beyond this is probably a
+sign the task should be re-scoped.
