@@ -370,3 +370,104 @@ async fn spawn_vault_loop_surfaces_parse_failure_event() {
     drop(handle);
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn malformed_file_pauses_then_recovers() {
+    // Spec §7.3.3 rule 5: parse failure pauses sync for that
+    // file; recovery resumes it. The watcher emits ParseFailed
+    // once per pause transition (no spam on repeated bad
+    // saves) and ParseRecovered when the file parses again.
+    let scratch = std::env::temp_dir().join(format!("atrium-watcher-pause-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let db_path = scratch.join("atrium.db");
+    let conn = open(&db_path).unwrap();
+    let pool = ReadPool::new(&db_path, 4);
+
+    let (vault_config, vault_loop, mut events_rx) =
+        atrium_org::spawn_vault_loop(scratch.clone(), pool.clone());
+    let (handle, _changes_rx, _library_rx) = spawn_worker_with_vault(conn, Some(vault_config));
+
+    // Seed a project so the writer has something to flush, then
+    // wait for the first vault file to land before spawning the
+    // watcher (so the seed flush doesn't confuse the test).
+    let project = handle
+        .create_project(NewProject {
+            title: "Pausable".to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let _ = handle
+        .create_task(NewTask {
+            title: "seed".to_string(),
+            project_id: Some(project.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let _watcher = vault_loop.attach_watcher(handle.clone()).unwrap();
+
+    let project_path = scratch.join("Pausable.org");
+    // Write malformed Org content. The hand-rolled parser is
+    // permissive about most shapes — to force a parse failure
+    // we make the file vanish AND reappear as a directory at
+    // the same path, which makes parse_org_file_with_meta's
+    // io::read_to_string fail. The parser surfaces that as an
+    // io::Error which we treat as "parse failed."
+    //
+    // Simpler: just write content that's unambiguously invalid
+    // for our parser. Our parser is too lenient for that. So
+    // we go the io route: replace the file with a directory.
+    std::fs::remove_file(&project_path).unwrap();
+    std::fs::create_dir(&project_path).unwrap();
+
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    // Drain events; expect at least one ParseFailed.
+    let mut saw_failed = false;
+    while let Ok(event) = events_rx.try_recv() {
+        if matches!(event, atrium_org::VaultEvent::ParseFailed { .. }) {
+            saw_failed = true;
+        }
+    }
+    assert!(
+        saw_failed,
+        "first malformed write should surface a ParseFailed event"
+    );
+
+    // Touch the directory again — should NOT produce a second
+    // ParseFailed (still paused).
+    std::fs::write(project_path.join("placeholder"), "").unwrap();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    let mut saw_failed_again = false;
+    while let Ok(event) = events_rx.try_recv() {
+        if matches!(event, atrium_org::VaultEvent::ParseFailed { .. }) {
+            saw_failed_again = true;
+        }
+    }
+    assert!(
+        !saw_failed_again,
+        "while paused, repeated bad saves must not re-toast"
+    );
+
+    // Recover: remove the directory, write a valid file.
+    std::fs::remove_dir_all(&project_path).unwrap();
+    std::fs::write(&project_path, "* TODO recovered\n").unwrap();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let mut saw_recovered = false;
+    while let Ok(event) = events_rx.try_recv() {
+        if matches!(event, atrium_org::VaultEvent::ParseRecovered { .. }) {
+            saw_recovered = true;
+        }
+    }
+    assert!(
+        saw_recovered,
+        "clean parse after a pause should emit ParseRecovered"
+    );
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&scratch);
+}

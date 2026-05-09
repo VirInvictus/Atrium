@@ -36,7 +36,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use atrium_core::db::read_pool::ReadPool;
@@ -65,9 +65,16 @@ const PROJECT_ID_PROPERTY: &str = "ID";
 /// state, and the inotify watcher (held to keep the notify thread
 /// alive). Drop the watcher to stop the inotify backend.
 ///
-/// The optional `events_tx` ferries [`VaultEvent::ParseFailed`]
-/// notices up to the GUI for toast surfacing. `None` keeps the
-/// pre-event log-only behaviour.
+/// The optional `events_tx` ferries `VaultEvent::ParseFailed` +
+/// `VaultEvent::ParseRecovered` notices up to the GUI for toast
+/// surfacing. `None` keeps the pre-event log-only behaviour.
+///
+/// `paused` is the malformed-file pause set. A file lands in
+/// `paused` when its last parse failed; while present, the
+/// watcher emits no further `ParseFailed` events (one per
+/// transition is enough — repeated bad saves don't spam toasts).
+/// When a paused file parses cleanly the entry comes out and a
+/// `ParseRecovered` event surfaces.
 pub struct VaultWatcher {
     root: PathBuf,
     handle: WorkerHandle,
@@ -76,6 +83,7 @@ pub struct VaultWatcher {
     events_tx: Option<mpsc::UnboundedSender<VaultEvent>>,
     rx: mpsc::UnboundedReceiver<Event>,
     pending: HashMap<PathBuf, Instant>,
+    paused: Arc<Mutex<HashSet<PathBuf>>>,
     _watcher: RecommendedWatcher,
 }
 
@@ -165,24 +173,58 @@ impl VaultWatcher {
         let parsed = match parse_org_file_with_meta(path) {
             Ok(f) => f,
             Err(e) => {
-                // Pause/resume on malformed files is roadmap.md §17
-                // follow-up work. Today we warn, surface a toast,
-                // and let the next event re-attempt the parse.
-                warn!(
-                    path = %path.display(),
-                    error = %e,
-                    "vault watcher: parse failed; event dropped"
-                );
-                if let Some(tx) = &self.events_tx {
-                    let _ = tx.send(VaultEvent::ParseFailed {
-                        source: path.to_path_buf(),
-                        error: e.to_string(),
-                    });
+                // Per spec §7.3.3 rule 5: parse failure pauses
+                // sync for this file, DB version preserved. Toast
+                // once per pause transition; repeated bad saves
+                // stay silent until the file parses again.
+                let already_paused = self.mark_paused(path);
+                if !already_paused {
+                    warn!(
+                        path = %path.display(),
+                        error = %e,
+                        "vault watcher: parse failed; pausing sync for this file"
+                    );
+                    if let Some(tx) = &self.events_tx {
+                        let _ = tx.send(VaultEvent::ParseFailed {
+                            source: path.to_path_buf(),
+                            error: e.to_string(),
+                        });
+                    }
+                } else {
+                    trace!(
+                        path = %path.display(),
+                        "vault watcher: still paused (parse still failing)"
+                    );
                 }
                 return Ok(());
             }
         };
+        // Clean parse: if this file was paused, it's back. Surface
+        // the recovery before applying the diff so the user sees
+        // the toast pair (Failed then Recovered).
+        if self.clear_paused(path)
+            && let Some(tx) = &self.events_tx
+        {
+            let _ = tx.send(VaultEvent::ParseRecovered {
+                source: path.to_path_buf(),
+            });
+        }
         self.diff_and_apply(path, parsed).await
+    }
+
+    /// Mark `path` as paused; returns `true` if it was already in
+    /// the set (so the caller knows whether to suppress the
+    /// `ParseFailed` toast).
+    fn mark_paused(&self, path: &Path) -> bool {
+        let mut paused = self.paused.lock().unwrap();
+        !paused.insert(path.to_path_buf())
+    }
+
+    /// Drop `path` from the paused set. Returns `true` when it was
+    /// previously paused (so the caller emits `ParseRecovered`).
+    fn clear_paused(&self, path: &Path) -> bool {
+        let mut paused = self.paused.lock().unwrap();
+        paused.remove(path)
     }
 
     async fn diff_and_apply(&self, path: &Path, parsed: OrgFile) -> Result<(), DbError> {
@@ -525,6 +567,7 @@ pub fn spawn_vault_watcher_with_events(
         events_tx,
         rx,
         pending: HashMap::new(),
+        paused: Arc::new(Mutex::new(HashSet::new())),
         _watcher: watcher,
     };
     Ok(tokio::spawn(task.run()))

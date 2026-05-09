@@ -72,10 +72,16 @@ pub enum VaultEvent {
     ConflictBackup { source: PathBuf, backup: PathBuf },
 
     /// The watcher hit a parse error on a vault file. The DB
-    /// version is preserved; the next clean parse will pick the
-    /// file back up. Pause/resume on repeated parse failures is
-    /// roadmap.md §17 follow-up.
+    /// version is preserved and sync is paused for that file
+    /// until it parses cleanly again — repeated bad saves don't
+    /// re-toast on every event. The first failure after a pause-
+    /// or-recovery transition is what surfaces.
     ParseFailed { source: PathBuf, error: String },
+
+    /// A previously-paused file parsed cleanly and is back in
+    /// sync. Surfaced once per pause→clean transition so the
+    /// user knows the watcher is live again on that file.
+    ParseRecovered { source: PathBuf },
 }
 
 /// Write-only Org vault setup. Spins up a [`VaultWriter`] against

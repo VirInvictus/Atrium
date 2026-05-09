@@ -333,7 +333,16 @@ fn bridge_vault_events(
                         .file_name()
                         .and_then(|s| s.to_str())
                         .unwrap_or("vault file");
-                    win.show_toast(&format!("Could not parse {src_name}: {error}"));
+                    win.show_toast(&format!(
+                        "Could not parse {src_name}: {error} — sync paused for this file"
+                    ));
+                }
+                atrium_org::VaultEvent::ParseRecovered { source } => {
+                    let src_name = source
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("vault file");
+                    win.show_toast(&format!("{src_name} parsed cleanly — sync resumed"));
                 }
             }
         }
