@@ -90,6 +90,46 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.10.1" date="2026-05-09">
+      <description>
+        <p>Phase 17 next slice: GUI now participates in the two-way
+           vault loop. The GTK binary boots with both the writer
+           half (DB → vault, since v0.7.16) and the watcher half
+           (vault → DB, new at v0.10.0) wired up — a save in Doom
+           Emacs lands in Atrium's task list within ~250 ms.</p>
+        <p>Conflict detection (spec §7.3.3 rule 5): when the
+           writer is about to overwrite a vault file whose mtime
+           it doesn't recognise as its own, the current contents
+           are first snapshotted to
+           &lt;file&gt;.atrium.bak.&lt;UTC-timestamp&gt;. The
+           user's external edit survives the overwrite; a toast
+           surfaces in the GUI naming both files.</p>
+        <p>Sidecar config (Phase 16 carryover): tag colours
+           round-trip through &lt;vault&gt;/.atrium/config.toml.
+           Hand-rolled minimal TOML; refreshed by the writer
+           after every flush burst that changes tag state, idle
+           otherwise. Mode and saved-perspective slots are
+           reserved for follow-up.</p>
+        <p>VaultEvent channel: writer + watcher operational events
+           (ConflictBackup, ParseFailed) flow back to the GUI for
+           toast surfacing through a new spawn_vault_loop builder.</p>
+        <p>Worker now enforces two domain invariants the schema
+           couldn't: subtasks must live in the same project as
+           their parent (rejected on create_task and on
+           update_task project moves) and saved perspectives must
+           have a non-empty filter expression. New DomainError
+           type wired through DbError; UiError + AtriumError
+           replace the four-year-old #![allow(dead_code)]
+           scaffolding in the GTK binary.</p>
+        <p>Bug fix: the v0.10.0 vault watcher's flatten_one
+           silently dropped TODOs nested under non-keyword
+           headings (e.g. * Backlog / ** TODO Real task). The
+           importer always handled this correctly; the watcher
+           now matches.</p>
+        <p>Test count: 611 across the workspace (up from 590).
+           No new third-party dependencies.</p>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-05-09">
       <description>
         <p>Phase 17 first slice: vault → DB sync. Edits made in

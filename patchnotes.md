@@ -1,5 +1,42 @@
 # Atrium — Patch Notes
 
+## v0.10.1 (2026-05-09) — Phase 17 next slice: GUI wiring, conflict detection, sidecar; cleanup pass
+
+The v0.10.0 first slice landed the watcher mechanics but kept the GTK binary running write-only. v0.10.1 takes the loop the rest of the way: a save in Doom Emacs against the configured vault now lands in Atrium's task list within ~250 ms, and the conflict / parse-fail surfaces show up as toasts. Plus a cleanup pass — one bug fix, one round of comment surgery, and the four-year-old `#![allow(dead_code)]` scaffolding around `AtriumError` finally earns its keep.
+
+**GUI wiring + VaultEvent channel.** New `atrium_org::spawn_vault_loop(root, pool)` replaces the broken `spawn_org_vault_with_watcher` (which took a `WorkerHandle` that didn't exist at the natural call point — chicken-and-egg). The new shape returns `(VaultConfig, VaultLoopHandle, events_rx)`: pass the `VaultConfig` into `spawn_worker_with_vault` so the worker boots with the writer half installed, then feed the resulting `WorkerHandle` into `VaultLoopHandle::attach_watcher` to finish the wiring. The events receiver carries `VaultEvent` notices the GUI bridges to `AtriumWindow::show_toast`. `boot_data_layer` switched to the new builder; the GTK binary boots with both halves of the loop wired and the toast bridge active when a `vault-path` GSetting is configured.
+
+**Conflict detection (spec §7.3.3 rule 5).** The writer now stats the destination file before each atomic-overwrite. If the file's mtime isn't in `RecentWrites` — meaning Doom Emacs / vim-orgmode / any external editor touched it since Atrium's last self-write — the current contents snapshot to `<file>.atrium.bak.<UTC-timestamp>` first. The format is filesystem-safe (no colons), UTC, and sortable so multiple backups for the same file order chronologically when listed. Spec rule 5 — last-writer-wins by mtime, the loser is preserved — is now mechanically enforced; without this guard the sequence "Atrium GUI mutates DB at T1, user saves in Emacs at T1+50, writer flushes at T1+110" silently destroyed the user's external edit. A `VaultEvent::ConflictBackup` event surfaces the source / backup pair; the GTK binary toasts it.
+
+**Sidecar config (Phase 16 carryover).** New `atrium-org/src/sidecar.rs` ships `<vault>/.atrium/config.toml` with tag colours round-tripped to disk. Hand-rolled minimal TOML (no `toml` crate dependency — same ethos as the hand-rolled Org parser; the schema is small enough that a focused emitter / parser beats fighting a full-toml AST). The vault writer refreshes the sidecar at the end of every flush burst that touches tag state and skips the IO when content is unchanged via a `last_sidecar` cache. Mode and saved-perspective slots are reserved (the file always emits the section headers so Emacs-side tools see the shape) but not yet written — mode lives in GSettings (only the GTK binary knows it), and perspectives need a paired importer.
+
+**Worker domain invariants.** `DomainError` was a four-year-old placeholder with one unconstructed `Invariant(String)` variant. v0.10.1 gives it real, enforced rules:
+
+- `ParentProjectMismatch` — the schema's FK ensures a subtask's `parent_id` exists, but can't express "lives in the same project as the subtask itself." The worker checks before insert in `create_task` and catches the move-orphans-parent case in `update_task`. Subtask hierarchies must stay within a project.
+- `EmptyFilterExpr` — perspectives with a blank filter have no rows; rejected in `create_perspective` + `update_perspective` so the GUI editor surfaces the failure rather than producing a no-op sidebar entry.
+
+`DbError` gained `#[from] DomainError` so domain rejections flow through the existing `Result<_, DbError>` API. The `UiError` + `AtriumError` types in the GTK binary lost their `#![allow(dead_code)]` lid; `UiError::VaultPathInvalid` is now constructed when the user's `vault-path` GSetting points at an uncreatable directory, and `boot_data_layer` returns `Result<BootedDataLayer, AtriumError>` instead of `anyhow::Result`.
+
+**Bug fix — `flatten_one` recursion.** The v0.10.0 vault watcher silently dropped TODOs nested under non-keyword headings:
+
+```text
+* Backlog
+** TODO Real task
+```
+
+`Real task` would never land in the DB on external sync — the watcher's `flatten_one` bailed on the first non-keyword headline and returned without visiting children. The importer (`org/import.rs::import_task`) always handled this correctly per spec §7.3.1 ("project sub-headings are organisational, not structural"); the watcher now matches. Pinned by a new `external_add_under_subheading_creates_db_task` integration test.
+
+**Comment audit.** Six doc-comment sites carrying band-aid framing from earlier patch arcs (`atrium-core/src/db/command.rs`, `atrium-org/src/org/{mod,parse,import,write}.rs`, `atrium-org/src/vault_watcher.rs`) were rewritten. The rule: state the current behaviour, name any genuine constraint, point at the open roadmap item by section. No more "lands in v0.7.X" / "for now" / "follows in" voice.
+
+**What's still deferred** in the v0.10.x patch arc per the Phase 17 roadmap entry:
+
+- **v0.10.2:** malformed-file pause/resume — repeated parse failures on the same file pause sync for that file (current behaviour: warn + drop event, retry on next event).
+- **v0.10.3:** RRULE divergence detection on read-back; agenda-parity acceptance test gating the v0.10.x → v0.11.0 close.
+
+**Test count: 611** across the workspace (up from 590), all green: 5 worker-domain tests, 1 watcher integration regression, 3 conflict-detection unit/integration tests, 8 sidecar lib tests + 1 integration test, plus the new `spawn_vault_loop` end-to-end. Schema unchanged at version 7. No new third-party dependencies.
+
+VERSION + Cargo.toml + spec.md + roadmap.md + patchnotes.md + README.md + CLAUDE.md + AppStream metainfo bumped to 0.10.1.
+
 ## v0.10.0 (2026-05-09) — Phase 17 first slice: vault → DB sync
 
 The DB → vault direction has been live since v0.7.16 / Phase 16. v0.10.0 closes the loop: edits made in Emacs / Doom / vim-orgmode against the configured vault flow back into the SQLite store within ~250 ms.

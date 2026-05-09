@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/GNOME-50%2B-4a86cf" alt="GNOME 50+">
   <img src="https://img.shields.io/badge/Simple%20Mode-shipping-2ea44f" alt="Simple Mode: shipping">
   <img src="https://img.shields.io/badge/Builder%20Mode-shipping-2ea44f" alt="Builder Mode: shipping">
-  <img src="https://img.shields.io/badge/version-0.10.0-blueviolet" alt="version 0.10.0">
+  <img src="https://img.shields.io/badge/version-0.10.1-blueviolet" alt="version 0.10.1">
 </p>
 
 ---
@@ -21,7 +21,7 @@ Atrium is the first GNOME-native productivity app that synthesises four traditio
 
 Two surfaces over one store. **Simple Mode** for *what am I doing right now* — Things calm, six lists, no defer dates, no review queue. **Builder Mode** for the days the system needs to do the work — Forecast, Review, Perspectives, repeating tasks, sequential projects, the always-visible Inspector pane, full Org-mode bidirectional mirror. Same schema, same rows; mode is a UI-layer flip that never touches the database. The OmniFocus superset is the schema on day one — Simple Mode hides Builder columns, it doesn't lack them.
 
-Both modes shipped early. **Simple Mode** at v0.1.0 (Phases 0–9), **Builder Mode** at v0.2.0 (Phases 10–15), **Calibre-powered search** at v0.4.0 (Phase 15.5), the **`atrium-search` / `atrium-cli` extraction + Slice D kanban + Agenda** through v0.5.0 → v0.6.5 (Phase 15.75). **Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0** after the eleven-patch v0.7.6 → v0.7.18 build-out — hand-rolled Org parser/emitter (no third-party Org crate; `orgize` and `starsector` were both dormant), `atrium-cli import org PATH` / `export org PATH` / `export json PATH`, custom-keyword round-trip via migration 0007, file-level `#+TITLE:` + `:PROPERTIES:` metadata, multi-file vault walk, post-write integrity check, an auto-debounced worker write hook (~100 ms latency from DB write to vault flush), a five-fixture round-trip test suite, and GUI vault integration via the `vault-path` GSettings key. **v0.9.0** lifted the Phase 16 Org projection into its own `atrium-org` workspace crate ahead of Phase 17 — atrium-core stays Org-agnostic via a `VaultDirtyNotifier` trait. **v0.10.0 ships the Phase 17 first slice — vault → DB sync.** A `notify`-backed `VaultWatcher` task watches the configured vault for `.org` file changes; an mtime-based `RecentWrites` self-write filter prevents the loop from echoing; the reader→DB diff covers external add / external edit / external delete by `:ID:` matching. Edits in Doom or vim-orgmode flow back into the SQLite store within ~250 ms. Conflict detection, malformed-file pause/resume, RRULE divergence detection, and the agenda-parity acceptance test land across the v0.10.x patch arc. Current release: **v0.10.0**.
+Both modes shipped early. **Simple Mode** at v0.1.0 (Phases 0–9), **Builder Mode** at v0.2.0 (Phases 10–15), **Calibre-powered search** at v0.4.0 (Phase 15.5), the **`atrium-search` / `atrium-cli` extraction + Slice D kanban + Agenda** through v0.5.0 → v0.6.5 (Phase 15.75). **Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0** after the eleven-patch v0.7.6 → v0.7.18 build-out — hand-rolled Org parser/emitter (no third-party Org crate; `orgize` and `starsector` were both dormant), `atrium-cli import org PATH` / `export org PATH` / `export json PATH`, custom-keyword round-trip via migration 0007, file-level `#+TITLE:` + `:PROPERTIES:` metadata, multi-file vault walk, post-write integrity check, an auto-debounced worker write hook (~100 ms latency from DB write to vault flush), a five-fixture round-trip test suite, and GUI vault integration via the `vault-path` GSettings key. **v0.9.0** lifted the Phase 16 Org projection into its own `atrium-org` workspace crate ahead of Phase 17 — atrium-core stays Org-agnostic via a `VaultDirtyNotifier` trait. **v0.10.0 shipped the Phase 17 first slice — vault → DB sync** — a `notify`-backed `VaultWatcher` task, mtime-based `RecentWrites` self-write filter, reader→DB diff by `:ID:` covering CREATE / UPDATE / DELETE. **v0.10.1 ships the next slice: the GTK binary participates in the two-way loop end-to-end.** A new `spawn_vault_loop` builder wires writer + watcher + a `VaultEvent` channel; the GUI bridges those events to toasts (conflict-backup notices, parse failures). Conflict detection (spec §7.3.3 rule 5) is mechanically enforced: when the writer is about to overwrite a file an external editor has touched, the current content is snapshotted to `<file>.atrium.bak.<UTC-timestamp>` first — the user's edit always survives. The `<vault>/.atrium/config.toml` sidecar (Phase 16 carryover) ships with tag-colour round-trip via a hand-rolled minimal TOML emitter. Worker domain invariants (subtask-stays-in-project, non-empty perspective filter) are now enforced through a real `DomainError` type, replacing four-year-old `#![allow(dead_code)]` scaffolding around `AtriumError` / `UiError`. A v0.10.0 watcher regression — TODOs nested under non-keyword headings silently dropped — is fixed and pinned by an integration test. Malformed-file pause/resume, RRULE divergence detection, and the agenda-parity acceptance test land at v0.10.2 → v0.10.3. Current release: **v0.10.1**.
 
 Full release narrative in [`patchnotes.md`](patchnotes.md); plan in [`roadmap.md`](roadmap.md).
 
@@ -179,7 +179,7 @@ The v0.6.19 roadmap revision (retired Things 3 import; promoted Org-mode + Todoi
 - **Phase 15.5** — Calibre-powered search → tagged as **v0.4.0** (deferred-list closed at v0.5.0)
 - **Phase 15.75** — visual polish + per-area accent + atrium-search/atrium-cli extraction + GTD audit + kanban + Agenda → **v0.5.0 → v0.6.5** (full Slice A–D)
 - **Phase 16** — Org-mode import + DB → vault writer → tagged as **v0.8.0** (atrium-org crate split at **v0.9.0**)
-- **Phase 17** — vault → DB two-way sync (`inotify`-driven) → first slice at **v0.10.0**; conflict detection / malformed-file recovery / RRULE divergence / agenda parity test land in v0.10.1–v0.10.4
+- **Phase 17** — vault → DB two-way sync (`inotify`-driven) → first slice at **v0.10.0**; GUI wiring + conflict detection + sidecar config at **v0.10.1**; malformed-file recovery / RRULE divergence / agenda parity test land in v0.10.2 → v0.10.3
 - **Phase 18** — Todoist import
 - **Phase 19** — VTODO / Taskwarrior / todo.txt / TaskPaper / OmniFocus long-tail imports + VTODO export
 - **Phase 19.5** — productivity essentials (notifications, subtasks UI, EDS calendar overlay, AdwPreferencesWindow, dependencies, drag-drop capture, templates, onboarding, backup)
@@ -252,7 +252,7 @@ flatpak run io.github.virinvictus.atrium
 ## Testing and debugging
 
 ```bash
-# Full workspace test suite — 590 tests at v0.10.0.
+# Full workspace test suite — 611 tests at v0.10.1.
 cargo test --workspace
 
 # Single test (any crate).
@@ -301,7 +301,7 @@ The debug surface (`atrium --debug`):
 | `data/` | `.ui` XML, icons, GSettings schema, AppStream metainfo, Flatpak manifest, bundled fonts. |
 | `atrium-core/` | Headless data layer — schema, worker, fixtures, paths, repeat rules, Quick Entry parser, `VaultDirtyNotifier` trait + atomic-write helper + JSON snapshot. |
 | `atrium-search/` | Calibre-powered search expression language (lex / parse / ast / eval). v0.4.2 extracted. |
-| `atrium-org/` | Phase 16 Org-mode projection (parser, emitter, importer, `VaultWriter` task). v0.9.0 extracted. |
+| `atrium-org/` | Phase 16 Org-mode projection (parser, emitter, importer, `VaultWriter` task). Phase 17 `VaultWatcher` (vault → DB) at v0.10.0; conflict detection, sidecar (`<vault>/.atrium/config.toml`), and `VaultEvent` channel for GUI toasts at v0.10.1. v0.9.0 extracted. |
 | `atrium-cli/` | Headless CLI binary. Full task + perspective CRUD plus Phase 16 Org / JSON import + export. |
 | `atrium/` | GTK4 binary. |
 | `scripts/` | Developer scripts (regression gate, etc.). |
