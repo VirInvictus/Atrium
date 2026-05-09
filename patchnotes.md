@@ -1,5 +1,72 @@
 # Atrium — Patch Notes
 
+## v0.7.14 (2026-05-09) — Multi-file vault walk + ensure_area
+
+Ninth patch on the Phase 16 arc. With v0.7.6 → v0.7.13 in
+place, Atrium can round-trip a single `.org` file through the
+DB. v0.7.14 lifts the importer to the vault-as-directory level
+so users can pull an entire `~/Tasks/` into Atrium with one
+command.
+
+**`WorkerHandle::ensure_area` (mirror of ensure_tag).**
+`Command::EnsureArea { name, responder }` + an idempotent
+inner helper. Probes the area table for a row whose title
+matches `name` case-insensitively (the `area.title` column
+isn't NOCASE-collated, so the match runs at the query level
+via `LOWER(title) = LOWER(?1)`); returns the existing row when
+found, creates a new one otherwise. Used by the multi-file
+importer to map vault subdirectories onto Atrium areas
+without duplicating existing rows on re-import. Test covers
+case-insensitive dedup + creation of distinct names.
+
+**`import_org_file_with_area`.** v0.7.9's `import_org_file`
+becomes a thin wrapper that delegates with `area_id = None`;
+the new `_with_area` form accepts an `Option<i64>` so the
+directory walker can file projects under their resolved area.
+
+**`import_org_directory(handle, vault_root, dry_run) ->
+Vec<ImportSummary>`.** Walks the vault root:
+
+- Files at `<vault_root>/<project>.org` → unfiled Project.
+- Files at `<vault_root>/<area>/<project>.org` → Project
+  filed under Area `<area>` (created via ensure_area when
+  absent).
+- Skips dot-prefixed entries (`.atrium/`, `.git/`, hidden
+  temp files) for safety.
+- Skips non-`.org` files silently.
+- Sub-directories nested deeper than one level get a
+  warning and skip — spec §7.3.1 has exactly one level of
+  areas.
+
+Returns one `ImportSummary` per imported file plus a synthetic
+trailing summary for stragglers when only-skipped warnings
+need a home.
+
+**atrium-cli routing.** `run_import` stats the path and routes
+file → `import_org_file`, directory →
+`import_org_directory`. New `print_import_directory_summary`
+aggregates counts across files for the human banner +
+expands per-project detail underneath. `--json` output for
+scripts.
+
+**End-to-end smoke** verified manually: a 3-file vault
+(`Inbox.org` at root, `Personal/Errands.org`, `Work/Q3.org`)
+imports into 3 projects, 2 areas (auto-created), 2 tags
+(auto-created via ensure_tag); `atrium-cli list projects`
+renders the hierarchy as `Personal › Errands` and `Work › Q3`.
+
+**Test count:** 119 + 241 + 1 + 106 + 106 = **573** (up 2 from
+v0.7.13's 571 — ensure_area dedup test + the directory-walk
+end-to-end test). Pure additive change. No schema. No new
+dependencies.
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.14**. Phase 16 progress: foundation + parser +
+emitter + importer + writer + JSON export + custom-keyword +
+file-level metadata + multi-file vault walk done; post-write
+integrity check and the auto-debounced worker write hook
+remain.
+
 ## v0.7.13 (2026-05-09) — File-level Org metadata round-trip
 
 Eighth patch on the Phase 16 arc. v0.7.12 closed the per-task

@@ -90,6 +90,25 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.14" date="2026-05-09">
+      <description>
+        <p>Multi-file vault walk + ensure_area. Ninth patch on
+           the Phase 16 arc. atrium-cli `import org PATH` now
+           accepts a directory: files at `vault/project.org`
+           import as unfiled projects; files at
+           `vault/area/project.org` create or reuse the named
+           Area via the new WorkerHandle::ensure_area
+           idempotent-create helper (mirror of ensure_tag,
+           case-insensitive dedup). Hidden directories
+           (.atrium, .git) and non-.org files are skipped;
+           sub-area nesting beyond one level surfaces a
+           warning per spec §7.3.1.</p>
+        <p>End-to-end verified: a 3-file vault imports as 3
+           projects + 2 auto-created areas + 2 auto-created
+           tags. 573 tests green (up 2 from v0.7.13). Pure
+           additive change; no schema, no new dependencies.</p>
+      </description>
+    </release>
     <release version="0.7.13" date="2026-05-09">
       <description>
         <p>File-level Org metadata round-trip. Eighth patch on

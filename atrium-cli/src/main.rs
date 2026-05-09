@@ -409,6 +409,22 @@ fn run_import(
     match source {
         ImportSource::Org => {
             let path = std::path::PathBuf::from(path);
+            let metadata = std::fs::metadata(&path).map_err(|e| {
+                CliError::Args(format!("import: cannot stat {}: {e}", path.display()))
+            })?;
+            // v0.7.14 — directory paths trigger the multi-file
+            // vault walker; file paths take the existing single-
+            // file fast path.
+            if metadata.is_dir() {
+                let summaries = runtime
+                    .block_on(async {
+                        atrium_core::sync::org::import_org_directory(handle, &path, dry_run).await
+                    })
+                    .map_err(|e| CliError::Args(format!("import failed: {e}")))?;
+                print_import_directory_summary(&summaries, dry_run, format);
+                return Ok(());
+            }
+
             let summary = runtime
                 .block_on(async {
                     atrium_core::sync::org::import_org_file(handle, &path, dry_run).await
@@ -417,6 +433,69 @@ fn run_import(
 
             print_import_summary(&summary, dry_run, format);
             Ok(())
+        }
+    }
+}
+
+/// v0.7.14 — render the multi-file vault walk's vec of
+/// summaries. Aggregates counts across files for the human-mode
+/// banner; expands per-file detail underneath.
+fn print_import_directory_summary(
+    summaries: &[atrium_core::sync::org::ImportSummary],
+    dry_run: bool,
+    format: Format,
+) {
+    let prefix = if dry_run { "DRY-RUN " } else { "" };
+    let project_count = summaries
+        .iter()
+        .filter(|s| s.project_title.is_some())
+        .count();
+    let task_total: usize = summaries.iter().map(|s| s.tasks_created).sum();
+    let tag_total: usize = summaries.iter().map(|s| s.tags_ensured).sum();
+    let heading_total: usize = summaries.iter().map(|s| s.headings_skipped).sum();
+
+    match format {
+        Format::Json => {
+            let mut s = String::new();
+            s.push_str("{\n");
+            s.push_str(&format!("  \"dry_run\": {},\n", dry_run));
+            s.push_str(&format!("  \"project_count\": {},\n", project_count));
+            s.push_str(&format!("  \"task_count\": {},\n", task_total));
+            s.push_str(&format!("  \"tag_count\": {},\n", tag_total));
+            s.push_str(&format!("  \"headings_skipped\": {},\n", heading_total));
+            s.push_str("  \"projects\": [");
+            for (i, sum) in summaries.iter().enumerate() {
+                if sum.project_title.is_none() {
+                    continue;
+                }
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&json_string(sum.project_title.as_deref().unwrap_or("")));
+            }
+            s.push_str("]\n}\n");
+            print!("{s}");
+        }
+        _ => {
+            println!(
+                "{prefix}Imported {} project{}: {} tasks, {} tags, {} headings skipped.",
+                project_count,
+                if project_count == 1 { "" } else { "s" },
+                task_total,
+                tag_total,
+                heading_total
+            );
+            for sum in summaries {
+                if let Some(title) = &sum.project_title {
+                    println!(
+                        "  {} ({} tasks, {} tags)",
+                        title, sum.tasks_created, sum.tags_ensured
+                    );
+                }
+                for note in &sum.lossy {
+                    println!("    lossy: {note}");
+                }
+            }
         }
     }
 }

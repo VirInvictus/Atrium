@@ -11,7 +11,7 @@
 use tokio::sync::oneshot;
 
 use crate::domain::{
-    AreaUpdate, NewArea, NewPerspective, NewProject, NewTag, NewTask, Perspective,
+    Area, AreaUpdate, NewArea, NewPerspective, NewProject, NewTag, NewTask, Perspective,
     PerspectiveUpdate, Project, ProjectUpdate, Tag, TagUpdate, Task, TaskUpdate,
 };
 use crate::error::DbError;
@@ -117,6 +117,14 @@ pub enum Command {
         name: String,
         responder: oneshot::Sender<Result<Tag, DbError>>,
     },
+    /// v0.7.14 — idempotent area-create-by-name. Returns the
+    /// existing Area when the title matches case-insensitively;
+    /// creates a new one otherwise. Used by the multi-file Org
+    /// importer to map vault subdirectories onto Atrium areas.
+    EnsureArea {
+        name: String,
+        responder: oneshot::Sender<Result<Area, DbError>>,
+    },
 
     // ── Perspectives (Phase 14) ────────────────────────────────
     CreatePerspective {
@@ -155,6 +163,7 @@ impl Command {
             Self::DeleteTag { .. } => "DeleteTag",
             Self::SetTaskTags { .. } => "SetTaskTags",
             Self::EnsureTag { .. } => "EnsureTag",
+            Self::EnsureArea { .. } => "EnsureArea",
             Self::CreatePerspective { .. } => "CreatePerspective",
             Self::UpdatePerspective { .. } => "UpdatePerspective",
             Self::DeletePerspective { .. } => "DeletePerspective",

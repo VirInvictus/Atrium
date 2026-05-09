@@ -81,15 +81,35 @@ pub enum ImportError {
 
 /// Import a single `.org` file into the connected database.
 ///
-/// On success, creates one project (named after the file stem)
-/// and inserts every TODO-keyworded headline as a task. Returns
-/// an [`ImportSummary`] with counts + a lossy-fields list.
+/// Convenience wrapper for the common single-file path. The
+/// resulting project has no `area_id` (Atrium calls this
+/// "unfiled"). Use [`import_org_file_with_area`] when the file
+/// belongs to a vault subdirectory that should map onto an
+/// Atrium area.
+///
+/// On success, creates one project (named after the file stem
+/// or `#+TITLE:` if present) and inserts every TODO-keyworded
+/// headline as a task. Returns an [`ImportSummary`] with counts
+/// and a lossy-fields list.
 ///
 /// `dry_run = true` walks the parse tree and tallies what *would*
 /// be created without touching the DB.
 pub async fn import_org_file(
     handle: &WorkerHandle,
     path: &Path,
+    dry_run: bool,
+) -> Result<ImportSummary, ImportError> {
+    import_org_file_with_area(handle, path, None, dry_run).await
+}
+
+/// v0.7.14 — full single-file importer that accepts an optional
+/// `area_id` to file the resulting project under. Used by the
+/// multi-file vault walker ([`import_org_directory`]) to map
+/// vault subdirectories onto Atrium areas.
+pub async fn import_org_file_with_area(
+    handle: &WorkerHandle,
+    path: &Path,
+    area_id: Option<i64>,
     dry_run: bool,
 ) -> Result<ImportSummary, ImportError> {
     let path_display = path.display().to_string();
@@ -158,6 +178,9 @@ pub async fn import_org_file(
             review_interval_days: project_review_interval,
             last_reviewed_at: project_last_reviewed,
             archived_at: project_archived,
+            // v0.7.14 — caller's area_id wins. None for the
+            // single-file path; Some for the directory walker.
+            area_id,
             ..Default::default()
         })
         .await?;
@@ -168,6 +191,130 @@ pub async fn import_org_file(
     }
 
     Ok(summary)
+}
+
+/// v0.7.14 — multi-file vault import. Walks `vault_root` for
+/// `.org` files and routes each through `import_org_file_with_area`:
+///
+/// - Files at `<vault_root>/<project>.org` → unfiled Project.
+/// - Files at `<vault_root>/<area>/<project>.org` → Project filed
+///   under Area `<area>` (created via `ensure_area` if absent;
+///   case-insensitive match against existing areas).
+///
+/// Skips dot-prefixed entries (`.atrium/`, `.git/`, hidden temp
+/// files) for safety. Skips non-`.org` files silently. Sub-
+/// directories nested deeper than one level (an "area's area")
+/// are flagged and skipped — spec §7.3.1 has exactly one level
+/// of areas.
+///
+/// Returns one [`ImportSummary`] per imported file. On dry-run,
+/// no DB changes are made and each summary's `project_id` is
+/// `None`.
+pub async fn import_org_directory(
+    handle: &WorkerHandle,
+    vault_root: &Path,
+    dry_run: bool,
+) -> Result<Vec<ImportSummary>, ImportError> {
+    let mut summaries: Vec<ImportSummary> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+
+    // Top-level pass: every entry of vault_root.
+    let entries = std::fs::read_dir(vault_root).map_err(|source| ImportError::Io {
+        path: vault_root.display().to_string(),
+        source,
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|source| ImportError::Io {
+            path: vault_root.display().to_string(),
+            source,
+        })?;
+        let entry_path = entry.path();
+        let file_name = entry.file_name();
+        let name_str = file_name.to_string_lossy();
+        if name_str.starts_with('.') {
+            continue;
+        }
+        let metadata = entry.metadata().map_err(|source| ImportError::Io {
+            path: entry_path.display().to_string(),
+            source,
+        })?;
+        if metadata.is_file() {
+            if entry_path.extension().and_then(|e| e.to_str()) != Some("org") {
+                continue;
+            }
+            // Top-level file → unfiled project.
+            let mut summary = import_org_file_with_area(handle, &entry_path, None, dry_run).await?;
+            // Surface accumulated warnings on the first summary
+            // so the caller can pass them through. Subsequent
+            // summaries leave them empty (avoids n-way duplication).
+            if !warnings.is_empty() {
+                summary.lossy.append(&mut warnings);
+            }
+            summaries.push(summary);
+        } else if metadata.is_dir() {
+            // Subdirectory → Area name. Walk one level deeper.
+            let area_name = entry.file_name().to_string_lossy().to_string();
+            let area_id = if dry_run {
+                None
+            } else {
+                let area = handle.ensure_area(area_name.clone()).await?;
+                Some(area.id)
+            };
+
+            let inner = std::fs::read_dir(&entry_path).map_err(|source| ImportError::Io {
+                path: entry_path.display().to_string(),
+                source,
+            })?;
+            for inner_entry in inner {
+                let inner_entry = inner_entry.map_err(|source| ImportError::Io {
+                    path: entry_path.display().to_string(),
+                    source,
+                })?;
+                let inner_path = inner_entry.path();
+                let inner_name = inner_entry.file_name();
+                let inner_name_str = inner_name.to_string_lossy();
+                if inner_name_str.starts_with('.') {
+                    continue;
+                }
+                let inner_md = inner_entry.metadata().map_err(|source| ImportError::Io {
+                    path: inner_path.display().to_string(),
+                    source,
+                })?;
+                if inner_md.is_dir() {
+                    warnings.push(format!(
+                        "skipped sub-area directory {} (spec §7.3.1 has only one level of areas)",
+                        inner_path.display()
+                    ));
+                    continue;
+                }
+                if !inner_md.is_file() {
+                    continue;
+                }
+                if inner_path.extension().and_then(|e| e.to_str()) != Some("org") {
+                    continue;
+                }
+                let mut summary =
+                    import_org_file_with_area(handle, &inner_path, area_id, dry_run).await?;
+                if !warnings.is_empty() {
+                    summary.lossy.append(&mut warnings);
+                }
+                summaries.push(summary);
+            }
+        }
+    }
+
+    // Stragglers in `warnings` (if no summary was emitted to
+    // attach them to — e.g. a vault where the only finds were
+    // sub-area dirs we skipped) get hung off a synthetic
+    // summary so the caller still sees them.
+    if !warnings.is_empty() {
+        summaries.push(ImportSummary {
+            lossy: warnings,
+            ..Default::default()
+        });
+    }
+
+    Ok(summaries)
 }
 
 /// Permissive Org timestamp parser. Accepts `[YYYY-MM-DD ...]`

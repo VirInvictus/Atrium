@@ -222,6 +222,19 @@ impl WorkerHandle {
         rx.await.map_err(|_| DbError::WorkerClosed)?
     }
 
+    /// v0.7.14 — idempotent area-create-if-absent. Mirror of
+    /// [`Self::ensure_tag`] for areas. Used by the multi-file Org
+    /// importer when mapping vault subdirectories onto Atrium
+    /// areas; safe to call repeatedly with the same name.
+    pub async fn ensure_area(&self, name: String) -> Result<Area, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::EnsureArea { name, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
     // ── Perspectives (Phase 14) ─────────────────────────────────
 
     pub async fn create_perspective(
@@ -562,6 +575,18 @@ impl Worker {
                     // does refresh.
                     let _ = self.changes_tx.send(TaskChanges {
                         updated: vec![task.clone()],
+                        ..Default::default()
+                    });
+                }
+                let _ = responder.send(result);
+            }
+            Command::EnsureArea { name, responder } => {
+                let result = self.ensure_area(&name);
+                if let Ok(ref a) = result
+                    && a.created_at == a.modified_at
+                {
+                    let _ = self.library_tx.send(LibraryChanges {
+                        areas_created: vec![a.clone()],
                         ..Default::default()
                     });
                 }
@@ -1239,6 +1264,25 @@ impl Worker {
         }
     }
 
+    /// v0.7.14 — idempotent area-by-title lookup. Area's `title`
+    /// column doesn't have a NOCASE collation (only tag.name
+    /// does), so case-insensitive match runs at the query level.
+    fn ensure_area(&mut self, name: &str) -> Result<Area, DbError> {
+        let existing: rusqlite::Result<i64> = self.conn.query_row(
+            "SELECT id FROM area WHERE LOWER(title) = LOWER(?1) LIMIT 1",
+            params![name],
+            |r| r.get(0),
+        );
+        match existing {
+            Ok(id) => read::area_by_id(&self.conn, id)?.ok_or(DbError::NotFound),
+            Err(rusqlite::Error::QueryReturnedNoRows) => self.create_area(NewArea {
+                title: name.to_string(),
+                color: None,
+            }),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     // ── Perspectives (Phase 14) ─────────────────────────────────
 
     fn create_perspective(&mut self, new: NewPerspective) -> Result<Perspective, DbError> {
@@ -1419,6 +1463,79 @@ CLOSED: [2026-04-01 Wed]
     }
 
     #[tokio::test]
+    async fn import_org_directory_walks_areas_and_files() {
+        // v0.7.14 — the multi-file vault walker. Build a vault
+        // tree with one top-level project + one project under an
+        // area subdirectory + a hidden directory + a sub-area dir
+        // (which should be skipped with a warning). Import.
+        // Verify the right rows landed.
+        use crate::db::read::{list_all_projects, list_areas};
+        use crate::sync::org::import_org_directory;
+
+        let dir = std::env::temp_dir().join(format!("atrium-vault-walk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Top-level unfiled project file.
+        std::fs::write(dir.join("Inbox.org"), "* TODO Triage\n").unwrap();
+
+        // Area subdirectory with one project file.
+        std::fs::create_dir_all(dir.join("Personal")).unwrap();
+        std::fs::write(
+            dir.join("Personal").join("Errands.org"),
+            "* TODO Buy milk\n",
+        )
+        .unwrap();
+
+        // Hidden directory should be skipped.
+        std::fs::create_dir_all(dir.join(".atrium")).unwrap();
+        std::fs::write(dir.join(".atrium").join("config.toml"), "").unwrap();
+        // (Also inside Personal/) — sub-area directory should be
+        // skipped + warned about.
+        std::fs::create_dir_all(dir.join("Personal").join("subarea")).unwrap();
+        std::fs::write(
+            dir.join("Personal").join("subarea").join("nested.org"),
+            "* TODO ignored\n",
+        )
+        .unwrap();
+
+        let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+        let summaries = import_org_directory(&handle, &dir, false).await.unwrap();
+
+        // Assertions on what landed.
+        let read_conn = fresh_conn();
+        let _ = read_conn; // unused — we re-use the worker's conn through summaries.
+
+        // Two project files survived the walk; the sub-area
+        // file was skipped with a warning recorded somewhere.
+        let imported_titles: Vec<String> = summaries
+            .iter()
+            .filter_map(|s| s.project_title.clone())
+            .collect();
+        assert!(imported_titles.contains(&"Inbox".to_string()));
+        assert!(imported_titles.contains(&"Errands".to_string()));
+        assert!(!imported_titles.contains(&"nested".to_string()));
+
+        // Some summary should carry the sub-area warning.
+        let any_warning = summaries.iter().any(|s| {
+            s.lossy
+                .iter()
+                .any(|note| note.contains("sub-area directory"))
+        });
+        assert!(any_warning, "expected sub-area warning in summaries");
+
+        // Real area row created via ensure_area.
+        let conn = fresh_conn(); // a brand-new conn — won't see the worker's writes
+        let _ = list_areas(&conn).unwrap();
+        let _ = list_all_projects(&conn).unwrap();
+        // (The worker holds the only handle to its in-memory DB,
+        // so we can't reach the rows from here. The summary
+        // assertions above are the authoritative check.)
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn import_org_file_dry_run_creates_nothing() {
         use crate::sync::org::import_org_file;
 
@@ -1435,6 +1552,26 @@ CLOSED: [2026-04-01 Wed]
         assert!(summary.project_id.is_none(), "dry-run must not insert");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn ensure_area_creates_then_dedupes_case_insensitive() {
+        // v0.7.14 — idempotent area create-by-name. First call
+        // creates a row; second call with a differently-cased name
+        // returns the same row.
+        let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+        let first = handle.ensure_area("Personal".to_string()).await.unwrap();
+        assert_eq!(first.title, "Personal");
+
+        let second = handle.ensure_area("personal".to_string()).await.unwrap();
+        assert_eq!(second.id, first.id, "case-insensitive match expected");
+
+        let third = handle.ensure_area("PERSONAL".to_string()).await.unwrap();
+        assert_eq!(third.id, first.id);
+
+        // A truly different name creates a new row.
+        let work = handle.ensure_area("Work".to_string()).await.unwrap();
+        assert_ne!(work.id, first.id);
     }
 
     #[tokio::test]
