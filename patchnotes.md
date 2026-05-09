@@ -1,5 +1,96 @@
 # Atrium — Patch Notes
 
+## v0.7.16 (2026-05-09) — Auto-debounced worker write hook (DB → vault)
+
+Eleventh patch on the Phase 16 arc. The last roadmap bullet
+before the v0.8.0 stamp. With this patch, every Task / Project
+write through the SQLite worker triggers a background rewrite
+of the affected project's `.org` file in the configured vault.
+Atrium and Emacs can now run side-by-side against the same
+vault and stay in sync (DB → vault direction; the vault → DB
+direction is Phase 17's inotify watcher).
+
+**`atrium-core::sync::vault_writer`** — new module hosting the
+background writer:
+
+- `VaultWriteRequest::ProjectDirty(i64)` is the request type.
+- `VaultWriter` owns the vault root + a `ReadPool` + a
+  `pending: HashMap<i64, Instant>` keyed by project_id where
+  the value is the deadline after which the project should be
+  flushed.
+- `run()` is a `tokio::select!` loop: receive requests +
+  tick on a 50ms interval. Receiving extends a project's
+  deadline by 100ms (last-deadline-wins coalescing); the tick
+  flushes any project past its deadline.
+- `spawn_vault_writer(root, pool)` spins up the task and
+  returns the request sender.
+
+**Latency:** ~150 ms (debounce 100ms + tick 50ms) from a DB
+write landing to the corresponding `.org` file appearing.
+Below human-perceptible threshold.
+
+**Worker integration.** New `spawn_with_vault(conn, vault:
+Option<VaultConfig>)` entry point alongside the existing
+`spawn`. `VaultConfig { root: PathBuf, read_pool: ReadPool }`.
+The worker stashes a `vault_tx: Option<mpsc::Sender<VaultWriteRequest>>`
+internally; a `notify_project_dirty(project_id)` helper
+non-blockingly `try_send`s through it (full channel → drop,
+not block — under absurd load the worst case is one stale
+vault file). `spawn(conn)` becomes a thin wrapper that
+delegates with `vault: None`, so atrium-cli and tests stay
+unchanged.
+
+**Dispatch sites.** Every Worker command that mutates a
+project's task set or project metadata now calls
+`notify_project_dirty`:
+
+- `CreateTask` / `UpdateTask` / `ToggleComplete` —
+  `task.project_id`
+- `DeleteTask` — captures the project_id BEFORE deleting
+  (since the row goes away)
+- `CreateProject` / `UpdateProject` / `ArchiveProject` /
+  `MarkReviewed` — the project's id
+- `MarkTaskReviewed` — `task.project_id`
+- `SetTaskTags` — `task.project_id`
+
+**Architecture choices documented in the module doc:** why a
+separate task (single-writer SQLite discipline; vault writes
+shouldn't block command processing on large projects); why
+debounce inside the writer (keeps worker dispatch sites
+trivial); why mpsc instead of broadcast (single consumer +
+overflow tolerable).
+
+**Tests:**
+
+- `vault_writer_emits_project_file_on_dirty_request` — the
+  isolated writer task: send a request, wait, verify file
+  appears.
+- `vault_writer_debounces_burst_into_one_write` — 5 rapid
+  requests over 50ms collapse into one final write.
+- `spawn_with_vault_writes_org_file_on_task_create` — the
+  end-to-end story: spawn the worker with a vault, create a
+  task, the file lands automatically.
+
+**Test count:** 119 + 245 + 1 + 106 + 106 = **577** (up 3
+from v0.7.15's 574). Pure additive change. No schema. No new
+dependencies (tokio mpsc + tokio::time::interval already in
+the workspace dep graph).
+
+**What's NOT in v0.7.16** (deferred to v0.8.0's maintenance
+pass): GUI integration with the GSettings `vault-path` key
+(the worker accepts a vault config but no caller passes one
+yet — atrium-cli stays unchanged, the GTK binary still uses
+the no-vault `spawn`); rollback to `.atrium.bak.<timestamp>`
+on integrity failure (v0.7.15's Err return is the
+detection layer; the recovery layer needs the v0.7.16 hook
+to make decisions on, which it now has).
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.16**. **Phase 16 roadmap bullets are now all
+complete.** v0.8.0 wraps the arc with the Phase 16 stamp + the
+round-trip test fixture + a maintenance pass + GUI vault
+integration.
+
 ## v0.7.15 (2026-05-09) — Post-write Org integrity check
 
 Tenth patch on the Phase 16 arc. With the importer + writer +

@@ -26,3 +26,4 @@
 pub mod atomic;
 pub mod json;
 pub mod org;
+pub mod vault_writer;

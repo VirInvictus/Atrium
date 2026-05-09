@@ -280,8 +280,34 @@ impl WorkerHandle {
 /// receiver (task-level deltas flow out), and the `LibraryChanges`
 /// receiver (area/project deltas flow out — Phase 5b). The worker
 /// exits when the last `WorkerHandle` is dropped.
+///
+/// No vault auto-write — use [`spawn_with_vault`] when a vault
+/// projection is configured.
 pub fn spawn(
+    conn: Connection,
+) -> (
+    WorkerHandle,
+    mpsc::UnboundedReceiver<TaskChanges>,
+    mpsc::UnboundedReceiver<LibraryChanges>,
+) {
+    spawn_with_vault(conn, None)
+}
+
+/// v0.7.16 — Phase 16 entry point that wires the auto-debounced
+/// vault writer alongside the main worker. Pass `Some(VaultConfig
+/// { root, read_pool })` to enable auto-writes; `None` is
+/// equivalent to [`spawn`].
+///
+/// When configured, every successful Task / Project / Tag write
+/// that affects a project queues a `ProjectDirty(project_id)`
+/// notification into the vault writer task (see
+/// [`crate::sync::vault_writer`]). The writer debounces 100 ms
+/// and flushes on a 50 ms tick, so a burst of edits collapses
+/// into one `.org` rewrite per project. Latency upper bound:
+/// ~150 ms from DB write to vault file landing.
+pub fn spawn_with_vault(
     mut conn: Connection,
+    vault: Option<VaultConfig>,
 ) -> (
     WorkerHandle,
     mpsc::UnboundedReceiver<TaskChanges>,
@@ -293,16 +319,30 @@ pub fn spawn(
     let (changes_tx, changes_rx) = mpsc::unbounded_channel::<TaskChanges>();
     let (library_tx, library_rx) = mpsc::unbounded_channel::<LibraryChanges>();
 
+    let vault_tx = vault.map(|cfg| {
+        let (tx, _jh) =
+            crate::sync::vault_writer::spawn_vault_writer(cfg.root.clone(), cfg.read_pool);
+        tx
+    });
+
     let worker = Worker {
         conn,
         cmd_rx,
         changes_tx,
         library_tx,
+        vault_tx,
     };
 
     tokio::spawn(worker.run().instrument(info_span!("atrium_worker")));
 
     (WorkerHandle { cmd_tx }, changes_rx, library_rx)
+}
+
+/// Configuration for the auto-debounced vault-write hook.
+/// Passed through [`spawn_with_vault`] at worker startup.
+pub struct VaultConfig {
+    pub root: std::path::PathBuf,
+    pub read_pool: crate::db::read_pool::ReadPool,
 }
 
 /// Wire rusqlite's `profile` callback to the `tracing` TRACE level.
@@ -320,6 +360,24 @@ struct Worker {
     cmd_rx: mpsc::Receiver<Command>,
     changes_tx: mpsc::UnboundedSender<TaskChanges>,
     library_tx: mpsc::UnboundedSender<LibraryChanges>,
+    /// v0.7.16 — auto-debounced vault writer hook. `None` when
+    /// no vault is configured (atrium-cli, tests). `Some` when
+    /// the GUI passes a `VaultConfig` through `spawn_with_vault`.
+    vault_tx: Option<mpsc::Sender<crate::sync::vault_writer::VaultWriteRequest>>,
+}
+
+impl Worker {
+    /// v0.7.16 — non-blocking notification that a project's
+    /// vault file should be re-emitted. `try_send` so a full
+    /// channel never stalls command processing; under absurd
+    /// load the worst case is a stale vault file until the
+    /// next dirty notification clears the backlog.
+    fn notify_project_dirty(&self, project_id: i64) {
+        if let Some(tx) = &self.vault_tx {
+            use crate::sync::vault_writer::VaultWriteRequest;
+            let _ = tx.try_send(VaultWriteRequest::ProjectDirty(project_id));
+        }
+    }
 }
 
 impl Worker {
@@ -342,6 +400,9 @@ impl Worker {
                         created: vec![task.clone()],
                         ..Default::default()
                     });
+                    if let Some(pid) = task.project_id {
+                        self.notify_project_dirty(pid);
+                    }
                 }
                 let _ = responder.send(result);
             }
@@ -352,6 +413,9 @@ impl Worker {
                         updated: vec![task.clone()],
                         ..Default::default()
                     });
+                    if let Some(pid) = task.project_id {
+                        self.notify_project_dirty(pid);
+                    }
                 }
                 let _ = responder.send(result);
             }
@@ -370,16 +434,31 @@ impl Worker {
                         changes.created.push(next.clone());
                     }
                     let _ = self.changes_tx.send(changes);
+                    if let Some(pid) = task.project_id {
+                        self.notify_project_dirty(pid);
+                    }
                 }
                 let _ = responder.send(result.map(|(t, _)| t));
             }
             Command::DeleteTask { id, responder } => {
+                // v0.7.16 — capture the project_id BEFORE we
+                // delete the row so the vault writer can rewrite
+                // the right .org file. Best-effort: if the read
+                // fails, the file just stays stale until the next
+                // edit hits the project.
+                let project_id_for_vault = read::task_by_id(&self.conn, id)
+                    .ok()
+                    .flatten()
+                    .and_then(|t| t.project_id);
                 let result = self.delete_task(id);
                 if result.is_ok() {
                     let _ = self.changes_tx.send(TaskChanges {
                         deleted: vec![id],
                         ..Default::default()
                     });
+                    if let Some(pid) = project_id_for_vault {
+                        self.notify_project_dirty(pid);
+                    }
                 }
                 let _ = responder.send(result);
             }
@@ -436,12 +515,14 @@ impl Worker {
                         projects_created: vec![p.clone()],
                         ..Default::default()
                     });
+                    self.notify_project_dirty(p.id);
                 }
                 let _ = responder.send(result);
             }
             Command::UpdateProject { update, responder } => {
                 let result = self.update_project(update);
                 if let Ok(ref p) = result {
+                    self.notify_project_dirty(p.id);
                     let _ = self.library_tx.send(LibraryChanges {
                         projects_updated: vec![p.clone()],
                         ..Default::default()
@@ -461,6 +542,7 @@ impl Worker {
                         projects_updated: vec![p.clone()],
                         ..Default::default()
                     });
+                    self.notify_project_dirty(p.id);
                     // Emit per-task status_changed so any open list
                     // showing them removes them from view.
                     let mut updated_tasks = Vec::new();
@@ -486,6 +568,7 @@ impl Worker {
                         projects_updated: vec![p.clone()],
                         ..Default::default()
                     });
+                    self.notify_project_dirty(p.id);
                 }
                 let _ = responder.send(result);
             }
@@ -500,6 +583,9 @@ impl Worker {
                         updated: vec![t.clone()],
                         ..Default::default()
                     });
+                    if let Some(pid) = t.project_id {
+                        self.notify_project_dirty(pid);
+                    }
                 }
                 let _ = responder.send(result);
             }
@@ -577,6 +663,9 @@ impl Worker {
                         updated: vec![task.clone()],
                         ..Default::default()
                     });
+                    if let Some(pid) = task.project_id {
+                        self.notify_project_dirty(pid);
+                    }
                 }
                 let _ = responder.send(result);
             }
@@ -1552,6 +1641,66 @@ CLOSED: [2026-04-01 Wed]
         assert!(summary.project_id.is_none(), "dry-run must not insert");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn spawn_with_vault_writes_org_file_on_task_create() {
+        // v0.7.16 — end-to-end: spawn the worker with a vault
+        // configured, create a project + task, wait > 150ms for
+        // the writer to flush, verify the .org file lands.
+        use crate::db::read_pool::ReadPool;
+        use crate::sync::vault_writer;
+
+        let scratch =
+            std::env::temp_dir().join(format!("atrium-vault-spawn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).unwrap();
+        let db_path = scratch.join("atrium.db");
+        let mut writer_conn = Connection::open(&db_path).unwrap();
+        crate::db::configure_pragmas(&writer_conn).unwrap();
+        crate::db::migrations::migrate(&mut writer_conn).unwrap();
+
+        let pool = ReadPool::new(&db_path, 4);
+        let (handle, _changes_rx, _library_rx) = spawn_with_vault(
+            writer_conn,
+            Some(VaultConfig {
+                root: scratch.clone(),
+                read_pool: pool,
+            }),
+        );
+
+        let project = handle
+            .create_project(NewProject {
+                title: "Sample".to_string(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let _ = handle
+            .create_task(NewTask {
+                title: "auto-written".to_string(),
+                project_id: Some(project.id),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Wait for the debounce window to elapse.
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+        let expected_path = scratch.join("Sample.org");
+        assert!(
+            expected_path.exists(),
+            "expected vault file at {}",
+            expected_path.display()
+        );
+        let contents = std::fs::read_to_string(&expected_path).unwrap();
+        assert!(contents.contains("auto-written"), "got: {contents}");
+
+        // Suppress unused warning on vault_writer module re-export.
+        let _ = vault_writer::VaultWriteRequest::Shutdown;
+
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 
     #[tokio::test]

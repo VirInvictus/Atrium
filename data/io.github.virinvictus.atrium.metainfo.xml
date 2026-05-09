@@ -90,6 +90,33 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.16" date="2026-05-09">
+      <description>
+        <p>Auto-debounced worker write hook (DB → vault). The
+           last Phase 16 roadmap bullet before the v0.8.0 stamp.
+           Every Task / Project write through the SQLite worker
+           now triggers a background rewrite of the affected
+           project's .org file in the configured vault.</p>
+        <p>New atrium-core::sync::vault_writer module hosts a
+           VaultWriter task — receives ProjectDirty(project_id)
+           requests, debounces ~100 ms to coalesce bursts,
+           flushes through write_project_to_vault on a 50 ms
+           tick. Latency upper bound from DB write to .org
+           file landing: ~150 ms.</p>
+        <p>Worker gains spawn_with_vault(conn, vault: Option) +
+           VaultConfig { root, read_pool }. spawn(conn)
+           delegates with vault: None so atrium-cli and tests
+           stay unchanged. Every dispatch site that mutates a
+           project (CreateTask / UpdateTask / ToggleComplete /
+           DeleteTask / CreateProject / UpdateProject /
+           ArchiveProject / MarkReviewed / MarkTaskReviewed /
+           SetTaskTags) calls notify_project_dirty.</p>
+        <p>577 tests green (up 3 from v0.7.15). Phase 16
+           roadmap bullets are now all complete; v0.8.0 wraps
+           the arc with the Phase 16 stamp + round-trip test
+           fixture + maintenance pass + GUI vault integration.</p>
+      </description>
+    </release>
     <release version="0.7.15" date="2026-05-09">
       <description>
         <p>Post-write Org integrity check. Tenth patch on the
