@@ -205,6 +205,33 @@ pub fn month_name(month: u32) -> &'static str {
 /// the full list. Matches OmniFocus's default cell density.
 const INLINE_PER_CELL: usize = 3;
 
+/// Width in CSS pixels at which the month grid collapses to a
+/// vertical week strip. Tuned for phone-portrait sizes — desktop
+/// / tablet windows always show the full month. Public so the
+/// window can use the same threshold when watching its own
+/// allocation.
+pub const COMPACT_WIDTH_THRESHOLD: i32 = 600;
+
+/// Pick the focal week for the compact strip layout. If the
+/// viewed month contains today, the week containing today wins;
+/// otherwise we anchor on the first week of the viewed month so
+/// the user sees real days rather than leading-edge previous-
+/// month padding.
+fn focal_week_anchor(grid: &MonthGrid, today: NaiveDate) -> NaiveDate {
+    let in_view = grid.weeks.iter().flatten().any(|c| c.date == today);
+    if in_view {
+        // Round today back to its Monday.
+        let mon_offset = today.weekday().num_days_from_monday() as i64;
+        today - Duration::days(mon_offset)
+    } else {
+        grid.weeks.first().map(|w| w[0].date).unwrap_or_else(|| {
+            let first = NaiveDate::from_ymd_opt(grid.year, grid.month, 1).expect("year/month/1");
+            let off = first.weekday().num_days_from_monday() as i64;
+            first - Duration::days(off)
+        })
+    }
+}
+
 /// Callback bundle for the calendar page. `on_prev` / `on_next` /
 /// `on_today` drive the nav header; `on_pick_month(year, month)`
 /// opens the month picker; `on_row_click(task_id)` opens a task in
@@ -235,12 +262,16 @@ where
 /// bucketed by `scheduled_for`. Callbacks come bundled in
 /// [`CalendarCallbacks`]. `worker`, when present, enables drag-
 /// to-reschedule between days; `None` keeps the page read-only
-/// (used by tests / future read-only contexts).
+/// (used by tests / future read-only contexts). `compact` swaps
+/// the 7×N month grid for a vertical week strip — the window
+/// flips this on under phone-shaped portrait widths
+/// ([`COMPACT_WIDTH_THRESHOLD`]).
 pub fn build_page<PrevFn, NextFn, TodayFn, PickFn, RowFn, DrillFn>(
     viewed: NaiveDate,
     today: NaiveDate,
     tasks: &[Task],
     worker: Option<WorkerHandle>,
+    compact: bool,
     cb: CalendarCallbacks<PrevFn, NextFn, TodayFn, PickFn, RowFn, DrillFn>,
 ) -> gtk::Widget
 where
@@ -278,8 +309,23 @@ where
         on_today,
         on_pick_month,
     ));
-    body.append(&build_weekday_strip());
-    body.append(&build_grid(&grid, worker, on_row_click, on_day_drill));
+    if compact {
+        // Vertical week strip — 7 day cards stacked. Drops the
+        // weekday column header (each card carries its own day
+        // label) and squeezes through phone-portrait widths.
+        let anchor = focal_week_anchor(&grid, today);
+        body.append(&build_week_strip(
+            anchor,
+            today,
+            tasks,
+            worker,
+            on_row_click,
+            on_day_drill,
+        ));
+    } else {
+        body.append(&build_weekday_strip());
+        body.append(&build_grid(&grid, worker, on_row_click, on_day_drill));
+    }
 
     let scroller = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
@@ -465,6 +511,140 @@ fn build_weekday_strip() -> gtk::Widget {
         strip.attach(&lbl, i as i32, 0, 1, 1);
     }
     strip.upcast()
+}
+
+/// Compact-mode renderer — vertical strip of 7 day cards starting
+/// at `anchor` (a Monday). Each card shows the day's full task
+/// list inline (no "+N more" overflow popover, since we have
+/// vertical room). The card layout reuses [`build_cell`]'s shape
+/// so drag / drop / single-click peek / double-click drill all
+/// work the same as in month-grid mode.
+fn build_week_strip<F, DrillFn>(
+    anchor: NaiveDate,
+    today: NaiveDate,
+    tasks: &[Task],
+    worker: Option<WorkerHandle>,
+    on_row_click: F,
+    on_day_drill: DrillFn,
+) -> gtk::Widget
+where
+    F: Fn(i64) + 'static + Clone,
+    DrillFn: Fn(NaiveDate) + 'static + Clone,
+{
+    let strip = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .vexpand(true)
+        .build();
+    strip.add_css_class("atrium-calendar-strip");
+
+    let mut by_date: HashMap<NaiveDate, Vec<Task>> = HashMap::new();
+    for task in tasks {
+        if task.completed_at.is_some() {
+            continue;
+        }
+        if let Some(ScheduledFor::Date(d)) = task.scheduled_for {
+            by_date.entry(d).or_default().push(task.clone());
+        }
+    }
+    let viewed_month = NaiveDate::from_ymd_opt(anchor.year(), anchor.month(), 1)
+        .map(|d| (d.year(), d.month()))
+        .unwrap_or((anchor.year(), anchor.month()));
+
+    for d in 0..7 {
+        let date = anchor + Duration::days(d);
+        let day_tasks = by_date.remove(&date).unwrap_or_default();
+        let cell = DayCell {
+            date,
+            in_view_month: date.month() == viewed_month.1 && date.year() == viewed_month.0,
+            is_today: date == today,
+            tasks: day_tasks,
+        };
+        strip.append(&build_strip_card(
+            &cell,
+            worker.clone(),
+            on_row_click.clone(),
+            on_day_drill.clone(),
+        ));
+    }
+    strip.upcast()
+}
+
+/// One card in the compact week strip. Wider than a month-grid
+/// cell because it's the only thing in its row, so we can render
+/// the full task list inline without an overflow popover.
+fn build_strip_card<F, DrillFn>(
+    cell: &DayCell,
+    worker: Option<WorkerHandle>,
+    on_row_click: F,
+    on_day_drill: DrillFn,
+) -> gtk::Widget
+where
+    F: Fn(i64) + 'static + Clone,
+    DrillFn: Fn(NaiveDate) + 'static + Clone,
+{
+    let card = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(4)
+        .margin_start(8)
+        .margin_end(8)
+        .margin_top(8)
+        .margin_bottom(8)
+        .build();
+    card.add_css_class("atrium-calendar-strip-card");
+    card.add_css_class("card");
+    if cell.is_today {
+        card.add_css_class("atrium-calendar-cell-today");
+    }
+    if !cell.in_view_month {
+        card.add_css_class("atrium-calendar-cell-out-of-month");
+    }
+
+    // Header: full weekday + day-month label.
+    let header_text = cell.date.format("%A %B %-d").to_string();
+    let header = gtk::Label::builder()
+        .label(&header_text)
+        .halign(gtk::Align::Start)
+        .build();
+    if cell.is_today {
+        header.add_css_class("heading");
+    } else {
+        header.add_css_class("dim-label");
+    }
+    card.append(&header);
+
+    if cell.tasks.is_empty() {
+        let empty = gtk::Label::builder()
+            .label("Nothing scheduled")
+            .css_classes(["dim-label", "caption"])
+            .halign(gtk::Align::Start)
+            .build();
+        card.append(&empty);
+    } else {
+        for task in &cell.tasks {
+            let row = gtk::Label::builder()
+                .label(&task.title)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .halign(gtk::Align::Start)
+                .css_classes(["caption"])
+                .build();
+            attach_task_drag_source(&row, task.id);
+            card.append(&row);
+        }
+    }
+
+    if let Some(worker) = worker {
+        attach_drop_target_for_date(&card, cell.date, worker);
+    }
+    attach_day_click_handlers(
+        &card,
+        cell.date,
+        cell.tasks.clone(),
+        on_row_click,
+        on_day_drill,
+    );
+
+    card.upcast()
 }
 
 fn build_grid<F, DrillFn>(

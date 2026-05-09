@@ -1163,6 +1163,7 @@ impl AtriumWindow {
         // shows / hides correctly on first paint.
         self.install_inspector_pane(worker);
         self.install_mode_observer();
+        self.install_calendar_width_watcher();
         // Append the Areas / Projects sections to the sidebar.
         self.rebuild_dynamic_sidebar();
         // Initial content-pane load now that the read pool exists.
@@ -1172,6 +1173,31 @@ impl AtriumWindow {
         // project extras, etc.).
         let mode = self.settings().string("mode").to_string();
         self.apply_mode(&mode);
+    }
+
+    /// Phase 12.5 — when the window crosses
+    /// `crate::ui::calendar::COMPACT_WIDTH_THRESHOLD`, refresh the
+    /// calendar page if it's the active view. The notify::default-
+    /// width signal fires on every pixel of resize, so we cache the
+    /// last-observed compact-mode flag in a Cell and only rebuild
+    /// when it actually flips.
+    fn install_calendar_width_watcher(&self) {
+        let last_compact: std::rc::Rc<Cell<Option<bool>>> = std::rc::Rc::new(Cell::new(None));
+        let win_weak = self.downgrade();
+        self.connect_default_width_notify(move |w| {
+            let Some(win) = win_weak.upgrade() else {
+                return;
+            };
+            let now_compact = w.default_width() > 0
+                && w.default_width() < crate::ui::calendar::COMPACT_WIDTH_THRESHOLD;
+            if last_compact.get() == Some(now_compact) {
+                return;
+            }
+            last_compact.set(Some(now_compact));
+            if matches!(win.active_list(), ActiveList::Calendar) {
+                win.refresh_calendar_page();
+            }
+        });
     }
 
     /// Mount the Inspector pane into the AdwBin host declared in
@@ -3072,11 +3098,14 @@ impl AtriumWindow {
             let expr = format!("scheduled:{}", target.format("%Y-%m-%d"));
             win.set_active_list(ActiveList::SearchResults(expr));
         };
+        let compact = self.default_width() > 0
+            && self.default_width() < crate::ui::calendar::COMPACT_WIDTH_THRESHOLD;
         let widget = crate::ui::calendar::build_page(
             viewed,
             today,
             &tasks,
             self.worker(),
+            compact,
             crate::ui::calendar::CalendarCallbacks {
                 on_prev,
                 on_next,
