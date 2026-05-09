@@ -12,6 +12,7 @@
 pub mod about;
 pub mod agenda;
 pub mod board;
+pub mod calendar;
 pub mod filter;
 pub mod forecast;
 pub mod inspector;

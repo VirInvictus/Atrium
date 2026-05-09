@@ -438,6 +438,12 @@ fn install_accels(app: &adw::Application) {
     app.set_accels_for_action("app.show-list::anytime", &["<Primary>4"]);
     app.set_accels_for_action("app.show-list::someday", &["<Primary>5"]);
     app.set_accels_for_action("app.show-list::logbook", &["<Primary>6"]);
+    // Phase 12.5 — Builder Mode Calendar Month View. Mode
+    // gating is handled inside `AtriumWindow::show_calendar`:
+    // it no-ops when the user is in Simple Mode so the
+    // accelerator stays bound system-wide without leaking the
+    // Builder feature into Simple's surface.
+    app.set_accels_for_action("app.show-list::calendar", &["<Primary><Shift>m"]);
 
     // Library management (Phase 5b / 6a).
     app.set_accels_for_action("app.new-area", &["<Primary><Shift>a"]);
@@ -594,6 +600,18 @@ fn install_show_list_action(app: &adw::Application) {
             let Some(name) = target.get::<String>() else {
                 return;
             };
+            let Some(win) = app.active_window().and_downcast::<AtriumWindow>() else {
+                return;
+            };
+            // Phase 12.5: Calendar isn't part of the indexed
+            // canonical-list tier (it's Builder-only and lives in
+            // top_tier_extras). Jump directly via set_active_list
+            // rather than the index lookup the simple-mode rows
+            // use.
+            if name == "calendar" {
+                win.show_calendar();
+                return;
+            }
             let idx = match name.as_str() {
                 "inbox" => 0,
                 "today" => 1,
@@ -603,9 +621,7 @@ fn install_show_list_action(app: &adw::Application) {
                 "logbook" => 5,
                 _ => return,
             };
-            if let Some(win) = app.active_window().and_downcast::<AtriumWindow>() {
-                win.show_list_at(idx);
-            }
+            win.show_list_at(idx);
         }
     ));
     app.add_action(&action);

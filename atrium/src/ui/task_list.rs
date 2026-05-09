@@ -124,6 +124,12 @@ pub enum ActiveList {
     /// because the agenda is a pure read view (no Builder-only
     /// concepts surface there).
     Agenda,
+    /// Phase 12.5 (v0.11.0) — Calendar Month View. Builder-only
+    /// canonical page; paper-calendar lens over the same task
+    /// data Forecast and Agenda surface differently. Tasks
+    /// bucket by `scheduled_for` only (deadline-only tasks
+    /// surface in Forecast / Agenda).
+    Calendar,
     /// Phase 14 — saved perspective. The payload is the row id from
     /// the `perspective` table; the window resolves the title and
     /// filter expression from the `perspective_titles` /
@@ -150,6 +156,7 @@ impl ActiveList {
             Self::Forecast => "Forecast",
             Self::Review => "Review",
             Self::Agenda => "Agenda",
+            Self::Calendar => "Calendar",
             Self::Perspective(_) => "Perspective",
         }
     }
@@ -214,7 +221,11 @@ impl ActiveList {
             // matches a task into them. Perspectives drive a real
             // task list, but membership depends on the saved
             // filter expression — refresh-on-update covers it.
-            Self::Forecast | Self::Review | Self::Agenda | Self::Perspective(_) => false,
+            Self::Forecast
+            | Self::Review
+            | Self::Agenda
+            | Self::Calendar
+            | Self::Perspective(_) => false,
         }
     }
 }

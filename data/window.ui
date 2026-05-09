@@ -392,6 +392,20 @@
                             </child>
 
                             <child>
+                              <!-- Phase 12.5 (v0.11.0) — Calendar Month View.
+                                   Builder-only paper-calendar lens. Window
+                                   builds the widget via calendar::build_page
+                                   and mounts it here when ActiveList::Calendar
+                                   is selected. -->
+                              <object class="GtkStackPage">
+                                <property name="name">calendar</property>
+                                <property name="child">
+                                  <object class="AdwBin" id="calendar_host"/>
+                                </property>
+                              </object>
+                            </child>
+
+                            <child>
                               <object class="GtkStackPage">
                                 <property name="name">list</property>
                                 <property name="child">

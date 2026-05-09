@@ -97,6 +97,12 @@ mod imp {
         /// is selected.
         #[template_child]
         pub agenda_host: TemplateChild<adw::Bin>,
+        /// Phase 12.5 (v0.11.0) — Calendar Month View host.
+        /// Window mounts the 7×N grid from `calendar::build_page`
+        /// here whenever `ActiveList::Calendar` is selected.
+        /// Builder-only.
+        #[template_child]
+        pub calendar_host: TemplateChild<adw::Bin>,
         // v0.7.0 — magazine-spread page title strip that lives
         // between the header bar and the content stack. Bound in
         // set_active_list (big label = view title, subtitle =
@@ -138,6 +144,14 @@ mod imp {
         pub store: RefCell<Option<gio::ListStore>>,
         pub worker: OnceCell<WorkerHandle>,
         pub read_pool: OnceCell<ReadPool>,
+        /// Phase 12.5 — first-of-month for the calendar page's
+        /// currently-displayed month. `None` until the user opens
+        /// Calendar for the first time, at which point we lazily
+        /// init to today's month. Mutated by prev / next / today /
+        /// month-picker handlers; the page rebuilds from this on
+        /// every refresh. `Cell` (not `RefCell`) because
+        /// `NaiveDate: Copy`.
+        pub calendar_viewed: Cell<Option<chrono::NaiveDate>>,
 
         /// Aligned with the sidebar rows. `None` marks non-selectable
         /// header rows (e.g., "Areas", "Unfiled"); `Some(active)`
@@ -349,6 +363,7 @@ fn icon_for(list: &ActiveList) -> &'static str {
         ActiveList::Forecast => "x-office-calendar-symbolic",
         ActiveList::Review => "object-select-symbolic",
         ActiveList::Agenda => "alarm-symbolic",
+        ActiveList::Calendar => "x-office-calendar-symbolic",
         ActiveList::Perspective(_) => "view-grid-symbolic",
     }
 }
@@ -1474,7 +1489,8 @@ impl AtriumWindow {
             | ActiveList::Logbook
             | ActiveList::Forecast
             | ActiveList::Review
-            | ActiveList::Agenda => active.canonical_title().to_string(),
+            | ActiveList::Agenda
+            | ActiveList::Calendar => active.canonical_title().to_string(),
         }
     }
 
@@ -1491,6 +1507,14 @@ impl AtriumWindow {
                 .to_string(),
             ActiveList::Upcoming => "Next 7 days".to_string(),
             ActiveList::Forecast => "Next 30 days".to_string(),
+            ActiveList::Calendar => {
+                let viewed = self.calendar_viewed_or_today();
+                format!(
+                    "{} {}",
+                    crate::ui::calendar::month_name(chrono::Datelike::month(&viewed)),
+                    chrono::Datelike::year(&viewed)
+                )
+            }
             _ => String::new(),
         }
     }
@@ -1659,6 +1683,16 @@ impl AtriumWindow {
             store.remove_all();
             self.refresh_agenda_page();
             self.imp().content_stack.set_visible_child_name("agenda");
+            return;
+        }
+
+        // Phase 12.5 (v0.11.0) — Calendar Month View. Builder-only
+        // paper-calendar lens; sidebar entry already filtered out
+        // in Simple mode, but defend in depth here too.
+        if matches!(active, ActiveList::Calendar) {
+            store.remove_all();
+            self.refresh_calendar_page();
+            self.imp().content_stack.set_visible_child_name("calendar");
             return;
         }
 
@@ -1859,6 +1893,7 @@ impl AtriumWindow {
             ActiveList::Forecast
             | ActiveList::Review
             | ActiveList::Agenda
+            | ActiveList::Calendar
             | ActiveList::Perspective(_) => {
                 // Unreachable — gated above. Keeps the match exhaustive.
                 Ok(Vec::new())
@@ -2171,6 +2206,10 @@ impl AtriumWindow {
             ActiveList::Agenda => (
                 "Nothing on the agenda".into(),
                 "No overdue, today, or near-term scheduled tasks — the next two weeks are clear.".into(),
+            ),
+            ActiveList::Calendar => (
+                "Open month".into(),
+                "Schedule a task and its day cell will fill in. Page Up / Page Down to navigate months; Today resets to the current month.".into(),
             ),
         }
     }
@@ -2884,6 +2923,142 @@ impl AtriumWindow {
         let widget =
             crate::ui::agenda::build_page(today, &tasks, &project_titles, &tag_pills, on_click);
         self.imp().agenda_host.set_child(Some(&widget));
+    }
+
+    /// Phase 12.5 — open the Calendar Month View. No-op in Simple
+    /// Mode (Calendar is Builder-only); the accelerator stays
+    /// bound system-wide so users in Builder always get the
+    /// shortcut, but it doesn't leak the Builder feature into
+    /// Simple's surface.
+    pub fn show_calendar(&self) {
+        let mode = self.settings().string("mode");
+        if mode != "builder" {
+            return;
+        }
+        self.set_active_list(ActiveList::Calendar);
+    }
+
+    /// Phase 12.5 — return the cached calendar viewed-month, or
+    /// today's first-of-month if the user hasn't navigated yet.
+    /// Lazy init keeps the field default-clean (NaiveDate has no
+    /// Default).
+    fn calendar_viewed_or_today(&self) -> chrono::NaiveDate {
+        let cached = self.imp().calendar_viewed.get();
+        cached.unwrap_or_else(|| {
+            let today = Local::now().date_naive();
+            crate::ui::calendar::first_of_month(today)
+        })
+    }
+
+    /// Phase 12.5 — set the calendar's currently-viewed month and
+    /// refresh the page if Calendar is the active view. Always
+    /// stores `first_of_month(date)` to keep the field canonical.
+    pub fn set_calendar_viewed(&self, date: chrono::NaiveDate) {
+        let normalised = crate::ui::calendar::first_of_month(date);
+        self.imp().calendar_viewed.set(Some(normalised));
+        if matches!(self.active_list(), ActiveList::Calendar) {
+            self.refresh_calendar_page();
+            self.refresh_page_subtitle();
+        }
+    }
+
+    /// Phase 12.5 — bump the calendar's viewed-month by ±1.
+    pub fn calendar_step_month(&self, forward: bool) {
+        let current = self.calendar_viewed_or_today();
+        let next = if forward {
+            crate::ui::calendar::next_month(current)
+        } else {
+            crate::ui::calendar::previous_month(current)
+        };
+        self.set_calendar_viewed(next);
+    }
+
+    /// Phase 12.5 — jump back to today's month.
+    pub fn calendar_jump_to_today(&self) {
+        let today = Local::now().date_naive();
+        self.set_calendar_viewed(today);
+    }
+
+    /// Re-render only the page-title subtitle (used by
+    /// `set_calendar_viewed` so the month/year header tracks nav
+    /// without a full set_active_list pass).
+    fn refresh_page_subtitle(&self) {
+        let active = self.active_list();
+        let subtitle = self.subtitle_for(&active);
+        let lbl = &self.imp().page_subtitle_label;
+        lbl.set_label(&subtitle);
+        lbl.set_visible(!subtitle.is_empty());
+    }
+
+    /// Phase 12.5 — rebuild the Calendar Month View from the read
+    /// pool and mount it into `calendar_host`. Called from
+    /// `refresh_active_list` when Calendar becomes active and from
+    /// the nav helpers above when the user pages months.
+    fn refresh_calendar_page(&self) {
+        let Some(pool) = self.read_pool() else {
+            self.imp().calendar_host.set_child(None::<&gtk::Widget>);
+            return;
+        };
+        let today = Local::now().date_naive();
+        let viewed = self.calendar_viewed_or_today();
+        // Calendar uses every open task with a scheduled date —
+        // load all tasks and let `build_month_grid` filter. The
+        // month-scoped query would be tighter, but the worst-case
+        // count (10K open tasks * map-by-date) is still fast.
+        let tasks = pool
+            .with(atrium_core::db::read::list_all_tasks)
+            .unwrap_or_default();
+        let weak_prev = self.downgrade();
+        let on_prev = move || {
+            if let Some(win) = weak_prev.upgrade() {
+                win.calendar_step_month(false);
+            }
+        };
+        let weak_next = self.downgrade();
+        let on_next = move || {
+            if let Some(win) = weak_next.upgrade() {
+                win.calendar_step_month(true);
+            }
+        };
+        let weak_today = self.downgrade();
+        let on_today = move || {
+            if let Some(win) = weak_today.upgrade() {
+                win.calendar_jump_to_today();
+            }
+        };
+        let weak_pick = self.downgrade();
+        let on_pick = move |year: i32, month: u32| {
+            let Some(win) = weak_pick.upgrade() else {
+                return;
+            };
+            if let Some(d) = chrono::NaiveDate::from_ymd_opt(year, month, 1) {
+                win.set_calendar_viewed(d);
+            }
+        };
+        let weak_click = self.downgrade();
+        let on_row_click = move |task_id: i64| {
+            let Some(win) = weak_click.upgrade() else {
+                return;
+            };
+            let _ = WidgetExt::activate_action(
+                &win,
+                "win.edit-details-for",
+                Some(&task_id.to_variant()),
+            );
+        };
+        let widget = crate::ui::calendar::build_page(
+            viewed,
+            today,
+            &tasks,
+            crate::ui::calendar::CalendarCallbacks {
+                on_prev,
+                on_next,
+                on_today,
+                on_pick_month: on_pick,
+                on_row_click,
+            },
+        );
+        self.imp().calendar_host.set_child(Some(&widget));
     }
 
     /// v0.6.0 (Slice D1 GUI) — rebuild the kanban board page for a
@@ -4987,6 +5162,7 @@ fn canonical_accent_class(active: &ActiveList) -> Option<&'static str> {
         // of a calendar; Review is the green of a checkmark.
         ActiveList::Agenda => Some("atrium-canonical-agenda"),
         ActiveList::Forecast => Some("atrium-canonical-forecast"),
+        ActiveList::Calendar => Some("atrium-canonical-calendar"),
         ActiveList::Review => Some("atrium-canonical-review"),
         ActiveList::Anytime => None,
         _ => None,
@@ -5006,10 +5182,11 @@ fn canonical_accent_class(active: &ActiveList) -> Option<&'static str> {
 ///   tier ends on "what's done" rather than interrupting the
 ///   future-facing flow.
 fn top_tier_extras(builder: bool) -> Vec<(ActiveList, &'static str)> {
-    let mut out: Vec<(ActiveList, &'static str)> = Vec::with_capacity(4);
+    let mut out: Vec<(ActiveList, &'static str)> = Vec::with_capacity(5);
     out.push((ActiveList::Agenda, "Agenda"));
     if builder {
         out.push((ActiveList::Forecast, "Forecast"));
+        out.push((ActiveList::Calendar, "Calendar"));
         out.push((ActiveList::Review, "Review"));
     }
     out.push((ActiveList::Logbook, "Logbook"));
@@ -5445,15 +5622,19 @@ mod tests {
     }
 
     #[test]
-    fn top_tier_extras_builder_mode_inserts_forecast_and_review() {
+    fn top_tier_extras_builder_mode_inserts_forecast_calendar_and_review() {
         let extras = top_tier_extras(true);
-        // v0.6.16 — Logbook is the trailing bookend; Forecast and
-        // Review sit between Agenda and Logbook.
-        assert_eq!(extras.len(), 4);
+        // Logbook is the trailing bookend; Forecast / Calendar /
+        // Review sit between Agenda and Logbook in that order
+        // (Calendar slots between Forecast and Review per Phase
+        // 12.5's design — paper-calendar lens lives next to the
+        // 30-day strip).
+        assert_eq!(extras.len(), 5);
         assert_eq!(extras[0].0, ActiveList::Agenda);
         assert_eq!(extras[1].0, ActiveList::Forecast);
-        assert_eq!(extras[2].0, ActiveList::Review);
-        assert_eq!(extras[3].0, ActiveList::Logbook);
+        assert_eq!(extras[2].0, ActiveList::Calendar);
+        assert_eq!(extras[3].0, ActiveList::Review);
+        assert_eq!(extras[4].0, ActiveList::Logbook);
     }
 
     #[test]
