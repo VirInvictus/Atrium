@@ -1,5 +1,40 @@
 # Atrium — Patch Notes
 
+## v0.10.2 (2026-05-09) — Phase 17 reliability slice: malformed-file pause/resume, custom-keyword fix, concurrent-edit hardening
+
+The v0.10.0 / v0.10.1 vault loop ran the happy path. v0.10.2 hardens the unhappy ones — malformed files, custom keywords, file removals, concurrent edits — and adds three of the four roadmap §17 test scenarios. Two real v0.10.0 bugs surface and get fixed in the process.
+
+**Malformed-file pause/resume.** When the watcher hits a parse error on a vault file, sync pauses for that file until it parses cleanly again. The user sees one `VaultEvent::ParseFailed` toast on the pause transition, then silence until a `VaultEvent::ParseRecovered` toast confirms sync resumed. Repeated bad saves no longer re-toast on every inotify event. The watcher's `paused: HashSet<PathBuf>` (shared via `Arc<Mutex<>>` across the run loop) tracks state; `mark_paused` returns whether the path was already in the set so the toast only fires on transitions; `clear_paused` returns `true` exactly once when the file goes back to clean.
+
+**Custom-keyword preservation fixed (two real bugs from v0.10.0).** Spec §7.3.3 rule 1 requires `WAITING` / `IN-PROGRESS` / `BLOCKED` and other non-canonical Org keywords to round-trip verbatim via `task.orig_keyword`. The importer always honoured this, but the v0.10.0 watcher had two gaps:
+
+1. `ParsedTask::to_new_task` only handled `OrgKeyword::Cancelled` — the `Custom` variant fell through and the keyword was lost on create. Result: a fresh `WAITING` headline appearing in the vault would land in DB as a plain `TODO`.
+2. `diff_from` didn't compare `orig_keyword` at all, and `TaskUpdate` had no `orig_keyword` field anyway. Result: an external flip from `WAITING` to `IN-PROGRESS` on an existing task would not sync — DB kept the old keyword forever.
+
+Fix: new `TaskUpdate.orig_keyword: Option<Option<String>>` field + builder method; the worker's `update_task` SQL builder threads it through; `is_noop` updated. New private helper `org_keyword_to_orig` in `vault_watcher.rs` drives both create + diff paths so they stay in lockstep. Pinned by `external_custom_keyword_round_trips_through_orig_keyword`.
+
+**File removal: toast + retain (spec §3.5).** When a user `rm`s a vault file or moves it out of the vault, Atrium now retains the project's tasks (DB canonical, vault projected) and surfaces a `VaultEvent::FileRemoved` toast. A stray `rm` no longer silently leaves stale rows; the next project flush recreates the file from DB. Per-headline deletion (a TODO removed from a file that still exists) is unaffected — it already round-trips through `diff_and_apply`'s "in DB but not in parsed → delete" branch.
+
+**Concurrent-edit test scenario.** New `concurrent_atrium_and_external_edit_preserves_user_content_as_bak` integration test drives the full Phase 17 race: spawn the loop, seed a project + task, fs::write external content, immediately update the same task title via the worker. Asserts the writer-side conflict detection catches the race, snapshots the user's content to `.atrium.bak.*`, the main file ends up with the DB rename, the user's content does not propagate to DB (writer beat watcher), and a `ConflictBackup` event surfaces.
+
+**Large-file parse latency test.** New `large_file_parses_under_budget` lib test generates a 1000-headline `.org` file with realistic shape (file-level `:PROPERTIES:`, per-task SCHEDULED + DEADLINE cookies, body content) and asserts the parse stays under 500 ms wall (debug-mode budget; real machines see low tens of ms). The number to watch: if this ever reports >100 ms in debug, it's a hint to look at parser allocation patterns before users with big vaults hit it.
+
+**What's still open in the v0.10.x patch arc:**
+
+- **v0.10.3:** `rrule_to_org_cookie` helper; writer emits both Org cookie + `:RRULE:` property; RRULE divergence detection on read-back; multi-day RRULE round-trip test; agenda-parity acceptance test (Phase 17 closer).
+
+**Test count: 616** across the workspace (up from 611). Five new tests:
+
+- `malformed_file_pauses_then_recovers` (vault_watcher_integration)
+- `external_custom_keyword_round_trips_through_orig_keyword` (vault_watcher_integration)
+- `concurrent_atrium_and_external_edit_preserves_user_content_as_bak` (vault_watcher_integration)
+- `external_file_removal_preserves_tasks_and_toasts` (vault_watcher_integration)
+- `large_file_parses_under_budget` (org/parse lib tests)
+
+Schema unchanged at version 7. No new third-party dependencies.
+
+VERSION + Cargo.toml + spec.md + roadmap.md + patchnotes.md + README.md + CLAUDE.md + AppStream metainfo bumped to 0.10.2.
+
 ## v0.10.1 (2026-05-09) — Phase 17 next slice: GUI wiring, conflict detection, sidecar; cleanup pass
 
 The v0.10.0 first slice landed the watcher mechanics but kept the GTK binary running write-only. v0.10.1 takes the loop the rest of the way: a save in Doom Emacs against the configured vault now lands in Atrium's task list within ~250 ms, and the conflict / parse-fail surfaces show up as toasts. Plus a cleanup pass — one bug fix, one round of comment surgery, and the four-year-old `#![allow(dead_code)]` scaffolding around `AtriumError` finally earns its keep.

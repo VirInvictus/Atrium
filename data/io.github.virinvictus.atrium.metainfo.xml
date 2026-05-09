@@ -90,6 +90,48 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.10.2" date="2026-05-09">
+      <description>
+        <p>Phase 17 reliability slice: malformed vault files no
+           longer spam toasts; custom Org keywords (WAITING,
+           IN-PROGRESS, BLOCKED) round-trip cleanly through the
+           watcher path; vault file deletion preserves tasks
+           with a toast warning instead of silently leaving
+           stale rows. Plus three test scenarios from spec §17.
+        </p>
+        <p>Malformed-file pause/resume: when the watcher hits a
+           parse error on a vault file, sync pauses for that
+           file until it parses cleanly again. The user sees one
+           ParseFailed toast on the pause transition, then quiet
+           until a ParseRecovered toast confirms sync resumed.
+           Repeated bad saves no longer re-toast on every
+           inotify event.</p>
+        <p>Custom-keyword fix: the v0.10.0 watcher dropped Org
+           keywords other than CANCELLED on its create path
+           entirely (a fresh WAITING headline appearing in the
+           vault landed in DB as plain TODO), and TaskUpdate had
+           no orig_keyword field so external keyword changes on
+           existing rows didn't sync at all. Both fixed.
+           TaskUpdate.orig_keyword + builder method added; the
+           watcher's create + update paths route through a
+           shared helper.</p>
+        <p>Vault file removal: when a user `rm`s a vault file or
+           moves it out of the vault, Atrium now retains the
+           project's tasks per spec §3.5 (DB canonical, vault
+           projected) and surfaces a toast. A stray rm no longer
+           silently leaves stale rows; the next project flush
+           recreates the file from DB.</p>
+        <p>Test scenarios: synthesized concurrent edit (Atrium +
+           external save racing) confirms the writer-side conflict
+           detection catches both timings; 1K-task project parses
+           in well under the 500 ms budget; new VaultEvent
+           variants ParseRecovered + FileRemoved bridge through
+           to GUI toasts with distinct copy.</p>
+        <p>Test count: 616 across the workspace (up from 611 at
+           v0.10.1). Schema unchanged at version 7. No new
+           third-party dependencies.</p>
+      </description>
+    </release>
     <release version="0.10.1" date="2026-05-09">
       <description>
         <p>Phase 17 next slice: GUI now participates in the two-way
