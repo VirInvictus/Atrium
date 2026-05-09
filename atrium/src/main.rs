@@ -156,6 +156,13 @@ fn connect_activate(app: &adw::Application, debug: bool) {
 /// pieces the GUI side needs: the worker handle, the changes receiver
 /// (consumed by the bridges), the library-changes receiver, and the
 /// read pool.
+///
+/// v0.7.18 — when the `vault-path` GSettings key is non-empty,
+/// the worker spawns with auto-debounced vault writes enabled
+/// (see `atrium_core::sync::vault_writer` and the v0.7.16
+/// `spawn_with_vault` entry point). The GTK binary creates the
+/// vault directory if it doesn't exist so the user doesn't have
+/// to. Empty key falls through to DB-only mode.
 fn boot_data_layer() -> Result<(
     WorkerHandle,
     mpsc::UnboundedReceiver<TaskChanges>,
@@ -165,11 +172,46 @@ fn boot_data_layer() -> Result<(
     let db_path = atrium_core::db_path();
     let conn = atrium_core::db::open(&db_path)
         .with_context(|| format!("open database at {}", db_path.display()))?;
+    let pool = ReadPool::new(db_path.clone(), 4);
+
+    let vault_config = read_vault_config_from_settings(&pool);
 
     let _enter = runtime().handle().enter();
-    let (handle, changes_rx, library_rx) = atrium_core::spawn_worker(conn);
-    let pool = ReadPool::new(db_path.clone(), 4);
+    let (handle, changes_rx, library_rx) = atrium_core::spawn_worker_with_vault(conn, vault_config);
     Ok((handle, changes_rx, library_rx, pool))
+}
+
+/// v0.7.18 — read the `vault-path` GSettings key and build a
+/// VaultConfig if it points somewhere usable. Returns None when
+/// the key is empty (the default) or when the path is set but
+/// can't be created (logged as a warning so the user notices).
+fn read_vault_config_from_settings(pool: &ReadPool) -> Option<atrium_core::VaultConfig> {
+    let settings = gio::Settings::new(atrium_core::APP_ID);
+    let raw: String = settings.string("vault-path").into();
+    let path = raw.trim();
+    if path.is_empty() {
+        return None;
+    }
+    let path = std::path::PathBuf::from(path);
+    // Auto-create the vault directory if absent — most users
+    // setting this key for the first time won't have provisioned
+    // ~/Tasks/ themselves. Idempotent on already-existing dirs.
+    if let Err(e) = std::fs::create_dir_all(&path) {
+        tracing::warn!(
+            path = %path.display(),
+            error = %e,
+            "vault directory could not be created; falling back to DB-only mode"
+        );
+        return None;
+    }
+    tracing::info!(
+        path = %path.display(),
+        "vault path configured; auto-write hook enabled"
+    );
+    Some(atrium_core::VaultConfig {
+        root: path,
+        read_pool: pool.clone(),
+    })
 }
 
 /// Bridge worker → UI. tokio mpsc receivers are runtime-agnostic at

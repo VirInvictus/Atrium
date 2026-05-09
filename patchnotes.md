@@ -1,5 +1,67 @@
 # Atrium — Patch Notes
 
+## v0.7.18 (2026-05-09) — GUI vault integration
+
+Thirteenth patch on the Phase 16 arc. v0.7.16 wired the
+auto-debounced worker write hook in atrium-core but no GUI
+caller was passing a `VaultConfig` — the GTK binary still
+called the no-vault `spawn` entry point. v0.7.18 closes that
+loop: the GTK binary now reads the `vault-path` GSettings key
+on boot and routes through `spawn_worker_with_vault` when the
+key is non-empty.
+
+**`atrium/src/main.rs::boot_data_layer`.** Re-ordered to
+build the `ReadPool` *before* spawning the worker (the v0.7.16
+`VaultConfig` needs the pool). New `read_vault_config_from_settings`
+helper:
+
+1. Reads `vault-path` via `gio::Settings::new(APP_ID)`.
+2. Empty / whitespace → returns None (DB-only mode, current
+   behaviour).
+3. Non-empty → tries `fs::create_dir_all` on the path so the
+   user doesn't have to pre-provision `~/Tasks/`.
+4. Create succeeded → builds `VaultConfig { root, read_pool }`.
+   Failed → `tracing::warn!` event + None (graceful fallback
+   so the app doesn't refuse to start over a misconfigured
+   vault path).
+
+The boot then calls `spawn_worker_with_vault(conn, vault_config)`
+unconditionally; passing `None` is the same as the old
+`spawn(conn)` path so existing users see no behaviour change.
+
+**Re-exports.** `atrium-core::lib.rs` now re-exports
+`VaultConfig` + `spawn_with_vault as spawn_worker_with_vault`
+so the GTK binary can `use atrium_core::{VaultConfig,
+spawn_worker_with_vault};` without diving into the worker
+module path.
+
+**End-to-end smoke verified.** With the v0.7.6 `vault-path`
+GSettings key set to a directory:
+- The boot logs `vault path configured; auto-write hook
+  enabled path=<path>`.
+- Tasks created through the GUI auto-flush to `<path>/<area>/
+  <project>.org` files within the v0.7.16 ~150 ms latency.
+- Empty key → `vault path configured` log absent → DB-only
+  mode (verified separately).
+
+**What's NOT in v0.7.18** (deferred to Phase 19.5's
+AdwPreferencesWindow line item): a graphical Settings →
+Org Vault → Choose folder UI to manage the key. For now
+users set it via `gsettings set io.github.virinvictus.atrium
+vault-path /path/to/vault` (or via the future preferences
+dialog when 19.5 lands).
+
+**Test count:** unchanged at 582 (the GTK binary's boot path
+isn't unit-tested — the existing smoke test in scripts/
+regression.sh covers it through cold-start). Pure additive
+change. No schema. No new dependencies.
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.18**. Phase 16 progress: all roadmap bullets +
+the round-trip test fixture + GUI integration done. v0.8.0
+stamps the arc with the maintenance pass + four-doc final
+sweep.
+
 ## v0.7.17 (2026-05-09) — Round-trip test fixture + two importer fixes
 
 Twelfth patch on the Phase 16 arc. Brandon's earlier explicit

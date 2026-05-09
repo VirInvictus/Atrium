@@ -90,6 +90,32 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.18" date="2026-05-09">
+      <description>
+        <p>GUI vault integration. Thirteenth patch on the
+           Phase 16 arc. The GTK binary now reads the
+           vault-path GSettings key on boot and routes through
+           spawn_worker_with_vault when the key is non-empty,
+           so every DB write auto-flushes to the projected
+           .org files in the configured vault.</p>
+        <p>boot_data_layer reads the key, builds a VaultConfig
+           if set (auto-creating the directory if missing), and
+           passes it into atrium-core's worker spawn. Empty key
+           falls through to DB-only mode. Misconfigured paths
+           log a tracing::warn and fall back gracefully so the
+           app never refuses to start over a vault config.</p>
+        <p>End-to-end smoke verified: tasks created through
+           the GUI auto-flush to .org files within ~150 ms.
+           A graphical Settings → Org Vault → Choose folder UI
+           defers to Phase 19.5 alongside the rest of the
+           AdwPreferencesWindow work; for now users set the
+           key via `gsettings set
+           io.github.virinvictus.atrium vault-path /path`.</p>
+        <p>582 tests still green (GUI boot path covered by the
+           existing cold-start smoke). Pure additive change;
+           no schema, no new dependencies.</p>
+      </description>
+    </release>
     <release version="0.7.17" date="2026-05-09">
       <description>
         <p>Round-trip test fixture + two importer fixes. Twelfth
