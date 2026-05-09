@@ -275,6 +275,20 @@ async fn fixture_unicode() {
     assert_fixture_round_trips("unicode", fixture).await;
 }
 
+#[tokio::test]
+async fn fixture_rrule_patterns() {
+    // Phase 17 / spec §7.3.3 rule 3 — :RRULE: is canonical, the
+    // SCHEDULED cookie is best-fit. The fixture covers the three
+    // migration cases from the roadmap entry plus a daily
+    // interval: weekly single-day (lossless cookie), weekly
+    // multi-day (lossy cookie), monthly day-of-month (lossy
+    // cookie), daily INTERVAL=3 (lossless). All four round-trip
+    // through Atrium with the canonical :RRULE: preserved
+    // verbatim in the property drawer.
+    let fixture = include_str!("fixtures/org/rrule_patterns.org");
+    assert_fixture_round_trips("rrule_patterns", fixture).await;
+}
+
 // Suppress unused-import warning when the test module isn't
 // compiled (e.g., release builds skip integration tests). PathBuf
 // is used inside the harness above for ad-hoc fixture writes.

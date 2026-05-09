@@ -1,0 +1,36 @@
+#+TITLE: RRULE patterns
+:PROPERTIES:
+:ID: 11111111-2222-3333-4444-aaaaaaaaaaaa
+:END:
+
+* TODO Weekly single-day Sunday
+SCHEDULED: <2026-05-10 Sun ++1w>
+:PROPERTIES:
+:ID: 22222222-2222-3333-4444-aaaaaaaaaaaa
+:RRULE: FREQ=WEEKLY;BYDAY=SU
+:END:
+Weekly anchored on a Sunday — cookie is lossless because the source date is a Sunday.
+
+* TODO Weekly multi-day MO+WE
+SCHEDULED: <2026-05-11 Mon ++1w>
+:PROPERTIES:
+:ID: 33333333-2222-3333-4444-aaaaaaaaaaaa
+:RRULE: FREQ=WEEKLY;BYDAY=MO,WE
+:END:
+Multi-weekday — cookie is best-fit ++1w; canonical pattern lives in the property drawer.
+
+* TODO Monthly first-of-month
+SCHEDULED: <2026-06-01 Mon ++1m>
+:PROPERTIES:
+:ID: 44444444-2222-3333-4444-aaaaaaaaaaaa
+:RRULE: FREQ=MONTHLY;BYMONTHDAY=1
+:END:
+Monthly day-of-month — cookie ++1m, canonical via :RRULE:.
+
+* TODO Daily every three days
+SCHEDULED: <2026-05-10 Sun ++3d>
+:PROPERTIES:
+:ID: 55555555-2222-3333-4444-aaaaaaaaaaaa
+:RRULE: FREQ=DAILY;INTERVAL=3
+:END:
+Daily with interval — both cookie and RRULE express it.
