@@ -1,5 +1,63 @@
 # Atrium — Patch Notes
 
+## v0.7.11 (2026-05-09) — JSON snapshot export
+
+Sixth patch on the Phase 16 arc. The Org vault projection (v0.7.6
+→ v0.7.10) is interoperable with Emacs / vim-orgmode but lossy on
+constructs Atrium doesn't fully model (custom keywords fold to
+TODO; project sub-headings drop through the writer; etc.). The
+roadmap explicitly calls for a complementary lossless format:
+"Atrium native JSON export ships in this phase too — universal
+lossless backup format." v0.7.11 delivers it.
+
+**`atrium-core::sync::json`.** New module. Top-level
+[`Snapshot`] struct holds a `Vec<T>` per domain table:
+`areas` / `projects` / `headings` / `tasks` / `tags` /
+`task_tags` (as `(task_id, tag_id)` pairs) / `perspectives`.
+Plus metadata: `version` ("1" for the v0.7.11 schema),
+`exported_at` UTC timestamp, `atrium_version` (CARGO_PKG_VERSION).
+Every domain type already derives Serialize / Deserialize so
+the serializer is mostly composition.
+
+`build_snapshot(conn)` reads every relevant table; uses
+`list_all_projects` (a new additive read primitive that
+includes archived projects, unlike the active-only
+`list_projects`) so the backup is complete. New read
+primitives `list_headings` and `list_task_tags` cover the
+remaining tables.
+
+`export_db_to_json_text(conn)` returns pretty-printed JSON.
+`export_db_to_json_file(conn, path)` goes through the v0.7.6
+`write_atomic` helper so a crash mid-write leaves any
+previous backup intact.
+
+**`atrium-cli export json PATH [--dry-run]`.** New export
+target. Mirrors the `export org` shape: dry-run reports the
+snapshot dimensions (counts per table) without writing; real
+mode writes a single `.json` file at PATH. Output: human
+(default) or `--json` (machine-readable summary).
+
+**Re-import is deferred** — the use case is restore-from-
+backup, not a hot path. A snapshot → DB importer can land
+when there's a concrete need (cross-version migration, etc.).
+
+**`DbError::Sync(String)` variant added** for serialization-
+layer failures. Currently only the JSON exporter touches it
+(serde_json failures, vanishingly rare).
+
+**Test count:** 119 + 230 + 1 + 106 + 106 = **562** (up 4 from
+v0.7.10's 558 — empty-DB snapshot, seeded-rows round-trip, and
+file-export round-trip tests). Pure additive change. No schema.
+No new dependencies (serde_json already in the workspace dep
+set since Phase 1).
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.11**. Phase 16 progress: foundation + parser +
+emitter + importer + writer + JSON export done; integrity
+check, custom keyword preservation, file-level project
+metadata, multi-file vault walk, and the auto-debounced worker
+write hook remain.
+
 ## v0.7.10 (2026-05-09) — Vault writer + atrium-cli export org
 
 Fifth patch on the Phase 16 arc. v0.7.9 gave us the importer

@@ -24,4 +24,5 @@
 //! pass.
 
 pub mod atomic;
+pub mod json;
 pub mod org;

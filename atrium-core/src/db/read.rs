@@ -449,6 +449,49 @@ pub fn list_projects(conn: &Connection) -> Result<Vec<Project>, DbError> {
         .map_err(Into::into)
 }
 
+/// v0.7.11 — every project including archived. Used by the JSON
+/// snapshot exporter so a backup includes the full project
+/// history, not just the active set.
+pub fn list_all_projects(conn: &Connection) -> Result<Vec<Project>, DbError> {
+    let sql = format!("SELECT {PROJECT_COLUMNS} FROM project ORDER BY area_id, position");
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map([], project_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+/// v0.7.11 — every heading row across all projects, ordered by
+/// project then position. Used by the JSON snapshot exporter.
+pub fn list_headings(conn: &Connection) -> Result<Vec<crate::domain::Heading>, DbError> {
+    let sql = "SELECT id, uuid, project_id, title, position, created_at, modified_at \
+               FROM heading ORDER BY project_id, position";
+    let mut stmt = conn.prepare_cached(sql)?;
+    let rows = stmt.query_map([], |row| {
+        Ok(crate::domain::Heading {
+            id: row.get("id")?,
+            uuid: row.get("uuid")?,
+            project_id: row.get("project_id")?,
+            title: row.get("title")?,
+            position: row.get("position")?,
+            created_at: row.get("created_at")?,
+            modified_at: row.get("modified_at")?,
+        })
+    })?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+/// v0.7.11 — every task_tag relation as `(task_id, tag_id)` pairs.
+/// Used by the JSON snapshot exporter so tag membership is
+/// preserved alongside the task + tag tables.
+pub fn list_task_tags(conn: &Connection) -> Result<Vec<(i64, i64)>, DbError> {
+    let sql = "SELECT task_id, tag_id FROM task_tag ORDER BY task_id, tag_id";
+    let mut stmt = conn.prepare_cached(sql)?;
+    let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
 /// Phase 13 — projects due for review. A project surfaces in the
 /// queue when:
 ///

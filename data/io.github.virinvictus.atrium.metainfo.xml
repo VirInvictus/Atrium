@@ -90,6 +90,27 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.11" date="2026-05-09">
+      <description>
+        <p>JSON snapshot export. Sixth patch on the Phase 16
+           arc. The Org vault projection is interoperable with
+           Emacs but lossy on constructs Atrium doesn't fully
+           model; v0.7.11 adds a complementary lossless format
+           per the roadmap requirement.</p>
+        <p>atrium-core::sync::json::Snapshot serializes every
+           relevant table (areas, projects, headings, tasks,
+           tags, task_tags, perspectives) into one JSON
+           document with version + exported_at + atrium_version
+           metadata. Three new read primitives (list_all_projects
+           including archived, list_headings, list_task_tags)
+           support a complete backup. atrium-cli gains
+           `export json PATH [--dry-run]` mirroring the
+           export org shape.</p>
+        <p>562 tests green (up 4 from v0.7.10). Pure additive
+           change; no schema, no new dependencies (serde_json
+           already in the workspace set since Phase 1).</p>
+      </description>
+    </release>
     <release version="0.7.10" date="2026-05-09">
       <description>
         <p>Vault writer + atrium-cli export org. Fifth patch on

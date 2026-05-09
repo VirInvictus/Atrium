@@ -208,11 +208,13 @@ pub enum ImportSource {
     Org,
 }
 
-/// Supported export targets. v0.7.10 ships only `Org` (vault
-/// projection). JSON dump and VTODO follow in v0.7.11+.
+/// Supported export targets. v0.7.10 ships `Org` (vault
+/// projection). v0.7.11 adds `Json` (lossless DB snapshot).
+/// VTODO and other targets follow in later phases.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExportSource {
     Org,
+    Json,
 }
 
 /// Sub-subcommand of `perspective`. Each variant carries its own
@@ -762,6 +764,7 @@ fn parse_export(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
         .as_str();
     let source = match source_str {
         "org" => ExportSource::Org,
+        "json" => ExportSource::Json,
         other => return Err(format!("unknown export source: {other}")),
     };
     let body = &rest[1..];

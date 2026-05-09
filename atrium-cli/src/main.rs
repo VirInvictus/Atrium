@@ -496,10 +496,14 @@ fn json_string(s: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-/// Phase 16, v0.7.10 — `atrium-cli export org PATH [--dry-run]`.
-/// Writes every project in the DB to a vault directory.
-/// Dry-run walks the project list and reports what would be
-/// written without touching disk.
+/// Phase 16, v0.7.10/v0.7.11 — `atrium-cli export <SOURCE> PATH [--dry-run]`.
+///
+/// Sources:
+/// - `org` — write every project to a vault directory (one
+///   `.org` file per project).
+/// - `json` — write a single lossless JSON snapshot of the DB.
+///
+/// Dry-run walks what would be written without touching disk.
 fn run_export(
     conn: &Connection,
     source: ExportSource,
@@ -508,6 +512,26 @@ fn run_export(
     format: Format,
 ) -> CliResult<()> {
     match source {
+        ExportSource::Json => {
+            let path = std::path::PathBuf::from(path);
+            if dry_run {
+                // For JSON we can't really "preview" the file
+                // contents cheaply, but we can summarise what
+                // would land. Build the snapshot in memory and
+                // discard the file write.
+                let snapshot =
+                    atrium_core::sync::json::build_snapshot(conn).map_err(CliError::Db)?;
+                print_json_export_summary(&snapshot, true, format, &path);
+                return Ok(());
+            }
+            atrium_core::sync::json::export_db_to_json_file(conn, &path)
+                .map_err(|e| CliError::Args(format!("export failed: {e}")))?;
+            // Re-build for the summary count. Cheap; the same
+            // function ran inside the file-export.
+            let snapshot = atrium_core::sync::json::build_snapshot(conn).map_err(CliError::Db)?;
+            print_json_export_summary(&snapshot, false, format, &path);
+            Ok(())
+        }
         ExportSource::Org => {
             let vault_root = std::path::PathBuf::from(path);
             if dry_run {
@@ -582,6 +606,54 @@ fn sanitize_filename_for_dry_run(s: &str) -> String {
         "untitled".to_string()
     } else {
         trimmed
+    }
+}
+
+/// v0.7.11 — `atrium-cli export json` summary printer. Reports
+/// the snapshot dimensions (counts per table) so the user knows
+/// what landed in the file (or what *would* land, in dry-run).
+fn print_json_export_summary(
+    snapshot: &atrium_core::sync::json::Snapshot,
+    dry_run: bool,
+    format: Format,
+    path: &Path,
+) {
+    let prefix = if dry_run { "DRY-RUN " } else { "" };
+    match format {
+        Format::Json => {
+            let mut s = String::new();
+            s.push_str("{\n");
+            s.push_str(&format!("  \"dry_run\": {},\n", dry_run));
+            s.push_str(&format!(
+                "  \"path\": {},\n",
+                json_string(&path.to_string_lossy())
+            ));
+            s.push_str(&format!("  \"areas\": {},\n", snapshot.areas.len()));
+            s.push_str(&format!("  \"projects\": {},\n", snapshot.projects.len()));
+            s.push_str(&format!("  \"headings\": {},\n", snapshot.headings.len()));
+            s.push_str(&format!("  \"tasks\": {},\n", snapshot.tasks.len()));
+            s.push_str(&format!("  \"tags\": {},\n", snapshot.tags.len()));
+            s.push_str(&format!("  \"task_tags\": {},\n", snapshot.task_tags.len()));
+            s.push_str(&format!(
+                "  \"perspectives\": {}\n",
+                snapshot.perspectives.len()
+            ));
+            s.push_str("}\n");
+            print!("{s}");
+        }
+        _ => {
+            println!("{prefix}Exported snapshot to {}", path.display());
+            println!(
+                "  {} areas, {} projects, {} headings, {} tasks, {} tags, {} task-tag pairs, {} perspectives",
+                snapshot.areas.len(),
+                snapshot.projects.len(),
+                snapshot.headings.len(),
+                snapshot.tasks.len(),
+                snapshot.tags.len(),
+                snapshot.task_tags.len(),
+                snapshot.perspectives.len(),
+            );
+        }
     }
 }
 

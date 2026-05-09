@@ -35,6 +35,13 @@ pub enum DbError {
     /// underlying parser so the UI editor can surface it.
     #[error("invalid repeat rule: {0}")]
     BadRepeatRule(String),
+
+    /// v0.7.11 — sync / serialization-layer error. Used by the
+    /// JSON snapshot exporter when serde_json fails (extremely
+    /// rare — would require a domain type whose Serialize impl
+    /// rejects its own valid state, which we don't have).
+    #[error("sync error: {0}")]
+    Sync(String),
 }
 
 #[derive(Debug, Error)]
