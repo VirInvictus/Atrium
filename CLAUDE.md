@@ -4,7 +4,7 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.9.0** (May 2026). Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0 — Atrium can keep an Org vault in sync with the SQLite store, readable in stock `org-agenda` / Doom / vim-orgmode. **v0.9.0** lifted the Phase 16 Org projection (parser, emitter, importer, vault writer task) out of `atrium-core::sync` into its own `atrium-org` workspace crate; atrium-core gained a `VaultDirtyNotifier` trait so it stays Org-agnostic. Workspace is now five crates. **Phase 17 (vault → DB `inotify` sync) is what's next.**
+**Current release: v0.10.0** (May 2026). Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0; v0.9.0 lifted the Org projection into its own `atrium-org` workspace crate; **v0.10.0 ships the Phase 17 first slice — vault → DB sync.** `notify`-backed `VaultWatcher` task, `RecentWrites` self-write filter (mtime-based exact match), reader→DB diff covering CREATE / UPDATE / DELETE by `:ID:`, `:ID:` allocation for headlines added externally, `TaskUpdate.completed_at` setter so `CLOSED:` cookies round-trip into the DB without stamping `now()`. Three integration tests pin external add / edit / delete. Conflict detection (mtime race), malformed-file pause/resume, RRULE divergence detection, and the agenda-parity acceptance test land across the v0.10.x patch arc.
 
 Where each phase landed:
 
@@ -16,10 +16,11 @@ Where each phase landed:
 - **v0.7.0 → v0.7.5 — visual fusion + Review absorbs Weekly Review.** Inspector check-off + perspective editor dialog. Task-level Mark Reviewed via migration 0006.
 - **Phase 16 (v0.7.6 → v0.7.18, stamped at v0.8.0).** Hand-rolled Org parser/emitter (no third-party Org crate — see *Project tricks*). One-shot importer + vault writer + JSON snapshot. Custom-keyword round-trip via migration 0007. File-level `#+TITLE:` + `:PROPERTIES:` metadata. Multi-file vault walk + `WorkerHandle::ensure_area`. Post-write integrity check. Auto-debounced worker write hook (`spawn_worker_with_vault` + `VaultWriter` task). Round-trip test fixture across five complicated `.org` files. GUI vault integration via `vault-path` GSettings key.
 - **v0.9.0 — `atrium-org` extraction.** The Phase 16 Org projection moved out of `atrium-core::sync` into its own crate. atrium-core gained a `VaultDirtyNotifier` trait + thinner `VaultConfig` (`Arc<dyn VaultDirtyNotifier>` instead of path + pool); atrium-org provides the impl via `OrgVaultNotifier` and an ergonomic `spawn_org_vault(root, pool) -> VaultConfig` helper. atrium-cli + the GTK binary depend on `atrium-org` directly. Pre-Phase-17 housekeeping; no behaviour change.
+- **v0.10.0 — Phase 17 first slice.** Vault → DB sync end-to-end. New `atrium-org::vault_watcher::VaultWatcher` task spawned via `spawn_org_vault_with_watcher(root, pool, worker_handle)`. mtime-based `RecentWrites` self-write filter (the path-only-TTL design got swallowed external edits inside the TTL window — see *Project tricks*). New `TaskUpdate.completed_at` field + builder method so `CLOSED:` cookies round-trip without `toggle_complete`'s `now()` stamping. New `notify` v8 dependency (sign-off granted). Three integration tests for external add / edit / delete. Patch arc v0.10.1–v0.10.4 lands conflict detection, GUI wiring, malformed-file recovery, RRULE divergence, agenda-parity test.
 
 **Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atriumd`, the post-1.0 `atrium-tui`). Don't add functionality to the GTK binary that can't be reached from the shell.
 
-**Test count: 582 across the workspace at v0.9.0**, all green. `bash scripts/regression.sh` runs in under 2 seconds. Schema version: 7.
+**Test count: 590 across the workspace at v0.10.0**, all green. `bash scripts/regression.sh` runs in under 2 seconds. Schema version: 7.
 
 ## Authoritative documents
 
@@ -68,6 +69,7 @@ The non-obvious mechanics that aren't visible from the code alone:
 - **Hand-rolled Org parser, not a crate.** `orgize` and `starsector` were both surveyed at Phase 16 and rejected — orgize's last stable was 0.9.0 (2021), the active line in alpha since 2023; starsector's last release was October 2022 and pulls orgize-alpha as a transitive. The hand-roll lives at `atrium-core/src/sync/org/`. The "preserve unknown constructs verbatim" rule (spec §7.3.3 rule 1) is satisfied by capturing every unrecognised line into `unknown_lines` and re-emitting on write — easier in a focused passthrough parser than fighting either crate's AST. Don't add an Org crate without explicit re-discussion.
 - **Test-file split pattern.** When a `#[cfg(test)] mod tests` body in a source file gets unwieldy (e.g., `worker.rs` at 2622 lines pre-v0.8.0), split it out via `#[cfg(test)] #[path = "<name>_tests.rs"] mod tests;` at the bottom of the source file. Same compilation, same coverage; halves the file size for editing. See `atrium-core/src/db/worker.rs` + `worker_tests.rs`.
 - **VaultWriter debounce shape.** ~100 ms debounce window with a 50 ms tick. Receiving a `ProjectDirty(project_id)` extends that project's deadline (last-deadline-wins coalescing); the tick fires writes for projects past their deadline. Channel is `mpsc` (single consumer); under absurd load `try_send` drops rather than blocks (worst case: one stale vault file).
+- **VaultWatcher self-write filter is mtime-based, not path-TTL-based.** The first design recorded `(path, recorded_at)` and matched on path within a TTL — the integration tests immediately surfaced the failure: an external edit happening within the TTL window after Atrium's own write got swallowed because the writer's record was still "recent" when the watcher's debounce fired. Fixed design: `RecentWrites` stores `(path, mtime_just_written)`; the watcher reads the file's actual mtime and matches on exact tuple equality. Linux ext4 stores nanosecond mtimes so two distinct writes never collide. The TTL stays as a memory bound (2 seconds) but doesn't gate the match. **Don't revert to a path-only filter** — it's been tried; it loses external edits.
 - **Atomic-write helper.** `atrium-core/src/sync/atomic.rs` does `write-temp + fsync + rename` for every vault write. Crash-safe; non-Org consumers (JSON snapshot) use it too. **Never** write a vault file without going through it.
 - **Post-write integrity check.** Every `emit_org_file_with_meta` re-reads the file and verifies it parses cleanly through Atrium's own reader; failure propagates as `io::Error`. Catches emitter regressions immediately instead of letting bad files sit on disk.
 - **SQL-translation fast-path.** `atrium_search::sql_translate::try_translate(&Expr, today)` converts an `Expr` to a SQL `WHERE` fragment + bound params when every node maps cleanly. Returns `None` for `~regex`, fuzzy `?word`, `is:today`, and `Field::Project|Area` (deferred) — the in-memory evaluator is the fallback. Both GUI and CLI use this; parity is pinned by 21 integration tests in `atrium-search`.
@@ -88,8 +90,9 @@ Sign-off granted in subsequent phases:
 - `uuid` (Phase 1) — UUID v4 generation for `:ID:` round-trip.
 - `rrule` (Phase 15, v0.2.0) — RFC 5545 RRULE parsing + iteration for repeating tasks.
 - `regex` (Phase 15.5, v0.4.0) — `tag:~regex` match modifier in the search expression language. Already transitively in the dep graph via `tracing-subscriber`; promoted to a direct dependency for `atrium-core`.
+- `notify` (Phase 17, v0.10.0) — cross-platform filesystem watcher for vault → DB sync. Direct dep of `atrium-org`. Canonical Rust file-watching crate (used by watchexec / cargo-watch). Default features only — uses inotify on Linux, which is what Atrium ships.
 
-Pending dependency checks: `ical` / `rustical` (Phase 19); `notify` or hand-rolled `inotify` glue (Phase 17).
+Pending dependency checks: `ical` / `rustical` (Phase 19).
 
 Resolved against (won't be added):
 
@@ -206,9 +209,11 @@ atrium-core/                          ← headless data layer
     ├── fixtures.rs                   ← --fixture stress generators
     └── migrations/                   ← 0001 initial → 0007 task.orig_keyword; user_version PRAGMA currently 7
 
-atrium-org/                           ← (v0.9.0) Phase 16 Org-mode projection
-├── src/lib.rs                        ← OrgVaultNotifier re-export + `spawn_org_vault(root, pool) -> VaultConfig` helper
-├── src/vault_writer.rs               ← `VaultWriter` task — receives ProjectDirty over tokio mpsc, debounces ~100 ms (50 ms tick); `OrgVaultNotifier` impls atrium_core::VaultDirtyNotifier
+atrium-org/                           ← Phase 16 Org-mode projection (v0.9.0); Phase 17 vault → DB sync (v0.10.0)
+├── src/lib.rs                        ← OrgVaultNotifier + RecentWrites re-exports; `spawn_org_vault` (write-only) + `spawn_org_vault_with_watcher` (two-way) helpers
+├── src/vault_writer.rs               ← `VaultWriter` task — receives ProjectDirty over tokio mpsc, debounces ~100 ms (50 ms tick); `OrgVaultNotifier` impls atrium_core::VaultDirtyNotifier; records (path, mtime) into RecentWrites after every flush
+├── src/vault_watcher.rs              ← (v0.10.0) `VaultWatcher` task — `notify` v8 backend; debounces 200 ms; consults RecentWrites to suppress self-writes; reader→DB diff by `:ID:` (CREATE / UPDATE / DELETE)
+├── src/self_write.rs                 ← (v0.10.0) `RecentWrites` — bounded TTL set of (path, mtime) keyed on exact tuple equality. Shared via Arc<RwLock<>> between writer + watcher.
 └── src/org/
     ├── mod.rs                        ← OrgFile / OrgHeadline / OrgKeyword / parse_org_file / emit_org_file + post-write integrity check
     ├── parse.rs                      ← hand-rolled headline / cookie / properties / body / nested-subtask parser
@@ -240,9 +245,10 @@ scripts/regression.sh                 ← ship-gate
 atrium-core/tests/                    ← integration tests
 └── mode_flip_snapshot.rs             ← Phase 10 acceptance (mode flip never touches DB)
 
-atrium-org/tests/                     ← (v0.9.0) integration tests crossing the core/org boundary
+atrium-org/tests/                     ← integration tests crossing the core/org boundary
 ├── org_roundtrip.rs                  ← Phase 16 round-trip across five fixtures
 ├── worker_org_integration.rs         ← import_org_file / import_org_directory / spawn_org_vault end-to-end
+├── vault_watcher_integration.rs     ← (v0.10.0) external add / external edit / external delete via fs::write → DB
 └── fixtures/org/                     ← kitchen_sink / custom_keywords / deep_nesting / project_metadata / unicode .org files
 ```
 

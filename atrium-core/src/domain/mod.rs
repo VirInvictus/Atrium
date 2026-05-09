@@ -141,6 +141,13 @@ pub struct TaskUpdate {
     /// to default CUMULATIVE); `Some(Some("BASIC" / "CUMULATIVE" /
     /// "NEXT"))` sets.
     pub repeat_mode: Option<Option<String>>,
+    /// Phase 17 (v0.10.0) — completion timestamp set directly,
+    /// without going through `toggle_complete`. Lets the vault
+    /// watcher round-trip Org's `CLOSED:` cookie verbatim instead
+    /// of stamping `now()` when state flips externally.
+    /// `Some(None)` clears (re-opens the task — equivalent to
+    /// toggling on a completed row); `Some(Some(when))` sets.
+    pub completed_at: Option<Option<DateTime<Utc>>>,
 }
 
 impl TaskUpdate {
@@ -219,6 +226,16 @@ impl TaskUpdate {
         self
     }
 
+    /// Phase 17 (v0.10.0) — set or clear the completion timestamp
+    /// directly. Distinct from `toggle_complete`, which always
+    /// stamps `now()`. The vault watcher uses this so an Org
+    /// `CLOSED: [2026-04-01 Wed]` cookie round-trips into the DB
+    /// with the source date intact.
+    pub fn completed_at(mut self, value: Option<DateTime<Utc>>) -> Self {
+        self.completed_at = Some(value);
+        self
+    }
+
     /// `true` when no field will change. The worker treats no-op
     /// updates as a read of the current row.
     pub fn is_noop(&self) -> bool {
@@ -232,6 +249,7 @@ impl TaskUpdate {
             && self.estimated_minutes.is_none()
             && self.repeat_rule.is_none()
             && self.repeat_mode.is_none()
+            && self.completed_at.is_none()
     }
 }
 

@@ -27,6 +27,11 @@ uuid.workspace = true
 # Vault writer task lives on the existing tokio runtime.
 tokio.workspace = true
 
+# Phase 17 (v0.10.0): filesystem watcher for vault → DB sync.
+# Cross-platform, but Atrium ships Linux-only — the inotify backend
+# is what we exercise.
+notify.workspace = true
+
 # Workspace-internal: atrium-org provides the Org projection that
 # atrium-core's worker hooks into via the VaultDirtyNotifier trait.
 atrium-core = { path = "../atrium-core" }

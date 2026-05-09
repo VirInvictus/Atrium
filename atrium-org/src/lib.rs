@@ -29,15 +29,22 @@
 //! `unknown_lines` field and re-emitting on write.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use atrium_core::VaultConfig;
 use atrium_core::db::read_pool::ReadPool;
+use atrium_core::{VaultConfig, WorkerHandle};
 
 pub mod org;
+pub mod self_write;
+pub mod vault_watcher;
 pub mod vault_writer;
 
-pub use vault_writer::{OrgVaultNotifier, VaultWriteRequest, VaultWriter, spawn_vault_writer};
+pub use self_write::RecentWrites;
+pub use vault_watcher::{VaultWatcher, spawn_vault_watcher};
+pub use vault_writer::{
+    OrgVaultNotifier, VaultWriteRequest, VaultWriter, spawn_vault_writer,
+    spawn_vault_writer_with_recent,
+};
 
 /// One-shot builder: spin up an Org `VaultWriter` against `root` +
 /// `pool` and return a [`VaultConfig`] ready to pass into
@@ -45,9 +52,64 @@ pub use vault_writer::{OrgVaultNotifier, VaultWriteRequest, VaultWriter, spawn_v
 ///
 /// The writer task lives on the current tokio runtime for the
 /// lifetime of the worker. Drops cleanly when the worker drops.
+///
+/// **Write-only — no watcher.** Use [`spawn_org_vault_with_watcher`]
+/// for the full Phase 17 two-way sync. This entry point stays
+/// available for callers that want write-only behaviour (the v0.8.0
+/// shape; tests).
 pub fn spawn_org_vault(root: PathBuf, pool: ReadPool) -> VaultConfig {
     let notifier = spawn_vault_writer(root, pool);
     VaultConfig {
         notifier: Arc::new(notifier),
     }
+}
+
+/// Phase 17 entry point: spin up both the [`VaultWriter`] and the
+/// [`VaultWatcher`] sharing one [`RecentWrites`] set so the writer's
+/// own filesystem changes don't echo back through the watcher.
+///
+/// Returns the [`VaultConfig`] (pass to
+/// [`atrium_core::spawn_worker_with_vault`]) and the watcher's
+/// [`tokio::task::JoinHandle`]. Tests typically `await` the handle
+/// for clean shutdown; the GUI just lets it run.
+///
+/// `worker_handle` must be the same handle the worker returns, so
+/// the watcher can submit writes through it. Wire order:
+///
+/// ```ignore
+/// // 1. Open DB + read pool.
+/// let conn = atrium_core::db::open(&db_path)?;
+/// let pool = ReadPool::new(&db_path, 4);
+///
+/// // 2. Build the writer + recent-writes set.
+/// let recent = std::sync::Arc::new(std::sync::RwLock::new(RecentWrites::new()));
+/// let notifier = atrium_org::spawn_vault_writer_with_recent(
+///     vault_root.clone(), pool.clone(), recent.clone());
+/// let vault_config = atrium_core::VaultConfig {
+///     notifier: std::sync::Arc::new(notifier),
+/// };
+///
+/// // 3. Spawn the worker with the vault hook.
+/// let (handle, changes_rx, library_rx) =
+///     atrium_core::spawn_worker_with_vault(conn, Some(vault_config));
+///
+/// // 4. Spawn the watcher with the same recent-writes set.
+/// let watcher = atrium_org::spawn_vault_watcher(
+///     vault_root, handle.clone(), pool, recent)?;
+/// ```
+///
+/// `spawn_org_vault_with_watcher` collapses steps 2 + 4 into one
+/// call when the caller doesn't need the intermediate handles.
+pub fn spawn_org_vault_with_watcher(
+    root: PathBuf,
+    pool: ReadPool,
+    worker_handle: WorkerHandle,
+) -> Result<(VaultConfig, tokio::task::JoinHandle<()>), notify::Error> {
+    let recent = Arc::new(RwLock::new(RecentWrites::new()));
+    let notifier = spawn_vault_writer_with_recent(root.clone(), pool.clone(), recent.clone());
+    let vault_config = VaultConfig {
+        notifier: Arc::new(notifier),
+    };
+    let watcher_handle = spawn_vault_watcher(root, worker_handle, pool, recent)?;
+    Ok((vault_config, watcher_handle))
 }

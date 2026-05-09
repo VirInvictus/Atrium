@@ -4,7 +4,7 @@ default-members = ["atrium"]
 resolver = "2"
 
 [workspace.package]
-version = "0.9.0"
+version = "0.10.0"
 edition = "2024"
 license = "MIT"
 authors = ["Brandon LaRocque"]
@@ -51,3 +51,11 @@ rrule = "0.14"
 # way; this entry promotes it to a direct dependency for atrium-core.
 # Default features only — Unicode + the standard syntax.
 regex = "1.12"
+
+# Phase 17 (v0.10.0): cross-platform filesystem watcher for the
+# vault → DB sync direction. The canonical Rust file-watching crate
+# (used by watchexec / cargo-watch). Sign-off granted before Phase 17
+# implementation. Default features only — uses inotify on Linux,
+# which is what Atrium needs. Lives in `atrium-org` as a direct
+# dependency; atrium-core never sees it.
+notify = "8"

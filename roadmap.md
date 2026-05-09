@@ -135,12 +135,13 @@ The full Phase 16 surface landed across the eleven-patch v0.7.6 → v0.7.18 arc;
 
 The contract: **`:RRULE:` is canonical. Org cookie is best-fit projection.** When the user edits the SCHEDULED cookie in Emacs, divergence detection (see below) flags it; DB keeps the `:RRULE:` value.
 
-- [ ] **`inotify` watcher:** vault root + subdirectories; events debounced 200 ms.
-- [ ] **Self-write filter:** worker tracks `(file_path, mtime)` of its own writes briefly; matching events ignored so the loop doesn't echo.
-- [ ] **Reader → DB diff:** parse changed file; diff against DB by `:ID:`; submit INSERT/UPDATE/DELETE through the worker as TaskChanges.
-- [ ] **`:ID:` allocation on read:** tasks added in Emacs without `:ID:` get one assigned, file rewritten back with the property.
-- [ ] **Conflict detection:** mtime race → loser saved as `<file>.atrium.bak.<timestamp>`; UI toast surfaced. Never silent overwrite.
-- [ ] **Malformed-file handling:** parse failure → vault sync paused for that file, DB version preserved, toast surfaced; auto-resume when the file parses again.
+- [x] **`inotify` watcher** (v0.10.0): `notify` v8 backend; vault root + subdirectories; events debounced 200 ms keyed on file path (last-deadline-wins).
+- [x] **Self-write filter** (v0.10.0): writer records `(path, mtime_just_written)` into a shared `RecentWrites` set; watcher matches inotify events by exact tuple equality. mtime-based (not path-only TTL) so external edits within the TTL window aren't swallowed — the integration tests immediately surfaced the failure mode of the path-only design.
+- [x] **Reader → DB diff** (v0.10.0): `vault_watcher::diff_and_apply` matches parsed tasks to DB tasks by `:ID:`; CREATE / UPDATE / DELETE submitted through `WorkerHandle`. Field coverage: title, schedule, deadline, completed_at, tag set. Subtasks via `parent_id` from the parsed tree.
+- [x] **`:ID:` allocation on read** (v0.10.0): headlines parsed without `:ID:` get a freshly-minted UUIDv4 in `vault_watcher::flatten_with_uuids`; the worker's auto `notify_project_dirty` after the create triggers the writer to rewrite the file with the now-stable property. Self-write filter swallows the resulting inotify echo.
+- [ ] **Conflict detection** (v0.10.1): mtime race → loser saved as `<file>.atrium.bak.<timestamp>`; UI toast surfaced. Never silent overwrite.
+- [ ] **GUI wiring** (v0.10.1): `boot_data_layer` calls `spawn_org_vault_with_watcher` instead of `spawn_org_vault` when the vault path is set, so the GTK binary participates in the two-way loop. `atrium-cli`'s ergonomics stay write-only; the watcher is GUI-only by default.
+- [ ] **Malformed-file handling** (v0.10.2): parse failure → vault sync paused for that file, DB version preserved, toast surfaced; auto-resume when the file parses again.
 - [ ] **Custom-keyword + unknown-construct preservation:** verbatim round-trip per spec §7.3.3 rule 1.
 - [ ] **RRULE canonicalisation on emit:** writer emits both the best-fit Org cookie + the full `:RRULE:` property per the contract above. New helper `atrium_org::rrule_to_org_cookie(rrule, scheduled_for) -> String` returns the cookie; the property block already round-trips via the existing `:PROPERTIES:` drawer support. Three migration cases tested: weekly single-day, weekly multi-day, monthly day-of-month.
 - [ ] **RRULE divergence detection:** on read-back from the vault, when both `SCHEDULED <... +1w>` cookie and `:RRULE:` property are present, compare. If the cookie's reconstructed RRULE doesn't match the stored one, log a `tracing::warn`, surface a toast (*"Org cookie diverged from RRULE on task X — DB kept the RRULE"*), and write the file back so the cookie matches the canonical RRULE again. DB stays canonical; the user's Emacs edit either gets accepted (if the cookie was the only repeat representation) or flagged-and-overwritten (if the RRULE encoded something the cookie can't).

@@ -858,6 +858,10 @@ impl Worker {
             sets.push("repeat_mode = ?");
             bound.push(Box::new(mode));
         }
+        if let Some(completed) = update.completed_at {
+            sets.push("completed_at = ?");
+            bound.push(Box::new(completed));
+        }
         bound.push(Box::new(update.id));
 
         let sql = format!("UPDATE task SET {} WHERE id = ?", sets.join(", "));

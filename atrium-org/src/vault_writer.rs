@@ -54,6 +54,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use atrium_core::DbError;
@@ -61,6 +62,8 @@ use atrium_core::VaultDirtyNotifier;
 use atrium_core::db::read_pool::ReadPool;
 use tokio::sync::mpsc;
 use tracing::{trace, warn};
+
+use crate::self_write::RecentWrites;
 
 /// Request to the vault writer. The notifier `try_send`s these
 /// after every successful mutation affecting a project. The
@@ -103,13 +106,16 @@ impl VaultDirtyNotifier for OrgVaultNotifier {
 }
 
 /// Background task state. Owns the read pool + vault root + the
-/// pending-writes map.
+/// pending-writes map. The `recent_writes` field is shared with
+/// [`crate::vault_watcher::VaultWatcher`] so the watcher can
+/// suppress inotify events the writer just generated.
 pub struct VaultWriter {
     root: PathBuf,
     pool: ReadPool,
     rx: mpsc::Receiver<VaultWriteRequest>,
     pending: HashMap<i64, Instant>,
     debounce: Duration,
+    recent_writes: Arc<RwLock<RecentWrites>>,
 }
 
 impl VaultWriter {
@@ -119,12 +125,26 @@ impl VaultWriter {
     const TICK: Duration = Duration::from_millis(50);
 
     pub fn new(root: PathBuf, pool: ReadPool, rx: mpsc::Receiver<VaultWriteRequest>) -> Self {
+        Self::with_recent_writes(root, pool, rx, Arc::new(RwLock::new(RecentWrites::new())))
+    }
+
+    /// Variant that wires an externally-owned `RecentWrites` so a
+    /// matching [`crate::vault_watcher::VaultWatcher`] can read
+    /// from the same set. v0.10.0 entry point —
+    /// [`crate::spawn_org_vault_with_watcher`] uses this.
+    pub fn with_recent_writes(
+        root: PathBuf,
+        pool: ReadPool,
+        rx: mpsc::Receiver<VaultWriteRequest>,
+        recent_writes: Arc<RwLock<RecentWrites>>,
+    ) -> Self {
         Self {
             root,
             pool,
             rx,
             pending: HashMap::new(),
             debounce: Duration::from_millis(100),
+            recent_writes,
         }
     }
 
@@ -192,6 +212,15 @@ impl VaultWriter {
                     tasks = summary.task_count,
                     "vault write succeeded"
                 );
+                // Tell the watcher this file is one of ours so the
+                // resulting inotify event gets suppressed by exact
+                // (path, mtime) match. If metadata fails, the
+                // entry isn't recorded — the watcher will process
+                // the event as if external (harmless: a no-op
+                // diff against the just-written DB state).
+                if let Ok(mut rw) = self.recent_writes.write() {
+                    let _recorded = rw.record(summary.file_path);
+                }
             }
             Err(e) => {
                 warn!(project_id, error = %e, "vault write failed");
@@ -203,10 +232,23 @@ impl VaultWriter {
 /// Spawn a vault writer task on the current tokio runtime and
 /// return the [`OrgVaultNotifier`] the atrium-core worker pings.
 /// The task lives for the runtime's lifetime; its `JoinHandle` is
-/// detached.
+/// detached. Uses an internal [`RecentWrites`] — for the
+/// vault-watcher-aware variant, see [`spawn_vault_writer_with_recent`].
 pub fn spawn_vault_writer(root: PathBuf, pool: ReadPool) -> OrgVaultNotifier {
+    spawn_vault_writer_with_recent(root, pool, Arc::new(RwLock::new(RecentWrites::new())))
+}
+
+/// Variant that wires an externally-owned [`RecentWrites`] so the
+/// companion [`crate::vault_watcher::VaultWatcher`] can read from
+/// the same set. The two halves of the Phase 17 sync loop share
+/// this set to break the self-write echo.
+pub fn spawn_vault_writer_with_recent(
+    root: PathBuf,
+    pool: ReadPool,
+    recent_writes: Arc<RwLock<RecentWrites>>,
+) -> OrgVaultNotifier {
     let (tx, rx) = mpsc::channel(256);
-    let writer = VaultWriter::new(root, pool, rx);
+    let writer = VaultWriter::with_recent_writes(root, pool, rx, recent_writes);
     tokio::spawn(writer.run());
     OrgVaultNotifier { tx }
 }

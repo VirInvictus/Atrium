@@ -1,5 +1,40 @@
 # Atrium — Patch Notes
 
+## v0.10.0 (2026-05-09) — Phase 17 first slice: vault → DB sync
+
+The DB → vault direction has been live since v0.7.16 / Phase 16. v0.10.0 closes the loop: edits made in Emacs / Doom / vim-orgmode against the configured vault flow back into the SQLite store within ~250 ms.
+
+**The watcher.** New `atrium-org/src/vault_watcher.rs` hosts a tokio task that pairs with the existing `VaultWriter`. It uses the `notify` crate (sign-off granted; v8.x; the canonical Rust file-watcher used by watchexec / cargo-watch) to subscribe to `.org` create / modify / delete events under the vault root. Events debounce 200 ms keyed on file path (last-deadline-wins, matching the writer's pattern); after debounce the watcher parses the file through the existing `parse_org_file_with_meta`, computes a diff against current DB state, and submits writes through `WorkerHandle`.
+
+**The self-write filter.** Without coordination, every write the writer emits would echo back through inotify and trigger a redundant read/diff cycle. New `atrium-org/src/self_write.rs` exposes `RecentWrites`, an `Arc<RwLock<>>`-shared set the writer pushes to and the watcher consults. The match is **mtime-based exact tuple equality** on `(path, mtime_just_written)`, not a TTL window on path alone. The first design used path+TTL and the integration tests immediately surfaced the failure mode: an external edit happening within the TTL window after Atrium's own write got swallowed because the writer's record was still "recent" when the watcher's debounce fired. mtime-based matching is exact — Linux ext4 stores nanosecond mtimes so two distinct writes never collide; Atrium-from-Atrium echoes match exactly; real external edits produce a different mtime and fall through. The TTL stays as a memory bound (2 seconds) but doesn't gate the match.
+
+**The diff.** `vault_watcher::diff_and_apply` resolves the project by file-level `:ID:` (creating one if the file is new), snapshots current DB tasks for that project, and walks the parsed headline tree:
+
+- Tasks present in parsed but missing in DB → `WorkerHandle::create_task`. Headlines parsed without `:ID:` get a freshly-minted UUIDv4; the worker's auto `notify_project_dirty` after the create triggers the writer to rewrite the file with the now-stable property, and the self-write filter swallows the resulting inotify event.
+- Tasks present in DB but missing in parsed → `WorkerHandle::delete_task`.
+- Tasks present in both → `WorkerHandle::update_task` for any field difference (title, schedule, deadline, completed_at) plus `WorkerHandle::set_task_tags` for tag-set differences.
+
+**`TaskUpdate.completed_at`.** Atrium previously had only `toggle_complete` (which stamps `now()`) for state transitions. The vault watcher needs to round-trip `CLOSED: [2026-04-01 Wed 09:00]` cookies verbatim — the source timestamp must land in the DB. New `TaskUpdate.completed_at: Option<Option<DateTime<Utc>>>` field + builder method; the worker SQL builder gained the matching branch. `Some(None)` clears (re-opens), `Some(Some(when))` sets. Schema unchanged; no migration.
+
+**The wiring.** New ergonomic builder `atrium_org::spawn_org_vault_with_watcher(root, pool, worker_handle)` spawns the writer + the watcher sharing one `RecentWrites` set, returning the `VaultConfig` ready to thread into `spawn_worker_with_vault`. The legacy `spawn_org_vault` (write-only — the v0.8.0 / v0.9.0 shape) stays available for callers that want write-only behaviour or just the writer half (tests).
+
+**Three integration tests** at `atrium-org/tests/vault_watcher_integration.rs` pin the working slice end-to-end:
+
+- `external_add_creates_db_task` — append a new TODO headline to a vault file via `fs::write`; assert the DB has the new task and the rewritten file gained an `:ID:` property.
+- `external_edit_completes_db_task` — flip TODO → DONE in the file; assert `task.completed_at` lands.
+- `external_delete_removes_db_task` — splice a headline out of the file; assert the matching DB row is gone.
+
+**What's deferred to the v0.10.x patch arc** per the Phase 17 roadmap entry:
+
+- v0.10.1: conflict detection (mtime race → loser preserved at `<file>.atrium.bak.<timestamp>`); GUI wiring (`spawn_vault_watcher` from the GTK boot path).
+- v0.10.2: malformed-file pause/resume (parse error → pause that file, toast surfaced; auto-resume when it parses again).
+- v0.10.3: RRULE divergence detection on read-back (per the canonicalisation contract spec §3.5 + roadmap Phase 17).
+- v0.10.4: agenda-parity acceptance test gating the v0.10.x → v0.11.0 close.
+
+**Test count: 590** (up 8 — three integration tests + four `RecentWrites` unit tests + one watcher diff test bundled into the integration suite). Schema unchanged at version 7. New direct dependency: `notify` v8 in `atrium-org` (sign-off granted in this patch). Ship-gate runs in under 2 seconds.
+
+VERSION + Cargo.toml + spec + roadmap + patchnotes + README + CLAUDE.md + AppStream metainfo bumped to 0.10.0.
+
 ## v0.9.0 (2026-05-09) — `atrium-org` crate extraction
 
 The Phase 16 Org projection — parser, emitter, importer, vault writer task — moves out of `atrium-core::sync` into its own workspace crate, `atrium-org`. atrium-core stays Org-agnostic; the worker hooks into the projection through a new `VaultDirtyNotifier` trait. Workspace is now five crates (atrium-core, atrium-search, atrium-org, atrium-cli, atrium). Pre-Phase-17 housekeeping; no behaviour change, no schema change, test count unchanged at 582.

@@ -90,6 +90,49 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.10.0" date="2026-05-09">
+      <description>
+        <p>Phase 17 first slice: vault → DB sync. Edits made in
+           Emacs / Doom / vim-orgmode against the configured Org
+           vault now flow back into the SQLite store within
+           ~250 ms. Closes the loop opened by Phase 16's DB →
+           vault writer at v0.8.0.</p>
+        <p>The watcher: new atrium-org/src/vault_watcher.rs
+           hosts a tokio task using the notify crate (sign-off
+           granted) to subscribe to .org file events.
+           Debounced 200 ms, pairs with the existing
+           VaultWriter, submits diff results through the
+           existing WorkerHandle.</p>
+        <p>The self-write filter: shared RecentWrites set keyed
+           on (path, mtime_just_written) — exact tuple equality
+           rather than path-only TTL. The first design used
+           path+TTL and the integration tests immediately
+           surfaced its failure mode (external edits within the
+           TTL window got swallowed). Linux ext4's nanosecond
+           mtime gives perfect discrimination between Atrium-
+           from-Atrium echoes and real external edits.</p>
+        <p>The diff: matches parsed tasks to DB tasks by :ID:.
+           CREATE / UPDATE / DELETE submitted through
+           WorkerHandle. Headlines added externally without :ID:
+           get a fresh UUIDv4; the writer's auto rewrite stamps
+           the property onto disk and the self-write filter
+           swallows the resulting echo. New TaskUpdate.completed_at
+           setter so CLOSED: cookies round-trip into the DB
+           verbatim instead of stamping now() through toggle.</p>
+        <p>Three integration tests pin the working slice end-to-
+           end: external add, external edit (TODO → DONE), and
+           external delete. Conflict detection (mtime race),
+           GUI wiring, malformed-file pause/resume, RRULE
+           divergence detection, and the agenda-parity
+           acceptance test land across the v0.10.x patch arc.</p>
+        <p>590 tests across the workspace, all green. Schema
+           unchanged at version 7. New direct dependency in
+           atrium-org: notify v8 (the canonical Rust file-
+           watching crate; cross-platform, but Atrium ships
+           Linux-only — the inotify backend is what we
+           exercise).</p>
+      </description>
+    </release>
     <release version="0.9.0" date="2026-05-09">
       <description>
         <p>atrium-org crate extraction. The Phase 16 Org
