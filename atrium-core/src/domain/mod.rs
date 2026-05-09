@@ -148,6 +148,13 @@ pub struct TaskUpdate {
     /// `Some(None)` clears (re-opens the task — equivalent to
     /// toggling on a completed row); `Some(Some(when))` sets.
     pub completed_at: Option<Option<DateTime<Utc>>>,
+    /// Phase 17 (v0.10.2) — non-canonical Org keyword on the
+    /// headline. Mirror of `NewTask.orig_keyword` for the update
+    /// path so the watcher can sync external keyword changes
+    /// (e.g. `WAITING` → `IN-PROGRESS`) without going through a
+    /// delete + create cycle. `Some(None)` clears (back to a
+    /// canonical TODO/DONE), `Some(Some(name))` sets.
+    pub orig_keyword: Option<Option<String>>,
 }
 
 impl TaskUpdate {
@@ -236,6 +243,16 @@ impl TaskUpdate {
         self
     }
 
+    /// Phase 17 (v0.10.2) — set or clear the non-canonical Org
+    /// keyword. The vault watcher uses this when an external edit
+    /// changes the keyword on an existing headline. Pass `None` to
+    /// clear (back to a canonical TODO/DONE) or `Some(name)` to
+    /// stash a custom keyword.
+    pub fn orig_keyword(mut self, value: Option<String>) -> Self {
+        self.orig_keyword = Some(value);
+        self
+    }
+
     /// `true` when no field will change. The worker treats no-op
     /// updates as a read of the current row.
     pub fn is_noop(&self) -> bool {
@@ -250,6 +267,7 @@ impl TaskUpdate {
             && self.repeat_rule.is_none()
             && self.repeat_mode.is_none()
             && self.completed_at.is_none()
+            && self.orig_keyword.is_none()
     }
 }
 

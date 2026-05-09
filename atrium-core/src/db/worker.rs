@@ -898,6 +898,10 @@ impl Worker {
             sets.push("completed_at = ?");
             bound.push(Box::new(completed));
         }
+        if let Some(orig) = update.orig_keyword {
+            sets.push("orig_keyword = ?");
+            bound.push(Box::new(orig));
+        }
         bound.push(Box::new(update.id));
 
         let sql = format!("UPDATE task SET {} WHERE id = ?", sets.join(", "));

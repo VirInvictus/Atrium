@@ -471,3 +471,71 @@ async fn malformed_file_pauses_then_recovers() {
     drop(handle);
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn external_custom_keyword_round_trips_through_orig_keyword() {
+    // Spec §7.3.3 rule 1: non-canonical Org keywords (WAITING,
+    // IN-PROGRESS, BLOCKED, etc.) must survive a round-trip
+    // verbatim via task.orig_keyword. The importer always
+    // handled this; v0.10.2 fixes the watcher path which used
+    // to drop Custom variants on create and never sync them on
+    // existing rows.
+    let (conn, vault, pool) = fresh_setup("ext-custom-kw");
+    let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
+
+    // Append a WAITING headline to the file.
+    let project_path = vault.join("Errands.org");
+    let existing = std::fs::read_to_string(&project_path).unwrap();
+    let appended = format!("{existing}\n* WAITING Vendor reply\n");
+    std::fs::write(&project_path, appended).unwrap();
+
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let tasks = pool
+        .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+        .unwrap();
+    let waiting = tasks
+        .iter()
+        .find(|t| t.title == "Vendor reply")
+        .expect("WAITING task should land in DB");
+    assert_eq!(
+        waiting.orig_keyword.as_deref(),
+        Some("WAITING"),
+        "custom keyword must stash to orig_keyword on watcher create"
+    );
+    // It's still open — WAITING is a non-completion keyword.
+    assert!(
+        waiting.completed_at.is_none(),
+        "WAITING is a non-canonical TODO; should not be completed"
+    );
+
+    // The writer rewrites the file with :ID: and the WAITING
+    // keyword preserved in the headline (recovered from
+    // orig_keyword by the writer's keyword-resolution logic).
+    let final_text = std::fs::read_to_string(&project_path).unwrap();
+    assert!(
+        final_text.contains("* WAITING Vendor reply"),
+        "writer must round-trip WAITING; got:\n{final_text}"
+    );
+
+    // Now flip the keyword in the file: WAITING → IN-PROGRESS.
+    let edited = final_text.replace("* WAITING Vendor reply", "* IN-PROGRESS Vendor reply");
+    std::fs::write(&project_path, edited).unwrap();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let tasks2 = pool
+        .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+        .unwrap();
+    let in_progress = tasks2
+        .iter()
+        .find(|t| t.title == "Vendor reply")
+        .expect("task should still exist after keyword flip");
+    assert_eq!(
+        in_progress.orig_keyword.as_deref(),
+        Some("IN-PROGRESS"),
+        "watcher must sync external keyword changes via TaskUpdate.orig_keyword"
+    );
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&vault);
+}

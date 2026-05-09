@@ -466,10 +466,6 @@ impl<'a> ParsedTask<'a> {
             }
             _ => None,
         };
-        let orig_keyword = match self.org.keyword {
-            Some(OrgKeyword::Cancelled) => Some("CANCELLED".to_string()),
-            _ => None,
-        };
         NewTask {
             uuid: Some(self.uuid.clone()),
             title: self.org.title.clone(),
@@ -478,7 +474,7 @@ impl<'a> ParsedTask<'a> {
             scheduled_for,
             deadline: self.org.deadline,
             completed_at,
-            orig_keyword,
+            orig_keyword: org_keyword_to_orig(self.org.keyword.as_ref()),
             note: self.org.body.clone(),
             ..Default::default()
         }
@@ -519,7 +515,33 @@ impl<'a> ParsedTask<'a> {
             dirty = true;
         }
 
+        // Custom keyword (WAITING / IN-PROGRESS / etc.). Spec
+        // §7.3.3 rule 1 — the original keyword survives the
+        // round-trip via `task.orig_keyword`. The watcher used
+        // to drop OrgKeyword::Custom on its create path entirely
+        // and never sync it on existing rows; v0.10.2 fixes both.
+        let parsed_orig = org_keyword_to_orig(self.org.keyword.as_ref());
+        if parsed_orig != existing.orig_keyword {
+            update = update.orig_keyword(parsed_orig);
+            dirty = true;
+        }
+
         if dirty { Some(update) } else { None }
+    }
+}
+
+/// Map a parsed Org keyword to the value `task.orig_keyword`
+/// should hold. Custom keywords (anything outside TODO / DONE)
+/// stash their name verbatim; CANCELLED is pinned to the literal
+/// "CANCELLED" so the writer can recover the keyword on emit
+/// (Atrium's domain only knows two completion states; the
+/// orig_keyword column carries the original label). Plain TODO /
+/// DONE map to `None` — the column's default.
+fn org_keyword_to_orig(keyword: Option<&OrgKeyword>) -> Option<String> {
+    match keyword {
+        Some(OrgKeyword::Custom(name)) => Some(name.clone()),
+        Some(OrgKeyword::Cancelled) => Some("CANCELLED".to_string()),
+        _ => None,
     }
 }
 
