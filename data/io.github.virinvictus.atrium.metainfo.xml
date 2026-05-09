@@ -90,6 +90,32 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.3" date="2026-05-08">
+      <description>
+        <p>Inspector check-off + perspective editor. Two
+           functional gaps after v0.7.2: the inspector had no
+           way to mark a task complete (bouncing back to the
+           row was required), and there was no GUI path to
+           create or edit a saved perspective (atrium-cli was
+           the only way).</p>
+        <p>Inspector check-off: a circular CheckButton at the
+           leading edge of the title row mirrors the row-
+           checkbox. State reflects completion; clicks toggle
+           via worker.toggle_complete. Reachable while the
+           inspector is open without leaving the pane.</p>
+        <p>Perspective editor: a new dialog covers name +
+           filter + renderer (List / Board radios) + columns
+           in one place. A "+" affordance next to the
+           Perspectives sidebar header opens it in create mode.
+           The right-click context menu on a perspective row
+           now collapses Rename + Configure-renderer into one
+           "Edit…" item that opens the same dialog pre-filled
+           for editing. Delete remains on the shared
+           confirmation flow.</p>
+        <p>Pure code patch. No schema changes, no new
+           dependencies. 501 tests still green.</p>
+      </description>
+    </release>
     <release version="0.7.2" date="2026-05-08">
       <description>
         <p>Confusion-killer patch. Two problems from Brandon's

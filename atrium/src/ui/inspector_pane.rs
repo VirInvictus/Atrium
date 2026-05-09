@@ -169,6 +169,44 @@ where
         .title("Title")
         .text(&task.title)
         .build();
+
+    // v0.7.3 — completion checkbox as the row's leading prefix.
+    // Mirror of the row-checkbox in the task list (same .selection-
+    // mode class for the circular look, same toggle path through
+    // the worker). Brandon's call after spotting the gap: "the
+    // inspector doesn't have a way to check off the task." A user
+    // viewing a task in the inspector can now mark it done in
+    // place without bouncing back to the row.
+    let complete_check = gtk::CheckButton::builder()
+        .css_classes(["selection-mode"])
+        .tooltip_text("Toggle complete")
+        .valign(gtk::Align::Center)
+        .active(task.completed_at.is_some())
+        .build();
+    complete_check.update_property(&[gtk::accessible::Property::Label("Task complete")]);
+    {
+        let worker = worker.clone();
+        // `toggled` fires both for user clicks and for our own
+        // `set_active` after the worker round-trips the actual
+        // state. Latch on the persisted state so the second call
+        // is a no-op; without this, opening an already-completed
+        // task would untoggle on first click of any field.
+        let persisted = std::cell::Cell::new(task.completed_at.is_some());
+        complete_check.connect_toggled(move |btn| {
+            if btn.is_active() == persisted.get() {
+                return;
+            }
+            persisted.set(btn.is_active());
+            let worker = worker.clone();
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker.toggle_complete(task_id).await {
+                    error!(?e, task_id, "inspector pane: toggle_complete failed");
+                }
+            });
+        });
+    }
+    title_row.add_prefix(&complete_check);
+
     let title_initial = task.title.clone();
     wire_entry_autosave(&title_row, worker.clone(), task_id, move |row, worker| {
         let new = row.text().to_string();

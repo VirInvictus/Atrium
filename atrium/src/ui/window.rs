@@ -484,17 +484,92 @@ impl AtriumWindow {
         row.add_controller(gesture);
     }
 
-    /// Phase 14 — saved perspective row context menu. Same shape as
-    /// the tag / area menus: Rename / Delete dispatch to the shared
-    /// `rename-active` / `delete-active` actions, which inspect the
-    /// active list and route accordingly.
+    /// v0.7.3 — Perspectives section header with a trailing "+"
+    /// affordance. Clicking + opens `prompt_edit_perspective` in
+    /// create mode and dispatches `worker.create_perspective` on
+    /// Save. The header label keeps the same `.atrium-sidebar-section`
+    /// styling as other section headers; the button uses `.flat`
+    /// plus `.circular` so it reads as an inline affordance not a
+    /// primary action.
+    fn build_perspectives_section_header(&self) -> gtk::ListBoxRow {
+        let label = gtk::Label::builder()
+            .label("Perspectives")
+            .halign(gtk::Align::Start)
+            .hexpand(true)
+            .build();
+        label.add_css_class("dim-label");
+        label.add_css_class("caption-heading");
+        label.add_css_class("atrium-sidebar-section");
+
+        let add_button = gtk::Button::builder()
+            .icon_name("list-add-symbolic")
+            .tooltip_text("New Perspective")
+            .css_classes(["flat", "circular"])
+            .valign(gtk::Align::Center)
+            .build();
+        let win_weak = self.downgrade();
+        add_button.connect_clicked(move |_| {
+            let Some(win) = win_weak.upgrade() else {
+                return;
+            };
+            let win_for_dispatch = win.clone();
+            glib::MainContext::default().spawn_local(async move {
+                let parent: gtk::Widget = win_for_dispatch.clone().upcast();
+                let Some(fields) = prompt_edit_perspective(&parent, None).await else {
+                    return;
+                };
+                let Some(worker) = win_for_dispatch.worker() else {
+                    return;
+                };
+                let renderer_field = if fields.renderer == "list" {
+                    Some("list".to_string())
+                } else {
+                    Some("board".to_string())
+                };
+                let new = atrium_core::NewPerspective {
+                    name: fields.name,
+                    icon: None,
+                    filter_expr: fields.filter_expr,
+                    renderer: renderer_field,
+                    renderer_config: fields.renderer_config,
+                };
+                if let Err(e) = worker.create_perspective(new).await {
+                    error!(?e, "create_perspective failed");
+                }
+            });
+        });
+
+        let row_box = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(4)
+            .margin_start(8)
+            .margin_end(4)
+            .margin_top(14)
+            .margin_bottom(4)
+            .build();
+        row_box.append(&label);
+        row_box.append(&add_button);
+
+        gtk::ListBoxRow::builder()
+            .child(&row_box)
+            .selectable(false)
+            .activatable(false)
+            .build()
+    }
+
+    /// Phase 14 → v0.7.3 — saved perspective row context menu.
+    ///
+    /// v0.7.3 collapses the previous three menu items (Rename /
+    /// Configure renderer / Delete) into two: **Edit…** (one
+    /// dialog covering name + filter + renderer + columns) and
+    /// **Delete**. The Edit dialog is `prompt_edit_perspective`,
+    /// the same dialog the sidebar's "+" button uses for create
+    /// mode. Delete remains on the shared `win.delete-active`
+    /// action so the confirmation flow stays uniform across
+    /// areas / projects / tags / perspectives.
     fn install_perspective_context_menu(&self, row: &gtk::ListBoxRow, perspective_id: i64) {
         let menu = gio::Menu::new();
-        menu.append(Some("Rename"), Some("win.rename-active"));
-        menu.append(
-            Some("Configure renderer\u{2026}"),
-            Some("win.configure-renderer"),
-        );
+        menu.append(Some("Edit\u{2026}"), Some("win.edit-perspective"));
         menu.append(Some("Delete"), Some("win.delete-active"));
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
         popover.set_has_arrow(false);
@@ -775,13 +850,15 @@ impl AtriumWindow {
         // v0.6.7 — Perspectives section moves up to right after
         // the top-tier group (was previously at the end of the
         // sidebar). Above Areas, below the Inbox group.
+        // v0.7.3 — section header gains a trailing "+" affordance
+        // that opens the perspective editor in create mode.
         let mut perspective_titles: HashMap<i64, String> = HashMap::new();
         let mut perspective_meta: HashMap<i64, atrium_core::Perspective> = HashMap::new();
         if builder {
             let perspectives = pool
                 .with(atrium_core::db::read::list_perspectives)
                 .unwrap_or_default();
-            list_box.append(&build_section_header("Perspectives"));
+            list_box.append(&self.build_perspectives_section_header());
             targets.push(None);
             titles.push(None);
             for p in &perspectives {
@@ -3366,6 +3443,17 @@ impl AtriumWindow {
         ));
         self.add_action(&configure_renderer);
 
+        // v0.7.3 — full perspective editor (name + filter + renderer +
+        // columns in one dialog). Triggered from the perspective row's
+        // right-click "Edit…" menu item.
+        let edit_persp = gio::SimpleAction::new("edit-perspective", None);
+        edit_persp.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.prompt_edit_perspective()
+        ));
+        self.add_action(&edit_persp);
+
         // Phase 14 — save the current search bar query as a named
         // perspective. Only fires when the active list is
         // SearchResults; otherwise no-ops with a debug log.
@@ -3943,6 +4031,38 @@ impl AtriumWindow {
         });
     }
 
+    /// v0.7.3 — open the full perspective editor for the active
+    /// Perspective, mapping the captured fields onto a
+    /// `PerspectiveUpdate` and dispatching it. Wired to
+    /// `win.edit-perspective` (right-click → Edit\u{2026} on a
+    /// perspective sidebar row).
+    fn prompt_edit_perspective(&self) {
+        let ActiveList::Perspective(id) = self.active_list() else {
+            debug!("edit-perspective: not on a Perspective");
+            return;
+        };
+        let perspective = self.imp().perspective_meta.borrow().get(&id).cloned();
+        let Some(perspective) = perspective else {
+            return;
+        };
+        let win = self.clone();
+        glib::MainContext::default().spawn_local(async move {
+            let parent: gtk::Widget = win.clone().upcast();
+            let Some(fields) = prompt_edit_perspective(&parent, Some(&perspective)).await else {
+                return;
+            };
+            let Some(worker) = win.worker() else { return };
+            let mut update = atrium_core::PerspectiveUpdate::new(id)
+                .name(fields.name)
+                .filter_expr(fields.filter_expr)
+                .renderer(fields.renderer);
+            update = update.renderer_config(fields.renderer_config);
+            if let Err(e) = worker.update_perspective(update).await {
+                error!(?e, id, "update_perspective (full edit) failed");
+            }
+        });
+    }
+
     fn archive_active_project(&self) {
         let ActiveList::Project(id) = self.active_list() else {
             debug!("archive-active-project: not on a project view");
@@ -4305,6 +4425,173 @@ async fn prompt_configure_renderer_dialog(
         // List renderer needs no config — clear renderer_config.
         Some(("list".into(), None))
     }
+}
+
+/// v0.7.3 — captured fields from the perspective editor dialog.
+/// The caller converts these into either `NewPerspective` (for
+/// create flows) or `PerspectiveUpdate` (for edit flows). Empty
+/// `name` or `filter_expr` is rejected by the dialog itself; the
+/// caller can trust both fields are non-empty.
+pub(crate) struct EditedPerspectiveFields {
+    pub name: String,
+    pub filter_expr: String,
+    pub renderer: String,
+    pub renderer_config: Option<String>,
+}
+
+/// v0.7.3 — perspective editor dialog. Used for both create
+/// (`existing = None`) and edit (`existing = Some(&perspective)`).
+/// Renders a single AdwAlertDialog form with Name + Filter +
+/// Renderer (List / Board radios) + Columns (sensitive only when
+/// Board is active). Returns `Some(EditedPerspectiveFields)` on
+/// Save, `None` on Cancel or empty Name/Filter.
+///
+/// Mirrors the renderer-config form shape from
+/// `prompt_configure_renderer_dialog` for visual consistency.
+async fn prompt_edit_perspective(
+    parent: &impl IsA<gtk::Widget>,
+    existing: Option<&atrium_core::Perspective>,
+) -> Option<EditedPerspectiveFields> {
+    let (existing_name, existing_filter, is_board, existing_cols_text) = match existing {
+        Some(p) => {
+            let is_board = p.renderer.eq_ignore_ascii_case("board");
+            let cols: Vec<String> = p
+                .renderer_config
+                .as_deref()
+                .and_then(|json| atrium_core::BoardConfig::from_json(json).ok())
+                .map(|cfg| cfg.columns)
+                .unwrap_or_default();
+            (
+                p.name.clone(),
+                p.filter_expr.clone(),
+                is_board,
+                cols.join(", "),
+            )
+        }
+        None => (String::new(), String::new(), false, String::new()),
+    };
+
+    let form = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .build();
+
+    let name_label = gtk::Label::builder()
+        .label("Name")
+        .halign(gtk::Align::Start)
+        .build();
+    name_label.add_css_class("dim-label");
+    form.append(&name_label);
+    let name_entry = gtk::Entry::builder()
+        .placeholder_text("e.g. Today + Errands")
+        .text(&existing_name)
+        .activates_default(true)
+        .build();
+    form.append(&name_entry);
+
+    let filter_label = gtk::Label::builder()
+        .label("Filter expression")
+        .halign(gtk::Align::Start)
+        .build();
+    filter_label.add_css_class("dim-label");
+    form.append(&filter_label);
+    let filter_entry = gtk::Entry::builder()
+        .placeholder_text("e.g. is:open AND tag:errand")
+        .text(&existing_filter)
+        .build();
+    form.append(&filter_entry);
+
+    let renderer_label = gtk::Label::builder()
+        .label("Renderer")
+        .halign(gtk::Align::Start)
+        .build();
+    renderer_label.add_css_class("dim-label");
+    form.append(&renderer_label);
+
+    let list_radio = gtk::CheckButton::builder()
+        .label("List \u{2014} flat task list (default)")
+        .active(!is_board)
+        .build();
+    let board_radio = gtk::CheckButton::builder()
+        .label("Board \u{2014} columns by tag")
+        .active(is_board)
+        .build();
+    board_radio.set_group(Some(&list_radio));
+    form.append(&list_radio);
+    form.append(&board_radio);
+
+    let columns_label = gtk::Label::builder()
+        .label("Columns (comma-separated tag names):")
+        .halign(gtk::Align::Start)
+        .build();
+    columns_label.add_css_class("dim-label");
+    form.append(&columns_label);
+
+    let columns_entry = gtk::Entry::builder()
+        .placeholder_text("todo, doing, done")
+        .text(&existing_cols_text)
+        .build();
+    columns_entry.set_sensitive(is_board);
+    form.append(&columns_entry);
+
+    let entry_clone = columns_entry.clone();
+    board_radio.connect_active_notify(move |btn| {
+        entry_clone.set_sensitive(btn.is_active());
+    });
+
+    let heading = if existing.is_some() {
+        format!("Edit “{}”", existing_name)
+    } else {
+        "New perspective".to_string()
+    };
+    let dialog = adw::AlertDialog::new(Some(&heading), None);
+    dialog.set_extra_child(Some(&form));
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("ok", if existing.is_some() { "Save" } else { "Create" });
+    dialog.set_default_response(Some("ok"));
+    dialog.set_close_response("cancel");
+    dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+
+    let response = dialog.choose_future(parent).await;
+    if response.as_str() != "ok" {
+        return None;
+    }
+
+    let name = name_entry.text().trim().to_string();
+    let filter_expr = filter_entry.text().trim().to_string();
+    if name.is_empty() || filter_expr.is_empty() {
+        // Empty required field — silently abort. The caller can
+        // surface a toast if it wants to nag; for now an empty
+        // submission is treated like Cancel.
+        return None;
+    }
+
+    let (renderer, renderer_config) = if board_radio.is_active() {
+        let raw = columns_entry.text().to_string();
+        let columns: Vec<String> = raw
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if columns.is_empty() {
+            ("list".into(), None)
+        } else {
+            let cfg = atrium_core::BoardConfig {
+                axis: atrium_core::BoardAxis::Tag,
+                columns,
+            };
+            ("board".into(), cfg.to_json().ok())
+        }
+    } else {
+        ("list".into(), None)
+    };
+
+    Some(EditedPerspectiveFields {
+        name,
+        filter_expr,
+        renderer,
+        renderer_config,
+    })
 }
 
 /// True when two tag-name lists hold the same set under case-

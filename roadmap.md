@@ -200,7 +200,7 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 *OmniFocus Perspectives. Filter expressions become first-class objects.* Shipped v0.1.17.
 
 - [x] **Perspective domain type:** `name`, `filter_expression` (subset of Phase 7's filter language), `sort`, `grouping`. Backwards-compatible `0002_perspectives.sql` adds the table; `sort_order` and `grouping` columns ship now (UI consumers come later, no further migration needed).
-- [x] **CRUD for perspectives:** create from current filter state via *Save Search as Perspective…* in the primary menu (only enabled on `SearchResults`); right-click row for rename / delete.
+- [x] **CRUD for perspectives:** create from current filter state via *Save Search as Perspective…* in the primary menu (only enabled on `SearchResults`); right-click row for rename / delete. **v0.7.3 follow-up:** added a "+" affordance trailing the *Perspectives* section header that opens the full editor dialog in create mode, so users can build a perspective from scratch without first running a search; the row's right-click menu collapsed Rename + Configure-renderer into one *Edit…* item that opens the same dialog pre-filled with all four fields (name + filter + renderer + columns) for in-place edit.
 - [x] **Perspectives sidebar section** (Builder-only) — always present in Builder Mode, even when empty, so users know where new perspectives land. Per-row icon falls back to `view-grid-symbolic` when none is set.
 - [ ] **Export perspective definition** to JSON for sharing. *Deferred to Phase 16 alongside the rest of the export work — the file format belongs with the other exports rather than as a one-off here.*
 

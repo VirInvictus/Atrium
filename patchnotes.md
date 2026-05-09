@@ -1,5 +1,54 @@
 # Atrium — Patch Notes
 
+## v0.7.3 (2026-05-08) — Inspector check-off + perspective editor
+
+Two functional gaps Brandon caught after living with v0.7.2:
+the inspector had no way to mark a task complete (he had to
+bounce back to the row to click the checkbox), and there was
+still no GUI path to add or edit a saved perspective (only the
+shared rename/delete actions and the renderer-config dialog had
+landed; creating a new perspective required `atrium-cli`).
+
+**Inspector check-off.** A circular CheckButton now sits at the
+leading edge of the inspector's title row, mirroring the row-
+checkbox in the task list (same `.selection-mode` class). State
+reflects `task.completed_at`; clicks dispatch through
+`worker.toggle_complete(id)`. A `Cell<bool>` latches the
+persisted state so the worker round-tripping the toggle doesn't
+ping-pong with the user click. Reachable while the inspector is
+open without leaving the pane.
+
+**Perspective editor.** A new `prompt_edit_perspective` dialog
+covers all four perspective fields in one place: name, filter
+expression, renderer (List / Board radios), and columns
+(comma-separated tag names; sensitive only when Board is
+selected). Used in two flows:
+
+- **Create.** A "+" affordance trailing the *Perspectives*
+  sidebar section header opens the dialog in create mode. On
+  Save, dispatches `worker.create_perspective(NewPerspective{
+  name, filter_expr, renderer, renderer_config, .. })`.
+- **Edit.** The right-click context menu on a perspective row
+  collapsed from three items (Rename / Configure renderer /
+  Delete) to two (**Edit…** / Delete). Edit opens the dialog
+  pre-filled with the existing values; on Save, dispatches a
+  full `worker.update_perspective(PerspectiveUpdate)` covering
+  name + filter + renderer + renderer_config in one round-trip.
+
+The previous Rename + Configure renderer flows still exist as
+plumbing (the `win.rename-active` and `win.configure-renderer`
+actions are unchanged), they just no longer appear in the
+perspective context menu — Edit subsumes both. Other surfaces
+that fire `win.rename-active` against a perspective (none
+currently) would still work.
+
+Pure code patch. No schema changes, no new dependencies. Test
+count unchanged at 501. Ship-gate runs in under 2 seconds.
+VERSION + Cargo.toml + patchnotes + AppStream metainfo bump to
+**0.7.3**. Visual refinement (tag pills, inspector empty state,
+filter ghost, row separators, sidebar selection) ships next as
+v0.7.4.
+
 ## v0.7.2 (2026-05-08) — Confusion-killer patch
 
 Brandon's after-v0.7.1 review of the Review page surfaced two
