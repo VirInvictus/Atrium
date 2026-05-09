@@ -1078,7 +1078,13 @@ impl AtriumWindow {
             };
             win.handle_reorder(src_id, dest_id);
         };
-        let factory = build_factory(on_toggle, on_rename, on_reorder);
+        let win_weak4 = self.downgrade();
+        let pool_source = move || {
+            win_weak4
+                .upgrade()
+                .and_then(|w| w.imp().read_pool.get().cloned())
+        };
+        let factory = build_factory(on_toggle, on_rename, on_reorder, pool_source);
         self.imp().task_list_view.set_factory(Some(&factory));
 
         // v0.1.15 — listen to GtkListView::activate as the canonical

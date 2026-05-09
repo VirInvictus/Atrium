@@ -6,18 +6,21 @@
 //! below the entry. Active when the user types a `#` / `@` / `!`
 //! and shows candidates that match what they've typed so far.
 //!
-//! Supported surfaces (v0.13 Slice 3 part 2):
+//! Supported surfaces:
 //!
-//! - `AtriumWindow::imp().new_task_entry` — bottom-of-list capture.
-//! - The Quick Entry modal's main entry.
+//! - `AtriumWindow::imp().new_task_entry` — bottom-of-list capture
+//!   (v0.13.0).
+//! - The Quick Entry modal's main entry (v0.13.0).
+//! - The inline-rename `Entry` on every task-list row (v0.13.2).
 //!
-//! Inline-rename in the task-list factory deliberately *doesn't*
-//! attach the popover yet — the row's edit `Entry` recycles
-//! frequently and the popover lifecycle would need additional
-//! teardown bookkeeping. Renames still parse through atrium-inline
-//! at commit time, so users can type `@mon` blindly and the
-//! schedule still applies; only the visible suggestions are
-//! deferred.
+//! On the task-list rows, the popover attaches in the factory's
+//! `setup()` callback — once per row's lifetime. Setup runs ahead
+//! of `bind()` and survives across recycles, so the popover's
+//! state lives with the entry rather than leaking on each
+//! re-bind. Until the user enters edit mode, the entry is
+//! invisible (the title_stack shows the display label) and the
+//! popover's listeners stay quiet — no overhead for the common
+//! case where no one is renaming a row.
 //!
 //! Key handling:
 //!

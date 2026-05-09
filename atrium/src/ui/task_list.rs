@@ -240,15 +240,22 @@ impl ActiveList {
 ///
 /// `tag_pills` come in Phase 6 with the tag editor. Notes editor
 /// comes in Phase 10 with the Inspector.
-pub fn build_factory<ToggleFn, RenameFn, ReorderFn>(
+pub fn build_factory<ToggleFn, RenameFn, ReorderFn, PoolFn>(
     on_toggle: ToggleFn,
     on_rename: RenameFn,
     on_reorder: ReorderFn,
+    pool_source: PoolFn,
 ) -> gtk::SignalListItemFactory
 where
     ToggleFn: Fn(i64, bool) + Clone + 'static,
     RenameFn: Fn(i64, String) + Clone + 'static,
     ReorderFn: Fn(i64, i64) + Clone + 'static,
+    // v0.13.2 — fetched lazily by the row's inline-completion
+    // popover so the read pool can be unset at factory-build
+    // time (callers pass a weak-window closure that resolves on
+    // demand). Empty Option disables tag completion gracefully;
+    // `@` and `!` candidates still work with no pool.
+    PoolFn: Fn() -> Option<atrium_core::db::read_pool::ReadPool> + Clone + 'static,
 {
     let factory = gtk::SignalListItemFactory::new();
 
@@ -311,6 +318,15 @@ where
         title_stack.add_named(&title_label, Some("display"));
         title_stack.add_named(&title_entry, Some("edit"));
         title_stack.set_visible_child_name("display");
+
+        // v0.13.2 — wire the inline-syntax tab-completion popover
+        // to the rename Entry. Setup runs once per row's lifetime
+        // (rows are recycled, not re-created); the popover lives
+        // with the row and is invisible until the user types into
+        // the entry. `pool_source` is consulted at setup-time —
+        // by the time the first row reaches setup, the data layer
+        // has long since attached.
+        crate::ui::inline_complete::attach(&title_entry, pool_source());
 
         // v0.3.0 — tags label renders Pango markup so per-pill
         // colours can ship as inline <span foreground="…"> tokens.
