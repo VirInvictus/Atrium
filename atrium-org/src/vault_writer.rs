@@ -64,6 +64,7 @@ use chrono::{DateTime, Utc};
 use tokio::sync::mpsc;
 use tracing::{trace, warn};
 
+use crate::VaultEvent;
 use crate::self_write::RecentWrites;
 
 /// Request to the vault writer. The notifier `try_send`s these
@@ -109,7 +110,10 @@ impl VaultDirtyNotifier for OrgVaultNotifier {
 /// Background task state. Owns the read pool + vault root + the
 /// pending-writes map. The `recent_writes` field is shared with
 /// [`crate::vault_watcher::VaultWatcher`] so the watcher can
-/// suppress inotify events the writer just generated.
+/// suppress inotify events the writer just generated. The
+/// `events_tx` field, when set, ferries operational notices
+/// ([`VaultEvent::ConflictBackup`]) up to the GUI for toast
+/// surfacing.
 pub struct VaultWriter {
     root: PathBuf,
     pool: ReadPool,
@@ -117,6 +121,7 @@ pub struct VaultWriter {
     pending: HashMap<i64, Instant>,
     debounce: Duration,
     recent_writes: Arc<RwLock<RecentWrites>>,
+    events_tx: Option<mpsc::UnboundedSender<VaultEvent>>,
 }
 
 impl VaultWriter {
@@ -131,13 +136,25 @@ impl VaultWriter {
 
     /// Variant that wires an externally-owned `RecentWrites` so a
     /// matching [`crate::vault_watcher::VaultWatcher`] can read
-    /// from the same set. v0.10.0 entry point —
-    /// [`crate::spawn_org_vault_with_watcher`] uses this.
+    /// from the same set.
     pub fn with_recent_writes(
         root: PathBuf,
         pool: ReadPool,
         rx: mpsc::Receiver<VaultWriteRequest>,
         recent_writes: Arc<RwLock<RecentWrites>>,
+    ) -> Self {
+        Self::with_recent_writes_and_events(root, pool, rx, recent_writes, None)
+    }
+
+    /// Variant that also wires an event sender so the writer can
+    /// surface [`VaultEvent::ConflictBackup`] back to the caller.
+    /// `None` keeps the prior log-only behaviour.
+    pub fn with_recent_writes_and_events(
+        root: PathBuf,
+        pool: ReadPool,
+        rx: mpsc::Receiver<VaultWriteRequest>,
+        recent_writes: Arc<RwLock<RecentWrites>>,
+        events_tx: Option<mpsc::UnboundedSender<VaultEvent>>,
     ) -> Self {
         Self {
             root,
@@ -146,6 +163,7 @@ impl VaultWriter {
             pending: HashMap::new(),
             debounce: Duration::from_millis(100),
             recent_writes,
+            events_tx,
         }
     }
 
@@ -271,6 +289,12 @@ impl VaultWriter {
                     backup = %bak.display(),
                     "vault conflict: external edit backed up before overwrite"
                 );
+                if let Some(tx) = &self.events_tx {
+                    let _ = tx.send(VaultEvent::ConflictBackup {
+                        source: dest.to_path_buf(),
+                        backup: bak.clone(),
+                    });
+                }
                 Some(bak)
             }
             Err(e) => {
@@ -320,8 +344,23 @@ pub fn spawn_vault_writer_with_recent(
     pool: ReadPool,
     recent_writes: Arc<RwLock<RecentWrites>>,
 ) -> OrgVaultNotifier {
+    spawn_vault_writer_with_events(root, pool, recent_writes, None)
+}
+
+/// Variant that wires both an externally-owned [`RecentWrites`] set
+/// and an optional [`VaultEvent`] sender. `None` for `events_tx`
+/// keeps the writer's prior log-only behaviour; `Some(tx)` lets the
+/// writer surface [`VaultEvent::ConflictBackup`] notices to the
+/// caller for toast surfacing.
+pub fn spawn_vault_writer_with_events(
+    root: PathBuf,
+    pool: ReadPool,
+    recent_writes: Arc<RwLock<RecentWrites>>,
+    events_tx: Option<mpsc::UnboundedSender<VaultEvent>>,
+) -> OrgVaultNotifier {
     let (tx, rx) = mpsc::channel(256);
-    let writer = VaultWriter::with_recent_writes(root, pool, rx, recent_writes);
+    let writer =
+        VaultWriter::with_recent_writes_and_events(root, pool, rx, recent_writes, events_tx);
     tokio::spawn(writer.run());
     OrgVaultNotifier { tx }
 }

@@ -47,6 +47,7 @@ use tokio::sync::mpsc;
 use tracing::{trace, warn};
 use uuid::Uuid;
 
+use crate::VaultEvent;
 use crate::org::{OrgFile, OrgKeyword, OrgTask, parse_org_file_with_meta};
 use crate::self_write::RecentWrites;
 
@@ -63,11 +64,16 @@ const PROJECT_ID_PROPERTY: &str = "ID";
 /// Background task. Owns the `WorkerHandle`, read pool, debounce
 /// state, and the inotify watcher (held to keep the notify thread
 /// alive). Drop the watcher to stop the inotify backend.
+///
+/// The optional `events_tx` ferries [`VaultEvent::ParseFailed`]
+/// notices up to the GUI for toast surfacing. `None` keeps the
+/// pre-event log-only behaviour.
 pub struct VaultWatcher {
     root: PathBuf,
     handle: WorkerHandle,
     pool: ReadPool,
     recent_writes: Arc<RwLock<RecentWrites>>,
+    events_tx: Option<mpsc::UnboundedSender<VaultEvent>>,
     rx: mpsc::UnboundedReceiver<Event>,
     pending: HashMap<PathBuf, Instant>,
     _watcher: RecommendedWatcher,
@@ -160,13 +166,19 @@ impl VaultWatcher {
             Ok(f) => f,
             Err(e) => {
                 // Pause/resume on malformed files is roadmap.md §17
-                // follow-up work. Today we warn and let the next
-                // event re-attempt the parse.
+                // follow-up work. Today we warn, surface a toast,
+                // and let the next event re-attempt the parse.
                 warn!(
                     path = %path.display(),
                     error = %e,
                     "vault watcher: parse failed; event dropped"
                 );
+                if let Some(tx) = &self.events_tx {
+                    let _ = tx.send(VaultEvent::ParseFailed {
+                        source: path.to_path_buf(),
+                        error: e.to_string(),
+                    });
+                }
                 return Ok(());
             }
         };
@@ -479,6 +491,20 @@ pub fn spawn_vault_watcher(
     pool: ReadPool,
     recent_writes: Arc<RwLock<RecentWrites>>,
 ) -> Result<tokio::task::JoinHandle<()>, notify::Error> {
+    spawn_vault_watcher_with_events(root, handle, pool, recent_writes, None)
+}
+
+/// Variant that wires an optional [`VaultEvent`] sender. `None`
+/// keeps the watcher's prior log-only behaviour; `Some(tx)` lets
+/// the watcher surface [`VaultEvent::ParseFailed`] notices to the
+/// caller for toast surfacing.
+pub fn spawn_vault_watcher_with_events(
+    root: PathBuf,
+    handle: WorkerHandle,
+    pool: ReadPool,
+    recent_writes: Arc<RwLock<RecentWrites>>,
+    events_tx: Option<mpsc::UnboundedSender<VaultEvent>>,
+) -> Result<tokio::task::JoinHandle<()>, notify::Error> {
     let (tx, rx) = mpsc::unbounded_channel();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| match res {
         Ok(event) => {
@@ -496,6 +522,7 @@ pub fn spawn_vault_watcher(
         handle,
         pool,
         recent_writes,
+        events_tx,
         rx,
         pending: HashMap::new(),
         _watcher: watcher,

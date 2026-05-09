@@ -133,10 +133,13 @@ fn connect_activate(app: &adw::Application, debug: bool) {
         let win = AtriumWindow::new(app, debug);
 
         match boot_data_layer() {
-            Ok((handle, changes_rx, library_rx, pool)) => {
-                win.attach_data_layer(handle, pool);
-                bridge_task_changes(changes_rx, &win);
-                bridge_library_changes(library_rx, &win);
+            Ok(booted) => {
+                win.attach_data_layer(booted.handle, booted.pool);
+                bridge_task_changes(booted.task_changes_rx, &win);
+                bridge_library_changes(booted.library_changes_rx, &win);
+                if let Some(rx) = booted.vault_events_rx {
+                    bridge_vault_events(rx, &win);
+                }
                 if debug {
                     let _ = debug::Pane::new();
                 }
@@ -153,53 +156,81 @@ fn connect_activate(app: &adw::Application, debug: bool) {
     });
 }
 
-/// Open the DB, spawn the worker, build the read pool. Returns the
-/// pieces the GUI side needs: the worker handle, the changes
-/// receiver (consumed by the bridges), the library-changes receiver,
-/// and the read pool.
+/// What `boot_data_layer` hands back to the GUI shell. Bundled as
+/// a struct rather than a tuple so adding another field (vault
+/// events, future channels) doesn't ripple through call sites.
+struct BootedDataLayer {
+    handle: WorkerHandle,
+    task_changes_rx: mpsc::UnboundedReceiver<TaskChanges>,
+    library_changes_rx: mpsc::UnboundedReceiver<LibraryChanges>,
+    pool: ReadPool,
+    /// `Some` when a vault is configured; carries `ConflictBackup`
+    /// and `ParseFailed` events the GUI surfaces as toasts. `None`
+    /// in DB-only mode.
+    vault_events_rx: Option<mpsc::UnboundedReceiver<atrium_org::VaultEvent>>,
+}
+
+/// Open the DB, spawn the worker, build the read pool, and (when
+/// the `vault-path` GSettings key is non-empty and usable) attach
+/// the full Phase 17 two-way vault loop: writer + watcher + shared
+/// `RecentWrites` set + [`VaultEvent`] channel.
 ///
-/// When the `vault-path` GSettings key is non-empty and the path is
-/// usable, the worker spawns with auto-debounced vault writes
-/// enabled (`atrium_org::spawn_org_vault`). Empty key or unusable
-/// path falls through to DB-only mode; the boot itself only fails
-/// for genuine DB errors.
-fn boot_data_layer() -> std::result::Result<
-    (
-        WorkerHandle,
-        mpsc::UnboundedReceiver<TaskChanges>,
-        mpsc::UnboundedReceiver<LibraryChanges>,
-        ReadPool,
-    ),
-    AtriumError,
-> {
+/// Empty key or unusable path falls through to DB-only mode; the
+/// boot itself only fails for genuine DB errors.
+fn boot_data_layer() -> std::result::Result<BootedDataLayer, AtriumError> {
     let db_path = atrium_core::db_path();
     let conn = atrium_core::db::open(&db_path)?;
     let pool = ReadPool::new(db_path.clone(), 4);
 
-    let vault_config = match read_vault_config_from_settings(&pool) {
-        Ok(cfg) => cfg,
+    let (vault_config, vault_loop, events_rx) = match read_vault_setup_from_settings(&pool) {
+        Ok(Some((cfg, vl, rx))) => (Some(cfg), Some(vl), Some(rx)),
+        Ok(None) => (None, None, None),
         Err(e) => {
             // A bad vault setting shouldn't lock the user out of
             // their tasks. Surface the failure in the log and
             // fall back to DB-only.
             warn!(error = %e, "vault config unusable; running DB-only");
-            None
+            (None, None, None)
         }
     };
 
     let _enter = runtime().handle().enter();
     let (handle, changes_rx, library_rx) = atrium_core::spawn_worker_with_vault(conn, vault_config);
-    Ok((handle, changes_rx, library_rx, pool))
+
+    // Now that the worker exists, attach the watcher half of the
+    // vault loop. A failure here doesn't fail the boot — the writer
+    // half is already running, so DB → vault still works; only
+    // vault → DB sync is missing. Log and continue.
+    if let Some(vl) = vault_loop {
+        match vl.attach_watcher(handle.clone()) {
+            Ok(_join) => info!("vault watcher attached"),
+            Err(e) => warn!(error = %e, "vault watcher failed to attach; vault → DB sync disabled"),
+        }
+    }
+
+    Ok(BootedDataLayer {
+        handle,
+        task_changes_rx: changes_rx,
+        library_changes_rx: library_rx,
+        pool,
+        vault_events_rx: events_rx,
+    })
 }
 
-/// Read the `vault-path` GSettings key and build a `VaultConfig` if
-/// it points somewhere usable. `Ok(None)` means the key is empty
-/// (the user hasn't configured a vault — the default); `Err` means
-/// the key is set but the path can't be used (and the caller falls
-/// back to DB-only).
-fn read_vault_config_from_settings(
+/// Read the `vault-path` GSettings key and, when set + usable,
+/// build the writer-side wiring of the Phase 17 two-way loop.
+/// Returns `Ok(None)` when the key is empty (the default — DB-only
+/// mode); `Err` when the key is set but the path can't be used.
+fn read_vault_setup_from_settings(
     pool: &ReadPool,
-) -> std::result::Result<Option<atrium_core::VaultConfig>, UiError> {
+) -> std::result::Result<
+    Option<(
+        atrium_core::VaultConfig,
+        atrium_org::VaultLoopHandle,
+        mpsc::UnboundedReceiver<atrium_org::VaultEvent>,
+    )>,
+    UiError,
+> {
     let settings = gio::Settings::new(atrium_core::APP_ID);
     let raw: String = settings.string("vault-path").into();
     let path = raw.trim();
@@ -216,10 +247,10 @@ fn read_vault_config_from_settings(
     })?;
     info!(
         path = %path.display(),
-        "vault path configured; auto-write hook enabled"
+        "vault path configured; two-way sync (writer + watcher) enabled"
     );
     let _enter = runtime().handle().enter();
-    Ok(Some(atrium_org::spawn_org_vault(path, pool.clone())))
+    Ok(Some(atrium_org::spawn_vault_loop(path, pool.clone())))
 }
 
 /// Bridge worker → UI. tokio mpsc receivers are runtime-agnostic at
@@ -265,6 +296,48 @@ fn bridge_library_changes(mut rx: mpsc::UnboundedReceiver<LibraryChanges>, windo
             win.apply_library_changes(&changes);
         }
         tracing::info!("worker library channel closed; library bridge exiting");
+    });
+}
+
+/// Bridge vault writer + watcher operational events to the toast
+/// surface. ConflictBackup tells the user their external edit was
+/// preserved; ParseFailed tells them a malformed `.org` file was
+/// skipped on read-back.
+fn bridge_vault_events(
+    mut rx: mpsc::UnboundedReceiver<atrium_org::VaultEvent>,
+    window: &AtriumWindow,
+) {
+    let win_weak = window.downgrade();
+    glib::MainContext::default().spawn_local(async move {
+        while let Some(event) = rx.recv().await {
+            let Some(win) = win_weak.upgrade() else {
+                tracing::info!("window dropped; vault-event bridge exiting");
+                break;
+            };
+            match event {
+                atrium_org::VaultEvent::ConflictBackup { source, backup } => {
+                    let src_name = source
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("vault file");
+                    let bak_name = backup
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("backup");
+                    win.show_toast(&format!(
+                        "Vault edit conflict on {src_name} — preserved as {bak_name}"
+                    ));
+                }
+                atrium_org::VaultEvent::ParseFailed { source, error } => {
+                    let src_name = source
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("vault file");
+                    win.show_toast(&format!("Could not parse {src_name}: {error}"));
+                }
+            }
+        }
+        tracing::info!("vault-event channel closed; bridge exiting");
     });
 }
 
