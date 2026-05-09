@@ -394,11 +394,22 @@ fn run_kanban(conn: &Connection, name: &str, format: Format) -> CliResult<()> {
     Ok(())
 }
 
-/// Phase 16, v0.7.9 — `atrium-cli import org PATH [--dry-run]`.
-/// Reads a single .org file via `atrium_org::org::import_org_file`
-/// and prints a one-line summary. The summary mirrors the
-/// ImportSummary struct: project title (created), task count,
-/// tags ensured, headings skipped, and a list of lossy fields.
+/// Phase 16/v0.7.9 + Phase 18/v0.12.0 — `atrium-cli import
+/// <SOURCE> PATH [--dry-run]`.
+///
+/// Sources:
+///
+/// - `org` — read a single `.org` file or walk a vault directory
+///   via `atrium_org::org::import_org_file` /
+///   `import_org_directory`. Output mirrors the
+///   `atrium_org::org::ImportSummary` struct.
+///
+/// - `todoist` — parse a Todoist CSV export and apply its rows
+///   through the v0.12.0 mapper, creating a project named via
+///   `--into PROJECT_NAME` plus headings (sections), tasks,
+///   tags (`@labels` + `priority-N`), recurring rules, etc.
+///   Output mirrors the
+///   `import::todoist::mapper::ImportSummary` struct.
 fn run_import(
     runtime: &tokio::runtime::Runtime,
     handle: &atrium_core::WorkerHandle,
@@ -432,6 +443,113 @@ fn run_import(
 
             print_import_summary(&summary, dry_run, format);
             Ok(())
+        }
+        ImportSource::Todoist { project_name } => {
+            let path_buf = std::path::PathBuf::from(path);
+            let csv = std::fs::read_to_string(&path_buf).map_err(|e| {
+                CliError::Args(format!(
+                    "import todoist: cannot read {}: {e}",
+                    path_buf.display()
+                ))
+            })?;
+            let rows = import::todoist::parser::parse_csv(&csv)
+                .map_err(|e| CliError::Args(format!("todoist parse error: {e}")))?;
+            let today = Local::now().date_naive();
+            let summary = runtime
+                .block_on(async {
+                    import::todoist::mapper::import_todoist(
+                        handle,
+                        &rows,
+                        &project_name,
+                        today,
+                        dry_run,
+                    )
+                    .await
+                })
+                .map_err(|e| CliError::Args(format!("import todoist failed: {e}")))?;
+            print_todoist_summary(&summary, dry_run, format);
+            Ok(())
+        }
+    }
+}
+
+/// Render the Todoist mapper's summary. Mirrors the Org importer
+/// formatter shape so script consumers see a familiar layout.
+fn print_todoist_summary(
+    summary: &import::todoist::mapper::ImportSummary,
+    dry_run: bool,
+    format: Format,
+) {
+    let prefix = if dry_run { "DRY-RUN " } else { "" };
+    match format {
+        Format::Json => {
+            let mut s = String::new();
+            s.push_str("{\n");
+            s.push_str(&format!("  \"dry_run\": {dry_run},\n"));
+            s.push_str(&format!(
+                "  \"project_title\": {},\n",
+                json_string(&summary.project_title)
+            ));
+            s.push_str(&format!(
+                "  \"project_id\": {},\n",
+                summary
+                    .project_id
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "null".to_string())
+            ));
+            s.push_str(&format!(
+                "  \"headings_created\": {},\n",
+                summary.headings_created
+            ));
+            s.push_str(&format!(
+                "  \"tasks_created\": {},\n",
+                summary.tasks_created
+            ));
+            s.push_str(&format!("  \"tags_created\": {},\n", summary.tags_created));
+            s.push_str("  \"meta_entries\": [");
+            for (i, m) in summary.meta_entries.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&json_string(m));
+            }
+            s.push_str("],\n  \"lossy\": [");
+            for (i, note) in summary.lossy.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&json_string(&format!(
+                    "{:?}: {} ({})",
+                    note.kind,
+                    note.task_title.as_deref().unwrap_or("?"),
+                    note.raw
+                )));
+            }
+            s.push_str("]\n}\n");
+            print!("{s}");
+        }
+        _ => {
+            println!(
+                "{prefix}Imported project “{}”: {} headings, {} tasks, {} tags.",
+                summary.project_title,
+                summary.headings_created,
+                summary.tasks_created,
+                summary.tags_created,
+            );
+            if !summary.meta_entries.is_empty() {
+                println!("  meta entries:");
+                for m in &summary.meta_entries {
+                    println!("    {m}");
+                }
+            }
+            for note in &summary.lossy {
+                println!(
+                    "  lossy ({:?}): {} — {}",
+                    note.kind,
+                    note.task_title.as_deref().unwrap_or("?"),
+                    note.raw,
+                );
+            }
         }
     }
 }

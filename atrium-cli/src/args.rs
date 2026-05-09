@@ -115,6 +115,11 @@ EXAMPLES:
     atrium-cli perspective edit 'Q3 plans' --renderer board --columns 'todo,doing,done'
     atrium-cli perspective edit 'Q3 plans' --renderer list   # back to flat
     atrium-cli perspective delete 'Q3 plans'
+    atrium-cli import org ~/Tasks/Errands.org
+    atrium-cli import org ~/Tasks               # vault directory walk
+    atrium-cli import todoist Home.csv --into 'Weekly chores'
+    atrium-cli export org ~/Tasks
+    atrium-cli export json snapshot.json
 ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,12 +205,18 @@ pub enum Subcommand {
     },
 }
 
-/// Supported import sources. v0.7.9 ships only `Org` (single-
-/// file Org-mode importer). Todoist, Things 3 (retired), and
-/// other sources land in subsequent phases.
+/// Supported import sources. v0.7.9 ships `Org` (single-file
+/// or vault-directory Org-mode importer); v0.12.0 adds
+/// `Todoist` (CSV export). Things 3 was retired in v0.6.19.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportSource {
     Org,
+    /// `import todoist PATH --into PROJECT_NAME`. The Todoist
+    /// CSV doesn't carry a project name (a single export is one
+    /// project's contents), so the user provides it explicitly.
+    Todoist {
+        project_name: String,
+    },
 }
 
 /// Supported export targets. v0.7.10 ships `Org` (vault
@@ -807,28 +818,46 @@ fn parse_export(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
     })
 }
 
-/// Parse `import <source> <path> [--dry-run]`. v0.7.9 ships only
-/// the `org` source (single-file Org-mode import). Trailing
-/// global format flags (`--json`, `--human`, `--db PATH`) honour
-/// the standard apply_trailing_flags pass.
+/// Parse `import <source> <path> [...flags]`. Sources:
+///
+/// - `org` — single-file or vault-directory Org-mode import
+///   (Phase 16, v0.7.9+).
+/// - `todoist` — CSV export from Todoist's per-project export
+///   (Phase 18, v0.12.0). Requires `--into PROJECT_NAME` because
+///   the export doesn't carry a project name.
+///
+/// Trailing global format flags (`--json`, `--human`, `--db
+/// PATH`) honour the standard apply_trailing_flags pass.
+/// `--dry-run` skips DB writes and prints what *would* happen.
 fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
     let source_str = rest
         .first()
-        .ok_or("import requires a source: org")?
+        .ok_or("import requires a source: org | todoist")?
         .as_str();
-    let source = match source_str {
-        "org" => ImportSource::Org,
+    // Source-specific flags (e.g. todoist's `--into`) are parsed
+    // alongside the common ones — we tag the source first, then
+    // collect the project_name during the body walk.
+    let source_kind = match source_str {
+        "org" => SourceKind::Org,
+        "todoist" => SourceKind::Todoist,
         other => return Err(format!("unknown import source: {other}")),
     };
     let body = &rest[1..];
 
     let mut path: Option<String> = None;
     let mut dry_run = false;
+    let mut into_project: Option<String> = None;
     let mut trailing: Vec<String> = Vec::new();
     let mut iter = body.iter();
     while let Some(tok) = iter.next() {
         match tok.as_str() {
             "--dry-run" => dry_run = true,
+            "--into" => {
+                let next = iter
+                    .next()
+                    .ok_or_else(|| "--into requires a project name".to_string())?;
+                into_project = Some(next.clone());
+            }
             "--json" | "--tsv" | "--human" => trailing.push(tok.clone()),
             "--db" => {
                 trailing.push(tok.clone());
@@ -853,11 +882,34 @@ fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
     apply_trailing_flags(&trailing, args)?;
 
     let path = path.ok_or("import requires a path argument")?;
+    let source = match source_kind {
+        SourceKind::Org => {
+            if into_project.is_some() {
+                return Err(
+                    "import org doesn't accept --into; the project name comes from the file"
+                        .to_string(),
+                );
+            }
+            ImportSource::Org
+        }
+        SourceKind::Todoist => {
+            let project_name = into_project.ok_or("import todoist requires --into PROJECT_NAME")?;
+            ImportSource::Todoist { project_name }
+        }
+    };
     Ok(Subcommand::Import {
         source,
         path,
         dry_run,
     })
+}
+
+/// Discriminator captured during `parse_import`'s body walk so
+/// source-specific flags (like todoist's `--into`) can mix with
+/// the common ones in any order.
+enum SourceKind {
+    Org,
+    Todoist,
 }
 
 /// Parse the rest-of-argv for `perspective <create|edit|delete>
