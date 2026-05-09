@@ -158,16 +158,25 @@ impl VaultWatcher {
 
     async fn process_file(&self, path: &Path) -> Result<(), DbError> {
         if !path.exists() {
-            // File-level removal (the user `rm`'s a `.org` file or
-            // moves it out of the vault) is roadmap.md §17 follow-up
-            // work. Per-task removal — a headline deleted from a
-            // file that still exists — already round-trips via
+            // The user `rm`ed a vault file or moved it out of the
+            // vault. Per spec §3.5 (DB canonical, vault projected)
+            // we *don't* auto-delete tasks — that would let an
+            // accidental `rm` destroy a hundred rows. Instead we
+            // surface a toast so the user knows the projection is
+            // stale on disk; the next project flush recreates the
+            // file. Per-headline deletion (a TODO removed from a
+            // file that still exists) already round-trips via
             // `diff_and_apply`'s "in DB but not in parsed → delete"
-            // branch.
+            // branch and is unaffected.
             trace!(
                 path = %path.display(),
-                "vault watcher: file removed; per-file deletion not yet wired"
+                "vault watcher: file removed; tasks retained, toast surfaced"
             );
+            if let Some(tx) = &self.events_tx {
+                let _ = tx.send(VaultEvent::FileRemoved {
+                    source: path.to_path_buf(),
+                });
+            }
             return Ok(());
         }
         let parsed = match parse_org_file_with_meta(path) {

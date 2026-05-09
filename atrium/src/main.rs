@@ -344,6 +344,15 @@ fn bridge_vault_events(
                         .unwrap_or("vault file");
                     win.show_toast(&format!("{src_name} parsed cleanly — sync resumed"));
                 }
+                atrium_org::VaultEvent::FileRemoved { source } => {
+                    let src_name = source
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("vault file");
+                    win.show_toast(&format!(
+                        "{src_name} was removed from the vault — Atrium tasks retained"
+                    ));
+                }
             }
         }
         tracing::info!("vault-event channel closed; bridge exiting");

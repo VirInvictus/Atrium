@@ -649,3 +649,89 @@ async fn concurrent_atrium_and_external_edit_preserves_user_content_as_bak() {
     drop(handle);
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn external_file_removal_preserves_tasks_and_toasts() {
+    // Spec §3.5: DB canonical, vault projected. When a user
+    // `rm`s a vault file, Atrium's tasks must NOT auto-delete —
+    // a stray rm shouldn't destroy a hundred rows. The watcher
+    // emits FileRemoved so the GUI surfaces a toast; the next
+    // project flush recreates the file from DB.
+    let (conn, vault, pool) = fresh_setup("ext-file-rm");
+    let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
+
+    // Use spawn_vault_loop so we have an events channel for the
+    // assertion. The seed_with_initial_write helper uses the
+    // older manual path; for this test we rebuild the loop.
+    drop(handle);
+    drop(_watcher);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let _ = std::fs::remove_file(vault.join("Errands.org"));
+    // Re-seed via spawn_vault_loop for the events channel.
+    let _ = std::fs::remove_dir_all(&vault);
+    std::fs::create_dir_all(&vault).unwrap();
+
+    // Minimal re-setup with the loop builder so we can observe
+    // the FileRemoved event.
+    let scratch = vault;
+    let db_path = scratch.join("atrium.db");
+    let conn = open(&db_path).unwrap();
+    let pool = ReadPool::new(&db_path, 4);
+    let (vault_config, vault_loop, mut events_rx) =
+        atrium_org::spawn_vault_loop(scratch.clone(), pool.clone());
+    let (handle, _changes_rx, _library_rx) = spawn_worker_with_vault(conn, Some(vault_config));
+    let project = handle
+        .create_project(NewProject {
+            title: "Vanish".to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let _ = handle
+        .create_task(NewTask {
+            title: "Survives".to_string(),
+            project_id: Some(project.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let _watcher = vault_loop.attach_watcher(handle.clone()).unwrap();
+
+    let project_path = scratch.join("Vanish.org");
+    assert!(project_path.exists(), "initial vault file missing");
+
+    // Pre-drain any startup-noise events.
+    while events_rx.try_recv().is_ok() {}
+
+    // The user rm's the file.
+    std::fs::remove_file(&project_path).unwrap();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    // The task must still be in DB.
+    let tasks = pool
+        .with(|conn| atrium_core::db::read::list_all_in_project(conn, project.id))
+        .unwrap();
+    assert_eq!(
+        tasks.len(),
+        1,
+        "task must survive a vault file rm; saw: {tasks:?}"
+    );
+    assert_eq!(tasks[0].title, "Survives");
+
+    // FileRemoved event surfaced.
+    let mut saw_removed = false;
+    while let Ok(event) = events_rx.try_recv() {
+        if matches!(event, atrium_org::VaultEvent::FileRemoved { .. }) {
+            saw_removed = true;
+        }
+    }
+    assert!(
+        saw_removed,
+        "FileRemoved event must surface for the GUI to toast"
+    );
+
+    let _ = project_id; // silence unused-variable warning from helper
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&scratch);
+}

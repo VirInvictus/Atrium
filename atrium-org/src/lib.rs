@@ -82,6 +82,13 @@ pub enum VaultEvent {
     /// sync. Surfaced once per pause→clean transition so the
     /// user knows the watcher is live again on that file.
     ParseRecovered { source: PathBuf },
+
+    /// A vault file disappeared (the user `rm`ed it, or moved it
+    /// out of the vault). Per spec §3.5 the DB is canonical, so
+    /// Atrium retains the project's tasks; the GUI surfaces a
+    /// toast so the user knows the projection is now stale on
+    /// disk. The next project flush recreates the file.
+    FileRemoved { source: PathBuf },
 }
 
 /// Write-only Org vault setup. Spins up a [`VaultWriter`] against
