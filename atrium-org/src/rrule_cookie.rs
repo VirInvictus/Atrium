@@ -37,10 +37,22 @@ use crate::org::OrgRepeater;
 /// just `+1w`); the canonical pattern stays in the `:RRULE:`
 /// property where Atrium re-parses it on read-back.
 pub fn rrule_to_org_cookie(rrule_text: &str, mode: RepeatMode) -> Option<String> {
+    let r = rrule_to_org_repeater(rrule_text, mode)?;
+    Some(format!("{}{}{}", r.mode, r.interval, r.unit))
+}
+
+/// Typed variant of [`rrule_to_org_cookie`] returning the
+/// [`OrgRepeater`] struct directly. Used by the writer when
+/// building the `OrgTask::scheduled_repeater` field — keeps the
+/// emitter from parsing a string we just produced.
+pub fn rrule_to_org_repeater(rrule_text: &str, mode: RepeatMode) -> Option<OrgRepeater> {
     let (freq, interval) = parse_freq_and_interval(rrule_text)?;
     let unit = freq_to_unit(&freq)?;
-    let prefix = mode.org_cookie();
-    Some(format!("{prefix}{interval}{unit}"))
+    Some(OrgRepeater {
+        mode: mode.org_cookie().to_string(),
+        interval,
+        unit,
+    })
 }
 
 /// Map an Org repeater cookie back to the RRULE it implies. Used

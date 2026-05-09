@@ -404,18 +404,19 @@ fn format_effort(minutes: i64) -> String {
     format!("{h}:{m:02}")
 }
 
-/// Scheduled-cookie repeater. The importer doesn't currently
-/// thread the parsed-from-Org repeater back onto the Task, and
-/// the canonical RRULE lives in `:RRULE:` anyway. v0.7.10 emits
-/// no repeater suffix on SCHEDULED for now; the round-trip via
-/// `:RRULE:` keeps the semantic intact. The argument list is
-/// kept so the v0.7.11 patch (project-level metadata) can flip
-/// this on without a signature change.
-fn scheduled_repeater_from_task(
-    _task: &Task,
-    _scheduled: Option<NaiveDate>,
-) -> Option<OrgRepeater> {
-    None
+/// Scheduled-cookie repeater (Phase 17 / v0.10.3). When the task
+/// has a `repeat_rule`, project the canonical RFC 5545 RRULE down
+/// to a best-fit Org cookie (`+<N><unit>` with the mode prefix —
+/// `+` / `++` / `.+`) so stock `org-agenda` shows a sensible
+/// repeat. The full RRULE is still in the `:RRULE:` property
+/// drawer; the cookie is the lossy projection. Spec §7.3.3 rule
+/// 3 — `:RRULE:` is canonical; the cookie is best-fit. Multi-
+/// weekday and BYMONTHDAY patterns degrade to nearest interval
+/// per the rrule_cookie helper's contract.
+fn scheduled_repeater_from_task(task: &Task, _scheduled: Option<NaiveDate>) -> Option<OrgRepeater> {
+    let rule = task.repeat_rule.as_deref()?;
+    let mode = atrium_core::repeat::RepeatMode::from_column(task.repeat_mode.as_deref());
+    crate::rrule_cookie::rrule_to_org_repeater(rule, mode)
 }
 
 /// Replace filesystem-hostile characters in a project / area
@@ -796,6 +797,78 @@ mod tests {
         assert_eq!(beta.task_count, 1);
         assert!(alpha.file_path.exists());
         assert!(beta.file_path.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Phase 17 RRULE canonicalisation: a repeating task emits
+    /// BOTH the best-fit Org cookie on SCHEDULED *and* the full
+    /// `:RRULE:` property in the drawer. Stock org-agenda renders
+    /// the cookie; Atrium's read-back consults `:RRULE:` as
+    /// canonical.
+    #[test]
+    fn write_emits_cookie_and_rrule_for_repeating_task() {
+        use atrium_core::domain::{NewProject, NewTask};
+        use atrium_core::spawn_worker;
+
+        let dir = std::env::temp_dir().join(format!("atrium-write-rrule-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let db_path = dir.join("atrium-test.db");
+        let read_conn = rusqlite::Connection::open(&db_path).unwrap();
+        atrium_core::db::configure_pragmas(&read_conn).unwrap();
+        let mut writer_conn = rusqlite::Connection::open(&db_path).unwrap();
+        atrium_core::db::migrations::migrate(&mut writer_conn).unwrap();
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (handle, _changes_rx, _library_rx) =
+            runtime.block_on(async move { spawn_worker(writer_conn) });
+
+        let project = runtime
+            .block_on(async {
+                handle
+                    .create_project(NewProject {
+                        title: "Repeats".to_string(),
+                        ..Default::default()
+                    })
+                    .await
+            })
+            .unwrap();
+
+        let scheduled = chrono::NaiveDate::from_ymd_opt(2026, 5, 11).unwrap(); // Mon
+        let _ = runtime
+            .block_on(async {
+                handle
+                    .create_task(NewTask {
+                        title: "Multi-weekday".to_string(),
+                        project_id: Some(project.id),
+                        scheduled_for: Some(atrium_core::ScheduledFor::Date(scheduled)),
+                        repeat_rule: Some("FREQ=WEEKLY;BYDAY=MO,WE".to_string()),
+                        repeat_mode: Some("CUMULATIVE".to_string()),
+                        ..Default::default()
+                    })
+                    .await
+            })
+            .unwrap();
+
+        let summary = write_project_to_vault(&read_conn, &dir, project.id).unwrap();
+        let written = std::fs::read_to_string(&summary.file_path).unwrap();
+
+        // Cookie on SCHEDULED line — best-fit `++1w` (multi-weekday
+        // degrades per spec §7.3.3 rule 3).
+        assert!(
+            written.contains("SCHEDULED: <2026-05-11 Mon ++1w>"),
+            "expected SCHEDULED cookie with ++1w; got:\n{written}"
+        );
+        // Full RRULE in the property drawer — canonical source.
+        assert!(
+            written.contains(":RRULE: FREQ=WEEKLY;BYDAY=MO,WE"),
+            "expected canonical :RRULE: in drawer; got:\n{written}"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
