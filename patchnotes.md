@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## v0.13.3 (2026-05-09) — Org emit: blank line between successive headlines
+
+Pure stylistic patch found by visual inspection of an exported vault — the Org writer was emitting headlines back-to-back with the `:END:` of one drawer butting directly against the `*` of the next headline. Org-agenda parses both forms cleanly, but Emacs's own writers (with the default `org-blank-before-new-entry`) always insert a blank line before a new headline. Reading Atrium's vault in DoomEmacs surfaced the visual cramping immediately — every headline read as part of one big block instead of as discrete entries. A single-line addition in `emit_task` pushes a trailing newline after the last piece of headline content and before recursing into children; the recursion unwinding handles every separator (parent → first child, sibling → sibling, last child → parent's next sibling). The parser tolerates blank lines anywhere outside drawers so spec §7.3.3 round-trip discipline is intact. One existing byte-exact test (`emit_no_cookie_line_when_no_dates`) updated to expect the trailing blank. Test count holds at 824. Schema unchanged at v7.
+
 ## v0.13.2 (2026-05-09) — inline-rename gets the tab-completion popover
 
 The atrium-inline Slice 3 popover (v0.13.0) wired into the bottom-of-list capture entry and the Quick Entry modal but deliberately skipped the per-row inline-rename `Entry`: "the row's edit Entry recycles frequently and the popover lifecycle would need additional teardown bookkeeping." This patch closes that gap.

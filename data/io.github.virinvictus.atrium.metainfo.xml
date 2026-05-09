@@ -90,6 +90,19 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.13.3" date="2026-05-09">
+      <description>
+        <p>Stylistic Org-emit fix — successive headlines now
+           have a blank line between them, matching Emacs's
+           default `org-blank-before-new-entry` convention.
+           DoomEmacs users opening Atrium's vault saw the
+           cramping immediately; the fix makes Atrium-written
+           files indistinguishable from Emacs-written ones.
+           One-line change in emit_task. Round-trip discipline
+           intact — the parser was already blank-tolerant.</p>
+      </description>
+      <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
+    </release>
     <release version="0.13.2" date="2026-05-09">
       <description>
         <p>Inline-rename gets the tab-completion popover.
