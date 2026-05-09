@@ -1,5 +1,65 @@
 # Atrium — Patch Notes
 
+## v0.7.7 (2026-05-08) — Hand-rolled Org-mode parser
+
+Second patch on the Phase 16 arc. v0.7.6 laid the foundation
+(sync module + atomic write + GSettings); v0.7.7 lands the
+parser that everything from here on builds on. No third-party
+dep — the v0.7.6 dep-research established that orgize and
+starsector were both too dormant to take, and a focused
+passthrough parser fits the use-case better anyway.
+
+**`atrium-core::sync::org::parse_org_text` / `parse_org_file`.**
+Reads Org text → `Vec<OrgTask>` tree. Coverage matches spec §7.3:
+
+- Headlines `*+ [KEYWORD ]title [:tag1:tag2:]`. Stars give the
+  depth; `KEYWORD` recognised as TODO / DONE / CANCELLED, with
+  custom keywords (e.g. `WAITING`) preserved verbatim under
+  `OrgKeyword::Custom`.
+- Cookies on the line below a headline: SCHEDULED, DEADLINE
+  (active timestamps `<...>`), and CLOSED (inactive `[...]`).
+  All three can co-exist on one line.
+- Repeater suffixes on SCHEDULED / DEADLINE: `+1w`, `++1w`,
+  `.+1w` parsed into `OrgRepeater { mode, interval, unit }`.
+- `:PROPERTIES:` drawer with `:KEY: value` entries until `:END:`.
+  Keys preserve case. Garbage lines inside the drawer are
+  preserved into the task's `unknown_lines` field for
+  round-trip safety.
+- Headline tags `:foo:bar:` validated for the canonical Org
+  shape (rejects `:foo bar:` with whitespace inside).
+- Nested subtasks: depth-based tree resolution. Headlines
+  without a TODO keyword become project sub-headings per spec
+  §7.3.1; deeper headlines nest under their nearest shallower
+  ancestor.
+- Headline body — everything between cookies/properties and the
+  next headline — captured verbatim. Source blocks, tables,
+  custom drawers, latex, links: all flow through unchanged so
+  v0.7.8's emitter can re-emit them without loss.
+
+**The "preserve unknown constructs verbatim" rule (spec §7.3.3
+rule 1) is satisfied at two layers** — body content stays
+verbatim; properties drawer entries that don't pattern-match
+land in `OrgTask::unknown_lines` for explicit round-trip.
+
+**Test count:** 119 + 192 + 1 + 106 + 106 = **524** (up 18 from
+v0.7.6's 506 — the new parser tests). Coverage spans the spec
+§7.3 surface: simple TODO, DONE+CLOSED, CANCELLED, SCHEDULED+
+DEADLINE+repeaters, headline tags, properties drawer, body
+preservation, nested subtasks, project sub-headings, custom
+keywords, preamble handling, repeater modes, and edge cases
+(empty input, invalid tag chunks, garbage in the drawer).
+
+**Limitations consciously deferred to v0.7.8+:** multi-line
+property values, active-timestamp time-of-day (date-only matches
+Atrium's `scheduled_for`), file-level `#+TITLE:` capture (lands
+when the importer needs the project title).
+
+Pure additive change. No schema changes. No new dependencies.
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.7**. Phase 16 progress: foundation + parser done;
+emitter, importer, writer, worker hook, JSON export follow.
+
 ## v0.7.6 (2026-05-08) — Phase 16 foundation (Org vault projection)
 
 First patch on the Phase 16 arc. The roadmap calls for Org-mode

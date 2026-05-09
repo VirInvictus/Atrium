@@ -90,6 +90,31 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.7" date="2026-05-08">
+      <description>
+        <p>Hand-rolled Org-mode parser. Second patch on the
+           Phase 16 arc. atrium-core::sync::org::parse_org_text
+           reads Org text into a Vec&lt;OrgTask&gt; tree
+           covering the spec §7.3 surface: headlines with
+           depth-based subtask nesting, TODO / DONE / CANCELLED
+           keywords (custom keywords like WAITING preserved
+           verbatim), SCHEDULED / DEADLINE / CLOSED cookies,
+           +/++/.+ repeater suffixes, headline tags,
+           :PROPERTIES: drawer with case-preserving keys,
+           and headline body captured verbatim so source
+           blocks, tables, latex, and custom drawers
+           round-trip cleanly.</p>
+        <p>The "preserve unknown constructs verbatim" rule
+           from spec §7.3.3 is satisfied at two layers — body
+           content stays verbatim; properties drawer entries
+           that don't pattern-match land in unknown_lines for
+           explicit round-trip.</p>
+        <p>Test count: 119 + 192 + 1 + 106 + 106 = 524 (up 18
+           from v0.7.6 — the new parser tests). Pure additive
+           change; no schema, no new dependencies. Emitter,
+           importer, writer follow in v0.7.8+.</p>
+      </description>
+    </release>
     <release version="0.7.6" date="2026-05-08">
       <description>
         <p>Phase 16 foundation — first patch on the Org-mode
