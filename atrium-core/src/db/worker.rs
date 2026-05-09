@@ -25,8 +25,8 @@ use crate::db::command::Command;
 use crate::db::read;
 use crate::db::vault_hook::{VaultConfig, VaultDirtyNotifier};
 use crate::domain::{
-    Area, AreaUpdate, NewArea, NewPerspective, NewProject, NewTag, NewTask, Perspective,
-    PerspectiveUpdate, Project, ProjectUpdate, Tag, TagUpdate, Task, TaskUpdate,
+    Area, AreaUpdate, Heading, NewArea, NewHeading, NewPerspective, NewProject, NewTag, NewTask,
+    Perspective, PerspectiveUpdate, Project, ProjectUpdate, Tag, TagUpdate, Task, TaskUpdate,
 };
 use crate::error::DbError;
 
@@ -233,6 +233,24 @@ impl WorkerHandle {
         let (responder, rx) = oneshot::channel();
         self.cmd_tx
             .send(Command::EnsureArea { name, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
+    /// Idempotent heading-create-if-absent. Looks up by
+    /// `(project_id, LOWER(title))`; returns the existing row or
+    /// creates a fresh one at end-of-project-position. Used by
+    /// the Phase 18 Todoist importer to map sections onto
+    /// headings; safe to call repeatedly.
+    pub async fn ensure_heading(&self, project_id: i64, title: String) -> Result<Heading, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::EnsureHeading {
+                project_id,
+                title,
+                responder,
+            })
             .await
             .map_err(|_| DbError::WorkerClosed)?;
         rx.await.map_err(|_| DbError::WorkerClosed)?
@@ -668,6 +686,22 @@ impl Worker {
                         areas_created: vec![a.clone()],
                         ..Default::default()
                     });
+                }
+                let _ = responder.send(result);
+            }
+            Command::EnsureHeading {
+                project_id,
+                title,
+                responder,
+            } => {
+                let result = self.ensure_heading(project_id, &title);
+                // Headings don't currently have their own
+                // LibraryChanges deltas (no GUI surface lists them
+                // as a top-level concern). Notifying the project
+                // dirty so the vault writer re-emits the file is
+                // the right shape for now.
+                if result.is_ok() {
+                    self.notify_project_dirty(project_id);
                 }
                 let _ = responder.send(result);
             }
@@ -1392,6 +1426,47 @@ impl Worker {
             }),
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Idempotent heading lookup-or-create scoped to a project.
+    /// Same case-insensitive title match as `ensure_area`. New
+    /// headings land at end-of-project position (max + 1.0).
+    fn ensure_heading(&mut self, project_id: i64, title: &str) -> Result<Heading, DbError> {
+        let existing: rusqlite::Result<i64> = self.conn.query_row(
+            "SELECT id FROM heading \
+             WHERE project_id = ?1 AND LOWER(title) = LOWER(?2) LIMIT 1",
+            params![project_id, title],
+            |r| r.get(0),
+        );
+        match existing {
+            Ok(id) => read::heading_by_id(&self.conn, id)?.ok_or(DbError::NotFound),
+            Err(rusqlite::Error::QueryReturnedNoRows) => self.create_heading(NewHeading {
+                project_id,
+                title: title.to_string(),
+            }),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn create_heading(&mut self, new: NewHeading) -> Result<Heading, DbError> {
+        let uuid = Uuid::new_v4().to_string();
+        let position = self.next_heading_position(new.project_id)?;
+        self.conn.execute(
+            "INSERT INTO heading (uuid, project_id, title, position) \
+             VALUES (?, ?, ?, ?)",
+            params![uuid, new.project_id, new.title, position],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        read::heading_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
+    }
+
+    fn next_heading_position(&self, project_id: i64) -> Result<f64, DbError> {
+        let max: Option<f64> = self.conn.query_row(
+            "SELECT MAX(position) FROM heading WHERE project_id = ?1",
+            params![project_id],
+            |r| r.get(0),
+        )?;
+        Ok(max.unwrap_or(0.0) + 1.0)
     }
 
     /// idempotent area-by-title lookup. Area's `title`

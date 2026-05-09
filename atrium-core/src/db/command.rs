@@ -11,7 +11,7 @@
 use tokio::sync::oneshot;
 
 use crate::domain::{
-    Area, AreaUpdate, NewArea, NewPerspective, NewProject, NewTag, NewTask, Perspective,
+    Area, AreaUpdate, Heading, NewArea, NewPerspective, NewProject, NewTag, NewTask, Perspective,
     PerspectiveUpdate, Project, ProjectUpdate, Tag, TagUpdate, Task, TaskUpdate,
 };
 use crate::error::DbError;
@@ -133,6 +133,17 @@ pub enum Command {
         name: String,
         responder: oneshot::Sender<Result<Area, DbError>>,
     },
+    /// Idempotent heading-create-by-(project, title-NOCASE).
+    /// Returns the existing Heading when one matches; creates a
+    /// new one at end-of-project-position otherwise. Used by
+    /// the Phase 18 Todoist importer to map sections onto
+    /// Atrium headings; also available to future Org-mode
+    /// section-import work.
+    EnsureHeading {
+        project_id: i64,
+        title: String,
+        responder: oneshot::Sender<Result<Heading, DbError>>,
+    },
 
     // ── Perspectives (Phase 14) ────────────────────────────────
     CreatePerspective {
@@ -172,6 +183,7 @@ impl Command {
             Self::SetTaskTags { .. } => "SetTaskTags",
             Self::EnsureTag { .. } => "EnsureTag",
             Self::EnsureArea { .. } => "EnsureArea",
+            Self::EnsureHeading { .. } => "EnsureHeading",
             Self::CreatePerspective { .. } => "CreatePerspective",
             Self::UpdatePerspective { .. } => "UpdatePerspective",
             Self::DeletePerspective { .. } => "DeletePerspective",

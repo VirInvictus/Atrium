@@ -516,6 +516,15 @@ pub struct Heading {
     pub modified_at: DateTime<Utc>,
 }
 
+/// Input for creating a new heading. The DB assigns `id` and the
+/// worker generates `uuid`. Position is computed by the worker
+/// (last in the project's existing sequence).
+#[derive(Debug, Clone, Default)]
+pub struct NewHeading {
+    pub project_id: i64,
+    pub title: String,
+}
+
 // ── Perspectives (Phase 14) ─────────────────────────────────────
 
 /// A saved filter expression. Phase 14's first-class object —

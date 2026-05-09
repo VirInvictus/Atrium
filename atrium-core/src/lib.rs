@@ -26,8 +26,9 @@ pub use db::worker::{
     WorkerHandle, spawn as spawn_worker, spawn_with_vault as spawn_worker_with_vault,
 };
 pub use domain::{
-    Area, AreaUpdate, Heading, NewArea, NewPerspective, NewProject, NewTag, NewTask, Perspective,
-    PerspectiveUpdate, Project, ProjectUpdate, ScheduledFor, Tag, TagUpdate, Task, TaskUpdate,
+    Area, AreaUpdate, Heading, NewArea, NewHeading, NewPerspective, NewProject, NewTag, NewTask,
+    Perspective, PerspectiveUpdate, Project, ProjectUpdate, ScheduledFor, Tag, TagUpdate, Task,
+    TaskUpdate,
 };
 pub use error::{CoreError, DbError, DomainError};
 pub use paths::{APP_ID, cache_dir, data_dir, db_path};

@@ -1131,3 +1131,96 @@ async fn update_perspective_rejects_emptying_filter() {
         Err(DbError::Domain(DomainError::EmptyFilterExpr))
     ));
 }
+
+// ── ensure_heading (Phase 18 / v0.12.0) ──────────────────
+
+#[tokio::test]
+async fn ensure_heading_creates_when_absent() {
+    let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+    let project = handle
+        .create_project(NewProject::unfiled("Errands"))
+        .await
+        .unwrap();
+    let _ = library_rx.recv().await.unwrap();
+
+    let h = handle
+        .ensure_heading(project.id, "Sunday: Prep".to_string())
+        .await
+        .unwrap();
+    assert_eq!(h.project_id, project.id);
+    assert_eq!(h.title, "Sunday: Prep");
+    assert!(h.position > 0.0);
+}
+
+#[tokio::test]
+async fn ensure_heading_is_idempotent_per_project_and_title() {
+    let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+    let project = handle
+        .create_project(NewProject::unfiled("Errands"))
+        .await
+        .unwrap();
+    let _ = library_rx.recv().await.unwrap();
+
+    let h1 = handle
+        .ensure_heading(project.id, "Monday".to_string())
+        .await
+        .unwrap();
+    let h2 = handle
+        .ensure_heading(project.id, "monday".to_string()) // case-insensitive
+        .await
+        .unwrap();
+    assert_eq!(h1.id, h2.id, "case-insensitive lookup must dedupe");
+}
+
+#[tokio::test]
+async fn ensure_heading_scoped_to_project() {
+    // Same heading title in two different projects should
+    // produce two distinct headings.
+    let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+    let p1 = handle
+        .create_project(NewProject::unfiled("Project A"))
+        .await
+        .unwrap();
+    let _ = library_rx.recv().await.unwrap();
+    let p2 = handle
+        .create_project(NewProject::unfiled("Project B"))
+        .await
+        .unwrap();
+    let _ = library_rx.recv().await.unwrap();
+
+    let h1 = handle
+        .ensure_heading(p1.id, "Backlog".to_string())
+        .await
+        .unwrap();
+    let h2 = handle
+        .ensure_heading(p2.id, "Backlog".to_string())
+        .await
+        .unwrap();
+    assert_ne!(
+        h1.id, h2.id,
+        "headings in different projects must not collide"
+    );
+}
+
+#[tokio::test]
+async fn ensure_heading_increments_position() {
+    let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+    let project = handle
+        .create_project(NewProject::unfiled("Errands"))
+        .await
+        .unwrap();
+    let _ = library_rx.recv().await.unwrap();
+
+    let h1 = handle
+        .ensure_heading(project.id, "First".to_string())
+        .await
+        .unwrap();
+    let h2 = handle
+        .ensure_heading(project.id, "Second".to_string())
+        .await
+        .unwrap();
+    assert!(
+        h2.position > h1.position,
+        "successive headings should sort after"
+    );
+}

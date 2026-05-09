@@ -466,19 +466,51 @@ pub fn list_headings(conn: &Connection) -> Result<Vec<crate::domain::Heading>, D
     let sql = "SELECT id, uuid, project_id, title, position, created_at, modified_at \
                FROM heading ORDER BY project_id, position";
     let mut stmt = conn.prepare_cached(sql)?;
-    let rows = stmt.query_map([], |row| {
-        Ok(crate::domain::Heading {
-            id: row.get("id")?,
-            uuid: row.get("uuid")?,
-            project_id: row.get("project_id")?,
-            title: row.get("title")?,
-            position: row.get("position")?,
-            created_at: row.get("created_at")?,
-            modified_at: row.get("modified_at")?,
-        })
-    })?;
+    let rows = stmt.query_map([], heading_from_row)?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
+}
+
+/// Headings belonging to `project_id`, in position order. Used by
+/// the Org writer's heading-emit path so sections interleave with
+/// tasks correctly.
+pub fn list_headings_in_project(
+    conn: &Connection,
+    project_id: i64,
+) -> Result<Vec<crate::domain::Heading>, DbError> {
+    let sql = "SELECT id, uuid, project_id, title, position, created_at, modified_at \
+               FROM heading WHERE project_id = ?1 ORDER BY position";
+    let mut stmt = conn.prepare_cached(sql)?;
+    let rows = stmt.query_map(params![project_id], heading_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+/// Fetch a single heading by primary key.
+pub fn heading_by_id(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<crate::domain::Heading>, DbError> {
+    let sql = "SELECT id, uuid, project_id, title, position, created_at, modified_at \
+               FROM heading WHERE id = ?1";
+    let mut stmt = conn.prepare_cached(sql)?;
+    let mut rows = stmt.query_map(params![id], heading_from_row)?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+fn heading_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<crate::domain::Heading> {
+    Ok(crate::domain::Heading {
+        id: row.get("id")?,
+        uuid: row.get("uuid")?,
+        project_id: row.get("project_id")?,
+        title: row.get("title")?,
+        position: row.get("position")?,
+        created_at: row.get("created_at")?,
+        modified_at: row.get("modified_at")?,
+    })
 }
 
 /// every task_tag relation as `(task_id, tag_id)` pairs.
