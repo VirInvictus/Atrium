@@ -158,11 +158,12 @@ fn connect_activate(app: &adw::Application, debug: bool) {
 /// read pool.
 ///
 /// v0.7.18 — when the `vault-path` GSettings key is non-empty,
-/// the worker spawns with auto-debounced vault writes enabled
-/// (see `atrium_core::sync::vault_writer` and the v0.7.16
-/// `spawn_with_vault` entry point). The GTK binary creates the
-/// vault directory if it doesn't exist so the user doesn't have
-/// to. Empty key falls through to DB-only mode.
+/// the worker spawns with auto-debounced vault writes enabled.
+/// `atrium_org::spawn_org_vault` builds the `VaultConfig` against
+/// the configured directory and the read pool; the worker hooks
+/// into it via the `VaultDirtyNotifier` trait (atrium-core stays
+/// Org-agnostic — the projection lives in atrium-org as of
+/// v0.9.0). Empty key falls through to DB-only mode.
 fn boot_data_layer() -> Result<(
     WorkerHandle,
     mpsc::UnboundedReceiver<TaskChanges>,
@@ -208,10 +209,8 @@ fn read_vault_config_from_settings(pool: &ReadPool) -> Option<atrium_core::Vault
         path = %path.display(),
         "vault path configured; auto-write hook enabled"
     );
-    Some(atrium_core::VaultConfig {
-        root: path,
-        read_pool: pool.clone(),
-    })
+    let _enter = runtime().handle().enter();
+    Some(atrium_org::spawn_org_vault(path, pool.clone()))
 }
 
 /// Bridge worker → UI. tokio mpsc receivers are runtime-agnostic at

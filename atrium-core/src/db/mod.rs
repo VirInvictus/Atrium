@@ -13,9 +13,13 @@
 pub mod changes;
 pub mod command;
 pub mod fixtures;
-pub(crate) mod migrations;
+// `pub` (not `pub(crate)`) since v0.9.0 — atrium-org's tests
+// reach in for fresh-DB setup. Production code never calls this
+// directly; `db::open` is the public entry point.
+pub mod migrations;
 pub mod read;
 pub mod read_pool;
+pub mod vault_hook;
 pub mod worker;
 
 use std::path::Path;

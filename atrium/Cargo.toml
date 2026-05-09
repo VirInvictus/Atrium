@@ -14,6 +14,11 @@ atrium-core = { path = "../atrium-core" }
 # crate so it can be exercised independently and reused from a
 # future TUI / atriumd / search server.
 atrium-search = { path = "../atrium-search" }
+# v0.9.0 — Phase 16 Org projection (parser, emitter, importer,
+# vault writer task) lives in its own crate so atrium-core stays
+# Org-agnostic. The GTK binary uses `spawn_org_vault` to wire the
+# vault hook through the worker.
+atrium-org = { path = "../atrium-org" }
 
 # Phase 0 set.
 anyhow.workspace = true

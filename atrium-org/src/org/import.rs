@@ -48,10 +48,10 @@
 
 use std::path::Path;
 
-use crate::WorkerHandle;
-use crate::domain::{NewProject, NewTask, ScheduledFor};
-use crate::error::DbError;
-use crate::sync::org::parse::{OrgKeyword, OrgTask, parse_org_file_with_meta};
+use crate::org::parse::{OrgKeyword, OrgTask, parse_org_file_with_meta};
+use atrium_core::WorkerHandle;
+use atrium_core::domain::{NewProject, NewTask, ScheduledFor};
+use atrium_core::error::DbError;
 
 /// Result of an import. Counts + lossy notes the caller surfaces
 /// to the user via the CLI / GUI.
@@ -583,7 +583,7 @@ mod tests {
 * Another sub-heading
 ** TODO Nested task
 ";
-        let tasks = crate::sync::org::parse::parse_org_text(input);
+        let tasks = crate::org::parse::parse_org_text(input);
         let mut summary = ImportSummary::default();
         for task in &tasks {
             tally_dry_run(task, &mut summary);

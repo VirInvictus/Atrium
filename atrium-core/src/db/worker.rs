@@ -18,9 +18,12 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{Instrument, info, info_span, trace};
 use uuid::Uuid;
 
+use std::sync::Arc;
+
 use crate::db::changes::{LibraryChanges, TaskChanges};
 use crate::db::command::Command;
 use crate::db::read;
+use crate::db::vault_hook::{VaultConfig, VaultDirtyNotifier};
 use crate::domain::{
     Area, AreaUpdate, NewArea, NewPerspective, NewProject, NewTag, NewTask, Perspective,
     PerspectiveUpdate, Project, ProjectUpdate, Tag, TagUpdate, Task, TaskUpdate,
@@ -293,18 +296,16 @@ pub fn spawn(
     spawn_with_vault(conn, None)
 }
 
-/// Phase 16 entry point that wires the auto-debounced
-/// vault writer alongside the main worker. Pass `Some(VaultConfig
-/// { root, read_pool })` to enable auto-writes; `None` is
-/// equivalent to [`spawn`].
+/// Phase 16 entry point that wires a downstream vault projection
+/// alongside the main worker. Pass `Some(VaultConfig { notifier })`
+/// to enable per-mutation `ProjectDirty(project_id)` notifications
+/// to the projection (atrium-org's `VaultWriter` is the only impl
+/// today); `None` is equivalent to [`spawn`].
 ///
-/// When configured, every successful Task / Project / Tag write
-/// that affects a project queues a `ProjectDirty(project_id)`
-/// notification into the vault writer task (see
-/// [`crate::sync::vault_writer`]). The writer debounces 100 ms
-/// and flushes on a 50 ms tick, so a burst of edits collapses
-/// into one `.org` rewrite per project. Latency upper bound:
-/// ~150 ms from DB write to vault file landing.
+/// When configured, every successful Task / Project / Tag mutation
+/// that touches a project calls `notifier.notify_project_dirty(pid)`.
+/// The notifier is responsible for any debouncing or IO; the worker
+/// fires synchronously and never blocks on it.
 pub fn spawn_with_vault(
     mut conn: Connection,
     vault: Option<VaultConfig>,
@@ -319,30 +320,19 @@ pub fn spawn_with_vault(
     let (changes_tx, changes_rx) = mpsc::unbounded_channel::<TaskChanges>();
     let (library_tx, library_rx) = mpsc::unbounded_channel::<LibraryChanges>();
 
-    let vault_tx = vault.map(|cfg| {
-        let (tx, _jh) =
-            crate::sync::vault_writer::spawn_vault_writer(cfg.root.clone(), cfg.read_pool);
-        tx
-    });
+    let vault_notifier: Option<Arc<dyn VaultDirtyNotifier>> = vault.map(|cfg| cfg.notifier);
 
     let worker = Worker {
         conn,
         cmd_rx,
         changes_tx,
         library_tx,
-        vault_tx,
+        vault_notifier,
     };
 
     tokio::spawn(worker.run().instrument(info_span!("atrium_worker")));
 
     (WorkerHandle { cmd_tx }, changes_rx, library_rx)
-}
-
-/// Configuration for the auto-debounced vault-write hook.
-/// Passed through [`spawn_with_vault`] at worker startup.
-pub struct VaultConfig {
-    pub root: std::path::PathBuf,
-    pub read_pool: crate::db::read_pool::ReadPool,
 }
 
 /// Wire rusqlite's `profile` callback to the `tracing` TRACE level.
@@ -360,22 +350,22 @@ struct Worker {
     cmd_rx: mpsc::Receiver<Command>,
     changes_tx: mpsc::UnboundedSender<TaskChanges>,
     library_tx: mpsc::UnboundedSender<LibraryChanges>,
-    /// Auto-debounced vault writer hook. `None` when no vault
-    /// is configured (atrium-cli, tests). `Some` when the GUI
-    /// passes a `VaultConfig` through `spawn_with_vault`.
-    vault_tx: Option<mpsc::Sender<crate::sync::vault_writer::VaultWriteRequest>>,
+    /// Vault projection notifier. `None` when no vault is
+    /// configured (atrium-cli, tests). `Some` when the GUI passes
+    /// a `VaultConfig` through `spawn_with_vault` — the impl
+    /// lives in atrium-org and turns the notification into a
+    /// debounced `.org` file write.
+    vault_notifier: Option<Arc<dyn VaultDirtyNotifier>>,
 }
 
 impl Worker {
     /// non-blocking notification that a project's
-    /// vault file should be re-emitted. `try_send` so a full
-    /// channel never stalls command processing; under absurd
-    /// load the worst case is a stale vault file until the
-    /// next dirty notification clears the backlog.
+    /// vault file should be re-emitted. The notifier impl is
+    /// responsible for any debouncing or IO; this fires inline
+    /// after every commit and must never block.
     fn notify_project_dirty(&self, project_id: i64) {
-        if let Some(tx) = &self.vault_tx {
-            use crate::sync::vault_writer::VaultWriteRequest;
-            let _ = tx.try_send(VaultWriteRequest::ProjectDirty(project_id));
+        if let Some(n) = &self.vault_notifier {
+            n.notify_project_dirty(project_id);
         }
     }
 }

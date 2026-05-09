@@ -1,5 +1,42 @@
 # Atrium — Patch Notes
 
+## v0.9.0 (2026-05-09) — `atrium-org` crate extraction
+
+The Phase 16 Org projection — parser, emitter, importer, vault writer task — moves out of `atrium-core::sync` into its own workspace crate, `atrium-org`. atrium-core stays Org-agnostic; the worker hooks into the projection through a new `VaultDirtyNotifier` trait. Workspace is now five crates (atrium-core, atrium-search, atrium-org, atrium-cli, atrium). Pre-Phase-17 housekeeping; no behaviour change, no schema change, test count unchanged at 582.
+
+**The split.** What moved into `atrium-org`:
+
+- `atrium-core/src/sync/org/{parse,emit,import,write}.rs` → `atrium-org/src/org/*`. Same public API; the only path change for callers is `atrium_core::sync::org::*` → `atrium_org::org::*`.
+- `atrium-core/src/sync/vault_writer.rs` → `atrium-org/src/vault_writer.rs`. Now uses an `OrgVaultNotifier` wrapper that impls `atrium_core::VaultDirtyNotifier`.
+- `atrium-core/tests/org_roundtrip.rs` (+ the five fixture `.org` files) → `atrium-org/tests/`. The Org-related worker_tests entries (`import_org_file_*` / `import_org_directory_*` / `spawn_with_vault_writes_org_file_on_task_create`) moved to a new integration test `atrium-org/tests/worker_org_integration.rs`.
+
+What stayed in `atrium-core`:
+
+- `atrium-core/src/sync/atomic.rs` (write-temp + fsync + rename helper — generic, not Org-specific).
+- `atrium-core/src/sync/json.rs` (lossless DB snapshot — works on any projection).
+
+**The trait abstraction.** New `atrium-core/src/db/vault_hook.rs` exposes:
+
+```rust
+pub trait VaultDirtyNotifier: Send + Sync {
+    fn notify_project_dirty(&self, project_id: i64);
+}
+
+pub struct VaultConfig {
+    pub notifier: Arc<dyn VaultDirtyNotifier>,
+}
+```
+
+The atrium-core worker holds an `Option<Arc<dyn VaultDirtyNotifier>>` instead of a concrete `mpsc::Sender<VaultWriteRequest>`. atrium-org's `OrgVaultNotifier` wraps the sender and provides the impl. Ergonomic helper `atrium_org::spawn_org_vault(root, pool)` returns a ready-to-use `VaultConfig` so the GUI / CLI boot paths stay one-call.
+
+**Schema rule cleanup.** `atrium-core::db::migrations` was `pub(crate)`; promoted to `pub` so atrium-org's integration tests can reach in for fresh-DB setup without depending on `atrium_core::db::open` for every test fixture. Production code never calls migrations directly; `db::open` remains the public entry point.
+
+**Why now?** Phase 17 (vault → DB `inotify` sync) is the next chunk of code, and it'll grow the projection layer further. Splitting the surface before that work starts keeps atrium-core's ~5K-line data layer focused on the worker / read pool / domain model, and gives atrium-org a clean home for the inotify watcher when it arrives.
+
+The Phase 18 Todoist importer (when it lands) will follow the same shape: another sibling crate, depending on atrium-core, with its own write side. The architectural commitment that every non-GUI surface stays CLI-testable still holds — atrium-cli depends on atrium-org directly for the `import org` / `export org` / `export json` paths.
+
+Workspace version bumped to **0.9.0** across `Cargo.toml`, `VERSION`, spec, roadmap, README, CLAUDE.md, AppStream metainfo. Schema version unchanged at 7. No new dependencies; atrium-org borrows from the same locked workspace set.
+
 ## v0.8.0 (2026-05-09) — Phase 16 stamp + maintenance pass
 
 Phase 16 (Org-mode import + DB → vault writer) ships, capping the eleven-patch v0.7.6 → v0.7.18 build-out. The GTK binary, `atrium-cli`, and the hand-rolled `atrium-core::sync::org` parser/emitter let a user keep a vault at the configured path, edit tasks in Atrium, and have the `.org` files reflect the change inside ~150 ms — readable in stock `org-agenda`, Doom, or any other Org-aware tool. All Phase 16 roadmap bullets are now `[x]` except the deferred `<vault>/.atrium/config.toml` sidecar (Phase 17 follow-up).

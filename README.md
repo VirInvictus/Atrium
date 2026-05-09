@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/GNOME-50%2B-4a86cf" alt="GNOME 50+">
   <img src="https://img.shields.io/badge/Simple%20Mode-shipping-2ea44f" alt="Simple Mode: shipping">
   <img src="https://img.shields.io/badge/Builder%20Mode-shipping-2ea44f" alt="Builder Mode: shipping">
-  <img src="https://img.shields.io/badge/version-0.8.0-blueviolet" alt="version 0.8.0">
+  <img src="https://img.shields.io/badge/version-0.9.0-blueviolet" alt="version 0.9.0">
 </p>
 
 ---
@@ -21,7 +21,7 @@ Atrium is, fundamentally, an Org-mode app wearing a Things 3 / OmniFocus disguis
 
 The dual surface is in service of that. **Simple Mode** for *what am I doing right now* — Things 3 calm, six lists, no defer dates, no review queue. **Builder Mode** for the days the system needs to do the work — Forecast, Review, Perspectives, repeating tasks, sequential projects, the full Inspector pane. Same data, two surfaces, no migration. Switching modes is a UI flip; the schema stays the OmniFocus superset on day one.
 
-Both modes shipped early. **Simple Mode** at v0.1.0 (Phases 0–9), **Builder Mode** at v0.2.0 (Phases 10–15), **Calibre-powered search** at v0.4.0 (Phase 15.5), the **`atrium-search` / `atrium-cli` extraction + Slice D kanban + Agenda** through v0.5.0 → v0.6.5 (Phase 15.75). **Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0** after the eleven-patch v0.7.6 → v0.7.18 build-out — hand-rolled Org parser/emitter (no third-party Org crate; `orgize` and `starsector` were both dormant), `atrium-cli import org PATH` / `export org PATH` / `export json PATH`, custom-keyword round-trip via migration 0007, file-level `#+TITLE:` + `:PROPERTIES:` metadata, multi-file vault walk, post-write integrity check, an auto-debounced worker write hook (~100 ms latency from DB write to vault flush), a five-fixture round-trip test suite, and GUI vault integration via the `vault-path` GSettings key. Current release: **v0.8.0**. **Phase 17 (vault → DB `inotify`-driven sync) is what's next.**
+Both modes shipped early. **Simple Mode** at v0.1.0 (Phases 0–9), **Builder Mode** at v0.2.0 (Phases 10–15), **Calibre-powered search** at v0.4.0 (Phase 15.5), the **`atrium-search` / `atrium-cli` extraction + Slice D kanban + Agenda** through v0.5.0 → v0.6.5 (Phase 15.75). **Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0** after the eleven-patch v0.7.6 → v0.7.18 build-out — hand-rolled Org parser/emitter (no third-party Org crate; `orgize` and `starsector` were both dormant), `atrium-cli import org PATH` / `export org PATH` / `export json PATH`, custom-keyword round-trip via migration 0007, file-level `#+TITLE:` + `:PROPERTIES:` metadata, multi-file vault walk, post-write integrity check, an auto-debounced worker write hook (~100 ms latency from DB write to vault flush), a five-fixture round-trip test suite, and GUI vault integration via the `vault-path` GSettings key. **v0.9.0** lifted the Phase 16 Org projection into its own `atrium-org` workspace crate ahead of Phase 17 — atrium-core stays Org-agnostic via a `VaultDirtyNotifier` trait. Current release: **v0.9.0**. **Phase 17 (vault → DB `inotify`-driven sync) is what's next.**
 
 Full release narrative in [`patchnotes.md`](patchnotes.md); plan in [`roadmap.md`](roadmap.md).
 
@@ -106,7 +106,7 @@ Mode flips are pure UI re-renders. The schema is the superset; Builder Mode just
 
 ## Headless CLI (`atrium-cli`)
 
-`atrium-cli` is a fourth workspace crate that exposes the search engine, full task + perspective CRUD, and the Phase 16 Org / JSON import/export from the shell. Architectural commitment in `CLAUDE.md`: every non-GUI surface stays CLI-testable. The post-1.0 TUI (`atrium-tui`) will be the same shape — another headless consumer of `atrium-core` + `atrium-search`.
+`atrium-cli` is a workspace sibling that exposes the search engine, full task + perspective CRUD, and the Phase 16 Org / JSON import/export from the shell. Architectural commitment in `CLAUDE.md`: every non-GUI surface stays CLI-testable. The post-1.0 TUI (`atrium-tui`) will be the same shape — another headless consumer of `atrium-core` + `atrium-search` + `atrium-org`.
 
 | Subcommand | Effect |
 |---|---|
@@ -170,7 +170,7 @@ The v0.6.19 roadmap revision (retired Things 3 import; promoted Org-mode + Todoi
 
 ## Status
 
-**Phases 0–15 closed at v0.2.0 (Builder Mode milestone). v0.3.0 visual polish minor shipped. v0.4.0 shipped Phase 15.5. v0.5.0 closed Phase 15.5's deferred list, extracted the four-crate workspace, and landed Phase 15.75 Slices A + B + C. The v0.6.x line completed Slice D (kanban + Agenda) end-to-end and ran the screenshot-driven cleanup arc. v0.8.0 stamps Phase 16 (Org-mode import + DB → vault writer + auto-debounced GUI integration) complete after the eleven-patch v0.7.6 → v0.7.18 build-out.** The journey to v1.0 lives in [`roadmap.md`](roadmap.md), broken into 20 numbered phases plus four sub-phases (12.5, 15.5, 15.75, 19.5):
+**Phases 0–15 closed at v0.2.0 (Builder Mode milestone). v0.3.0 visual polish minor shipped. v0.4.0 shipped Phase 15.5. v0.5.0 closed Phase 15.5's deferred list, extracted the search engine + a headless CLI as their own workspace crates, and landed Phase 15.75 Slices A + B + C. The v0.6.x line completed Slice D (kanban + Agenda) end-to-end and ran the screenshot-driven cleanup arc. v0.8.0 stamped Phase 16 (Org-mode import + DB → vault writer + auto-debounced GUI integration) complete after the eleven-patch v0.7.6 → v0.7.18 build-out. v0.9.0 lifted the Phase 16 Org projection into its own `atrium-org` workspace crate ahead of Phase 17.** The journey to v1.0 lives in [`roadmap.md`](roadmap.md), broken into 20 numbered phases plus four sub-phases (12.5, 15.5, 15.75, 19.5):
 
 - **Phases 0–9** — Simple Mode → tagged as **v0.1.0**
 - **Phases 10–15** — Builder Mode → tagged as **v0.2.0**
@@ -188,7 +188,7 @@ The v0.6.19 roadmap revision (retired Things 3 import; promoted Org-mode + Todoi
 
 ## Architecture (in one paragraph)
 
-Four workspace crates: **`atrium-core`** is the headless data layer (domain types, single-writer SQLite worker, paths, errors, repeat-rule wrapper, hand-rolled Org parser/emitter under `sync::org`, JSON snapshot under `sync::json`, vault writer task hook). **`atrium-search`** is the Calibre-style search expression language (lex / parse / ast / eval; depends on `atrium-core` for `Task` and `ScheduledFor`). **`atrium-cli`** is the headless CLI (depends on both above; covers task + perspective CRUD, kanban projection, `import org` / `export org` / `export json`). **`atrium`** is the GTK4 binary (depends on all three). The data layer uses SQLite in WAL mode with the schema modeled as the OmniFocus superset; a dedicated `tokio` worker task owns the writable connection while the UI reads through a separate read-only connection pool. Updates arrive as `TaskChanges` and `LibraryChanges` deltas via a `glib::MainContext` channel, never as full reloads. Mode (Simple / Builder) is a per-app GSettings flag — flipping it never touches the DB. An optional Org vault (configured via the `vault-path` GSettings key) projects task state to `.org` files for editing in Emacs / Doom / any Org tool: when configured, `WorkerHandle::spawn_with_vault` spawns a background `VaultWriter` task that receives `ProjectDirty` notifications from every Task / Project / Tag write, debounces ~100 ms, and rewrites the affected project's `.org` file via the atomic-write helper with a post-write integrity check. SQLite stays canonical; the vault is downstream. A `--debug` CLI flag opens an in-app debug surface for stress fixtures and live memory watch. See [`spec.md`](spec.md) §3 for the full architecture and §4 for the schema.
+Five workspace crates: **`atrium-core`** is the headless data layer (domain types, single-writer SQLite worker, paths, errors, repeat-rule wrapper, atomic-write helper + lossless JSON snapshot, `VaultDirtyNotifier` trait + `VaultConfig` for the projection hook). **`atrium-search`** is the Calibre-style search expression language (lex / parse / ast / eval; depends on `atrium-core` for `Task` and `ScheduledFor`). **`atrium-org`** is the Phase 16 Org-mode projection (parser, emitter, importer, `VaultWriter` task; provides `OrgVaultNotifier` impl). **`atrium-cli`** is the headless CLI (depends on core, search, org; covers task + perspective CRUD, kanban projection, `import org` / `export org` / `export json`). **`atrium`** is the GTK4 binary (depends on all four). The data layer uses SQLite in WAL mode with the schema modeled as the OmniFocus superset; a dedicated `tokio` worker task owns the writable connection while the UI reads through a separate read-only connection pool. Updates arrive as `TaskChanges` and `LibraryChanges` deltas via a `glib::MainContext` channel, never as full reloads. Mode (Simple / Builder) is a per-app GSettings flag — flipping it never touches the DB. An optional Org vault (configured via the `vault-path` GSettings key) projects task state to `.org` files for editing in Emacs / Doom / any Org tool: when configured, `atrium_org::spawn_org_vault(root, pool)` builds the `VaultConfig` and `atrium-core::spawn_worker_with_vault` wires it into a background `VaultWriter` task that receives `ProjectDirty` notifications from every Task / Project / Tag write, debounces ~100 ms, and rewrites the affected project's `.org` file via the atomic-write helper with a post-write integrity check. SQLite stays canonical; the vault is downstream. A `--debug` CLI flag opens an in-app debug surface for stress fixtures and live memory watch. See [`spec.md`](spec.md) §3 for the full architecture and §4 for the schema.
 
 ## Stack
 
@@ -297,9 +297,10 @@ The debug surface (`atrium --debug`):
 | [`docs/regression.md`](docs/regression.md) | What `scripts/regression.sh` covers and when to run it. |
 | [`docs/gtd-patterns.md`](docs/gtd-patterns.md) | GTD idioms documented as Atrium-flavored conventions (the `#waiting` tag, weekly-review workflow, contexts-as-tags, etc.). |
 | `data/` | `.ui` XML, icons, GSettings schema, AppStream metainfo, Flatpak manifest, bundled fonts. |
-| `atrium-core/` | Headless library — schema, worker, fixtures, paths, repeat rules, Quick Entry parser. |
+| `atrium-core/` | Headless data layer — schema, worker, fixtures, paths, repeat rules, Quick Entry parser, `VaultDirtyNotifier` trait + atomic-write helper + JSON snapshot. |
 | `atrium-search/` | Calibre-powered search expression language (lex / parse / ast / eval). v0.4.2 extracted. |
-| `atrium-cli/` | Headless CLI binary. v0.4.3 onward; full task CRUD + metadata reads. |
+| `atrium-org/` | Phase 16 Org-mode projection (parser, emitter, importer, `VaultWriter` task). v0.9.0 extracted. |
+| `atrium-cli/` | Headless CLI binary. Full task + perspective CRUD plus Phase 16 Org / JSON import + export. |
 | `atrium/` | GTK4 binary. |
 | `scripts/` | Developer scripts (regression gate, etc.). |
 

@@ -1,29 +1,15 @@
 // SPDX-License-Identifier: MIT
-//! Phase 16 — Org-mode vault projection.
+//! Generic sync helpers and the lossless DB snapshot exporter.
 //!
-//! `atrium-core::sync` houses the import / export / two-way mirror
-//! pipeline that bridges Atrium's SQLite-canonical model to the
-//! Org vault projection (spec §7.3, roadmap Phase 16).
+//! atrium-core's sync surface is intentionally small: an atomic-write
+//! helper used by every projection writer + the lossless JSON snapshot
+//! that's not specific to any one projection. The Org-mode parser /
+//! emitter / importer / writer + the auto-debounced `VaultWriter` task
+//! live in the sibling `atrium-org` crate (extracted at v0.9.0).
 //!
-//! Module layout:
-//!
-//! - [`atomic`] — `write-temp + fsync + rename` helper. Every
-//!   vault write goes through this so a crash mid-write never
-//!   leaves a partial file (spec §7.3.3 rule 6).
-//! - [`org`] — hand-rolled Org-mode parser + emitter. Lands in
-//!   v0.7.7. Reads `.org` files into an intermediate `OrgTask`
-//!   tree and emits the same shape back. The "preserve unknown
-//!   constructs verbatim" rule (spec §7.3.3 rule 1) is satisfied
-//!   by capturing every unrecognised line into the task's
-//!   `unknown_lines` field and re-emitting verbatim on write.
-//!
-//! v0.7.6 lands the foundation (atomic-write helper + GSettings
-//! key for the vault path); the parser, importer, writer, and
-//! worker hook follow in v0.7.7 → v0.7.10. v0.8.0 stamps Phase
-//! 16 complete with the round-trip fixture and a maintenance
-//! pass.
+//! Keep this module focused on projection-agnostic primitives. If a
+//! second projection (e.g., Markdown, TaskPaper) ever lands, extract
+//! it into its own sibling crate and have it depend on `atomic` here.
 
 pub mod atomic;
 pub mod json;
-pub mod org;
-pub mod vault_writer;

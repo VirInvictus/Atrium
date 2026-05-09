@@ -21,8 +21,9 @@ pub mod test_support;
 
 pub use db::changes::{LibraryChanges, TaskChanges};
 pub use db::read::SqlBindValue;
+pub use db::vault_hook::{VaultConfig, VaultDirtyNotifier};
 pub use db::worker::{
-    VaultConfig, WorkerHandle, spawn as spawn_worker, spawn_with_vault as spawn_worker_with_vault,
+    WorkerHandle, spawn as spawn_worker, spawn_with_vault as spawn_worker_with_vault,
 };
 pub use domain::{
     Area, AreaUpdate, Heading, NewArea, NewPerspective, NewProject, NewTag, NewTask, Perspective,

@@ -394,7 +394,7 @@ fn run_kanban(conn: &Connection, name: &str, format: Format) -> CliResult<()> {
 }
 
 /// Phase 16, v0.7.9 — `atrium-cli import org PATH [--dry-run]`.
-/// Reads a single .org file via `atrium_core::sync::org::import_org_file`
+/// Reads a single .org file via `atrium_org::org::import_org_file`
 /// and prints a one-line summary. The summary mirrors the
 /// ImportSummary struct: project title (created), task count,
 /// tags ensured, headings skipped, and a list of lossy fields.
@@ -418,7 +418,7 @@ fn run_import(
             if metadata.is_dir() {
                 let summaries = runtime
                     .block_on(async {
-                        atrium_core::sync::org::import_org_directory(handle, &path, dry_run).await
+                        atrium_org::org::import_org_directory(handle, &path, dry_run).await
                     })
                     .map_err(|e| CliError::Args(format!("import failed: {e}")))?;
                 print_import_directory_summary(&summaries, dry_run, format);
@@ -426,9 +426,7 @@ fn run_import(
             }
 
             let summary = runtime
-                .block_on(async {
-                    atrium_core::sync::org::import_org_file(handle, &path, dry_run).await
-                })
+                .block_on(async { atrium_org::org::import_org_file(handle, &path, dry_run).await })
                 .map_err(|e| CliError::Args(format!("import failed: {e}")))?;
 
             print_import_summary(&summary, dry_run, format);
@@ -441,7 +439,7 @@ fn run_import(
 /// summaries. Aggregates counts across files for the human-mode
 /// banner; expands per-file detail underneath.
 fn print_import_directory_summary(
-    summaries: &[atrium_core::sync::org::ImportSummary],
+    summaries: &[atrium_org::org::ImportSummary],
     dry_run: bool,
     format: Format,
 ) {
@@ -500,11 +498,7 @@ fn print_import_directory_summary(
     }
 }
 
-fn print_import_summary(
-    summary: &atrium_core::sync::org::ImportSummary,
-    dry_run: bool,
-    format: Format,
-) {
+fn print_import_summary(summary: &atrium_org::org::ImportSummary, dry_run: bool, format: Format) {
     let prefix = if dry_run { "DRY-RUN " } else { "" };
     match format {
         Format::Json => {
@@ -618,11 +612,11 @@ fn run_export(
                 // projects, count tasks each, build the
                 // would-be-written paths.
                 let projects = atrium_core::db::read::list_projects(conn).map_err(CliError::Db)?;
-                let mut summaries: Vec<atrium_core::sync::org::WriteSummary> = Vec::new();
+                let mut summaries: Vec<atrium_org::org::WriteSummary> = Vec::new();
                 for project in projects {
                     let tasks = atrium_core::db::read::list_all_in_project(conn, project.id)
                         .map_err(CliError::Db)?;
-                    summaries.push(atrium_core::sync::org::WriteSummary {
+                    summaries.push(atrium_org::org::WriteSummary {
                         project_id: project.id,
                         project_title: project.title.clone(),
                         task_count: tasks.len(),
@@ -632,7 +626,7 @@ fn run_export(
                 print_export_summary(&summaries, true, format);
                 return Ok(());
             }
-            let summaries = atrium_core::sync::org::write_all_projects_to_vault(conn, &vault_root)
+            let summaries = atrium_org::org::write_all_projects_to_vault(conn, &vault_root)
                 .map_err(|e| CliError::Args(format!("export failed: {e}")))?;
             print_export_summary(&summaries, false, format);
             Ok(())
@@ -737,7 +731,7 @@ fn print_json_export_summary(
 }
 
 fn print_export_summary(
-    summaries: &[atrium_core::sync::org::WriteSummary],
+    summaries: &[atrium_org::org::WriteSummary],
     dry_run: bool,
     format: Format,
 ) {

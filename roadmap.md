@@ -1,6 +1,6 @@
 # Atrium — Roadmap
 
-What's done, what's next, what's deferred. Sequenced for a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. Updated as of v0.0.0 (pre-implementation).
+What's done, what's next, what's deferred. Sequenced for a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. Current release: **v0.9.0** (atrium-org crate extraction; Phase 16 Org projection lifted out of atrium-core into its own workspace crate). Phase 17 (vault → DB `inotify` sync) is what's next.
 
 ---
 
@@ -19,9 +19,11 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 
 ---
 
-## Shipped (Phases 0 → 16)
+## Shipped (Phases 0 → 16, plus v0.9.0 housekeeping)
 
 The completed phases, condensed. Open carryover items are listed at the end of this section under *Deferred but still on the table*.
+
+**v0.9.0 — `atrium-org` crate extraction.** Phase 16's Org projection (parser, emitter, importer, vault writer task) moves out of `atrium-core::sync` into a new `atrium-org` workspace crate. atrium-core gains a `VaultDirtyNotifier` trait so it stays Org-agnostic; atrium-cli + the GTK binary pick up `atrium-org` directly. Pre-Phase-17 housekeeping; no behaviour change. Workspace is now five crates.
 
 **Phases 0–9 → Simple Mode (v0.1.0).**
 

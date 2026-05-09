@@ -90,6 +90,34 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.9.0" date="2026-05-09">
+      <description>
+        <p>atrium-org crate extraction. The Phase 16 Org
+           projection — parser, emitter, importer, vault writer
+           task — moves out of atrium-core::sync into its own
+           workspace crate, atrium-org. atrium-core stays Org-
+           agnostic; the worker hooks into the projection
+           through a new VaultDirtyNotifier trait. Workspace is
+           now five crates (atrium-core, atrium-search,
+           atrium-org, atrium-cli, atrium).</p>
+        <p>What moved: atrium-core/src/sync/org/* and
+           atrium-core/src/sync/vault_writer.rs into atrium-org.
+           The org-related integration tests moved with them.
+           What stayed: atrium-core/src/sync/atomic.rs (write-
+           temp + fsync + rename helper) and
+           atrium-core/src/sync/json.rs (lossless DB snapshot).</p>
+        <p>The trait abstraction: atrium-core's worker holds an
+           Option&lt;Arc&lt;dyn VaultDirtyNotifier&gt;&gt; instead
+           of a concrete mpsc::Sender. atrium-org's
+           OrgVaultNotifier wraps the sender and provides the
+           impl. Convenience helper atrium_org::spawn_org_vault
+           returns a ready-to-use VaultConfig so GUI and CLI
+           boot paths stay one-call.</p>
+        <p>Pre-Phase-17 housekeeping. No behaviour change, no
+           schema change, no new dependencies. 582 tests, all
+           green.</p>
+      </description>
+    </release>
     <release version="0.8.0" date="2026-05-09">
       <description>
         <p>Phase 16 stamp + maintenance pass. End of the

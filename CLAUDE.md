@@ -4,7 +4,7 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.8.0** (May 2026). Phase 16 (Org-mode import + DB → vault writer) shipped — Atrium can keep an Org vault in sync with the SQLite store, readable in stock `org-agenda` / Doom / vim-orgmode. **Phase 17 (vault → DB `inotify` sync) is what's next.**
+**Current release: v0.9.0** (May 2026). Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0 — Atrium can keep an Org vault in sync with the SQLite store, readable in stock `org-agenda` / Doom / vim-orgmode. **v0.9.0** lifted the Phase 16 Org projection (parser, emitter, importer, vault writer task) out of `atrium-core::sync` into its own `atrium-org` workspace crate; atrium-core gained a `VaultDirtyNotifier` trait so it stays Org-agnostic. Workspace is now five crates. **Phase 17 (vault → DB `inotify` sync) is what's next.**
 
 Where each phase landed:
 
@@ -15,10 +15,11 @@ Where each phase landed:
 - **v0.6.x → screenshot-driven cleanup + roadmap revision.** Soft-accent pass; state-aware row treatment; sidebar reorganisation; v0.6.19 retired Things 3 import (macOS-only), promoted Org-mode to Phase 16/17 as the must-ship two-way mirror, promoted Todoist to Phase 18, added Phase 19.5 productivity essentials.
 - **v0.7.0 → v0.7.5 — visual fusion + Review absorbs Weekly Review.** Inspector check-off + perspective editor dialog. Task-level Mark Reviewed via migration 0006.
 - **Phase 16 (v0.7.6 → v0.7.18, stamped at v0.8.0).** Hand-rolled Org parser/emitter (no third-party Org crate — see *Project tricks*). One-shot importer + vault writer + JSON snapshot. Custom-keyword round-trip via migration 0007. File-level `#+TITLE:` + `:PROPERTIES:` metadata. Multi-file vault walk + `WorkerHandle::ensure_area`. Post-write integrity check. Auto-debounced worker write hook (`spawn_worker_with_vault` + `VaultWriter` task). Round-trip test fixture across five complicated `.org` files. GUI vault integration via `vault-path` GSettings key.
+- **v0.9.0 — `atrium-org` extraction.** The Phase 16 Org projection moved out of `atrium-core::sync` into its own crate. atrium-core gained a `VaultDirtyNotifier` trait + thinner `VaultConfig` (`Arc<dyn VaultDirtyNotifier>` instead of path + pool); atrium-org provides the impl via `OrgVaultNotifier` and an ergonomic `spawn_org_vault(root, pool) -> VaultConfig` helper. atrium-cli + the GTK binary depend on `atrium-org` directly. Pre-Phase-17 housekeeping; no behaviour change.
 
-**Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atrium-org`, `atriumd`). The post-1.0 TUI (`atrium-tui`) is the same shape. Don't add functionality to the GTK binary that can't be reached from the shell.
+**Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atriumd`, the post-1.0 `atrium-tui`). Don't add functionality to the GTK binary that can't be reached from the shell.
 
-**Test count: 582 across the workspace at v0.8.0**, all green. `bash scripts/regression.sh` runs in under 2 seconds. Schema version: 7.
+**Test count: 582 across the workspace at v0.9.0**, all green. `bash scripts/regression.sh` runs in under 2 seconds. Schema version: 7.
 
 ## Authoritative documents
 
@@ -160,9 +161,9 @@ Features that miss budget get gated or revised. If a proposed approach has obvio
 - **`~/.gitrepos/Viaduct/`** — the reference for the single-writer SQLite worker pattern. Look at the queue, command enum, and `TaskChanges`-equivalent delta shape before reinventing data-layer pieces.
 - **`~/.gitrepos/Hermitage/` and `~/.gitrepos/Framework/`** — the other native GTK4 / libadwaita apps in the portfolio. Useful for cross-checking GTK idioms, Flatpak manifest shape, and AppStream metainfo conventions.
 
-## Codebase map (current — v0.8.0)
+## Codebase map (current — v0.9.0)
 
-Four workspace crates split by responsibility. The data layer (`atrium-core`), search engine (`atrium-search`, extracted v0.4.2), and headless CLI (`atrium-cli`, added v0.4.3) all stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them. The Phase 16 sync surface (Org parser/emitter, JSON snapshot, vault writer task) lives entirely under `atrium-core::sync` so the GTK binary just calls `spawn_worker_with_vault` and never touches file IO directly.
+Five workspace crates split by responsibility. The data layer (`atrium-core`), search engine (`atrium-search`, extracted v0.4.2), Org projection (`atrium-org`, extracted v0.9.0), and headless CLI (`atrium-cli`, added v0.4.3) all stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them. atrium-core knows nothing about Org; the projection plugs in via the `VaultDirtyNotifier` trait so a future Markdown / TaskPaper / Todoist sibling can use the same hook.
 
 ```
 atrium-search/                        ← Calibre-powered search engine (extracted v0.4.2)
@@ -182,8 +183,8 @@ atrium-cli/                           ← headless CLI (full task + perspective 
 ├── src/import.rs                     ← `import org PATH [--dry-run]` — single .org or vault directory
 └── src/export.rs                     ← `export org PATH` (vault writer) + `export json PATH` (snapshot)
 
-atrium-core/                          ← headless data layer + Phase 16 sync surface
-├── src/lib.rs                        ← re-exports (Task / WorkerHandle / VaultConfig / spawn_worker_with_vault / RepeatRule / …)
+atrium-core/                          ← headless data layer
+├── src/lib.rs                        ← re-exports (Task / WorkerHandle / VaultConfig / VaultDirtyNotifier / spawn_worker / spawn_worker_with_vault / RepeatRule / …)
 ├── src/paths.rs                      ← XDG path helpers, APP_ID
 ├── src/error.rs                      ← thiserror hierarchy
 ├── src/repeat.rs                     ← RFC 5545 RRULE wrapper, RepeatMode, CountStep
@@ -191,25 +192,29 @@ atrium-core/                          ← headless data layer + Phase 16 sync su
 ├── src/render.rs                     ← kanban column projection from a saved Perspective (Slice D foundation)
 ├── src/test_support.rs               ← dummy_task helpers behind `test-support` feature
 ├── src/domain/                       ← Task / Project / Area / Tag / Perspective / ScheduledFor / NewTask
-├── src/sync/                         ← Phase 16 export + projection surface
+├── src/sync/                         ← projection-agnostic sync helpers
 │   ├── atomic.rs                     ← write-temp + fsync + rename helper used by every vault write
-│   ├── json.rs                       ← `Snapshot` type + `export_json`; lossless versioned DB dump
-│   ├── vault_writer.rs               ← `VaultWriter` task — receives ProjectDirty over a tokio mpsc, debounces ~100 ms (50 ms tick)
-│   └── org/
-│       ├── mod.rs                    ← OrgFile / OrgHeadline / OrgKeyword / parse_org_file / emit_org_file + post-write integrity check
-│       ├── parse.rs                  ← hand-rolled headline / cookie / properties / body / nested-subtask parser
-│       ├── emit.rs                   ← inverse — emits stable, org-agenda-readable output
-│       ├── import.rs                 ← single-file + multi-file vault importer; uses WorkerHandle::ensure_area
-│       └── write.rs                  ← project → .org file writer; build_org_tree fans Tasks back into nested OrgHeadlines
+│   └── json.rs                       ← `Snapshot` type + `export_json`; lossless versioned DB dump
 └── src/db/
-    ├── worker.rs                     ← single-writer task; spawn / spawn_with_vault; ProjectDirty notifier into VaultWriter
-    ├── worker_tests.rs               ← (v0.8.0) tests submodule loaded via #[path = "worker_tests.rs"] mod tests
+    ├── worker.rs                     ← single-writer task; spawn / spawn_with_vault; vault_notifier ping after every commit
+    ├── worker_tests.rs               ← tests submodule loaded via #[path = "worker_tests.rs"] mod tests
+    ├── vault_hook.rs                 ← (v0.9.0) `VaultDirtyNotifier` trait + thin `VaultConfig` — the projection contract
     ├── read_pool.rs                  ← read-only connection pool
     ├── read.rs                       ← list_inbox / list_today / list_forecast / list_review_queue / list_agenda / search / counts
     ├── command.rs                    ← Command enum
     ├── changes.rs                    ← TaskChanges, LibraryChanges deltas
     ├── fixtures.rs                   ← --fixture stress generators
     └── migrations/                   ← 0001 initial → 0007 task.orig_keyword; user_version PRAGMA currently 7
+
+atrium-org/                           ← (v0.9.0) Phase 16 Org-mode projection
+├── src/lib.rs                        ← OrgVaultNotifier re-export + `spawn_org_vault(root, pool) -> VaultConfig` helper
+├── src/vault_writer.rs               ← `VaultWriter` task — receives ProjectDirty over tokio mpsc, debounces ~100 ms (50 ms tick); `OrgVaultNotifier` impls atrium_core::VaultDirtyNotifier
+└── src/org/
+    ├── mod.rs                        ← OrgFile / OrgHeadline / OrgKeyword / parse_org_file / emit_org_file + post-write integrity check
+    ├── parse.rs                      ← hand-rolled headline / cookie / properties / body / nested-subtask parser
+    ├── emit.rs                       ← inverse — emits stable, org-agenda-readable output
+    ├── import.rs                     ← single-file + multi-file vault importer; uses WorkerHandle::ensure_area
+    └── write.rs                      ← project → .org file writer; build_org_tree fans Tasks back into nested OrgHeadlines
 
 atrium/                               ← GTK binary
 ├── build.rs                          ← compiles GSettings schema for cargo-only runs
@@ -233,8 +238,11 @@ docs/                                 ← long-form references (schema.md / keym
 scripts/regression.sh                 ← ship-gate
 
 atrium-core/tests/                    ← integration tests
-├── mode_flip_snapshot.rs             ← Phase 10 acceptance (mode flip never touches DB)
+└── mode_flip_snapshot.rs             ← Phase 10 acceptance (mode flip never touches DB)
+
+atrium-org/tests/                     ← (v0.9.0) integration tests crossing the core/org boundary
 ├── org_roundtrip.rs                  ← Phase 16 round-trip across five fixtures
+├── worker_org_integration.rs         ← import_org_file / import_org_directory / spawn_org_vault end-to-end
 └── fixtures/org/                     ← kitchen_sink / custom_keywords / deep_nesting / project_metadata / unicode .org files
 ```
 

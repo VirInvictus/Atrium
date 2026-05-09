@@ -64,8 +64,8 @@ use rusqlite::Connection;
 
 use super::emit::emit_org_file_with_meta;
 use super::parse::{OrgFile, OrgKeyword, OrgRepeater, OrgTask};
-use crate::domain::{Project, ScheduledFor, Task};
-use crate::error::DbError;
+use atrium_core::domain::{Project, ScheduledFor, Task};
+use atrium_core::error::DbError;
 
 /// Result of writing one project to the vault.
 #[derive(Debug, Clone)]
@@ -103,14 +103,14 @@ pub fn write_project_to_vault(
     vault_root: &Path,
     project_id: i64,
 ) -> Result<WriteSummary, WriteError> {
-    let project = crate::db::read::project_by_id(conn, project_id)?
+    let project = atrium_core::db::read::project_by_id(conn, project_id)?
         .ok_or(WriteError::ProjectNotFound(project_id))?;
     let area_title = match project.area_id {
-        Some(aid) => crate::db::read::area_by_id(conn, aid)?.map(|a| a.title),
+        Some(aid) => atrium_core::db::read::area_by_id(conn, aid)?.map(|a| a.title),
         None => None,
     };
-    let tasks = crate::db::read::list_all_in_project(conn, project_id)?;
-    let tag_names = crate::db::read::tag_names_per_task(conn)?;
+    let tasks = atrium_core::db::read::list_all_in_project(conn, project_id)?;
+    let tag_names = atrium_core::db::read::tag_names_per_task(conn)?;
 
     let tree = build_org_tree(&tasks, &tag_names);
     // file-level preamble carries the project title +
@@ -159,7 +159,7 @@ pub fn write_all_projects_to_vault(
     conn: &Connection,
     vault_root: &Path,
 ) -> Result<Vec<WriteSummary>, WriteError> {
-    let projects = crate::db::read::list_projects(conn)?;
+    let projects = atrium_core::db::read::list_projects(conn)?;
     let mut out = Vec::with_capacity(projects.len());
     for project in projects {
         let summary = write_project_to_vault(conn, vault_root, project.id)?;
@@ -471,27 +471,27 @@ mod tests {
     /// expected fields landed.
     #[test]
     fn write_project_round_trips_through_disk() {
-        use crate::db::worker::spawn;
-        use crate::domain::{NewProject, NewTask};
+        use atrium_core::domain::{NewProject, NewTask};
+        use atrium_core::spawn_worker;
 
         let dir = std::env::temp_dir().join(format!("atrium-write-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
         let mut conn = rusqlite::Connection::open_in_memory().unwrap();
-        crate::db::configure_pragmas(&conn).unwrap();
-        crate::db::migrations::migrate(&mut conn).unwrap();
+        atrium_core::db::configure_pragmas(&conn).unwrap();
+        atrium_core::db::migrations::migrate(&mut conn).unwrap();
 
         // Spawn a worker on a fresh in-memory DB. We use a
         // separate read-conn for the writer, so we open a second
         // file-backed DB and spawn against that.
         let db_path = dir.join("atrium-test.db");
         let read_conn = rusqlite::Connection::open(&db_path).unwrap();
-        crate::db::configure_pragmas(&read_conn).unwrap();
+        atrium_core::db::configure_pragmas(&read_conn).unwrap();
         // Run migrations on the file-backed DB so the worker can
         // open it cleanly.
         let mut writer_conn = rusqlite::Connection::open(&db_path).unwrap();
-        crate::db::migrations::migrate(&mut writer_conn).unwrap();
+        atrium_core::db::migrations::migrate(&mut writer_conn).unwrap();
 
         // Drive the worker on a tokio current-thread runtime
         // matching what atrium-cli uses.
@@ -500,7 +500,7 @@ mod tests {
             .build()
             .unwrap();
         let (handle, _changes_rx, _library_rx) =
-            runtime.block_on(async move { spawn(writer_conn) });
+            runtime.block_on(async move { spawn_worker(writer_conn) });
 
         // Suppress unused warning on the in-memory conn we created
         // earlier and discard it; the file-backed conn is the
@@ -567,8 +567,8 @@ mod tests {
     /// matches the source's project-level fields.
     #[tokio::test]
     async fn project_metadata_round_trips_through_db() {
-        use crate::db::worker::spawn;
-        use crate::sync::org::{import_org_file, parse_org_file_with_meta};
+        use crate::org::{import_org_file, parse_org_file_with_meta};
+        use atrium_core::spawn_worker;
 
         let dir =
             std::env::temp_dir().join(format!("atrium-project-meta-test-{}", std::process::id()));
@@ -593,17 +593,17 @@ mod tests {
 
         let db_path = dir.join("db.sqlite");
         let mut writer_conn = rusqlite::Connection::open(&db_path).unwrap();
-        crate::db::configure_pragmas(&writer_conn).unwrap();
-        crate::db::migrations::migrate(&mut writer_conn).unwrap();
+        atrium_core::db::configure_pragmas(&writer_conn).unwrap();
+        atrium_core::db::migrations::migrate(&mut writer_conn).unwrap();
         let read_conn = rusqlite::Connection::open(&db_path).unwrap();
-        crate::db::configure_pragmas(&read_conn).unwrap();
+        atrium_core::db::configure_pragmas(&read_conn).unwrap();
 
-        let (handle, _changes_rx, _library_rx) = spawn(writer_conn);
+        let (handle, _changes_rx, _library_rx) = spawn_worker(writer_conn);
         let summary = import_org_file(&handle, &src, false).await.unwrap();
         let project_id = summary.project_id.unwrap();
 
         // Project should carry the imported metadata.
-        let projects = crate::db::read::list_all_projects(&read_conn).unwrap();
+        let projects = atrium_core::db::read::list_all_projects(&read_conn).unwrap();
         let project = projects.iter().find(|p| p.id == project_id).unwrap();
         assert_eq!(project.title, "Q3 Plans");
         assert_eq!(project.uuid, "99999999-aaaa-bbbb-cccc-dddddddddddd");
@@ -643,8 +643,8 @@ mod tests {
     /// makes this work — without it the writer would emit `TODO`.
     #[tokio::test]
     async fn custom_keyword_round_trips_through_db() {
-        use crate::db::worker::spawn;
-        use crate::sync::org::{import_org_file, parse_org_text};
+        use crate::org::{import_org_file, parse_org_text};
+        use atrium_core::spawn_worker;
 
         let dir = std::env::temp_dir().join(format!("atrium-orig-kw-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -659,12 +659,12 @@ mod tests {
 
         let db_path = dir.join("db.sqlite");
         let mut writer_conn = rusqlite::Connection::open(&db_path).unwrap();
-        crate::db::configure_pragmas(&writer_conn).unwrap();
-        crate::db::migrations::migrate(&mut writer_conn).unwrap();
+        atrium_core::db::configure_pragmas(&writer_conn).unwrap();
+        atrium_core::db::migrations::migrate(&mut writer_conn).unwrap();
         let read_conn = rusqlite::Connection::open(&db_path).unwrap();
-        crate::db::configure_pragmas(&read_conn).unwrap();
+        atrium_core::db::configure_pragmas(&read_conn).unwrap();
 
-        let (handle, _changes_rx, _library_rx) = spawn(writer_conn);
+        let (handle, _changes_rx, _library_rx) = spawn_worker(writer_conn);
         let summary = import_org_file(&handle, &src, false).await.unwrap();
         assert_eq!(summary.tasks_created, 3);
         let project_id = summary.project_id.unwrap();
@@ -692,8 +692,8 @@ mod tests {
 
     #[test]
     fn write_all_projects_writes_each_project() {
-        use crate::db::worker::spawn;
-        use crate::domain::{NewProject, NewTask};
+        use atrium_core::domain::{NewProject, NewTask};
+        use atrium_core::spawn_worker;
 
         let dir =
             std::env::temp_dir().join(format!("atrium-write-all-test-{}", std::process::id()));
@@ -702,18 +702,18 @@ mod tests {
 
         let db_path = dir.join("atrium-test.db");
         let mut writer_conn = rusqlite::Connection::open(&db_path).unwrap();
-        crate::db::configure_pragmas(&writer_conn).unwrap();
-        crate::db::migrations::migrate(&mut writer_conn).unwrap();
+        atrium_core::db::configure_pragmas(&writer_conn).unwrap();
+        atrium_core::db::migrations::migrate(&mut writer_conn).unwrap();
 
         let read_conn = rusqlite::Connection::open(&db_path).unwrap();
-        crate::db::configure_pragmas(&read_conn).unwrap();
+        atrium_core::db::configure_pragmas(&read_conn).unwrap();
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
         let (handle, _changes_rx, _library_rx) =
-            runtime.block_on(async move { spawn(writer_conn) });
+            runtime.block_on(async move { spawn_worker(writer_conn) });
 
         let p1 = runtime
             .block_on(async {

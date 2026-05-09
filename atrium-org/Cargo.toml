@@ -1,0 +1,37 @@
+[package]
+name = "atrium-org"
+description = "Org-mode parser, emitter, importer, vault writer for the Atrium task manager (Phase 16)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+# Storage + serialization (used by the importer when writing
+# through the worker, and by the writer when reading projects
+# out of the read pool).
+rusqlite.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# UUID v4 generation for `:ID:` round-trip on imported tasks
+# without a source `:ID:`.
+uuid.workspace = true
+
+# Vault writer task lives on the existing tokio runtime.
+tokio.workspace = true
+
+# Workspace-internal: atrium-org provides the Org projection that
+# atrium-core's worker hooks into via the VaultDirtyNotifier trait.
+atrium-core = { path = "../atrium-core" }
+
+[dev-dependencies]
+# Org round-trip integration tests reuse the test fixtures + the
+# real worker.
+atrium-core = { path = "../atrium-core", features = ["test-support"] }

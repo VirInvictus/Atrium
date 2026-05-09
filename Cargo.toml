@@ -1,10 +1,10 @@
 [workspace]
-members = ["atrium-core", "atrium-search", "atrium-cli", "atrium"]
+members = ["atrium-core", "atrium-search", "atrium-org", "atrium-cli", "atrium"]
 default-members = ["atrium"]
 resolver = "2"
 
 [workspace.package]
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 license = "MIT"
 authors = ["Brandon LaRocque"]

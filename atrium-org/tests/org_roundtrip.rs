@@ -51,7 +51,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use atrium_core::sync::org::{
+use atrium_org::org::{
     OrgFile, OrgKeyword, OrgTask, import_org_file, parse_org_file_with_meta, write_project_to_vault,
 };
 

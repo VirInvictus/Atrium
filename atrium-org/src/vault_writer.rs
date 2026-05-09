@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
-//! Auto-debounced background vault writer (Phase 16, v0.7.16).
+//! Auto-debounced background vault writer (Phase 16, v0.7.16;
+//! moved into the `atrium-org` crate at v0.9.0).
 //!
-//! Pairs with the single-writer DB worker. When a vault is
+//! Pairs with atrium-core's single-writer DB worker. When a vault is
 //! configured, every Task / Project change in the DB queues a
 //! "rewrite this project's `.org` file" job. Jobs are debounced
 //! ~100 ms to coalesce bursts (multi-task drag, bulk complete
@@ -11,23 +12,23 @@
 //!
 //! Architecture:
 //!
-//! 1. The DB worker (atrium-core::db::worker) holds the writable
-//!    `Connection`. It owns a `mpsc::Sender<VaultWriteRequest>`
-//!    sent into this module's writer task.
-//! 2. After every successful Task / Project mutation that
-//!    affects a project, the worker sends a
-//!    `ProjectDirty(project_id)` request.
-//! 3. This module's [`VaultWriter`] task lives on the same tokio
+//! 1. The atrium-core worker holds an
+//!    `Option<Arc<dyn VaultDirtyNotifier>>` it pings after every
+//!    successful Task / Project / Tag mutation.
+//! 2. atrium-org's [`OrgVaultNotifier`] is the impl. It wraps an
+//!    `mpsc::Sender<VaultWriteRequest>` and `try_send`s a
+//!    `ProjectDirty(project_id)` request from the worker thread.
+//! 3. The matching [`VaultWriter`] task lives on the same tokio
 //!    runtime. It maintains a `pending: HashMap<i64, Instant>`
 //!    keyed by project_id, where the value is the deadline
 //!    after which the project should be flushed.
 //! 4. A 50 ms ticker walks `pending` each tick, flushing any
 //!    project whose deadline has passed.
-//! 5. Flushes call [`crate::sync::org::write::write_project_to_vault`]
+//! 5. Flushes call [`crate::org::write_project_to_vault`]
 //!    against a connection borrowed from the supplied
 //!    [`ReadPool`]. Failures emit `tracing::warn` events; the
-//!    task continues processing subsequent requests so a single
-//!    bad write doesn't break the pipeline.
+//!    task continues so a single bad write doesn't break the
+//!    pipeline.
 //!
 //! Latency upper bound: debounce + tick = ~150 ms. Below the
 //! human-perceptible threshold for a "saved automatically"
@@ -35,7 +36,7 @@
 //!
 //! Design choices:
 //!
-//! - **Why a separate task?** The worker is single-threaded by
+//! - **Why a separate task?** The DB worker is single-threaded by
 //!   design (single-writer SQLite discipline). Vault writes
 //!   include reading the project + tasks + tag map, building an
 //!   OrgFile, and re-parsing the result for integrity. On a
@@ -44,8 +45,7 @@
 //!   command processing stays responsive.
 //! - **Why debounce inside the writer (not the worker)?** Keeps
 //!   the worker's dispatch sites trivial: one `try_send` per
-//!   delta, no per-project state to maintain there. The writer
-//!   owns its own tokio runtime task and HashMap.
+//!   delta, no per-project state to maintain there.
 //! - **Why mpsc (not broadcast)?** Single consumer (this writer
 //!   task). Bounded channel rejects on overflow, which we
 //!   handle by `try_send` + dropping with a `tracing::warn` —
@@ -56,21 +56,50 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use atrium_core::DbError;
+use atrium_core::VaultDirtyNotifier;
+use atrium_core::db::read_pool::ReadPool;
 use tokio::sync::mpsc;
 use tracing::{trace, warn};
 
-use crate::db::read_pool::ReadPool;
-use crate::error::DbError;
-
-/// Request to the vault writer. The worker `try_send`s these
+/// Request to the vault writer. The notifier `try_send`s these
 /// after every successful mutation affecting a project. The
 /// `Shutdown` variant drains pending writes and exits the task —
-/// used during clean teardown (currently no caller emits it; the
-/// task lives for the runtime's lifetime).
+/// used during clean teardown (currently no caller emits it
+/// outside tests; the task lives for the runtime's lifetime).
 #[derive(Debug, Clone, Copy)]
 pub enum VaultWriteRequest {
     ProjectDirty(i64),
     Shutdown,
+}
+
+/// atrium-org's [`VaultDirtyNotifier`] impl. Wraps the request
+/// sender so the atrium-core worker can call
+/// `notify_project_dirty(pid)` without knowing about Org / mpsc /
+/// debouncing.
+#[derive(Clone)]
+pub struct OrgVaultNotifier {
+    tx: mpsc::Sender<VaultWriteRequest>,
+}
+
+impl OrgVaultNotifier {
+    /// Clone of the underlying request sender. Tests use this to
+    /// inject `Shutdown` for clean teardown.
+    pub fn sender(&self) -> mpsc::Sender<VaultWriteRequest> {
+        self.tx.clone()
+    }
+}
+
+impl VaultDirtyNotifier for OrgVaultNotifier {
+    fn notify_project_dirty(&self, project_id: i64) {
+        // Full channel → drop, not block. Under absurd load the
+        // worst case is one stale vault file until the next
+        // dirty notification clears the backlog. Worker
+        // dispatch sites must never stall.
+        let _ = self
+            .tx
+            .try_send(VaultWriteRequest::ProjectDirty(project_id));
+    }
 }
 
 /// Background task state. Owns the read pool + vault root + the
@@ -152,7 +181,7 @@ impl VaultWriter {
 
     fn write_project(&self, project_id: i64) {
         let result = self.pool.with(|conn| {
-            crate::sync::org::write_project_to_vault(conn, &self.root, project_id)
+            crate::org::write_project_to_vault(conn, &self.root, project_id)
                 .map_err(|e| DbError::Sync(e.to_string()))
         });
         match result {
@@ -171,53 +200,44 @@ impl VaultWriter {
     }
 }
 
-/// Spawn a vault writer task on the current tokio runtime.
-/// Returns the request sender and the task's join handle. The
-/// caller (typically the DB worker spawn fn) clones the sender
-/// into its dispatch sites and notifies the writer of dirty
-/// projects via `try_send`.
-pub fn spawn_vault_writer(
-    root: PathBuf,
-    pool: ReadPool,
-) -> (mpsc::Sender<VaultWriteRequest>, tokio::task::JoinHandle<()>) {
+/// Spawn a vault writer task on the current tokio runtime and
+/// return the [`OrgVaultNotifier`] the atrium-core worker pings.
+/// The task lives for the runtime's lifetime; its `JoinHandle` is
+/// detached.
+pub fn spawn_vault_writer(root: PathBuf, pool: ReadPool) -> OrgVaultNotifier {
     let (tx, rx) = mpsc::channel(256);
     let writer = VaultWriter::new(root, pool, rx);
-    let handle = tokio::spawn(writer.run());
-    (tx, handle)
+    tokio::spawn(writer.run());
+    OrgVaultNotifier { tx }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{configure_pragmas, migrations};
-    use crate::domain::{NewProject, NewTask};
+    use atrium_core::db::open;
+    use atrium_core::{NewProject, NewTask, spawn_worker};
     use rusqlite::Connection;
 
     /// Set up a fresh file-backed DB + read pool + writable
     /// connection for round-trip tests. Returns
-    /// `(db_path, writer_conn, read_pool, scratch_dir)`. The
-    /// scratch dir is the parent for vault writes too.
-    fn fresh_setup(label: &str) -> (PathBuf, Connection, ReadPool, PathBuf) {
+    /// `(writer_conn, read_pool, scratch_dir)`. The scratch dir
+    /// is the parent for vault writes too.
+    fn fresh_setup(label: &str) -> (Connection, ReadPool, PathBuf) {
         let scratch =
             std::env::temp_dir().join(format!("atrium-vw-{}-{}", label, std::process::id()));
         let _ = std::fs::remove_dir_all(&scratch);
         std::fs::create_dir_all(&scratch).unwrap();
         let db_path = scratch.join("atrium.db");
-        let mut writer_conn = Connection::open(&db_path).unwrap();
-        configure_pragmas(&writer_conn).unwrap();
-        migrations::migrate(&mut writer_conn).unwrap();
+        let writer_conn = open(&db_path).unwrap();
         let pool = ReadPool::new(&db_path, 4);
-        (db_path, writer_conn, pool, scratch)
+        (writer_conn, pool, scratch)
     }
 
     #[tokio::test]
     async fn vault_writer_emits_project_file_on_dirty_request() {
-        // Seed a project + task in the DB, then send a
-        // ProjectDirty(id) into the writer and wait for the
-        // debounce window. The vault file should appear.
-        let (_db_path, writer_conn, pool, scratch) = fresh_setup("emit");
+        let (writer_conn, pool, scratch) = fresh_setup("emit");
 
-        let (handle, _changes_rx, _library_rx) = crate::db::worker::spawn(writer_conn);
+        let (handle, _changes_rx, _library_rx) = spawn_worker(writer_conn);
         let project = handle
             .create_project(NewProject {
                 title: "Sample".to_string(),
@@ -234,8 +254,10 @@ mod tests {
             .await
             .unwrap();
 
-        let (tx, jh) = spawn_vault_writer(scratch.clone(), pool);
-        tx.send(VaultWriteRequest::ProjectDirty(project.id))
+        let notifier = spawn_vault_writer(scratch.clone(), pool);
+        notifier
+            .sender()
+            .send(VaultWriteRequest::ProjectDirty(project.id))
             .await
             .unwrap();
 
@@ -252,19 +274,16 @@ mod tests {
         assert!(contents.contains("first"), "got: {contents}");
 
         // Clean shutdown.
-        tx.send(VaultWriteRequest::Shutdown).await.unwrap();
-        let _ = jh.await;
+        let _ = notifier.sender().send(VaultWriteRequest::Shutdown).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
         let _ = std::fs::remove_dir_all(&scratch);
     }
 
     #[tokio::test]
     async fn vault_writer_debounces_burst_into_one_write() {
-        // Send 5 ProjectDirty requests in quick succession;
-        // verify only one write actually happens (we observe
-        // this via mtime — easier than instrumenting writes).
-        let (_db_path, writer_conn, pool, scratch) = fresh_setup("debounce");
+        let (writer_conn, pool, scratch) = fresh_setup("debounce");
 
-        let (handle, _changes_rx, _library_rx) = crate::db::worker::spawn(writer_conn);
+        let (handle, _changes_rx, _library_rx) = spawn_worker(writer_conn);
         let project = handle
             .create_project(NewProject {
                 title: "Burst".to_string(),
@@ -281,9 +300,11 @@ mod tests {
             .await
             .unwrap();
 
-        let (tx, jh) = spawn_vault_writer(scratch.clone(), pool);
+        let notifier = spawn_vault_writer(scratch.clone(), pool);
         for _ in 0..5 {
-            tx.send(VaultWriteRequest::ProjectDirty(project.id))
+            notifier
+                .sender()
+                .send(VaultWriteRequest::ProjectDirty(project.id))
                 .await
                 .unwrap();
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -295,14 +316,8 @@ mod tests {
         let expected_path = scratch.join("Burst.org");
         assert!(expected_path.exists());
 
-        // Sanity: the file was written. We don't have a clean
-        // way to assert "exactly one write happened" from the
-        // outside, but the absence of a panic + the file
-        // existing under the debounce-coalesced path is
-        // structurally correct.
-
-        tx.send(VaultWriteRequest::Shutdown).await.unwrap();
-        let _ = jh.await;
+        let _ = notifier.sender().send(VaultWriteRequest::Shutdown).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
         let _ = std::fs::remove_dir_all(&scratch);
     }
 }

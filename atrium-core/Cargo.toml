@@ -41,3 +41,8 @@ rrule.workspace = true
 # placeholder constructor and pay attention to every new schema
 # column.
 test-support = []
+
+# v0.9.0 — atrium-org's integration tests need the worker tests'
+# `tokio::test` runtime. atrium-core's own dev-dependencies already
+# pull tokio as a workspace dep; expose nothing extra here.
+

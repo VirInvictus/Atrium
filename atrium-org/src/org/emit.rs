@@ -30,7 +30,7 @@ use std::io;
 use std::path::Path;
 
 use super::parse::{OrgFile, OrgRepeater, OrgTask};
-use crate::sync::atomic::write_atomic;
+use atrium_core::sync::atomic::write_atomic;
 
 /// Emit a tree of `OrgTask` values back to Org text. No preamble
 /// — use [`emit_org_text_with_meta`] when the caller has
@@ -103,7 +103,7 @@ pub fn emit_org_text_with_meta(file: &OrgFile) -> String {
 }
 
 /// Atomically write a `Vec<OrgTask>` tree to `path`. Goes
-/// through [`crate::sync::atomic::write_atomic`] so a crash
+/// through [`atrium_core::sync::atomic::write_atomic`] so a crash
 /// mid-write never corrupts the destination (spec §7.3.3 rule 6).
 pub fn emit_org_file(path: &Path, tasks: &[OrgTask]) -> io::Result<()> {
     let text = emit_org_text(tasks);
@@ -123,7 +123,7 @@ pub fn emit_org_file(path: &Path, tasks: &[OrgTask]) -> io::Result<()> {
 ///
 /// Rollback to a `.atrium.bak.<timestamp>` (spec §7.3.3 rule 5)
 /// is a sibling concern that lives with the auto-debounced
-/// worker write hook in `crate::sync::vault_writer`; the hook
+/// worker write hook in `atrium_org::vault_writer`; the hook
 /// owns recovery decisions. For now an integrity failure still
 /// leaves the just-written (possibly questionable) file on
 /// disk; the `Err` lets the caller decide whether to surface a
