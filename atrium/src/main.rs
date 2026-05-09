@@ -406,12 +406,12 @@ fn install_quick_entry_action(app: &adw::Application) {
             let Some(window) = app.active_window() else {
                 return;
             };
-            let worker = window
-                .clone()
-                .downcast::<AtriumWindow>()
-                .ok()
+            let atrium_win = window.clone().downcast::<AtriumWindow>().ok();
+            let worker = atrium_win
+                .as_ref()
                 .and_then(|w| w.worker_handle_for_quickentry());
-            crate::quickentry::modal::open(&window, worker);
+            let pool = atrium_win.and_then(|w| w.read_pool_for_quickentry());
+            crate::quickentry::modal::open(&window, worker, pool);
         }
     ));
     app.add_action(&action);

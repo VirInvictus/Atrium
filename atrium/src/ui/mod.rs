@@ -15,6 +15,7 @@ pub mod board;
 pub mod calendar;
 pub mod filter;
 pub mod forecast;
+pub mod inline_complete;
 pub mod inspector;
 pub mod inspector_pane;
 pub mod logbook;

@@ -1157,7 +1157,11 @@ impl AtriumWindow {
     /// data layer boots.
     pub fn attach_data_layer(&self, worker: WorkerHandle, read_pool: ReadPool) {
         let _ = self.imp().worker.set(worker.clone());
-        let _ = self.imp().read_pool.set(read_pool);
+        let _ = self.imp().read_pool.set(read_pool.clone());
+        // v0.13 Slice 3 — wire the inline-syntax tab-completion
+        // popover now that the read pool exists; the popover
+        // consults `read::list_tags` for `#tag` candidates.
+        crate::ui::inline_complete::attach(&self.imp().new_task_entry.clone(), Some(read_pool));
         // Phase 10 — Inspector pane needs the worker; install once
         // the data layer is up. Mode is then applied so the pane
         // shows / hides correctly on first paint.
@@ -1408,6 +1412,13 @@ impl AtriumWindow {
     }
 
     fn read_pool(&self) -> Option<ReadPool> {
+        self.imp().read_pool.get().cloned()
+    }
+
+    /// Public read-pool accessor for the Quick Entry modal so its
+    /// inline-completion popover can fetch tag candidates. Mirrors
+    /// the existing `worker_handle_for_quickentry`.
+    pub fn read_pool_for_quickentry(&self) -> Option<ReadPool> {
         self.imp().read_pool.get().cloned()
     }
 
@@ -3805,6 +3816,10 @@ impl AtriumWindow {
                 entry.set_text("");
             }
         ));
+        // v0.13 Slice 3 — the tab-completion popover gets attached
+        // from `attach_data_layer` instead of here so the read
+        // pool is guaranteed to exist when tag candidates need
+        // fetching.
     }
 
     /// Focus the bottom-of-list entry. The Ctrl+N action targets this

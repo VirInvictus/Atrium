@@ -13,6 +13,7 @@
 //! shortcut only fires while Atrium is the focused application.
 
 use adw::prelude::*;
+use atrium_core::db::read_pool::ReadPool;
 use atrium_core::{NewTask, WorkerHandle};
 use gtk::glib;
 use gtk::glib::clone;
@@ -22,7 +23,15 @@ use atrium_inline as parser;
 
 /// Open the Quick Entry modal anchored to `parent`. Returns
 /// immediately; commit/dismiss runs through the GTK event loop.
-pub fn open(parent: &impl IsA<gtk::Window>, worker: Option<WorkerHandle>) {
+///
+/// `tag_pool` is consulted by the v0.13 Slice 3 tab-completion
+/// popover for `#tag` candidates — pass `None` to disable tag
+/// completion (the `@`/`!` candidates work either way).
+pub fn open(
+    parent: &impl IsA<gtk::Window>,
+    worker: Option<WorkerHandle>,
+    tag_pool: Option<ReadPool>,
+) {
     let dialog = adw::Window::builder()
         .title("Quick Entry")
         .transient_for(parent)
@@ -94,6 +103,11 @@ pub fn open(parent: &impl IsA<gtk::Window>, worker: Option<WorkerHandle>) {
             dialog.close();
         }
     ));
+
+    // v0.13 Slice 3 — attach the inline-syntax tab-completion
+    // popover. Must happen before `present()` so the popover's
+    // parent is registered while the entry is still being set up.
+    crate::ui::inline_complete::attach(&entry, tag_pool);
 
     dialog.present();
     entry.grab_focus();
