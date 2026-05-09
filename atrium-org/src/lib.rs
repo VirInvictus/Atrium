@@ -195,4 +195,24 @@ impl VaultLoopHandle {
             Some(self.events_tx),
         )
     }
+
+    /// Clone of the shared `RecentWrites` set the writer +
+    /// watcher both consult to suppress self-induced echoes.
+    /// Surfaced (v0.13.x) so an out-of-band writer — the
+    /// fresh-vault seed in the GUI binary's boot path — can
+    /// register the files it writes via `write_project_to_vault`
+    /// before the watcher's debounce sees them. Without this,
+    /// the watcher treats every seed file as an external edit
+    /// (it isn't in the set) and the writer's pre-flush conflict
+    /// check then backs each file up to `<file>.atrium.bak.<UTC>`
+    /// on the first project-dirty notification — surfacing as a
+    /// flood of spurious "vault conflict" warnings on first boot.
+    ///
+    /// The Arc-RwLock-RecentWrites discipline is documented in
+    /// `self_write.rs`. Holding the lock for the duration of a
+    /// `record_with_mtime` call is fine; both the writer and
+    /// watcher take it briefly per event.
+    pub fn recent_writes(&self) -> std::sync::Arc<std::sync::RwLock<RecentWrites>> {
+        self.recent_writes.clone()
+    }
 }

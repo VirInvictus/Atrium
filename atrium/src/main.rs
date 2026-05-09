@@ -202,6 +202,14 @@ fn boot_data_layer() -> std::result::Result<BootedDataLayer, AtriumError> {
     // vault loop. A failure here doesn't fail the boot — the writer
     // half is already running, so DB → vault still works; only
     // vault → DB sync is missing. Log and continue.
+    //
+    // We snapshot the shared `RecentWrites` set BEFORE
+    // `attach_watcher` consumes the loop handle so the fresh-
+    // vault seed below can register its writes — without this
+    // both the watcher's self-write filter and the writer's
+    // pre-flush conflict check see the seed's files as external
+    // edits and the boot floods with spurious backup warnings.
+    let recent_writes_for_seed = vault_loop.as_ref().map(|vl| vl.recent_writes());
     if let Some(vl) = vault_loop {
         match vl.attach_watcher(handle.clone()) {
             Ok(_join) => info!("vault watcher attached"),
@@ -230,8 +238,9 @@ fn boot_data_layer() -> std::result::Result<BootedDataLayer, AtriumError> {
         if !sidecar.exists() {
             let pool_for_seed = pool.clone();
             let db_path_for_seed = db_path.clone();
+            let recent_for_seed = recent_writes_for_seed;
             runtime().handle().spawn(async move {
-                seed_fresh_vault(&pool_for_seed, &db_path_for_seed, &root);
+                seed_fresh_vault(&pool_for_seed, &db_path_for_seed, &root, recent_for_seed);
             });
         }
     }
@@ -247,17 +256,32 @@ fn boot_data_layer() -> std::result::Result<BootedDataLayer, AtriumError> {
 
 /// Synchronously dump every project to the vault and then write
 /// the sidecar. Called once on a fresh-vault boot. Two phases
-/// because `write_all_projects_to_vault` doesn't touch the
-/// sidecar (the runtime writer does that on each flush); without
-/// the sidecar write here, every subsequent boot would think the
+/// because `write_project_to_vault` doesn't touch the sidecar
+/// (the runtime writer does that on each flush); without the
+/// sidecar write here, every subsequent boot would think the
 /// vault is still fresh and re-seed.
+///
+/// `recent_writes` is the shared self-write filter set the
+/// VaultWriter + VaultWatcher both consult to suppress
+/// self-induced echoes. The seed bypasses the worker (it goes
+/// directly through `write_project_to_vault`), so without the
+/// seed registering its writes here the watcher would see every
+/// `.org` file as an external edit and the writer would back
+/// each one up on the first project-dirty notification — a
+/// flood of spurious "vault conflict" warnings. Recording each
+/// file's `(path, mtime)` immediately after its write closes
+/// that race.
 ///
 /// Opens a fresh read-only `Connection` rather than going through
 /// `pool.with` because the writer's `WriteError` type doesn't
 /// satisfy `pool.with`'s `Result<_, DbError>` constraint. The
 /// connection is dropped when the function returns.
-fn seed_fresh_vault(pool: &ReadPool, db_path: &std::path::Path, root: &std::path::Path) {
-    // Phase 1: every project's .org file.
+fn seed_fresh_vault(
+    pool: &ReadPool,
+    db_path: &std::path::Path,
+    root: &std::path::Path,
+    recent_writes: Option<std::sync::Arc<std::sync::RwLock<atrium_org::RecentWrites>>>,
+) {
     let conn = match atrium_core::db::open(db_path) {
         Ok(c) => c,
         Err(e) => {
@@ -265,17 +289,47 @@ fn seed_fresh_vault(pool: &ReadPool, db_path: &std::path::Path, root: &std::path
             return;
         }
     };
-    let count = match atrium_org::org::write_all_projects_to_vault(&conn, root) {
-        Ok(summaries) => summaries.len(),
+
+    // Phase 1: walk every project, write its `.org` file, and
+    // record the resulting (path, mtime) in RecentWrites so the
+    // watcher's self-write filter ignores the file when its
+    // inotify event fires.
+    let projects = match atrium_core::db::read::list_projects(&conn) {
+        Ok(p) => p,
         Err(e) => {
-            warn!(error = %e, "fresh-vault seed: project write failed");
+            warn!(error = %e, "fresh-vault seed: list_projects failed");
             return;
         }
     };
+    let mut count = 0usize;
+    for project in projects {
+        let summary = match atrium_org::org::write_project_to_vault(&conn, root, project.id) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(error = %e, project_id = project.id, "fresh-vault seed: project write failed");
+                continue;
+            }
+        };
+        if let Some(rw) = recent_writes.as_ref() {
+            // mtime read is best-effort — if it fails the worst
+            // case is one spurious conflict-backup the next time
+            // the project gets edited; it doesn't break the seed.
+            if let Ok(meta) = std::fs::metadata(&summary.file_path)
+                && let Ok(mtime) = meta.modified()
+            {
+                rw.write()
+                    .unwrap()
+                    .record_with_mtime(summary.file_path.clone(), mtime);
+            }
+        }
+        count += 1;
+    }
 
     // Phase 2: sidecar via the existing pool — `build_from_db`
     // returns `Result<_, DbError>` so it threads through
-    // `pool.with` cleanly.
+    // `pool.with` cleanly. No RecentWrites entry needed — the
+    // sidecar lives in `.atrium/config.toml` which the watcher
+    // doesn't watch (only `.org` files are in scope).
     let sidecar_result = pool.with(atrium_org::sidecar::build_from_db);
     match sidecar_result {
         Ok(sidecar) => {
