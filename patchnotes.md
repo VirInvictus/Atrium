@@ -1,5 +1,74 @@
 # Atrium — Patch Notes
 
+## v0.7.17 (2026-05-09) — Round-trip test fixture + two importer fixes
+
+Twelfth patch on the Phase 16 arc. Brandon's earlier explicit
+ask: "build a test suite that creates complicated .org files to
+test importing and then exporting to see what the resulting
+difference is between the two." The roadmap requirement is
+"import → export → diff = empty (modulo whitespace and section
+ordering)." v0.7.17 delivers both — and surfaces (and fixes)
+two real importer gaps in the process.
+
+**`atrium-core/tests/org_roundtrip.rs`.** Integration test with
+five fixture `.org` files at `atrium-core/tests/fixtures/org/`:
+
+- `kitchen_sink.org` — every spec §7.3 feature mixed (TODO /
+  DONE / CANCELLED keywords, SCHEDULED / DEADLINE / CLOSED
+  with repeaters, headline tags, :PROPERTIES: drawer, body
+  with bullets, nested subtasks, file-level metadata).
+- `custom_keywords.org` — WAITING / BLOCKED / IN-PROGRESS
+  preservation via `orig_keyword`.
+- `deep_nesting.org` — 4+ levels of subtask hierarchy.
+- `project_metadata.org` — file-level `#+TITLE:` +
+  `:PROPERTIES:` block with `:SEQUENTIAL:` /
+  `:REVIEW_INTERVAL:` / `:LAST_REVIEWED:`.
+- `unicode.org` — CJK, Cyrillic, emoji, accented Latin.
+
+Each test loads the fixture, imports through the worker,
+exports back to a fresh path, parses both source and
+regenerated, and asserts AST equality on a paired-normalised
+shape. Normalisation strips fields that intentionally don't
+preserve through a round-trip (`:CREATED:` / `:MODIFIED:` —
+schema-auto-stamped; round-trip-added `:ID:` per spec §7.3.3
+rule 2; tag order — sets, not lists). Strict on title,
+keyword (incl. custom), tags content, cookie dates, property
+values, body, subtask hierarchy, and file-level metadata.
+
+**Two real fixes the fixture surfaced:**
+
+1. **`NewTask` gains `completed_at: Option<DateTime<Utc>>`.**
+   Previously the importer's DONE / CANCELLED path called
+   `toggle_complete` after create, which stamped `now()`
+   instead of the source CLOSED cookie's timestamp. v0.7.17
+   threads the parsed `org.closed` directly into
+   `NewTask.completed_at` so the worker INSERTs with the
+   correct value. The toggle path still fires when the
+   source had a TODO/DONE/CANCELLED keyword but no CLOSED
+   cookie. All NewTask call sites updated (atrium-cli's
+   `run_add`, the worker's repeating-task respawn,
+   atrium/src/ui/window.rs's undo restore — undo now also
+   preserves the original completion timestamp).
+
+2. **CANCELLED tasks round-trip via `orig_keyword`.** Atrium's
+   domain has TODO / DONE only; `completed_at` doesn't
+   distinguish "completed normally" from "cancelled."
+   v0.7.12 introduced `orig_keyword` for non-canonical Org
+   keywords (WAITING etc.); v0.7.17 extends the importer to
+   also stash CANCELLED there. The writer's
+   orig-keyword-first lookup picks it up automatically; the
+   round-trip preserves the keyword exactly.
+
+**Test count:** 119 + 245 + 1 + 5 + 106 + 106 = **582** (up 5
+from v0.7.16's 577 — the five new fixture round-trip tests).
+Pure additive change. No schema. No new dependencies.
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.17**. Phase 16 progress: all roadmap bullets +
+the round-trip test fixture done. v0.7.18 wires the GUI vault
+integration; v0.8.0 stamps the arc with the maintenance pass +
+final four-doc sweep.
+
 ## v0.7.16 (2026-05-09) — Auto-debounced worker write hook (DB → vault)
 
 Eleventh patch on the Phase 16 arc. The last roadmap bullet

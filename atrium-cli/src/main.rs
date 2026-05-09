@@ -1183,6 +1183,7 @@ fn run_add(
         repeat_mode: None,
         uuid: None,
         orig_keyword: None,
+        completed_at: None,
     };
 
     let task = runtime

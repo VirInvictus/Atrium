@@ -2418,6 +2418,11 @@ impl AtriumWindow {
                             // delete/undo cycle without losing its
                             // round-trip anchor.
                             orig_keyword: task.orig_keyword,
+                            // Preserve completion state on undo —
+                            // restoring a deleted DONE task should
+                            // come back DONE with its original
+                            // completion timestamp, not flip to TODO.
+                            completed_at: task.completed_at,
                         };
                         match worker.create_task(new).await {
                             Ok(restored) => {

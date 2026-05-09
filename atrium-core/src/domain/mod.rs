@@ -86,6 +86,14 @@ pub struct NewTask {
     /// `BLOCKED`, `IN-PROGRESS`. The Org writer consults the
     /// resulting column when emitting.
     pub orig_keyword: Option<String>,
+    /// v0.7.17 — caller-provided completion timestamp. Lets the
+    /// Org importer preserve the source vault file's `CLOSED:`
+    /// cookie verbatim instead of stamping `now()` on import via
+    /// the toggle_complete path. `None` means "the task is open"
+    /// (canonical NewTask behaviour). `Some(when)` means "this
+    /// task is already done at that timestamp" — the worker
+    /// inserts with completed_at set directly, no toggle needed.
+    pub completed_at: Option<DateTime<Utc>>,
 }
 
 impl NewTask {

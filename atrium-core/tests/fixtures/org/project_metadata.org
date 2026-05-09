@@ -1,0 +1,21 @@
+#+TITLE: Quarterly Operations Plan
+:PROPERTIES:
+:ID: pmeta001-0000-0000-0000-000000000000
+:SEQUENTIAL: t
+:REVIEW_INTERVAL: 7
+:LAST_REVIEWED: [2026-05-01 Fri]
+:END:
+
+* TODO Confirm budget figures :finance:
+SCHEDULED: <2026-05-12 Tue>
+:PROPERTIES:
+:ID: pmeta002-0000-0000-0000-000000000000
+:END:
+
+* TODO Distribute roadmap to team :work:
+DEADLINE: <2026-05-19 Tue>
+:PROPERTIES:
+:ID: pmeta003-0000-0000-0000-000000000000
+:EFFORT: 1:30
+:END:
+This is the formal handoff to the engineering leads.

@@ -754,13 +754,16 @@ impl Worker {
         };
         let position = self.next_task_position(new.parent_id, new.project_id)?;
 
-        // v0.7.12 — orig_keyword is appended; existing call sites
+        // v0.7.12 — orig_keyword appended; existing call sites
         // pass `None` (Default::default()) so the value is NULL.
+        // v0.7.17 — completed_at appended so the Org importer
+        // can preserve the source CLOSED cookie.
         self.conn.execute(
             "INSERT INTO task \
              (uuid, title, note, project_id, parent_id, scheduled_for, deadline, \
-              defer_until, estimated_minutes, repeat_rule, repeat_mode, orig_keyword, position) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              defer_until, estimated_minutes, repeat_rule, repeat_mode, orig_keyword, \
+              completed_at, position) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 uuid,
                 new.title,
@@ -774,6 +777,7 @@ impl Worker {
                 new.repeat_rule,
                 new.repeat_mode,
                 new.orig_keyword,
+                new.completed_at,
                 position,
             ],
         )?;
@@ -1008,6 +1012,9 @@ impl Worker {
             // a custom keyword on the original they expect the
             // re-spawned instance to wear the same label.
             orig_keyword: completed.orig_keyword.clone(),
+            // The respawn is a fresh open instance — no completion
+            // timestamp until the user toggles it complete again.
+            completed_at: None,
         };
         let inserted = self.create_task(new_task)?;
 

@@ -392,17 +392,22 @@ fn import_task<'a>(
 
         // Custom keywords are stashed on the task's orig_keyword
         // column (v0.7.12) so the writer can round-trip them
-        // unchanged. The keyword itself sits at TODO sentinel
-        // because Atrium's domain model only knows three
+        // unchanged. The keyword itself sits at TODO/DONE
+        // sentinel because Atrium's domain model only knows two
         // canonical states; the orig_keyword column carries the
-        // original text. When v0.7.13's writer revision lands,
-        // emitting this task to Org will use orig_keyword as the
-        // headline keyword.
+        // original text.
+        //
+        // v0.7.17 — CANCELLED is also stashed since Atrium's
+        // completed_at column doesn't distinguish "done" from
+        // "cancelled"; without orig_keyword preservation a
+        // CANCELLED task round-trips back as DONE. The writer
+        // checks orig_keyword first when picking the headline
+        // keyword, so this lands cleanly.
         let is_done = matches!(keyword, OrgKeyword::Done | OrgKeyword::Cancelled);
-        let orig_keyword = if let OrgKeyword::Custom(name) = keyword {
-            Some(name.clone())
-        } else {
-            None
+        let orig_keyword = match keyword {
+            OrgKeyword::Custom(name) => Some(name.clone()),
+            OrgKeyword::Cancelled => Some("CANCELLED".to_string()),
+            _ => None,
         };
 
         // Property-derived fields. We pull each defensively so
@@ -438,14 +443,15 @@ fn import_task<'a>(
         let scheduled_for = org.scheduled.map(ScheduledFor::Date);
         let id_property = org.properties.get("ID").cloned();
 
-        if let Some(closed_at) = org.closed
-            && is_done
-        {
-            summary.lossy.push(format!(
-                "task “{}”: CLOSED timestamp ({}) not preserved — completed_at will be set to now() on import",
-                org.title, closed_at
-            ));
-        }
+        // v0.7.17 — DONE / CANCELLED tasks now thread the source
+        // CLOSED cookie through to NewTask.completed_at so the
+        // round-trip preserves the exact completion timestamp.
+        // The earlier toggle_complete-after-create path stamped
+        // `now()`, which broke the round-trip on completed
+        // tasks; now the worker inserts with completed_at set
+        // directly when the source vault file specifies a CLOSED
+        // cookie. No lossy note needed for the common case.
+        let completed_at_for_insert = if is_done { org.closed } else { None };
 
         let new = NewTask {
             title: org.title.clone(),
@@ -460,6 +466,7 @@ fn import_task<'a>(
             repeat_mode: None,
             uuid: id_property,
             orig_keyword,
+            completed_at: completed_at_for_insert,
         };
         let created = handle.create_task(new).await?;
         summary.tasks_created += 1;
@@ -476,11 +483,12 @@ fn import_task<'a>(
             handle.set_task_tags(created.id, tag_ids).await?;
         }
 
-        // DONE / CANCELLED tasks get toggled to completed
-        // afterwards. v0.7.10 will add a worker path that lets
-        // the caller pass completed_at directly so the original
-        // CLOSED timestamp survives.
-        if is_done {
+        // DONE / CANCELLED tasks where the source had no CLOSED
+        // cookie still need to be marked complete. NewTask
+        // already inserted with completed_at set when the source
+        // had a CLOSED cookie (v0.7.17 path); only toggle when
+        // we need the worker to fill in `now()`.
+        if is_done && completed_at_for_insert.is_none() {
             handle.toggle_complete(created.id).await?;
         }
 

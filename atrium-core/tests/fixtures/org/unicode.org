@@ -1,0 +1,30 @@
+#+TITLE: Multilingual Test
+
+* TODO 研究プロジェクトを始める :japanese:
+SCHEDULED: <2026-05-15 Fri>
+:PROPERTIES:
+:ID: uni00001-0000-0000-0000-000000000000
+:END:
+日本語のメモが少しある。
+
+* TODO Перевести описание :russian:
+:PROPERTIES:
+:ID: uni00002-0000-0000-0000-000000000000
+:END:
+Текст на русском языке.
+
+* TODO Buy milk 🥛 :errand:emoji:
+:PROPERTIES:
+:ID: uni00003-0000-0000-0000-000000000000
+:END:
+
+* DONE 完成済みタスク
+CLOSED: [2026-05-01 Fri 09:30]
+:PROPERTIES:
+:ID: uni00004-0000-0000-0000-000000000000
+:END:
+
+* TODO Mixed café and résumé :accents:
+:PROPERTIES:
+:ID: uni00005-0000-0000-0000-000000000000
+:END:

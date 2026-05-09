@@ -1,0 +1,39 @@
+#+TITLE: Q3 Kitchen Sink
+:PROPERTIES:
+:ID: 11111111-2222-3333-4444-555555555555
+:SEQUENTIAL: t
+:REVIEW_INTERVAL: 14
+:END:
+
+* TODO Email João about the contract :work:client:
+SCHEDULED: <2026-05-15 Fri ++1w> DEADLINE: <2026-05-22 Fri>
+:PROPERTIES:
+:ID: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+:EFFORT: 0:45
+:END:
+Need to follow up on the contract terms.
+
+Open questions:
+  - Pricing tier
+  - Renewal date
+
+* DONE Refactor the dashboard module :work:refactor:
+CLOSED: [2026-05-08 Fri 14:22]
+:PROPERTIES:
+:ID: 22222222-3333-4444-5555-666666666666
+:END:
+** DONE Subtask one
+CLOSED: [2026-05-07 Thu]
+:PROPERTIES:
+:ID: 33333333-4444-5555-6666-777777777777
+:END:
+** DONE Subtask two
+CLOSED: [2026-05-08 Fri 09:00]
+:PROPERTIES:
+:ID: 44444444-5555-6666-7777-888888888888
+:END:
+
+* TODO Sibling project audit
+:PROPERTIES:
+:ID: 55555555-6666-7777-8888-999999999999
+:END:

@@ -90,6 +90,28 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.17" date="2026-05-09">
+      <description>
+        <p>Round-trip test fixture + two importer fixes. Twelfth
+           patch on the Phase 16 arc. Five complicated .org
+           files (kitchen_sink, custom_keywords, deep_nesting,
+           project_metadata, unicode) round-trip through the
+           full importer + writer + parser pipeline, asserting
+           AST equality between source and regenerated trees.</p>
+        <p>The fixture surfaced two real importer gaps that
+           v0.7.17 fixes: NewTask gains completed_at:
+           Option&lt;DateTime&gt; so the importer threads source
+           CLOSED cookies through verbatim instead of stamping
+           now(); CANCELLED keywords now stash in orig_keyword
+           so they survive the round-trip (Atrium's domain has
+           TODO / DONE only; the orig_keyword anchor preserves
+           the original label).</p>
+        <p>582 tests green (up 5 from v0.7.16). Pure additive
+           change; no schema, no new dependencies. v0.7.18
+           wires the GUI vault integration; v0.8.0 stamps the
+           arc.</p>
+      </description>
+    </release>
     <release version="0.7.16" date="2026-05-09">
       <description>
         <p>Auto-debounced worker write hook (DB → vault). The

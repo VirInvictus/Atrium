@@ -1,0 +1,34 @@
+#+TITLE: Custom Keyword Suite
+
+* WAITING External legal signoff :legal:
+:PROPERTIES:
+:ID: 11111111-aaaa-aaaa-aaaa-111111111111
+:END:
+
+* BLOCKED Backend API stub :work:
+:PROPERTIES:
+:ID: 11111111-aaaa-aaaa-aaaa-222222222222
+:END:
+
+* IN-PROGRESS Migrate the schema :work:
+SCHEDULED: <2026-05-20 Wed>
+:PROPERTIES:
+:ID: 11111111-aaaa-aaaa-aaaa-333333333333
+:END:
+
+* TODO Plain task
+:PROPERTIES:
+:ID: 11111111-aaaa-aaaa-aaaa-444444444444
+:END:
+
+* DONE Plain done task
+CLOSED: [2026-05-01 Fri]
+:PROPERTIES:
+:ID: 11111111-aaaa-aaaa-aaaa-555555555555
+:END:
+
+* CANCELLED Plain cancelled task
+CLOSED: [2026-04-15 Wed]
+:PROPERTIES:
+:ID: 11111111-aaaa-aaaa-aaaa-666666666666
+:END:
