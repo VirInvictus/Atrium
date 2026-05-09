@@ -446,25 +446,29 @@ window.atrium-debug-pane {
   margin-bottom: 4px;
 }
 
-/* v0.3.0 — Builder Mode Inspector pane treatment. The pane lives in
- * the OverlaySplitView's right-side sidebar (data/window.ui). Adds
- * a subtle left border so the pane reads as a separate sheet of
- * paper rather than a continuation of the main list, plus
- * slightly more breathing room around the prefs groups.
+/* v0.3.0 → v0.7.0 → v0.7.1 — Builder Mode Inspector pane.
  *
- * v0.7.0 — added a mirror of the sidebar's atmospheric gradient
- * (`-20deg` instead of `160deg` so the warm corner is on the
- * opposite top edge). The two side panels now flank a neutral
- * content area; the eye reads three connected spaces instead of
- * one rectangle bisected by hard verticals. Same alpha as the
- * sidebar so the symmetry is felt, not noticed. */
+ * v0.3.0 lifted the surface with a left border + extra padding.
+ * v0.7.0 added a -20deg accent gradient mirroring the sidebar's.
+ * Both versions hit the same banding problem the sidebar did —
+ * the gradient painted only on the AdwPreferencesPage and not
+ * on the page's child cards, breaking the surface into stacked
+ * tones.
+ *
+ * v0.7.1 mirrors the v0.7.1 sidebar fix: a flat low-alpha
+ * accent tint applies to the whole inspector pane and the
+ * inner cards / lists become transparent so the tint flows
+ * uniformly. The directional accent is gone; what remains is
+ * "this side of the window has a slightly warmer surface" —
+ * enough to distinguish the inspector from the neutral content
+ * area without any visible boundary inside the surface. */
 .atrium-inspector-pane {
   border-left: 1px solid alpha(@borders, 0.4);
-  background-image: linear-gradient(
-    -20deg,
-    alpha(@accent_color, 0.05) 0%,
-    alpha(@accent_color, 0) 60%
-  );
+  background-color: alpha(@accent_color, 0.04);
+}
+.atrium-inspector-pane scrolledwindow,
+.atrium-inspector-pane viewport {
+  background: transparent;
 }
 .atrium-inspector-pane > scrolledwindow > viewport > clamp {
   padding: 12px;
@@ -549,33 +553,47 @@ window.atrium-debug-pane {
  * etc.) so light / dark / high-contrast themes stay in lockstep.
  * ============================================================================ */
 
-/* Sidebar gets a hair of accent warmth. The diagonal gradient is
- * almost invisible on its own; what it does is separate the sidebar
- * from the main content so the eye knows where one ends and the
- * other begins, without forcing a hard divider.
+/* v0.6.10 → v0.7.0 → v0.7.1 — sidebar atmospheric tone.
  *
- * v0.7.0 — alpha bumped 0.025 → 0.05 so the sidebar reads as a
- * distinctly atmospheric surface paired with the inspector's
- * matching gradient on the opposite edge. Still well under what
- * a stock libadwaita theme would call a "card." */
-listview.navigation-sidebar,
-.navigation-sidebar {
-  background-image: linear-gradient(
-    160deg,
-    alpha(@accent_color, 0.05) 0%,
-    alpha(@accent_color, 0) 60%
-  );
+ * v0.6.10 added a 160deg accent gradient to the listbox surface;
+ * v0.7.0 bumped its alpha. Both painted only on the listbox area
+ * — not on the headerbar or filter entry above it — so the
+ * sidebar read as three stacked bands of different tones.
+ *
+ * v0.7.1 retires the gradient. The atmospheric effect now comes
+ * from a flat low-alpha accent tint applied to the whole sidebar
+ * pane (`.atrium-sidebar-pane` on the AdwToolbarView) with the
+ * inner widgets (headerbar, search entry, scrolled-window,
+ * listbox) made transparent so the tint flows continuously
+ * through the surface. No bands, no gradient direction; just a
+ * uniformly warmer surface that distinguishes the sidebar from
+ * the neutral content area without breaking. */
+.atrium-sidebar-pane {
+  background-color: alpha(@accent_color, 0.04);
+}
+.atrium-sidebar-pane > windowhandle,
+.atrium-sidebar-pane scrolledwindow,
+.atrium-sidebar-pane listbox.navigation-sidebar,
+listbox.navigation-sidebar {
+  background: transparent;
 }
 
-/* Header bars pick up a whisper of accent on the leading edge.
- * Same idea — the bar is otherwise a uniform grey strap; the
- * gradient gives a directional cue without covering any controls. */
-headerbar {
-  background-image: linear-gradient(
-    to right,
-    alpha(@accent_color, 0.04),
-    alpha(@accent_color, 0) 35%
-  );
+/* v0.6.10 → v0.7.1 — header bars no longer carry their own accent
+ * gradient. The v0.6.10 rule painted a leading-edge accent on
+ * every headerbar in the app; once v0.7.0 added the sidebar +
+ * inspector surface gradients, the headerbars sat on top as a
+ * separate accent layer with its own bg-color, breaking the
+ * surface into stacked horizontal slabs (Brandon: "the random
+ * breaks of colour bother me").
+ *
+ * Surface gradients now do the atmospheric work; the headerbars
+ * become transparent so the surface flows behind them. The
+ * `.atrium-main-toolbar headerbar` selector below scopes this to
+ * the main-window AdwToolbarView, leaving the Memory Watch and
+ * other dialog headerbars to inherit Adwaita's normal treatment. */
+.atrium-main-toolbar headerbar {
+  background: transparent;
+  box-shadow: none;
 }
 
 /* v0.7.0 — magazine-spread page title strip (page_title_strip in

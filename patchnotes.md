@@ -1,5 +1,60 @@
 # Atrium — Patch Notes
 
+## v0.7.1 (2026-05-08) — Surface continuity (kill the colour breaking)
+
+Brandon's first reaction to v0.7.0: the magazine-spread title
+landed, but the upper-left corner now showed visible "colour
+breaking" — distinct horizontal bands of tone where the headerbar,
+filter entry, and listbox met. Three things were stacking
+unhelpfully:
+
+1. The v0.6.10 standalone `headerbar` accent gradient — painted a
+   leading-edge accent on every headerbar in the app, including
+   the inner sidebar + content headerbars.
+2. The libadwaita-default headerbar background — the inner
+   headerbars had their own elevated bg-color sitting on top of
+   whatever surface I'd painted underneath.
+3. The v0.7.0 surface gradients — applied only to the inner
+   widgets (`.navigation-sidebar` listbox, `.atrium-inspector-pane`
+   PreferencesPage), not to the headerbar / filter / scrolled-window
+   above them. The atmospheric tint started mid-surface, leaving
+   a visible band where it began.
+
+v0.7.1 simplifies all three:
+
+- **Drop the v0.6.10 standalone headerbar gradient.** Surface
+  gradients do the atmospheric work now; the headerbar layer was
+  redundant. Replaced with a scoped `.atrium-main-toolbar
+  headerbar { background: transparent; box-shadow: none; }` rule
+  so the surface flows continuously behind the headerbars.
+- **Replace the v0.7.0 directional surface gradients with a flat
+  per-pane tint.** The 160deg / -20deg gradients were painting
+  banded tones across surfaces; the flat
+  `background-color: alpha(@accent_color, 0.04)` paints a uniform
+  warmer tone across the whole sidebar / inspector. No bands.
+- **Move the tint from the inner widget to the whole pane.** Class
+  `.atrium-sidebar-pane` on the sidebar's AdwToolbarView (so the
+  tint covers the headerbar area, the filter entry, and the
+  listbox in one continuous fill); the inner widgets are made
+  transparent so the parent's tint shows through. Same for
+  `.atrium-inspector-pane`.
+
+Net effect: the upper-left corner is no longer three stacked
+horizontal bands of slightly different tone. The sidebar reads as
+one continuous warmer surface from the top of the window down.
+Same for the inspector on the opposite side. The neutral content
+area in between is the calm centre.
+
+Sacrifice: the directional gradient (warm at the corners, fading
+toward the centre) is gone. v0.7.0's "OF4-atmospheric" was
+ambitious; the flat tint is more "Things-3-calm" — uniform tone
+distinguishing the panes by hue rather than by gradient drama.
+The visible-banding cost wasn't worth the directional warmth.
+
+Pure CSS + window.ui patch. No code changes. All 505 tests still
+green. VERSION / Cargo.toml / patchnotes / AppStream metainfo
+bump to **0.7.1**.
+
 ## v0.7.0 (2026-05-08) — Visual fusion + whitespace pass
 
 The first big polish minor of the v0.7 line. Addresses Brandon's

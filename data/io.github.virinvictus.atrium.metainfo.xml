@@ -90,6 +90,34 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.1" date="2026-05-08">
+      <description>
+        <p>Surface continuity patch — kills the visible
+           "colour breaking" Brandon flagged after v0.7.0. The
+           upper-left corner showed three stacked horizontal
+           bands of slightly different tone where the headerbar,
+           filter entry, and listbox met. Three things were
+           stacking: the v0.6.10 headerbar accent gradient
+           (still painting on every headerbar), the libadwaita-
+           default elevated headerbar bg, and the v0.7.0
+           directional surface gradients (which painted only on
+           the inner widgets, not on the headerbar above).</p>
+        <p>v0.7.1 retires the standalone headerbar gradient,
+           flattens the main-window headerbars to transparent
+           so the surface flows behind them, and replaces the
+           directional 160deg / -20deg gradients with a flat
+           low-alpha accent tint applied to the whole sidebar /
+           inspector pane. Inner widgets become transparent so
+           the tint shows through continuously. The sidebar now
+           reads as one warmer surface from top to bottom, the
+           inspector mirrors it on the opposite side, and the
+           neutral content area is the calm centre. No bands.</p>
+        <p>Trade-off: the directional gradient is gone. The
+           flat tint is more Things-3-calm than OF4-atmospheric.
+           The visible-banding cost wasn't worth the directional
+           warmth. Pure CSS + window.ui patch; no code changes.</p>
+      </description>
+    </release>
     <release version="0.7.0" date="2026-05-08">
       <description>
         <p>Visual fusion + whitespace pass. Addresses a

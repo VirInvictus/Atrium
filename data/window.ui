@@ -10,6 +10,14 @@
 
     <property name="content">
       <object class="AdwToolbarView">
+        <!-- v0.7.1 — class scopes the headerbar-flattening CSS
+             rule (.atrium-main-toolbar headerbar { background:
+             transparent; … }) to just this window. Memory Watch
+             and Quick Entry have their own AdwWindows and inherit
+             Adwaita's normal headerbar styling. -->
+        <style>
+          <class name="atrium-main-toolbar"/>
+        </style>
         <child type="top">
           <object class="AdwHeaderBar">
             <child type="end">
@@ -54,6 +62,14 @@
                 <property name="title" translatable="yes">Lists</property>
                 <property name="child">
                   <object class="AdwToolbarView">
+                    <!-- v0.7.1 — class scopes the sidebar's flat
+                         atmospheric tint (.atrium-sidebar-pane in
+                         data/style.css) to the whole surface so
+                         the headerbar, filter entry, and listbox
+                         all share one continuous tone. -->
+                    <style>
+                      <class name="atrium-sidebar-pane"/>
+                    </style>
                     <child type="top">
                       <object class="AdwHeaderBar">
                         <property name="show-end-title-buttons">false</property>
