@@ -29,17 +29,17 @@
 //!    :LAST_REVIEWED:, :ARCHIVED:, :ORIG_KEYWORD:) live in the
 //!    [`OrgTask::properties`] HashMap and round-trip cleanly.
 //!
-//! Limitations the parser explicitly *doesn't* try to handle in
-//! v0.7.7 (deferred to follow-up patches):
+//! Known limits:
 //!
-//! - Multi-line property values.
-//! - Active-timestamp time-of-day (we keep the date, drop the
-//!   `HH:MM`). Atrium's `scheduled_for` is date-only.
-//! - Multiple cookies on the same line — handled, but unusual
-//!   layouts (cookies before keywords, etc.) aren't pattern-
-//!   matched.
-//! - File-level `#+TITLE:` and other affixes — tracked separately
-//!   in v0.7.8 when the importer needs the project title.
+//! - **Property drawer values are single-line.** Multi-line
+//!   `:KEY: ...` continuations aren't recognised. None of
+//!   Atrium's modeled properties need them.
+//! - **Active timestamps lose time-of-day.** `<2026-05-15 Fri 14:00>`
+//!   parses as the date `2026-05-15`. Atrium's `scheduled_for` is
+//!   date-only by design.
+//! - **Headline layout is rigid.** Stars, keyword, title, tags,
+//!   in that order. Cookies-before-keyword and other unusual
+//!   shapes aren't pattern-matched.
 
 use std::collections::HashMap;
 use std::fs;

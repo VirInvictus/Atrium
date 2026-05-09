@@ -40,21 +40,15 @@
 //! | `defer_until` | `:DEFER_UNTIL:` property in `YYYY-MM-DD` |
 //! | `parent_id` chain | nested headlines |
 //!
-//! # Limitations (deferred to v0.7.11+)
+//! # Known limits
 //!
-//! - Project sub-headings (the `heading` table) aren't emitted.
-//!   Headings without a TODO keyword lose their identity on
-//!   round-trip — they round-trip as the importer's
-//!   `headings_skipped` count grows on each cycle. The full
-//!   round-trip fixture in v0.8.0 will gate the gap.
-//! - Custom keywords (`WAITING`, etc.) round-trip back to TODO
-//!   for now. The `:ORIG_KEYWORD:` machinery is documented in
-//!   spec §7.3.3 rule 1; the writer will honour it once the
-//!   importer captures it (currently folds to TODO).
-//! - File-level project metadata (`#+TITLE:`, `:SEQUENTIAL:`,
-//!   `:REVIEW_INTERVAL:`, `:LAST_REVIEWED:`, `:ARCHIVED:`) are
-//!   not yet emitted. v0.7.11 adds these so the writer + importer
-//!   can round-trip project-level fields cleanly.
+//! - Project sub-headings (the `heading` table) aren't emitted as
+//!   non-TODO Org headlines on writeback. The importer counts
+//!   them in `ImportSummary::headings_skipped`; round-tripping
+//!   them through the `heading` table is roadmap.md §17 follow-up
+//!   work. The structural impact is limited because the writer
+//!   re-emits each project's tasks in `position` order — the file
+//!   stays readable, just flatter than the source.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

@@ -7,6 +7,9 @@
 //! (the Atrium analogue of an Org project file per spec §7.3.1);
 //! every TODO-keyworded headline becomes a Task; subtask nesting
 //! (deeper headlines) maps onto Atrium's `parent_id` column.
+//! [`import_org_directory`] walks a vault root and routes each
+//! `.org` file through the single-file path, mapping subdirectories
+//! onto Atrium areas via `WorkerHandle::ensure_area`.
 //!
 //! # Field mapping (spec §7.3.2)
 //!
@@ -14,37 +17,37 @@
 //! |---|---|
 //! | Filename / `#+TITLE:` | Project.title |
 //! | TODO keyword | (open task) |
-//! | DONE / CANCELLED | toggle_complete after create — completed_at = now |
-//! | Custom keyword | open task; original noted in lossy |
+//! | DONE / CANCELLED | `completed_at` from CLOSED cookie when present, else `now()` |
+//! | Custom keyword | open task; original stashed in `task.orig_keyword` |
 //! | Headline | Task.title |
 //! | Headline `:tags:` | Atrium tags via ensure_tag |
 //! | Body | Task.note |
 //! | SCHEDULED | Task.scheduled_for |
 //! | DEADLINE | Task.deadline |
-//! | CLOSED | (deferred: completed_at preservation lands in v0.7.10) |
+//! | CLOSED | Task.completed_at (threaded through `NewTask.completed_at`) |
 //! | `:ID:` | Task.uuid |
 //! | `:RRULE:` | Task.repeat_rule (verbatim) |
-//! | `:EFFORT:` | Task.estimated_minutes (M:SS or "Mm") |
+//! | `:EFFORT:` | Task.estimated_minutes (`H:MM` or `Mm` / `Hh` / `HhMm`) |
 //! | `:DEFER_UNTIL:` | Task.defer_until |
 //!
-//! # Limitations
+//! # Known limits
 //!
-//! - Single-file import only. Multi-file vault walk lands in a
-//!   later patch.
 //! - Project sub-headings (headlines without a TODO keyword)
-//!   are skipped with a count in `ImportSummary::headings_skipped`.
-//!   The `heading` table writer follows in v0.7.10+.
-//! - DONE / CANCELLED tasks have `completed_at = now()`, not the
-//!   CLOSED cookie's timestamp. v0.7.10 will add a worker path
-//!   for caller-provided completed_at.
-//! - Repeater suffixes on SCHEDULED / DEADLINE are recorded but
-//!   not converted to RFC 5545 RRULE. Use `:RRULE:` for canonical
-//!   round-trips.
-//! - `:CREATED:` / `:MODIFIED:` properties don't override
-//!   the schema-auto-set timestamps.
+//!   pass through transparently — children import at the parent
+//!   level and the heading itself is counted in
+//!   `ImportSummary::headings_skipped`. Writing them back through
+//!   the `heading` table is roadmap.md §17 follow-up work.
+//! - Repeater suffixes on SCHEDULED / DEADLINE round-trip via
+//!   `OrgRepeater` but are not converted to RFC 5545 RRULE. Set
+//!   `:RRULE:` in the source file for canonical round-trips;
+//!   spec §7.3.3 rule 3 makes `:RRULE:` canonical.
+//! - `:CREATED:` / `:MODIFIED:` properties don't override the
+//!   schema-auto-set timestamps. The `WHEN old=new` triggers in
+//!   `0001_initial.sql` would honour an explicit write, but the
+//!   importer doesn't supply one.
 //!
-//! Re-imports always create new rows. The full bidirectional
-//! sync (Phase 17) handles upsert-by-`:ID:`.
+//! Re-imports always create new rows. Upsert-by-`:ID:` is the
+//! [`crate::vault_watcher`] path (Phase 17), not the importer.
 
 use std::path::Path;
 

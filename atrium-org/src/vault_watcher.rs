@@ -144,23 +144,28 @@ impl VaultWatcher {
 
     async fn process_file(&self, path: &Path) -> Result<(), DbError> {
         if !path.exists() {
-            // External delete handling lands at v0.10.1 alongside
-            // conflict detection. v0.10.0 logs and moves on.
+            // File-level removal (the user `rm`'s a `.org` file or
+            // moves it out of the vault) is roadmap.md §17 follow-up
+            // work. Per-task removal — a headline deleted from a
+            // file that still exists — already round-trips via
+            // `diff_and_apply`'s "in DB but not in parsed → delete"
+            // branch.
             trace!(
                 path = %path.display(),
-                "vault watcher: file removed (deletion handling deferred)"
+                "vault watcher: file removed; per-file deletion not yet wired"
             );
             return Ok(());
         }
         let parsed = match parse_org_file_with_meta(path) {
             Ok(f) => f,
             Err(e) => {
-                // Malformed-file pause/resume lands at v0.10.2.
-                // v0.10.0 surfaces the warning and drops the event.
+                // Pause/resume on malformed files is roadmap.md §17
+                // follow-up work. Today we warn and let the next
+                // event re-attempt the parse.
                 warn!(
                     path = %path.display(),
                     error = %e,
-                    "vault watcher: parse failed (event dropped)"
+                    "vault watcher: parse failed; event dropped"
                 );
                 return Ok(());
             }
@@ -284,10 +289,12 @@ impl VaultWatcher {
         project_id: i64,
         parsed: &OrgFile,
     ) -> Result<(), DbError> {
-        // For now, only sync the title from #+TITLE: if it changed.
-        // Other project metadata (sequential, review_interval_days,
-        // archived_at) is round-tripped via file_properties; richer
-        // sync lands in a follow-up.
+        // Title-only sync today — `#+TITLE:` flows back when it
+        // changes. The other file-level fields (`:SEQUENTIAL:`,
+        // `:REVIEW_INTERVAL:`, `:LAST_REVIEWED:`, `:ARCHIVED:`)
+        // round-trip on import, but we don't pick up their
+        // mutations from external edits yet. roadmap.md §17
+        // follow-up.
         let parsed_title = match parsed.directives.get("TITLE") {
             Some(t) => t.clone(),
             None => return Ok(()),

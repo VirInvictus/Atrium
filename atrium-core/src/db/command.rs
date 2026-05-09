@@ -16,9 +16,17 @@ use crate::domain::{
 };
 use crate::error::DbError;
 
-/// Library-side commands grow alongside Simple Mode CRUD: tasks land
-/// in Phase 2; areas / projects land in Phase 5b. Heading commands
-/// follow in Phase 5.5 with the Inspector pane.
+/// Write commands the worker accepts. Reads bypass this enum
+/// entirely — they go through the read-only connection pool and
+/// the free functions in [`super::read`].
+///
+/// Headings (the project subdivision rows in `heading`) don't have
+/// Command variants today: in Simple Mode the GUI renders them
+/// inline as section breaks, and the Org importer / writer
+/// round-trips them via the `heading` table directly through the
+/// writable connection during a one-shot import. Wiring through
+/// the worker would cost an mpsc round-trip per heading on import
+/// for no behavioural difference.
 pub enum Command {
     // ── Tasks (Phase 2) ─────────────────────────────────────────
     CreateTask {

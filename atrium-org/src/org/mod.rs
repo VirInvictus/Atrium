@@ -14,11 +14,8 @@
 //!
 //! No third-party crates; the parser fits the CalibreQuarry
 //! stdlib-only ethos. See CLAUDE.md's dependency-discipline
-//! section + the v0.7.6 patchnotes for the full reasoning behind
-//! choosing this over `orgize` / `starsector`.
-//!
-//! v0.7.7 ships the parser + tests. The emitter, importer, and
-//! writer follow in v0.7.8+.
+//! section for the full reasoning behind choosing this over
+//! `orgize` / `starsector`.
 
 mod emit;
 mod import;
