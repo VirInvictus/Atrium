@@ -10,23 +10,27 @@
 
 ## 1. Mission Statement
 
-Atrium is a native GNOME task manager that fuses Things 3's clarity with OmniFocus's depth into a single application via a **mode switch over a shared data store**. Users pick the cognitive load that matches their day — Simple Mode for *what am I doing right now*, Builder Mode for full GTD review, deferral, sequential projects, and forecast — without migrating data.
+Atrium is a native GNOME task manager that synthesises four traditions into one application: **Org-mode's data discipline** (UUIDs everywhere, plain-text round-trip, three repeater semantics, contexts-as-tags, full bidirectional vault mirror), **Things 3's calm** (six canonical lists, deliberate omission, the `When`/`Deadline` distinction), **OmniFocus's depth** (defer dates, sequential projects, forecast, review queues, perspectives), and **Calibre's search vocabulary** (boolean expression grammar, regex match modifiers, `is:` predicates, sort modifiers, date keywords). The synthesis isn't a clone of any one of them — it's the first GNOME-native productivity app that lets a user keep all four conventions on tap from the same data store.
 
-Design philosophy: **One Store, Two Surfaces.** Tasks created in Simple Mode are real tasks with empty Builder fields. Builder Mode picks them up without conversion. The user can flip back without losing work. The app is local-first, no sync, no cloud, no telemetry.
+Two surfaces over one store. **Simple Mode** for *what am I doing right now* — Things calm, no defer dates, no review queue, six canonical lists, the visible features chosen for attention discipline rather than feature-completeness. **Builder Mode** for the days the system needs to do the work — Forecast, Review, Perspectives, repeating tasks, sequential projects, the always-visible Inspector pane, the full Org-mode bidirectional mirror. Same schema, same rows; mode is a UI-layer flip that never touches the database.
 
-The two source apps fail in opposite ways: Things 3 makes you outgrow it, OmniFocus makes you procrastinate by adjusting fields instead of doing tasks. Atrium's pitch is that a user can grow into Builder Mode when their system demands it without abandoning the calmer Simple Mode for the days when their system doesn't.
+Design philosophy: **One Store, Many Surfaces.** Tasks created in Simple Mode are real tasks with empty Builder fields. Builder Mode picks them up without conversion. An Org vault, when configured, is a downstream projection — readable in stock `org-agenda`, Doom, vim-orgmode — that round-trips bidirectionally without losing data Atrium doesn't surface. The CLI (`atrium-cli`) is a fourth surface; the post-1.0 TUI (`atrium-tui`) will be a fifth. The app is local-first, no sync, no cloud, no telemetry.
+
+The four source traditions fail in opposite ways. Things makes you outgrow it (no defer dates, no sequential projects, no forecast). OmniFocus makes you procrastinate by adjusting fields instead of doing tasks. Org-mode makes you live in Emacs. Calibre's search vocabulary doesn't apply outside e-book libraries. Atrium's pitch: each of these four is at its best when complementing the others. A user grows into Builder Mode when the system demands it, falls back to Simple Mode when it doesn't, opens an Org vault for plain-text discipline when they want it, and types `tag:work AND is:overdue sort:-due` when they need to find something — all without abandoning their data, their app, or their attention.
 
 ---
 
 ## 2. Core Mandates
 
-- **Local-first.** SQLite at `$XDG_DATA_HOME/atrium/atrium.db`. No remote backend.
+- **Local-first.** SQLite at `$XDG_DATA_HOME/atrium/atrium.db`. No remote backend, no cloud sync, no telemetry, no accounts.
 - **Native GNOME.** GTK4 + libadwaita 1.7+. No web tech in the UI surface.
 - **Performance.** 10,000 tasks render at the same speed as 100. Single-writer SQLite worker; UI thread never blocks on I/O.
 - **Mode-as-view.** Mode is a per-app preference. Schema and data are universal. Builder fields exist on every task; Simple Mode hides them.
+- **Headless surfaces stay scriptable.** The data layer (`atrium-core`), search engine (`atrium-search`), and Org projection (`atrium-org`) are GUI-free. `atrium-cli` exposes them; the post-1.0 TUI (`atrium-tui`) and Phase 20 capture daemon (`atriumd`) reuse the same crates without dragging GTK along.
 - **Quick Entry sacred.** Capture is one shortcut, one keystroke. Quick Entry is identical in both modes.
 - **No data loss on mode switch.** Round-trip Simple → Builder → Simple preserves everything Builder set.
-- **Plain-text interop.** Org-mode is a first-class import *and* export target — Atrium does not silo your data.
+- **Plain-text interop is bidirectional.** Org-mode is a first-class *peer* — import, export, and live two-way vault sync. Atrium does not silo your data, and edits made in Emacs against the vault flow back into the SQLite store.
+- **Search expressivity matches Calibre.** The full boolean grammar is available everywhere search runs — saved Perspectives, the search bar, the CLI, the SQL fast-path. Power users get power; casual users see a search box.
 
 ---
 
@@ -107,11 +111,11 @@ Vault layout: `<vault>/<Area>/<Project>.org`, with `inbox.org` at the vault root
 
 Three documented limitations:
 
-1. **Complex `repeat_rule` values** beyond Org's repeater syntax (`+1w` / `++1w` / `.+1w`) are stored verbatim in `:RRULE:` and rendered as a best-effort approximation in the SCHEDULED cookie. Editing a complex repeat in Emacs may lose precision; simple repeats round-trip cleanly.
+1. **`task.repeat_rule` is canonical RFC 5545 RRULE.** Org's native repeater syntax (`+1w` / `++1w` / `.+1w`) only encodes interval — it can't express multi-weekday patterns (`BYDAY=MO,WE`) or month-day-of-month patterns (`BYMONTHDAY=1`) that Atrium and Todoist support. The vault writer therefore emits **both**: a best-fit Org cookie on the SCHEDULED line so stock `org-agenda` surfaces a sensible repeat, and the full canonical RRULE in the task's `:PROPERTIES:` drawer (`:RRULE: FREQ=WEEKLY;BYDAY=MO,WE`). On read-back, `:RRULE:` wins; if the SCHEDULED cookie diverged from `:RRULE:` (the user retuned the cookie in Emacs), the divergence is logged + toasted, the file is rewritten so the cookie matches the canonical RRULE, and DB stays canonical. Multi-weekday repeats display incorrectly in stock `org-agenda` but round-trip losslessly through Atrium.
 2. **Atrium-only metadata** (tag colors, saved Perspectives, mode preference) lives in the sidecar. Other Org tools ignore it.
 3. **Unknown Org constructs** (custom keywords, drawers Atrium doesn't model, body content Atrium doesn't render) are preserved verbatim — never destroyed on round-trip.
 
-Read-only sync (DB → vault) plus one-shot import from existing Org libraries ships in Phase 17. Full two-way sync (vault → DB via inotify) ships in Phase 17.5.
+DB → vault writer + one-shot import from existing Org libraries shipped at Phase 16 / v0.8.0. Full two-way sync (vault → DB via `inotify`) ships in Phase 17. Phase 18.5 mines Org-mode's interaction patterns (CLOCK time tracking, LOGBOOK drawer, custom `:PROPERTIES:`, habit grid, statistics cookies, deadline warning windows, active/inactive timestamps) into Builder Mode's Inspector pane.
 
 ---
 

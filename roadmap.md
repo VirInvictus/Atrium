@@ -10,7 +10,7 @@ Twenty phases mapping the journey from empty repo to 1.0.
 
 - **Phases 0–9:** Simple Mode → **v0.1**
 - **Phases 10–15:** Builder Mode → **v0.2**. Phase 12.5 adds a Calendar Month View alongside Forecast (same data, different lens).
-- **Phases 16–19:** Import/export across Things 3, OmniFocus, Org-mode, Taskwarrior, Todoist, VTODO, todo.txt, TaskPaper. Phase 17 splits into 17 (one-shot import + DB → vault writes) and 17.5 (two-way `inotify`-driven sync).
+- **Phases 16–19:** Org-mode + Todoist + plain-text + VTODO interop. Phase 16 (one-shot import + DB → vault writer) shipped at v0.8.0; Phase 17 closes the loop with `inotify`-driven vault → DB sync. Phase 18.5 mines Org-mode's interaction patterns (CLOCK time tracking, LOGBOOK drawer, custom `:PROPERTIES:`, habit grid, statistics cookies, deadline warning windows, active/inactive timestamps) for Builder Mode's Inspector pane — features neither Things nor OmniFocus expose.
 - **Phase 20:** Polish, localisation, Flathub → **v1.0**
 
 Each phase ends with a `heaptrack` checkpoint against the §8 budget. Every phase that adds a third-party crate calls it out — *no third-party deps without prior sign-off*.
@@ -128,6 +128,13 @@ The full Phase 16 surface landed across the eleven-patch v0.7.6 → v0.7.18 arc;
 ## Phase 17: Two-Way Org Sync — Vault → DB (was 17.5)
 *Emacs / Doom / vim-orgmode edits flow back. Atrium's Agenda view and Emacs's `org-agenda` buffer both read the same source of truth; whichever you edit, the other catches up.*
 
+**RRULE canonicalisation contract** (lifted into Phase 17 because Phase 18's Todoist importer surfaces the same shape — see Phase 18). Atrium's `task.repeat_rule` is full RFC 5545 RRULE (via the `rrule` crate, sign-off granted Phase 15). Org's native repeater syntax (`+1w`, `++1w`, `.+1w`) only encodes interval — it can't represent multi-weekday patterns like `BYDAY=MO,WE` or month-day-of-month patterns like `BYMONTHDAY=1`. The vault writer therefore emits **both** representations on every repeating task:
+
+1. A best-fit Org repeater on the SCHEDULED cookie so stock `org-agenda` surfaces a sensible repeat. Single-weekday patterns (`BYDAY=SU`) are lossless: SCHEDULED on a Sunday + `+1w`. Multi-weekday or unusual patterns degrade to "nearest interval" — `org-agenda` shows the wrong frequency, but the task isn't broken.
+2. The full canonical RRULE in the task's `:PROPERTIES:` drawer (`:RRULE: FREQ=WEEKLY;BYDAY=MO,WE`). Stock `org-agenda` ignores it; Atrium re-parses it on read.
+
+The contract: **`:RRULE:` is canonical. Org cookie is best-fit projection.** When the user edits the SCHEDULED cookie in Emacs, divergence detection (see below) flags it; DB keeps the `:RRULE:` value.
+
 - [ ] **`inotify` watcher:** vault root + subdirectories; events debounced 200 ms.
 - [ ] **Self-write filter:** worker tracks `(file_path, mtime)` of its own writes briefly; matching events ignored so the loop doesn't echo.
 - [ ] **Reader → DB diff:** parse changed file; diff against DB by `:ID:`; submit INSERT/UPDATE/DELETE through the worker as TaskChanges.
@@ -135,9 +142,10 @@ The full Phase 16 surface landed across the eleven-patch v0.7.6 → v0.7.18 arc;
 - [ ] **Conflict detection:** mtime race → loser saved as `<file>.atrium.bak.<timestamp>`; UI toast surfaced. Never silent overwrite.
 - [ ] **Malformed-file handling:** parse failure → vault sync paused for that file, DB version preserved, toast surfaced; auto-resume when the file parses again.
 - [ ] **Custom-keyword + unknown-construct preservation:** verbatim round-trip per spec §7.3.3 rule 1.
-- [ ] **RRULE divergence detection:** SCHEDULED cookie semantically diverged from `:RRULE:` → surface in post-sync report; DB keeps the canonical RRULE.
+- [ ] **RRULE canonicalisation on emit:** writer emits both the best-fit Org cookie + the full `:RRULE:` property per the contract above. New helper `atrium_org::rrule_to_org_cookie(rrule, scheduled_for) -> String` returns the cookie; the property block already round-trips via the existing `:PROPERTIES:` drawer support. Three migration cases tested: weekly single-day, weekly multi-day, monthly day-of-month.
+- [ ] **RRULE divergence detection:** on read-back from the vault, when both `SCHEDULED <... +1w>` cookie and `:RRULE:` property are present, compare. If the cookie's reconstructed RRULE doesn't match the stored one, log a `tracing::warn`, surface a toast (*"Org cookie diverged from RRULE on task X — DB kept the RRULE"*), and write the file back so the cookie matches the canonical RRULE again. DB stays canonical; the user's Emacs edit either gets accepted (if the cookie was the only repeat representation) or flagged-and-overwritten (if the RRULE encoded something the cookie can't).
 - [ ] **Agenda parity acceptance test:** with a synthesised vault containing tasks across Today / Tomorrow / This Week / Next Week / Overdue, Atrium's Agenda canonical page and `M-x org-agenda` (built-in `t` view in stock Emacs) must surface the same task set under the same buckets. Visual style differs; semantic groupings agree.
-- [ ] **Test scenarios:** synthesized concurrent edit, malformed-file recovery, round-trip across all field types, large-file (1K-task project) parse latency.
+- [ ] **Test scenarios:** synthesized concurrent edit, malformed-file recovery, round-trip across all field types (incl. multi-day RRULE round-trip preserving `:RRULE:` through a vault write + read), large-file (1K-task project) parse latency.
 
 ## Phase 18: Todoist Import (was bundled into Phase 19)
 *The cross-platform productivity app most likely-to-migrate Linux user is leaving behind. Web client + Linux Electron app + paid sync; users have a real export path. Anchored to a real artifact: `Home.csv` from Brandon's Downloads — Rin's chore-tracker — is the gold-standard fixture this phase must round-trip cleanly.*
@@ -157,10 +165,43 @@ The `Home.csv` shape pins the format to test against:
 - [ ] **Format research:** done — Todoist CSV column set documented above. JSON via their API also available; CSV is the canonical input (no auth required), API path documented as alternative for power users with tokens.
 - [ ] **Importer module:** `atrium-cli/src/import/todoist.rs` (or `atrium-org`'s sibling crate post-extraction) — parser, mapper, dry-run mode. Mirror the `import org` ergonomics — `atrium-cli import todoist PATH [--dry-run]`.
 - [ ] **Mapping:** Projects → projects, `section` rows → headings, `task` rows → tasks, `INDENT` → `parent_id` chain, inline `@labels` → tags, `PRIORITY` (1-4) → `priority-N` tag (or numeric column when 19.5 lands), `DATE` → `scheduled_for` + `repeat_rule`, `DEADLINE` → `deadline`, `DESCRIPTION` → task note, `meta view_style=board` → board Perspective on the project.
-- [ ] **Natural-language recurrence parser:** dedicated module that handles Todoist's loose phrasing — singular/plural day/month, missing prepositions, typos like `Every 1stday`. Output is RRULE; failures preserved verbatim in the note + flagged in the post-import report.
+- [ ] **Natural-language recurrence parser:** dedicated module that handles Todoist's loose phrasing. Output is RFC 5545 RRULE per the canonicalisation contract documented in Phase 17 — `task.repeat_rule` is canonical; the Org vault projection emits a best-fit cookie + the full `:RRULE:` drawer property on write. Concrete mappings the parser must handle (driven by the `Home.csv` fixture):
+  - `Every Sunday at 10am` → `FREQ=WEEKLY;BYDAY=SU` + `scheduled_for` time `10:00`. Org cookie: `+1w`, scheduled on a Sunday.
+  - `Every Monday and Wednesday` → `FREQ=WEEKLY;BYDAY=MO,WE`. Org cookie: best-fit `+1w` from one of the days; canonical lives in `:RRULE:`. (Org-agenda shows wrong frequency; `:RRULE:` keeps Atrium correct.)
+  - `every 3 day at 9am` (typo: "day" not "days") → `FREQ=DAILY;INTERVAL=3` + scheduled time `09:00`. Org cookie: `+3d`.
+  - `every 3 month` (singular) → `FREQ=MONTHLY;INTERVAL=3`. Org cookie: `+3m`.
+  - `every month` → `FREQ=MONTHLY`. Org cookie: `+1m`.
+  - `Every 1stday` / `every 1st day` → `FREQ=MONTHLY;BYMONTHDAY=1`. Org cookie: best-fit `+1m`; canonical in `:RRULE:`.
+  - `every 3 weeks` → `FREQ=WEEKLY;INTERVAL=3`. Org cookie: `+3w`.
+  - `Every day at 9pm` → `FREQ=DAILY` + scheduled time `21:00`. Org cookie: `+1d`.
+  - `3 days ago at 15:00` → `scheduled_for` only (`now() - 3 days`); no `repeat_rule`. Past-dated single occurrence.
+
+  Failures preserved verbatim in the note + flagged in the post-import report (`unparseable recurrence: "<raw string>"`). The acceptance test asserts every `Home.csv` row parses non-lossily or shows up in the report.
 - [ ] **Conflict handling:** existing UUID match → update; no match → create. Todoist task IDs aren't UUIDv4 — wrap them in a deterministic v5 namespace so re-imports are stable.
 - [ ] **Post-import report:** counts, lossy fields surfaced (file attachments, reminders, recurring rules that didn't translate cleanly, AUTHOR/RESPONSIBLE drops), file-by-file log.
 - [ ] **Test fixtures:** sanitised `Home.csv` lands at `atrium-cli/tests/fixtures/todoist/home.csv` — author IDs scrubbed, content kept verbatim. Round-trip acceptance: every row in the source file maps to a non-lossy Atrium structure, or shows up in the lossy-fields report with a documented reason.
+
+## Phase 18.5: Org-mode power features for Builder Mode
+*Org-mode is a four-decade research project on what task data wants to look like. Atrium already speaks the data layer (UUIDs, schedule/deadline/closed cookies, repeaters, properties, headline tags, two-way vault). This phase mines the **interaction patterns** Org built on top of that data layer that neither Things nor OmniFocus expose, and brings them into Builder Mode's Inspector pane so the synthesis is visible, not just structural. Sequenced after Todoist (18) so the next minor wave delivers actually-novel UX, not catch-up work.*
+
+The acceptance test for the whole phase: a Builder Mode user can do at least one thing in Atrium that Things 3 + OmniFocus + Todoist users genuinely cannot, and that Org-mode-via-Emacs users will recognise as familiar. The seven features below clear that bar at different levels — pick the subset that ships per Brandon's prioritisation when the time comes.
+
+- [ ] **CLOCK time tracking (Org `org-clock-in` / `org-clock-out`).** Distinct from `estimated_minutes` (intent) — this records *actual* time spent, accumulated across multiple work sessions. New `task_clock` table (`task_id`, `started_at`, `ended_at` NULL when in-progress). Inspector pane gains a Start/Stop button + total time + per-session log. Round-trips to Org as `CLOCK: [start]--[end] => HH:MM` lines under a `:LOGBOOK:` drawer. *Source: Org-mode. Neither Things nor OF have native time tracking; OmniFocus Pro has estimates only.*
+- [ ] **LOGBOOK drawer — structured per-task changelog.** Org records every state change automatically: `- State "DONE" from "TODO" [2026-05-09 Sat 10:23]`. Atrium has `modified_at` (last-write timestamp) but no event log. New `task_event` table (`task_id`, `kind`, `from_value`, `to_value`, `at`); the worker emits an event row on every state-changing command. Inspector pane gains a "History" disclosure with the event timeline. Round-trips to Org as `:LOGBOOK:` drawer entries. *Source: Org-mode `org-log-into-drawer`.*
+- [ ] **Custom `:PROPERTIES:` per task.** Org's `:PROPERTIES:` drawer holds arbitrary key/value metadata per headline. Atrium already round-trips them via `unknown_lines` (per spec §7.3.3 rule 1) — they survive vault round-trips but aren't surfaced in the GUI. Inspector pane gains a "Custom fields" disclosure with editable key/value rows. Schema-free per task: any user can have project-specific metadata (`:URL:`, `:CLIENT:`, `:HOURLY_RATE:`) without a migration. *Source: Org-mode. No equivalent in Things, OF, or Todoist.*
+- [ ] **Habit grid (Org `STYLE: habit`).** Repeating tasks gain a small consistency-tracking widget: a 14-day grid showing which days the task was completed, with streak counter. Distinct from regular repeats — emphasises the pattern, not the next instance. New `task.is_habit BOOLEAN` column (additive migration). Inspector surfaces the grid only for tasks where `repeat_rule IS NOT NULL AND is_habit = TRUE`. Round-trips to Org as `:STYLE: habit:` property + the existing `:LAST_REPEAT:` cookie support. *Source: Org-mode habits.*
+- [ ] **DEADLINE warning windows (Org `-Nd`).** Org's deadline cookies accept a warning offset: `DEADLINE: <2026-05-15 Fri -3d>` means "surface this task in agenda starting 3 days before the deadline." Atrium has Forecast (which surfaces upcoming deadlines uniformly); per-task warning windows let users say "this one is sensitive — flag me a week ahead." New `task.deadline_warning_days INTEGER` column (additive); Forecast queries surface the task starting `deadline - warning_days`. Round-trips to Org via cookie suffix. *Source: Org-mode.*
+- [ ] **Statistics cookies (`[2/5]` / `[40%]`).** Org auto-renders progress on parent headlines that have child tasks: `* TODO Build feature [2/5]` shows 2 of 5 subtasks complete. Atrium has `parent_id` already; this is pure UI. Task-row title gains an inline `[N/M]` or `[P%]` cookie when the row has children. Lands alongside Phase 19.5's Subtasks UI exposure. *Source: Org-mode. UX recognised by anyone who's used it.*
+- [ ] **Active vs inactive timestamps.** Org distinguishes `<2026-05-09>` (active — drives agenda) from `[2026-05-09]` (inactive — record only, doesn't schedule). Atrium's `scheduled_for` is essentially active; there's no "completed by" or "started on" record that doesn't drive scheduling. New `task.dates_other JSON` column for typed timestamp records (`{"completed_by": "[2026-05-09]", "started_on": "[2026-04-12]"}`); Inspector surfaces an "Other dates" disclosure. Round-trips to Org as inactive-timestamp lines under the headline. *Source: Org-mode. Useful for retrospective-only date records that shouldn't pollute Forecast.*
+
+**Schema impact summary:** four additive migrations for the schema-touching items (`task_clock` table, `task_event` table, `task.is_habit`, `task.deadline_warning_days`). The custom-properties surface is UI-only — `unknown_lines` already preserves the data. Statistics cookies are UI-only — `parent_id` already encodes the structure. Active/inactive timestamps would need `task.dates_other JSON` (additive). Per the schema rule, every migration here is append-only; no shipped migration gets rewritten.
+
+**What's deliberately not in Phase 18.5:**
+
+- **Org links (`[[id:UUID]]` task-to-task).** Useful but conceptually heavy — needs a link-handling UI (open-in-app vs follow-link) that's its own design surface. Slip if it earns its way back in.
+- **Capture templates.** Phase 19.5 already has an item for task templates; Org-flavoured capture templates are a layer on top of that.
+- **Drawers other than `:PROPERTIES:` / `:LOGBOOK:`** — `:NOTES:`, `:LINKS:`, etc. Round-trip already preserved verbatim via `unknown_lines`; surfacing them as collapsible UI sections is over-design until users ask for it.
+- **`org-attach` (file attachments).** Phase 19.5's drag-drop external files item covers this with simpler UX (a link in the note).
 
 ## Phase 19: Plain-text + CalDAV imports + OmniFocus long-tail
 *Round out the import surface for users coming from formats Atrium doesn't speak natively yet. One pass per source, sharing parser scaffolding. VTODO export ships here too. OmniFocus moves here from its own phase — `.ofocus` is macOS-only, so the audience is small (same logic that retired the Things 3 phase at v0.6.19), but the OF half of Atrium's GTD lineage is worth keeping a path open for.*
