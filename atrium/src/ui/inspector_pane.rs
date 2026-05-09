@@ -271,12 +271,18 @@ where
         });
     }
 
+    // v0.7.0 — inspector clustering pass. Was: Schedule + Deadline +
+    // Project in dates_group, Tags alone in its own one-row group
+    // (an orphan card the eye couldn't justify). Now: dates_group
+    // carries only the date fields, and Project + Tags collapse
+    // into a new "Classify" cluster — both fields answer the
+    // question "where does this task live?" so the eye groups them
+    // naturally.
     let dates_group = adw::PreferencesGroup::new();
     dates_group.add(&schedule_row);
     dates_group.add(&deadline_row);
-    dates_group.add(&project_row);
 
-    // ── Tags row ─────────────────────────────────────────────────
+    // ── Classify cluster: Project + Tags ─────────────────────────
     let tag_count_text = format_tag_count(tag_count);
     let edit_tags_button = gtk::Button::builder()
         .label("Edit Tags…")
@@ -295,8 +301,9 @@ where
             on_edit_tags(task_id);
         }
     });
-    let tags_group = adw::PreferencesGroup::new();
-    tags_group.add(&tags_row);
+    let classify_group = adw::PreferencesGroup::new();
+    classify_group.add(&project_row);
+    classify_group.add(&tags_row);
 
     // ── Notes ────────────────────────────────────────────────────
     let notes_buffer = gtk::TextBuffer::builder().text(&task.note).build();
@@ -463,7 +470,7 @@ where
     page.add_css_class("atrium-inspector-pane");
     page.add(&title_group);
     page.add(&dates_group);
-    page.add(&tags_group);
+    page.add(&classify_group);
     page.add(&notes_group);
     page.add(&builder_group);
 

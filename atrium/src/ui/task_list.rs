@@ -249,8 +249,13 @@ where
             .spacing(12)
             .margin_start(12)
             .margin_end(12)
-            .margin_top(6)
-            .margin_bottom(6)
+            // v0.7.0 — vertical rhythm bump (6 → 9). Brandon's
+            // whitespace pass: Things 3 / OmniFocus leave real air
+            // between rows, Linux apps habitually do not. The change
+            // adds 6 px of total vertical breathing per row without
+            // touching density on the row content itself.
+            .margin_top(9)
+            .margin_bottom(9)
             .build();
         row.add_css_class("atrium-task-row");
 

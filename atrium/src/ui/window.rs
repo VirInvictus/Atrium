@@ -97,6 +97,14 @@ mod imp {
         /// is selected.
         #[template_child]
         pub agenda_host: TemplateChild<adw::Bin>,
+        // v0.7.0 — magazine-spread page title strip that lives
+        // between the header bar and the content stack. Bound in
+        // set_active_list (big label = view title, subtitle =
+        // optional supporting line; subtitle is hidden when empty).
+        #[template_child]
+        pub page_title_label: TemplateChild<gtk::Label>,
+        #[template_child]
+        pub page_subtitle_label: TemplateChild<gtk::Label>,
         #[template_child]
         pub new_task_button: TemplateChild<gtk::Button>,
         #[template_child]
@@ -1298,6 +1306,18 @@ impl AtriumWindow {
         // overlays, and screencast picker UIs; "Atrium" alone read
         // as a brand sticker not a context cue.
         self.set_title(Some(&format!("Atrium · {view_title}")));
+        // v0.7.0 — magazine-spread page title. Big label gets the
+        // view name; subtitle gets a supporting line per view (e.g.
+        // today's date for Today). Subtitle hidden when empty so
+        // the strip collapses on views without a useful subhead.
+        self.imp().page_title_label.set_text(&view_title);
+        let subtitle = self.subtitle_for(&active);
+        if subtitle.is_empty() {
+            self.imp().page_subtitle_label.set_visible(false);
+        } else {
+            self.imp().page_subtitle_label.set_text(&subtitle);
+            self.imp().page_subtitle_label.set_visible(true);
+        }
         self.refresh_active_list();
 
         // Phase 10 — project extras revealer follows the selection.
@@ -1378,6 +1398,23 @@ impl AtriumWindow {
             | ActiveList::Forecast
             | ActiveList::Review
             | ActiveList::Agenda => active.canonical_title().to_string(),
+        }
+    }
+
+    /// v0.7.0 — supporting subtitle for the magazine-spread page
+    /// title strip. Empty string means "no subtitle" and the row is
+    /// hidden by `set_active_list`. We use these sparingly: only
+    /// where the subtitle adds real context (today's date on
+    /// Today, the date range on Upcoming / Forecast).
+    fn subtitle_for(&self, active: &ActiveList) -> String {
+        match active {
+            ActiveList::Today => chrono::Local::now()
+                .date_naive()
+                .format("%A, %B %-d")
+                .to_string(),
+            ActiveList::Upcoming => "Next 7 days".to_string(),
+            ActiveList::Forecast => "Next 30 days".to_string(),
+            _ => String::new(),
         }
     }
 

@@ -1,5 +1,79 @@
 # Atrium — Patch Notes
 
+## v0.7.0 (2026-05-08) — Visual fusion + whitespace pass
+
+The first big polish minor of the v0.7 line. Addresses Brandon's
+critical-eye review of the v0.6.21 screenshot: the app didn't feel
+"living" yet — accents had hard boundaries, the three panes were
+visually identical rectangles separated by 1 px verticals,
+selection states read as outlines instead of glows, and Linux-app
+disregard for whitespace had crept into the row rhythm and the
+inspector. Two tiers:
+
+**Tier 1 — Living surface (the fusion pass):**
+
+- **Three-pane atmosphere.** The sidebar's existing soft-accent
+  gradient bumps from 0.025 → 0.05 alpha; the inspector pane gains
+  a mirrored gradient on its leading edge (`-20deg` so the warm
+  corner is on the opposite side). The two side panels now flank a
+  neutral content area; the eye reads three connected spaces
+  instead of one rectangle bisected by hard verticals. `data/style.css`.
+- **Selection state on task rows is no longer a rectangle.** The
+  default libadwaita selection paints a strong accent fill plus a
+  focus outline; combined with the area-stripe and the row
+  separator, selected rows looked like 1 px orange bordered boxes.
+  v0.7.0 ships a soft accent fill (alpha 0.14, no border, no
+  outline, rounded corners) — selection becomes a glow, not a
+  frame. `data/style.css`.
+- **Area accent moved from a 3 px hard left stripe to a row-wide
+  gradient bleed.** The stripe approach made each row read as
+  "rectangle with stripe stuck on" — the eye saw the stripe as a
+  separate decorative element. The gradient (alpha 0.10 fading to
+  transparent at 40% width) makes the *row* read as area-tinted.
+  Six per-color rules updated; the reserved 3 px left-border on
+  `.atrium-task-row` retired. `data/style.css`.
+- **Sidebar section headers softened.** The v0.3.0 treatment was
+  uppercase + tight tracking + a top-border divider — read as a
+  partition. v0.7.0 retires the all-caps and the divider for
+  medium weight, mixed case, breathing room above and below. The
+  headers introduce the rows that follow rather than separating
+  them from above. `data/style.css`.
+- **Quick-add entry as a ghost.** The "Add task…" row at the
+  bottom of the list was always-visible and always-bordered. v0.7.0
+  dims it to ~0.45 opacity by default; hover or focus inside the
+  box brings it back to full presence with a 180 ms ease-out
+  transition. `data/window.ui` + `data/style.css`.
+
+**Tier 2 — Whitespace pass (Brandon's specific call-out):**
+
+- **Task-row vertical rhythm.** Margin top + bottom 6 → 9 px on
+  every row. Things 3 / OmniFocus leave real air between rows;
+  Linux apps habitually do not. The change adds 6 px of total
+  vertical breathing per row without touching density on the row
+  content. `atrium/src/ui/task_list.rs`.
+- **Inspector pane field clustering.** Was: Schedule + Deadline +
+  Project in one group, Tags alone in its own one-row group (an
+  orphan card the eye couldn't justify). Now: dates_group carries
+  only the date fields, and Project + Tags collapse into a new
+  Classify cluster — both fields answer the question "where does
+  this task live?" so the eye groups them naturally. Five visual
+  groups overall, none of them orphans. `atrium/src/ui/inspector_pane.rs`.
+- **Magazine-spread page title.** "Today" (and every other view
+  name) was centered in the AdwHeaderBar — read as a tabular UI
+  heading, not a page title. v0.7.0 suppresses the auto-title in
+  the header bar and adds a strip below carrying the view name as
+  a large left-aligned heading + an optional supporting subtitle
+  beneath. The subtitle ships for Today (today's date in long
+  form), Upcoming ("Next 7 days"), and Forecast ("Next 30 days");
+  hidden on views without a useful subhead. `data/window.ui` +
+  `atrium/src/ui/window.rs` + `data/style.css`.
+
+No schema changes. No new dependencies. All 505 tests still
+green; ship-gate runs in under 2 seconds.
+
+VERSION / Cargo.toml / patchnotes / AppStream metainfo bump to
+**0.7.0**.
+
 ## v0.6.21 (2026-05-08) — Documentation housekeeping pass
 
 Pure docs patch — bringing references that hadn't been touched

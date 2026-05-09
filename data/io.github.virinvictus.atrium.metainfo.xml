@@ -90,6 +90,41 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.0" date="2026-05-08">
+      <description>
+        <p>Visual fusion + whitespace pass. Addresses a
+           critical-eye review of v0.6.21: the app didn't feel
+           "living" yet — accents had hard boundaries, the three
+           panes were visually identical rectangles separated by
+           1 px verticals, selection states read as outlines
+           instead of glows, and Linux-app disregard for
+           whitespace had crept into the row rhythm and the
+           inspector. Two tiers shipped:</p>
+        <p>Tier 1 (living surface): three-pane atmosphere
+           (sidebar + inspector now both carry matching low-
+           alpha accent gradients on opposing edges, framing a
+           neutral content area); selection state on task rows
+           reworked from a 1 px bordered rectangle to a soft
+           accent fill (selection becomes a glow, not a frame);
+           area accent moved from a 3 px hard left stripe to a
+           row-wide gradient bleed; sidebar section headers
+           softened (no more all-caps + divider — medium weight,
+           mixed case, breathing room); the "Add task…"
+           quick-add row is now a ghost that materialises on
+           hover or focus.</p>
+        <p>Tier 2 (whitespace): task-row vertical margins
+           bumped 6 → 9 px so rows breathe; inspector pane
+           field clustering tightened (Project + Tags now share
+           one Classify cluster instead of Tags being a one-row
+           orphan card); page title moved from the centered
+           AdwHeaderBar slot to a magazine-spread strip below
+           the header bar — large left-aligned heading with an
+           optional subtitle (today's date for Today, "Next 7
+           days" for Upcoming, "Next 30 days" for Forecast).</p>
+        <p>No schema changes. No new dependencies. All 505 tests
+           still green.</p>
+      </description>
+    </release>
     <release version="0.6.21" date="2026-05-08">
       <description>
         <p>Documentation housekeeping pass. README version

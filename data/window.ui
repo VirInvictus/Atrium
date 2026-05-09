@@ -153,6 +153,17 @@
                   <object class="AdwToolbarView">
                     <child type="top">
                       <object class="AdwHeaderBar">
+                        <!-- v0.7.0 — empty title widget suppresses the
+                             auto-centered AdwWindowTitle. The
+                             magazine-spread page title lives in the
+                             strip below this header bar (page_title_strip
+                             below); this keeps the header bar as pure
+                             chrome (window controls + new-task + search). -->
+                        <property name="title-widget">
+                          <object class="AdwWindowTitle">
+                            <property name="title"></property>
+                          </object>
+                        </property>
                         <child type="start">
                           <object class="GtkButton" id="new_task_button">
                             <property name="icon-name">list-add-symbolic</property>
@@ -169,6 +180,49 @@
                             <property name="tooltip-text" translatable="yes">Search (Ctrl+F)</property>
                             <style>
                               <class name="flat"/>
+                            </style>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                    <child type="top">
+                      <!-- v0.7.0 — magazine-spread page title strip.
+                           Lives between the header-bar chrome and the
+                           content stack so every page inherits one
+                           shared title surface. The big title and
+                           the subtitle are bound in window.rs's
+                           set_active_list; the subtitle is hidden
+                           via set_visible(false) when there's no
+                           supporting line for the active view. -->
+                      <object class="GtkBox" id="page_title_strip">
+                        <property name="orientation">vertical</property>
+                        <property name="margin-start">24</property>
+                        <property name="margin-end">24</property>
+                        <property name="margin-top">14</property>
+                        <property name="margin-bottom">10</property>
+                        <property name="spacing">2</property>
+                        <style>
+                          <class name="atrium-page-title-strip"/>
+                        </style>
+                        <child>
+                          <object class="GtkLabel" id="page_title_label">
+                            <property name="label">Today</property>
+                            <property name="halign">start</property>
+                            <property name="xalign">0</property>
+                            <style>
+                              <class name="atrium-page-title"/>
+                            </style>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel" id="page_subtitle_label">
+                            <property name="label"></property>
+                            <property name="halign">start</property>
+                            <property name="xalign">0</property>
+                            <property name="visible">false</property>
+                            <style>
+                              <class name="atrium-page-subtitle"/>
+                              <class name="dim-label"/>
                             </style>
                           </object>
                         </child>
@@ -451,6 +505,9 @@
                                                 <property name="show-separators">true</property>
                                                 <property name="single-click-activate">false</property>
                                                 <property name="margin-top">12</property>
+                                                <style>
+                                                  <class name="atrium-task-listview"/>
+                                                </style>
                                               </object>
                                             </property>
                                           </object>
@@ -465,6 +522,9 @@
                                         <property name="margin-top">8</property>
                                         <property name="margin-bottom">8</property>
                                         <property name="spacing">8</property>
+                                        <style>
+                                          <class name="atrium-quick-add"/>
+                                        </style>
                                         <child>
                                           <object class="GtkImage">
                                             <property name="icon-name">list-add-symbolic</property>

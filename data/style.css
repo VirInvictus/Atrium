@@ -142,14 +142,12 @@ window.atrium-high-legibility .atrium-task-deadline {
   transition: opacity 180ms ease-out, background-color 120ms ease-out,
               box-shadow 120ms ease-out;
   border-radius: 6px;
-  /* v0.5.0 (Slice B2) — every row reserves 3 px on the left for a
-   * per-area accent stripe. Default colour is transparent so rows
-   * without an area-coloured project still align with the row chrome
-   * — the .atrium-area-accent-{color} classes (added by the row
-   * factory based on the task's resolved area colour) just override
-   * border-left-color, no layout shift between accented and non-
-   * accented rows. */
-  border-left: 3px solid transparent;
+  /* v0.7.0 — dropped the reserved 3 px left-stripe in favour of a
+   * full-row gradient bleed (see .atrium-area-accent-{color} rules
+   * below). The stripe approach made each row read as "rectangle
+   * with a stripe attached"; the horizontal fade is read as the
+   * row itself being area-tinted, which is the visual outcome we
+   * actually wanted. */
 }
 .atrium-task-row:hover {
   background-color: alpha(@accent_bg_color, 0.10);
@@ -366,19 +364,38 @@ window.atrium-debug-pane {
   background: alpha(@accent_color, 0.5);
 }
 
-/* v0.5.0 (Slice B2) — per-area accent stripe on task rows. Each
- * task row whose project is filed under a coloured area picks up
- * one of the six area-accent classes; the class swaps the row's
- * left-border colour from transparent to the area's hex (at 0.7
- * alpha so it doesn't shout through dark mode). The hex values
- * mirror the swatch palette in TAG_COLORS so the picker's
- * selection lands on the row identically. */
-.atrium-task-row.atrium-area-accent-blue   { border-left-color: alpha(#3584e4, 0.7); }
-.atrium-task-row.atrium-area-accent-green  { border-left-color: alpha(#33d17a, 0.7); }
-.atrium-task-row.atrium-area-accent-yellow { border-left-color: alpha(#e5a50a, 0.7); }
-.atrium-task-row.atrium-area-accent-orange { border-left-color: alpha(#ff7800, 0.7); }
-.atrium-task-row.atrium-area-accent-red    { border-left-color: alpha(#e01b24, 0.7); }
-.atrium-task-row.atrium-area-accent-purple { border-left-color: alpha(#9141ac, 0.7); }
+/* v0.5.0 (Slice B2) → v0.7.0 — per-area accent on task rows.
+ * Each row whose project is filed under a coloured area picks up
+ * one of the six area-accent classes; the hex values mirror the
+ * TAG_COLORS swatch palette so the picker's selection lands on
+ * the row identically.
+ *
+ * v0.5.0 implementation was a 3 px hard left border at 0.7 alpha.
+ * v0.7.0 replaces it with a horizontal `background-image`
+ * gradient that starts at ~10% alpha on the leading edge and
+ * fades to transparent by 40% of the row width. The row reads as
+ * area-tinted; the eye groups by area without registering the
+ * tint as a separate decorative element. The gradient layers
+ * cleanly over the hover and selection background-colors
+ * (background-image renders on top of background-color). */
+.atrium-task-row.atrium-area-accent-blue {
+  background-image: linear-gradient(to right, alpha(#3584e4, 0.10), transparent 40%);
+}
+.atrium-task-row.atrium-area-accent-green {
+  background-image: linear-gradient(to right, alpha(#33d17a, 0.10), transparent 40%);
+}
+.atrium-task-row.atrium-area-accent-yellow {
+  background-image: linear-gradient(to right, alpha(#e5a50a, 0.10), transparent 40%);
+}
+.atrium-task-row.atrium-area-accent-orange {
+  background-image: linear-gradient(to right, alpha(#ff7800, 0.10), transparent 40%);
+}
+.atrium-task-row.atrium-area-accent-red {
+  background-image: linear-gradient(to right, alpha(#e01b24, 0.10), transparent 40%);
+}
+.atrium-task-row.atrium-area-accent-purple {
+  background-image: linear-gradient(to right, alpha(#9141ac, 0.10), transparent 40%);
+}
 
 /* v0.5.0 — canonical-list icon tinting. Each canonical sidebar
  * list picks up a quiet accent colour on its leading symbolic
@@ -407,28 +424,47 @@ window.atrium-debug-pane {
 .atrium-canonical-forecast image { color: alpha(@accent_color, 0.85); }
 .atrium-canonical-review image   { color: alpha(@success_color, 0.85); }
 
-/* v0.3.0 — sidebar section headers ("Areas", "Tags", "Builder",
- * "Perspectives"). Adds a subtle top border to mark the section
- * change visually; the existing caption-heading + dim-label classes
- * keep the type colour quiet. The border is set on the row's
- * embedded label so the listboxrow's own selection styling
- * doesn't compete. */
+/* v0.3.0 → v0.7.0 — sidebar section headers ("Areas", "Tags",
+ * "Builder", "Perspectives"). v0.3.0 used uppercase + tight
+ * tracking + a top-border divider — read as a partition between
+ * surfaces, not an introduction. v0.7.0 retires the all-caps
+ * treatment and the divider in favour of a quieter typographic
+ * shape: medium weight, mixed case, breathing room above and
+ * below. The headers introduce the rows that follow rather than
+ * separating them from the rows above.
+ *
+ * The label's text remains all-caps in code (window.rs writes
+ * "AREAS" / "PERSPECTIVES" verbatim) — `text-transform: none`
+ * here lets the visual case match what's typed without forcing
+ * upstream changes to the labels. */
 .atrium-sidebar-section {
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  font-size: 0.78em;
-  border-top: 1px solid alpha(@borders, 0.4);
-  padding-top: 8px;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  text-transform: none;
+  font-size: 0.85em;
+  margin-top: 14px;
+  margin-bottom: 4px;
 }
 
 /* v0.3.0 — Builder Mode Inspector pane treatment. The pane lives in
  * the OverlaySplitView's right-side sidebar (data/window.ui). Adds
  * a subtle left border so the pane reads as a separate sheet of
  * paper rather than a continuation of the main list, plus
- * slightly more breathing room around the prefs groups. */
+ * slightly more breathing room around the prefs groups.
+ *
+ * v0.7.0 — added a mirror of the sidebar's atmospheric gradient
+ * (`-20deg` instead of `160deg` so the warm corner is on the
+ * opposite top edge). The two side panels now flank a neutral
+ * content area; the eye reads three connected spaces instead of
+ * one rectangle bisected by hard verticals. Same alpha as the
+ * sidebar so the symmetry is felt, not noticed. */
 .atrium-inspector-pane {
   border-left: 1px solid alpha(@borders, 0.4);
+  background-image: linear-gradient(
+    -20deg,
+    alpha(@accent_color, 0.05) 0%,
+    alpha(@accent_color, 0) 60%
+  );
 }
 .atrium-inspector-pane > scrolledwindow > viewport > clamp {
   padding: 12px;
@@ -516,12 +552,17 @@ window.atrium-debug-pane {
 /* Sidebar gets a hair of accent warmth. The diagonal gradient is
  * almost invisible on its own; what it does is separate the sidebar
  * from the main content so the eye knows where one ends and the
- * other begins, without forcing a hard divider. */
+ * other begins, without forcing a hard divider.
+ *
+ * v0.7.0 — alpha bumped 0.025 → 0.05 so the sidebar reads as a
+ * distinctly atmospheric surface paired with the inspector's
+ * matching gradient on the opposite edge. Still well under what
+ * a stock libadwaita theme would call a "card." */
 listview.navigation-sidebar,
 .navigation-sidebar {
   background-image: linear-gradient(
     160deg,
-    alpha(@accent_color, 0.025) 0%,
+    alpha(@accent_color, 0.05) 0%,
     alpha(@accent_color, 0) 60%
   );
 }
@@ -537,12 +578,25 @@ headerbar {
   );
 }
 
-/* The page title in the header bar — "Today", "Inbox", "Agenda",
- * etc. By default Adwaita renders it with a quiet weight. Bumping
- * the weight a notch and letter-spacing a hair gives the page
- * identity more presence without changing the type ramp. */
-headerbar > windowhandle .title {
-  font-weight: 600;
+/* v0.7.0 — magazine-spread page title strip (page_title_strip in
+ * data/window.ui). Sits below the header bar, above the content
+ * stack; carries the active view's name as a large left-aligned
+ * heading and an optional supporting line beneath. The header bar
+ * itself runs without an auto-title (its `title-widget` slot is an
+ * empty AdwWindowTitle), so this strip is the canonical place the
+ * page name lives.
+ *
+ * Brandon's call: "magazine-spread shape — feels editorial."
+ * Whitespace pass: enough vertical breathing that the title reads
+ * as the page's anchor without looking lonely. */
+.atrium-page-title {
+  font-size: 1.55em;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  font-feature-settings: var(--atrium-inter-features);
+}
+.atrium-page-subtitle {
+  font-size: 0.9em;
   letter-spacing: 0.005em;
 }
 
@@ -679,7 +733,12 @@ listview.navigation-sidebar > row:selected,
 .atrium-task-repeating {
   -gtk-icon-size: 14px;
   opacity: 0.65;
-  margin-start: 4px;
+  /* GTK4 CSS doesn't recognise margin-start (logical-property);
+   * use margin-left so the parser stays quiet. RTL languages
+   * inherit the wrong physical edge with this, but the recurrence
+   * icon is paired with a date pill on the same side so it
+   * follows the date pill's flow. */
+  margin-left: 4px;
 }
 .atrium-task-row-overdue .atrium-task-repeating {
   color: alpha(@error_color, 0.85);
@@ -695,12 +754,61 @@ listview.navigation-sidebar > row:selected,
  * separator at all" (the user's screenshot showed the rows running
  * together as a wall of text). Bump the separator's contrast a hair
  * so it reads as a real divider without becoming a heavy gridline.
- * We target the listview in `task_list_view` specifically by
- * constraining to rows that contain our `.atrium-task-row` Box —
- * otherwise the kanban / agenda card rows would inherit too. */
-listview > row:has(.atrium-task-row) {
+ *
+ * v0.7.0 — selector rewritten to use `.atrium-task-listview` (a
+ * class added to the task GtkListView in window.ui) instead of
+ * `:has(.atrium-task-row)`. GTK4's CSS engine doesn't support
+ * `:has()` and was emitting "Unknown pseudoclass" warnings on
+ * every theme load; the new selector is identical in scope but
+ * silent. The kanban / agenda lists are untouched because they
+ * carry their own classes. */
+.atrium-task-listview > row {
   border-bottom: 1px solid alpha(@borders, 0.3);
 }
-listview > row:has(.atrium-task-row):last-child {
+.atrium-task-listview > row:last-child {
   border-bottom: none;
+}
+
+/* v0.7.0 — selection state on task-list rows.
+ *
+ * The default libadwaita selection paints a strong accent fill plus
+ * a focus outline; combined with the area-accent left stripe and
+ * the row separator border, the selected row reads as a
+ * hard-edged orange rectangle on all four sides. The fix is to
+ * (a) soften the fill alpha, (b) drop the inner focus outline so
+ * the fill is the sole "this row is selected" cue, and (c) round
+ * the row corners so the fill blooms rather than terminating in
+ * sharp 90-degree edges.
+ *
+ * Brandon's call: "selection becomes a glow, not a frame." */
+.atrium-task-listview > row:selected {
+  background: alpha(@accent_color, 0.14);
+  outline: none;
+  border-radius: 6px;
+}
+.atrium-task-listview > row:focus {
+  outline: none;
+}
+
+/* v0.7.0 — quick-add entry as a ghost.
+ *
+ * The "Add task…" row at the bottom of the list (data/window.ui)
+ * was always-visible, always-bordered, and always read as "form
+ * input" even when the user wasn't trying to add a task. Things 3
+ * fades the equivalent affordance to a near-ghost; once the
+ * pointer enters or the entry takes focus, it materialises.
+ *
+ * Implementation: a class on the wrapping GtkBox dimming both the
+ * + icon and the entry to ~0.45 opacity by default. Hovering the
+ * box, or focus landing inside it (`:focus-within`), brings it
+ * back to full presence. The transition is short enough not to
+ * feel sluggish but long enough to read as "this surface
+ * just woke up." */
+.atrium-quick-add {
+  opacity: 0.45;
+  transition: opacity 180ms ease-out;
+}
+.atrium-quick-add:hover,
+.atrium-quick-add:focus-within {
+  opacity: 1;
 }
