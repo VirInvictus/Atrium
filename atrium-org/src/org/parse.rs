@@ -968,4 +968,49 @@ Body line below cookies.
         assert!(parse_repeater("+").is_none());
         assert!(parse_repeater("+1z").is_none()); // bad unit
     }
+
+    /// Roadmap §17 acceptance: a 1000-task project file parses
+    /// in under half a second so the watcher's debounce + parse
+    /// cycle stays comfortably under the perceptual budget on
+    /// realistic vaults. Generous bound — debug builds on slow
+    /// CI runners shouldn't trip; real-machine release builds
+    /// are typically in the low tens of milliseconds.
+    #[test]
+    fn large_file_parses_under_budget() {
+        use std::fmt::Write;
+        use std::time::Instant;
+
+        let mut text = String::with_capacity(150 * 1000);
+        text.push_str("#+TITLE: Large Project\n");
+        text.push_str(":PROPERTIES:\n:ID: 11111111-2222-3333-4444-555555555555\n:END:\n\n");
+        for i in 0..1000 {
+            writeln!(text, "* TODO Task number {i}").unwrap();
+            writeln!(
+                text,
+                "SCHEDULED: <2026-05-09 Sat> DEADLINE: <2026-05-15 Fri>"
+            )
+            .unwrap();
+            text.push_str(":PROPERTIES:\n");
+            writeln!(text, ":ID: aaaa{i:04}-2222-3333-4444-555555555555").unwrap();
+            text.push_str(":CREATED: [2026-05-01 Fri 09:00]\n");
+            text.push_str(":END:\n");
+            writeln!(text, "Body content for task {i}, plain prose.").unwrap();
+            text.push('\n');
+        }
+
+        let start = Instant::now();
+        let parsed = parse_org_text_with_meta(&text);
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            parsed.headlines.len(),
+            1000,
+            "should round-trip 1000 headlines"
+        );
+        assert!(
+            elapsed.as_millis() < 500,
+            "1K-task parse took {} ms; budget is 500 ms",
+            elapsed.as_millis()
+        );
+    }
 }
