@@ -40,15 +40,21 @@
 //! | `defer_until` | `:DEFER_UNTIL:` property in `YYYY-MM-DD` |
 //! | `parent_id` chain | nested headlines |
 //!
-//! # Known limits
+//! # Project sub-heading emission (Phase 18, v0.12.0)
 //!
-//! - Project sub-headings (the `heading` table) aren't emitted as
-//!   non-TODO Org headlines on writeback. The importer counts
-//!   them in `ImportSummary::headings_skipped`; round-tripping
-//!   them through the `heading` table is roadmap.md §17 follow-up
-//!   work. The structural impact is limited because the writer
-//!   re-emits each project's tasks in `position` order — the file
-//!   stays readable, just flatter than the source.
+//! Heading rows from the `heading` table emit as depth-1 headlines
+//! with no TODO keyword (per spec §7.3.1's "project sub-heading"
+//! shape). Top-level tasks and headings interleave by `position`
+//! across both tables; a task whose position falls after a heading
+//! becomes a depth-2 child of that heading. Headings before any
+//! task and tasks before any heading both behave intuitively. The
+//! Todoist importer (v0.12.0) drives this: a CSV section becomes a
+//! heading row, and the tasks under it inherit a position that
+//! sorts between the section's heading and the next section's.
+//!
+//! Org tasks without coordinated positions still emit cleanly —
+//! a project with no headings produces the same flat top-level
+//! list it did pre-v0.12.0.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -58,7 +64,7 @@ use rusqlite::Connection;
 
 use super::emit::emit_org_file_with_meta;
 use super::parse::{OrgFile, OrgKeyword, OrgRepeater, OrgTask};
-use atrium_core::domain::{Project, ScheduledFor, Task};
+use atrium_core::domain::{Heading, Project, ScheduledFor, Task};
 use atrium_core::error::DbError;
 
 /// Result of writing one project to the vault.
@@ -104,9 +110,10 @@ pub fn write_project_to_vault(
         None => None,
     };
     let tasks = atrium_core::db::read::list_all_in_project(conn, project_id)?;
+    let headings = atrium_core::db::read::list_headings_in_project(conn, project_id)?;
     let tag_names = atrium_core::db::read::tag_names_per_task(conn)?;
 
-    let tree = build_org_tree(&tasks, &tag_names);
+    let tree = build_project_tree(&tasks, &headings, &tag_names);
     // file-level preamble carries the project title +
     // project metadata so the importer can round-trip them
     // cleanly. The OrgFile struct bundles directives +
@@ -192,95 +199,160 @@ pub fn write_all_projects_to_vault(
     Ok(out)
 }
 
-/// Convert a flat list of Tasks (in position order) into a
-/// nested OrgTask tree by walking parent_id chains.
+/// Build the Org headline tree for one project — interleaves
+/// heading rows and top-level tasks by `position`, then nests
+/// each task's subtree of subtasks underneath.
 ///
-/// Tasks with a `parent_id` matching another task in the same
-/// list become children of that task; the rest are top-level.
-/// Children inherit `depth = parent.depth + 1`. Tasks whose
-/// parent_id points to a task in a different project (shouldn't
-/// happen, but defensive) fall back to top-level.
-fn build_org_tree(tasks: &[Task], tag_names: &HashMap<i64, Vec<String>>) -> Vec<OrgTask> {
-    // Index tasks by id so children can find their parents.
+/// Layout rules:
+///
+/// - Top-level items (heading rows + tasks with `parent_id =
+///   NULL`) sort by their `position` field. On a position tie,
+///   headings precede tasks (a section break that splits two tasks
+///   should appear above the second one in the source order).
+/// - When the cursor crosses a heading, subsequent top-level
+///   tasks attach as children of that heading at depth 2; their
+///   subtask subtrees recurse from depth 3. Top-level tasks
+///   before the first heading stay at depth 1.
+/// - Subtasks (tasks with a `parent_id` that points into the
+///   same project) collect under their parent task in
+///   position order.
+/// - Orphaned subtasks (parent_id pointing outside the project,
+///   shouldn't happen, but defensive) fall back to top-level.
+fn build_project_tree(
+    tasks: &[Task],
+    headings: &[Heading],
+    tag_names: &HashMap<i64, Vec<String>>,
+) -> Vec<OrgTask> {
     let by_id: HashMap<i64, &Task> = tasks.iter().map(|t| (t.id, t)).collect();
-
-    fn depth_for(by_id: &HashMap<i64, &Task>, task: &Task) -> usize {
-        let mut depth = 1;
-        let mut cursor = task.parent_id;
-        while let Some(pid) = cursor {
-            if let Some(parent) = by_id.get(&pid) {
-                depth += 1;
-                cursor = parent.parent_id;
-            } else {
-                break;
-            }
-        }
-        depth
-    }
-
-    // First pass: build OrgTasks for every Task (in input order),
-    // computing depth from the parent_id chain.
-    let mut org_tasks: Vec<OrgTask> = tasks
-        .iter()
-        .map(|t| {
-            let depth = depth_for(&by_id, t);
-            task_to_org(t, depth, tag_names)
-        })
-        .collect();
-
-    // Second pass: build the tree recursively by collecting
-    // children as we go. For each top-level task (parent_id None
-    // OR parent not in the map), recursively pull its descendants.
-    // The `consumed` bit-vector marks tasks already attached so
-    // sibling sweeps don't re-claim them.
-    let mut top: Vec<OrgTask> = Vec::new();
     let mut consumed: Vec<bool> = vec![false; tasks.len()];
 
-    fn pull_subtree(
-        idx: usize,
-        tasks: &[Task],
-        org_tasks: &[OrgTask],
-        consumed: &mut [bool],
-    ) -> OrgTask {
-        let mut node = org_tasks[idx].clone();
-        consumed[idx] = true;
-        let id = tasks[idx].id;
-        for (j, t) in tasks.iter().enumerate() {
-            if consumed[j] {
-                continue;
-            }
-            if t.parent_id == Some(id) {
-                let child = pull_subtree(j, tasks, org_tasks, consumed);
-                node.children.push(child);
-            }
-        }
-        node
+    /// Position-ordered top-level item — either a heading row or
+    /// a top-level task. Carries the index back into the source
+    /// slice so we can read out the original row when we visit it.
+    enum Item {
+        Heading(usize),
+        Task(usize),
     }
 
-    for (i, task) in tasks.iter().enumerate() {
-        if consumed[i] {
-            continue;
-        }
-        let is_top = match task.parent_id {
+    let mut items: Vec<(f64, Item)> = Vec::with_capacity(headings.len() + tasks.len());
+    for (i, h) in headings.iter().enumerate() {
+        items.push((h.position, Item::Heading(i)));
+    }
+    for (i, t) in tasks.iter().enumerate() {
+        let is_top = match t.parent_id {
             None => true,
             Some(pid) => !by_id.contains_key(&pid),
         };
         if is_top {
-            let node = pull_subtree(i, tasks, &org_tasks, &mut consumed);
+            items.push((t.position, Item::Task(i)));
+        }
+    }
+    // Sort by position; on tie, headings precede tasks so a section
+    // header introduces the run of tasks at its position. NaN
+    // shouldn't appear (REAL NOT NULL with sane writer-side values),
+    // but partial_cmp's None falls through to Ordering::Equal so we
+    // don't panic on it.
+    items.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| match (&a.1, &b.1) {
+                (Item::Heading(_), Item::Task(_)) => std::cmp::Ordering::Less,
+                (Item::Task(_), Item::Heading(_)) => std::cmp::Ordering::Greater,
+                _ => std::cmp::Ordering::Equal,
+            })
+    });
+
+    let mut top: Vec<OrgTask> = Vec::new();
+    let mut current_heading_idx: Option<usize> = None;
+
+    for (_pos, item) in items {
+        match item {
+            Item::Heading(hi) => {
+                top.push(heading_to_org(&headings[hi]));
+                current_heading_idx = Some(top.len() - 1);
+            }
+            Item::Task(ti) => {
+                let depth = if current_heading_idx.is_some() { 2 } else { 1 };
+                let node = build_task_subtree(ti, tasks, tag_names, depth, &mut consumed);
+                match current_heading_idx {
+                    Some(hi) => top[hi].children.push(node),
+                    None => top.push(node),
+                }
+            }
+        }
+    }
+
+    // Any unconsumed task is an orphaned subtask (its parent_id
+    // pointed outside this project's slice). Append it at top
+    // level so we never silently drop a row on writeback.
+    for i in 0..tasks.len() {
+        if !consumed[i] {
+            let node = build_task_subtree(i, tasks, tag_names, 1, &mut consumed);
             top.push(node);
         }
     }
 
-    // Any unconsumed tasks (e.g. orphaned subtasks whose parent
-    // pointed to a task NOT in this project) get appended at top
-    // level so we don't silently drop them.
-    for (i, _) in tasks.iter().enumerate() {
-        if !consumed[i] {
-            top.push(org_tasks.swap_remove(i));
-        }
-    }
-
     top
+}
+
+/// Recursively build a task's OrgTask, attaching its subtasks (in
+/// position order) as children at `depth + 1`.
+fn build_task_subtree(
+    idx: usize,
+    tasks: &[Task],
+    tag_names: &HashMap<i64, Vec<String>>,
+    depth: usize,
+    consumed: &mut [bool],
+) -> OrgTask {
+    consumed[idx] = true;
+    let mut node = task_to_org(&tasks[idx], depth, tag_names);
+    let parent_id = tasks[idx].id;
+
+    // Children sorted by position so the emitted file matches
+    // the project's UI order. Index pairs avoid cloning Tasks.
+    let mut child_indices: Vec<usize> = (0..tasks.len())
+        .filter(|&j| !consumed[j] && tasks[j].parent_id == Some(parent_id))
+        .collect();
+    child_indices.sort_by(|&a, &b| {
+        tasks[a]
+            .position
+            .partial_cmp(&tasks[b].position)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    for j in child_indices {
+        if consumed[j] {
+            continue;
+        }
+        let child = build_task_subtree(j, tasks, tag_names, depth + 1, consumed);
+        node.children.push(child);
+    }
+    node
+}
+
+/// Convert a Heading row into a depth-1 OrgTask carrying the
+/// section's title and `:ID:` (uuid) so a future Org importer
+/// can match heading rows back by id rather than by title.
+fn heading_to_org(heading: &Heading) -> OrgTask {
+    let mut properties: HashMap<String, String> = HashMap::new();
+    if !heading.uuid.is_empty() {
+        properties.insert("ID".into(), heading.uuid.clone());
+    }
+    OrgTask {
+        depth: 1,
+        keyword: None,
+        title: heading.title.clone(),
+        tags: Vec::new(),
+        scheduled: None,
+        scheduled_repeater: None,
+        deadline: None,
+        deadline_repeater: None,
+        closed: None,
+        properties,
+        body: String::new(),
+        unknown_lines: Vec::new(),
+        children: Vec::new(),
+    }
 }
 
 /// file-level directives for a project's `.org` file.
@@ -869,6 +941,274 @@ mod tests {
             written.contains(":RRULE: FREQ=WEEKLY;BYDAY=MO,WE"),
             "expected canonical :RRULE: in drawer; got:\n{written}"
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Phase 18 v0.12.0 — project sub-headings emit. A project with
+    /// two heading rows interleaved with tasks by `position` writes
+    /// to disk as a section-bearing Org file: each heading becomes
+    /// a depth-1 keyword-less headline and tasks whose position
+    /// falls between two headings nest under the preceding one at
+    /// depth 2.
+    #[test]
+    fn write_emits_headings_as_depth1_sections() {
+        use atrium_core::domain::{NewHeading, NewProject, NewTask};
+        use atrium_core::spawn_worker;
+
+        let dir = std::env::temp_dir().join(format!("atrium-headings-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let db_path = dir.join("atrium-test.db");
+        let read_conn = rusqlite::Connection::open(&db_path).unwrap();
+        atrium_core::db::configure_pragmas(&read_conn).unwrap();
+        let mut writer_conn = rusqlite::Connection::open(&db_path).unwrap();
+        atrium_core::db::migrations::migrate(&mut writer_conn).unwrap();
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (handle, _changes_rx, _library_rx) =
+            runtime.block_on(async move { spawn_worker(writer_conn) });
+
+        let project = runtime
+            .block_on(async {
+                handle
+                    .create_project(NewProject {
+                        title: "Weekly chores".to_string(),
+                        ..Default::default()
+                    })
+                    .await
+            })
+            .unwrap();
+
+        // Position layout (Todoist mapper will lay it out this way):
+        //   heading "Kitchen" → 1.0
+        //   task    "Wipe counters" → 1.5  (under Kitchen)
+        //   task    "Empty compost" → 1.75 (under Kitchen)
+        //   heading "Laundry" → 2.0
+        //   task    "Wash darks"    → 2.5  (under Laundry)
+        //
+        // We can't set positions through the public worker API, so
+        // we drive them by inserting in the right order: the worker
+        // assigns next_*_position(project_id) as max+1 per table.
+        // Headings get 1.0 then 2.0; tasks get 1.0, 2.0, 3.0. To
+        // realise the layout above we patch positions via a write
+        // connection at the end so the writer reads the intended
+        // shape — this is test-only mechanics, not production code.
+        let kitchen = runtime
+            .block_on(async {
+                handle
+                    .ensure_heading(project.id, "Kitchen".to_string())
+                    .await
+            })
+            .unwrap();
+        let counters = runtime
+            .block_on(async {
+                handle
+                    .create_task(NewTask {
+                        title: "Wipe counters".to_string(),
+                        project_id: Some(project.id),
+                        ..Default::default()
+                    })
+                    .await
+            })
+            .unwrap();
+        let compost = runtime
+            .block_on(async {
+                handle
+                    .create_task(NewTask {
+                        title: "Empty compost".to_string(),
+                        project_id: Some(project.id),
+                        ..Default::default()
+                    })
+                    .await
+            })
+            .unwrap();
+        let laundry = runtime
+            .block_on(async {
+                handle
+                    .ensure_heading(project.id, "Laundry".to_string())
+                    .await
+            })
+            .unwrap();
+        let darks = runtime
+            .block_on(async {
+                handle
+                    .create_task(NewTask {
+                        title: "Wash darks".to_string(),
+                        project_id: Some(project.id),
+                        ..Default::default()
+                    })
+                    .await
+            })
+            .unwrap();
+
+        // Patch positions to realise the interleaved layout.
+        let patch = rusqlite::Connection::open(&db_path).unwrap();
+        patch
+            .execute(
+                "UPDATE heading SET position = 1.0 WHERE id = ?1",
+                rusqlite::params![kitchen.id],
+            )
+            .unwrap();
+        patch
+            .execute(
+                "UPDATE heading SET position = 2.0 WHERE id = ?1",
+                rusqlite::params![laundry.id],
+            )
+            .unwrap();
+        patch
+            .execute(
+                "UPDATE task SET position = 1.5 WHERE id = ?1",
+                rusqlite::params![counters.id],
+            )
+            .unwrap();
+        patch
+            .execute(
+                "UPDATE task SET position = 1.75 WHERE id = ?1",
+                rusqlite::params![compost.id],
+            )
+            .unwrap();
+        patch
+            .execute(
+                "UPDATE task SET position = 2.5 WHERE id = ?1",
+                rusqlite::params![darks.id],
+            )
+            .unwrap();
+
+        let summary = write_project_to_vault(&read_conn, &dir, project.id).unwrap();
+        let written = std::fs::read_to_string(&summary.file_path).unwrap();
+        let parsed = super::super::parse::parse_org_text(&written);
+
+        assert_eq!(parsed.len(), 2, "two top-level sub-headings expected");
+        assert_eq!(parsed[0].title, "Kitchen");
+        assert_eq!(parsed[0].keyword, None);
+        assert_eq!(
+            parsed[0].properties.get("ID").map(String::as_str),
+            Some(kitchen.uuid.as_str()),
+        );
+        assert_eq!(parsed[0].children.len(), 2);
+        assert_eq!(parsed[0].children[0].title, "Wipe counters");
+        assert_eq!(parsed[0].children[0].depth, 2);
+        assert_eq!(parsed[0].children[0].keyword, Some(OrgKeyword::Todo));
+        assert_eq!(parsed[0].children[1].title, "Empty compost");
+
+        assert_eq!(parsed[1].title, "Laundry");
+        assert_eq!(parsed[1].keyword, None);
+        assert_eq!(parsed[1].children.len(), 1);
+        assert_eq!(parsed[1].children[0].title, "Wash darks");
+        assert_eq!(parsed[1].children[0].depth, 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
+        // NewHeading import: keep the binding live so the unused-import
+        // lint doesn't fire on a future stub-out of this test.
+        let _ = NewHeading::default();
+    }
+
+    /// Tasks before any heading still emit at depth 1; the writer
+    /// only reaches depth 2 once the cursor crosses a heading row.
+    #[test]
+    fn write_keeps_pre_heading_tasks_at_top_level() {
+        use atrium_core::domain::{NewProject, NewTask};
+        use atrium_core::spawn_worker;
+
+        let dir =
+            std::env::temp_dir().join(format!("atrium-pre-heading-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let db_path = dir.join("atrium-test.db");
+        let read_conn = rusqlite::Connection::open(&db_path).unwrap();
+        atrium_core::db::configure_pragmas(&read_conn).unwrap();
+        let mut writer_conn = rusqlite::Connection::open(&db_path).unwrap();
+        atrium_core::db::migrations::migrate(&mut writer_conn).unwrap();
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (handle, _changes_rx, _library_rx) =
+            runtime.block_on(async move { spawn_worker(writer_conn) });
+
+        let project = runtime
+            .block_on(async {
+                handle
+                    .create_project(NewProject {
+                        title: "Mixed".to_string(),
+                        ..Default::default()
+                    })
+                    .await
+            })
+            .unwrap();
+        let pre_task = runtime
+            .block_on(async {
+                handle
+                    .create_task(NewTask {
+                        title: "Standalone".to_string(),
+                        project_id: Some(project.id),
+                        ..Default::default()
+                    })
+                    .await
+            })
+            .unwrap();
+        let heading = runtime
+            .block_on(async {
+                handle
+                    .ensure_heading(project.id, "Section".to_string())
+                    .await
+            })
+            .unwrap();
+        let under_task = runtime
+            .block_on(async {
+                handle
+                    .create_task(NewTask {
+                        title: "Under section".to_string(),
+                        project_id: Some(project.id),
+                        ..Default::default()
+                    })
+                    .await
+            })
+            .unwrap();
+
+        // pre_task @ 0.5, heading @ 1.0, under_task @ 1.5.
+        let patch = rusqlite::Connection::open(&db_path).unwrap();
+        patch
+            .execute(
+                "UPDATE task SET position = 0.5 WHERE id = ?1",
+                rusqlite::params![pre_task.id],
+            )
+            .unwrap();
+        patch
+            .execute(
+                "UPDATE heading SET position = 1.0 WHERE id = ?1",
+                rusqlite::params![heading.id],
+            )
+            .unwrap();
+        patch
+            .execute(
+                "UPDATE task SET position = 1.5 WHERE id = ?1",
+                rusqlite::params![under_task.id],
+            )
+            .unwrap();
+
+        let summary = write_project_to_vault(&read_conn, &dir, project.id).unwrap();
+        let parsed = super::super::parse::parse_org_text(
+            &std::fs::read_to_string(&summary.file_path).unwrap(),
+        );
+
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].title, "Standalone");
+        assert_eq!(parsed[0].keyword, Some(OrgKeyword::Todo));
+        assert_eq!(parsed[0].depth, 1);
+        assert_eq!(parsed[0].children.len(), 0);
+
+        assert_eq!(parsed[1].title, "Section");
+        assert_eq!(parsed[1].keyword, None);
+        assert_eq!(parsed[1].children.len(), 1);
+        assert_eq!(parsed[1].children[0].title, "Under section");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
