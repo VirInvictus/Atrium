@@ -223,6 +223,17 @@ fn emit_task(task: &OrgTask, out: &mut String) {
         out.push('\n');
     }
 
+    // Trailing blank line after every headline's content. Matches
+    // Emacs's `org-blank-before-new-entry` default — the line is
+    // *before* the next headline (or the parent's next sibling
+    // when this headline has no following peer at its depth).
+    // The org-agenda + Doom rendering treats the blank as part
+    // of the source convention; without it adjacent headlines
+    // read as a single visual block. Spec §7.3.3 round-trip
+    // rules don't constrain whitespace, so the parser ignores
+    // the line on read — emit and re-emit are byte-stable.
+    out.push('\n');
+
     // Children at depth + 1. Each child re-enters this function
     // and emits its own headline + content recursively.
     for child in &task.children {
@@ -515,8 +526,11 @@ CLOSED: [2026-05-08 Fri 09:00]
     fn emit_no_cookie_line_when_no_dates() {
         let tasks = parse_org_text("* TODO Plain\n");
         let out = emit_org_text(&tasks);
-        // The only newline-terminated line should be the headline.
-        assert_eq!(out, "* TODO Plain\n");
+        // Headline + the `org-blank-before-new-entry` trailing
+        // blank we now emit between every headline and whatever
+        // follows. No cookie / properties / body lines are
+        // present, which is what this test pins.
+        assert_eq!(out, "* TODO Plain\n\n");
     }
 
     #[test]
