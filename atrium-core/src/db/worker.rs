@@ -725,14 +725,31 @@ impl Worker {
     }
 
     fn create_task(&mut self, new: NewTask) -> Result<Task, DbError> {
-        // Phase 15 — reject malformed RRULE up front so we don't
-        // store a string that can't be iterated. Mode strings other
-        // than the three known values fall back to default at read
-        // time, so they don't need a hard reject; we only validate
-        // against the known set when set explicitly.
+        // Reject malformed RRULE up front so we don't store a string
+        // that can't be iterated. Mode strings other than the three
+        // known values fall back to default at read time, so they
+        // don't need a hard reject; we only validate against the
+        // known set when set explicitly.
         if let Some(rule) = new.repeat_rule.as_deref() {
             crate::repeat::RepeatRule::parse(rule, crate::repeat::RepeatMode::Cumulative)
                 .map_err(|e| DbError::BadRepeatRule(e.to_string()))?;
+        }
+
+        // Domain rule: a subtask must live in the same project as its
+        // parent. The schema's FK enforces "parent exists" but can't
+        // express "parent is in the same project," so the worker
+        // checks before insert.
+        if let Some(parent_id) = new.parent_id
+            && let Some(parent) = read::task_by_id(&self.conn, parent_id)?
+            && parent.project_id != new.project_id
+        {
+            return Err(DbError::Domain(
+                crate::error::DomainError::ParentProjectMismatch {
+                    parent_task: parent_id,
+                    parent_project: parent.project_id,
+                    claimed_project: new.project_id,
+                },
+            ));
         }
 
         // honor a caller-provided UUID (the Org importer
@@ -807,12 +824,31 @@ impl Worker {
             return read::task_by_id(&self.conn, update.id)?.ok_or(DbError::NotFound);
         }
 
-        // Phase 15 — same validation as create_task: malformed
-        // RRULE strings get a hard reject so they never land in the
-        // column.
+        // Same validation as create_task: malformed RRULE strings
+        // get a hard reject so they never land in the column.
         if let Some(Some(rule)) = update.repeat_rule.as_ref() {
             crate::repeat::RepeatRule::parse(rule, crate::repeat::RepeatMode::Cumulative)
                 .map_err(|e| DbError::BadRepeatRule(e.to_string()))?;
+        }
+
+        // Domain rule: if the caller is moving this task to a new
+        // project AND the task has a parent, the parent must already
+        // be in (or moving to) that same project. We don't auto-fix
+        // — the GUI either moves the parent first or unfiles the
+        // child.
+        if let Some(claimed_project) = update.project_id
+            && let Some(existing) = read::task_by_id(&self.conn, update.id)?
+            && let Some(parent_id) = existing.parent_id
+            && let Some(parent) = read::task_by_id(&self.conn, parent_id)?
+            && parent.project_id != claimed_project
+        {
+            return Err(DbError::Domain(
+                crate::error::DomainError::ParentProjectMismatch {
+                    parent_task: parent_id,
+                    parent_project: parent.project_id,
+                    claimed_project,
+                },
+            ));
         }
 
         let mut sets: Vec<&'static str> = Vec::new();
@@ -1376,6 +1412,13 @@ impl Worker {
     // ── Perspectives (Phase 14) ─────────────────────────────────
 
     fn create_perspective(&mut self, new: NewPerspective) -> Result<Perspective, DbError> {
+        // Domain rule: filter expression must be non-empty. A blank
+        // perspective has no rows; the GUI editor should surface the
+        // rejection rather than silently produce a no-op sidebar
+        // entry.
+        if new.filter_expr.trim().is_empty() {
+            return Err(DbError::Domain(crate::error::DomainError::EmptyFilterExpr));
+        }
         let uuid = Uuid::new_v4().to_string();
         let position = self.next_perspective_position()?;
         // `renderer` defaults to "list" at the schema level; supply it
@@ -1410,6 +1453,15 @@ impl Worker {
     fn update_perspective(&mut self, update: PerspectiveUpdate) -> Result<Perspective, DbError> {
         if update.is_noop() {
             return read::perspective_by_id(&self.conn, update.id)?.ok_or(DbError::NotFound);
+        }
+        // Same rule as create_perspective: if the caller is changing
+        // the filter expression, it must be non-empty. Other update
+        // shapes (rename, icon swap, renderer flip) leave the filter
+        // alone and pass through.
+        if let Some(expr) = update.filter_expr.as_deref()
+            && expr.trim().is_empty()
+        {
+            return Err(DbError::Domain(crate::error::DomainError::EmptyFilterExpr));
         }
         let mut sets: Vec<&'static str> = Vec::new();
         let mut bound: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();

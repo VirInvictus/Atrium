@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 //! Shared error hierarchy for the headless core.
 //!
-//! `DbError` covers anything the SQLite layer can produce; `DomainError`
-//! covers domain-layer invariant violations. `CoreError` is the wrapper
-//! the binary's `AtriumError` flows from.
+//! `DbError` covers anything the SQLite layer can produce, plus
+//! domain-invariant rejections wrapped in via the `Domain` variant.
+//! `DomainError` carries the typed invariants the worker enforces
+//! before a write touches the database. `CoreError` is the
+//! aggregate the binary's `AtriumError` flows from.
 
 use thiserror::Error;
 
@@ -30,25 +32,53 @@ pub enum DbError {
     #[error("worker channel closed")]
     WorkerClosed,
 
-    /// Phase 15 — the caller supplied a `repeat_rule` text that
-    /// failed RFC 5545 parsing. Carries the diagnostic from the
-    /// underlying parser so the UI editor can surface it.
+    /// The caller supplied a `repeat_rule` text that failed RFC 5545
+    /// parsing. Carries the diagnostic from the underlying parser so
+    /// the UI editor can surface it.
     #[error("invalid repeat rule: {0}")]
     BadRepeatRule(String),
 
-    /// v0.7.11 — sync / serialization-layer error. Used by the
-    /// JSON snapshot exporter when serde_json fails (extremely
-    /// rare — would require a domain type whose Serialize impl
-    /// rejects its own valid state, which we don't have).
+    /// Sync / serialization-layer error. Used by the JSON snapshot
+    /// exporter when serde_json fails (extremely rare — would require
+    /// a domain type whose Serialize impl rejects its own valid
+    /// state, which we don't have).
     #[error("sync error: {0}")]
     Sync(String),
+
+    /// Domain invariant rejected at write time.
+    #[error("domain: {0}")]
+    Domain(#[from] DomainError),
 }
 
-#[derive(Debug, Error)]
+/// Domain-layer invariants the worker enforces before committing a
+/// write. Returned via [`DbError::Domain`] from the worker handle so
+/// callers don't need a separate error tree.
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum DomainError {
-    #[error("domain invariant violated: {0}")]
-    Invariant(String),
-    // Concrete variants land in Phase 2 alongside the domain types.
+    /// A subtask was created or moved such that its `parent_id` lives
+    /// in a different project than the subtask itself. Subtask
+    /// hierarchies must stay within a project — moving a parent task
+    /// without its children would otherwise orphan them across the
+    /// project boundary. The schema's FK ensures the parent row
+    /// exists; this rule catches the cross-project case the FK
+    /// can't.
+    #[error(
+        "parent task {parent_task} is in project {parent_project:?}; \
+         cannot host a child claiming project {claimed_project:?}"
+    )]
+    ParentProjectMismatch {
+        parent_task: i64,
+        parent_project: Option<i64>,
+        claimed_project: Option<i64>,
+    },
+
+    /// A perspective was created or updated with an empty or
+    /// whitespace-only filter expression. A perspective with no
+    /// predicate has no rows; reject at write time so the GUI
+    /// surfaces the editor error rather than producing a blank
+    /// sidebar entry.
+    #[error("perspective filter expression is empty")]
+    EmptyFilterExpr,
 }
 
 #[derive(Debug, Error)]

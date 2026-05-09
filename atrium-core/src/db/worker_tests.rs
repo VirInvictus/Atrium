@@ -965,3 +965,169 @@ async fn move_task_to_project_via_update_task() {
         .unwrap();
     assert_eq!(moved.project_id, Some(project.id));
 }
+
+// ── Domain invariants ─────────────────────────────────────
+
+#[tokio::test]
+async fn create_task_rejects_cross_project_parent() {
+    use crate::error::DomainError;
+
+    let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+    let p1 = handle
+        .create_project(NewProject::unfiled("P1"))
+        .await
+        .unwrap();
+    let _ = library_rx.recv().await.unwrap();
+    let p2 = handle
+        .create_project(NewProject::unfiled("P2"))
+        .await
+        .unwrap();
+    let _ = library_rx.recv().await.unwrap();
+    let parent = handle
+        .create_task(NewTask {
+            title: "Parent".into(),
+            project_id: Some(p1.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    let result = handle
+        .create_task(NewTask {
+            title: "Cross-project child".into(),
+            project_id: Some(p2.id),
+            parent_id: Some(parent.id),
+            ..Default::default()
+        })
+        .await;
+
+    match result {
+        Err(DbError::Domain(DomainError::ParentProjectMismatch {
+            parent_task,
+            parent_project,
+            claimed_project,
+        })) => {
+            assert_eq!(parent_task, parent.id);
+            assert_eq!(parent_project, Some(p1.id));
+            assert_eq!(claimed_project, Some(p2.id));
+        }
+        other => panic!("expected ParentProjectMismatch, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn create_task_accepts_same_project_parent() {
+    let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+    let project = handle
+        .create_project(NewProject::unfiled("P"))
+        .await
+        .unwrap();
+    let _ = library_rx.recv().await.unwrap();
+    let parent = handle
+        .create_task(NewTask {
+            title: "Parent".into(),
+            project_id: Some(project.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let child = handle
+        .create_task(NewTask {
+            title: "Child".into(),
+            project_id: Some(project.id),
+            parent_id: Some(parent.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(child.parent_id, Some(parent.id));
+}
+
+#[tokio::test]
+async fn update_task_rejects_move_orphaning_parent() {
+    use crate::error::DomainError;
+
+    let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+    let p1 = handle
+        .create_project(NewProject::unfiled("P1"))
+        .await
+        .unwrap();
+    let _ = library_rx.recv().await.unwrap();
+    let p2 = handle
+        .create_project(NewProject::unfiled("P2"))
+        .await
+        .unwrap();
+    let _ = library_rx.recv().await.unwrap();
+
+    let parent = handle
+        .create_task(NewTask {
+            title: "Parent".into(),
+            project_id: Some(p1.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let child = handle
+        .create_task(NewTask {
+            title: "Child".into(),
+            project_id: Some(p1.id),
+            parent_id: Some(parent.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    // Try to move just the child to p2 — would orphan it across
+    // the project boundary from its parent.
+    let result = handle
+        .update_task(TaskUpdate::new(child.id).project(Some(p2.id)))
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(DbError::Domain(DomainError::ParentProjectMismatch { .. }))
+    ));
+}
+
+#[tokio::test]
+async fn create_perspective_rejects_empty_filter() {
+    use crate::domain::NewPerspective;
+    use crate::error::DomainError;
+
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let result = handle
+        .create_perspective(NewPerspective {
+            name: "Blank".into(),
+            filter_expr: "   ".into(),
+            ..Default::default()
+        })
+        .await;
+    assert!(matches!(
+        result,
+        Err(DbError::Domain(DomainError::EmptyFilterExpr))
+    ));
+}
+
+#[tokio::test]
+async fn update_perspective_rejects_emptying_filter() {
+    use crate::domain::{NewPerspective, PerspectiveUpdate};
+    use crate::error::DomainError;
+
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let p = handle
+        .create_perspective(NewPerspective {
+            name: "Real".into(),
+            filter_expr: "is:open".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    let result = handle
+        .update_perspective(PerspectiveUpdate::new(p.id).filter_expr(""))
+        .await;
+    assert!(matches!(
+        result,
+        Err(DbError::Domain(DomainError::EmptyFilterExpr))
+    ));
+}
