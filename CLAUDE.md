@@ -298,7 +298,8 @@ data/                                 ← installed assets
 ├── io.github.virinvictus.atrium.metainfo.xml
 └── io.github.virinvictus.atrium.yml  ← Flatpak manifest
 
-docs/                                 ← long-form references (schema.md / keymap.md / accessibility.md / perf-baseline.md / regression.md / gtd-patterns.md)
+docs/                                 ← long-form references (schema.md / keymap.md / accessibility.md / perf-baseline.md / regression.md / gtd-patterns.md / org-roundtrip.md)
+demos/showcase/                       ← hand-crafted Org fixture for showing off the conversion: 3 projects / 42 tasks / every keyword + cookie + repeater + body construct + Unicode. `cargo run -p atrium-cli -- import org demos/showcase/` to seed.
 scripts/regression.sh                 ← ship-gate
 
 atrium-core/tests/                    ← integration tests

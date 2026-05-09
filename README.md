@@ -159,6 +159,21 @@ Direct importers ship for the apps Linux users *actually* migrate from. The list
 
 VTODO export is one-way — Atrium does not become a CalDAV client. The plan is to reach the Linux task ecosystem through two interop covenants — Org-mode (primary) and VTODO (cross-app baseline) — rather than per-app importer sprawl.
 
+### See the Org-mode conversion in action
+
+`demos/showcase/` is a hand-crafted set of three projects across two areas, deliberately rich — every TODO-cycle keyword (TODO / DONE / CANCELLED + WAITING / IN-PROGRESS / BLOCKED), every cookie combination (SCHEDULED / DEADLINE / CLOSED), all three repeater modes (`+1w` / `++1w` / `.+1w`), a multi-day RRULE, a 4-level subtask chain, body content with a SQL source block + an Org table + bullet lists + external + internal links, and Unicode (Japanese / Cyrillic / emoji / RTL).
+
+```bash
+mkdir -p ~/Tasks
+gsettings set io.github.virinvictus.atrium vault-path ~/Tasks
+cargo run -p atrium-cli -- import org demos/showcase/
+cargo run -p atrium
+```
+
+The v0.13.5 fresh-vault seed mirrors all 42 tasks to `~/Tasks/` the moment the GUI's data layer attaches; opening any of the regenerated `.org` files in DoomEmacs shows the canonical Atrium emit format. Edit a task title in either Atrium or Emacs, save, and the other side picks the change up in ~200 ms via the `inotify` watcher.
+
+The full reference for what's preserved + what isn't lives at [`docs/org-roundtrip.md`](docs/org-roundtrip.md) — supported constructs, known limits (the two `documented_limit_*` tests pin them), the round-trip contract from spec §7.3.3, and pointers into the parser / emitter / writer / watcher / sidecar code.
+
 ### Acknowledgments
 
 The v0.6.19 roadmap revision (retired Things 3 import; promoted Org-mode + Todoist; added Phase 19.5 productivity essentials) drew on a feature-survey pass against the apps below. No code was copied — the analysis read public README/docs/feature-pages and identified gaps relative to Atrium's existing roadmap. Each Phase 19.5 item names its source in `roadmap.md`.
