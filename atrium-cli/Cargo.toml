@@ -40,5 +40,16 @@ tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# Phase 18 (v0.12.0): deterministic v5 task UUIDs in the Todoist
+# mapper so re-imports onto the same project keep stable IDs.
+# Already a workspace dep (atrium-core uses v4); the CLI just
+# needs its own entry to call into uuid::new_v5.
+uuid.workspace = true
+
+# Phase 18 (v0.12.0): typed errors for the Todoist mapper layer
+# (MapError) — same shape as atrium-core / atrium-org error
+# enums. Already a workspace dep.
+thiserror.workspace = true
+
 [dev-dependencies]
 atrium-core = { path = "../atrium-core", features = ["test-support"] }

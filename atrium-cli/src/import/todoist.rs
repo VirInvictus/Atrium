@@ -17,5 +17,6 @@
 //! chore-tracker. Roadmap §18 makes that file the round-trip
 //! acceptance contract.
 
+pub mod mapper;
 pub mod parser;
 pub mod recurrence;

@@ -37,7 +37,10 @@ gtk = { version = "0.9", package = "gtk4", features = ["v4_16"] }
 adw = { version = "0.7", package = "libadwaita", features = ["v1_7"] }
 
 # Phase 1: UUID v4 generation. Sign-off granted in Phase 1 design call.
-uuid = { version = "1", features = ["v4", "serde"] }
+# v5 (Phase 18, v0.12.0): deterministic name-based UUIDs from
+# (project_name, content) so re-running the Todoist importer onto the
+# same project produces stable IDs. Same crate, additive feature flag.
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
 
 # Phase 15: RFC 5545 RRULE parser + iterator. Sign-off granted before
 # Phase 15 implementation. Default features only — `serde` is opt-in and
