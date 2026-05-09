@@ -90,6 +90,25 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.13.4" date="2026-05-09">
+      <description>
+        <p>Fresh vaults seed on first boot. Phase 17's vault loop
+           is change-driven — setting vault-path on an empty
+           directory previously did nothing visible until the
+           user edited a task. v0.13.4 detects a fresh vault by
+           the absence of `.atrium/config.toml` and spawns a
+           background task that dumps every project's .org file
+           and writes the sidecar. Subsequent boots find the
+           sidecar and skip the seed.</p>
+        <p>The seed runs on the existing tokio runtime so the
+           GTK window appears within the spec §8 cold-start
+           budget. Pre-existing .org files in a sidecar-less
+           vault get backed up via the v0.10.1 conflict-
+           detection path before being overwritten — hand-edits
+           are never lost.</p>
+      </description>
+      <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
+    </release>
     <release version="0.13.3" date="2026-05-09">
       <description>
         <p>Stylistic Org-emit fix — successive headlines now

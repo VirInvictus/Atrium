@@ -1,5 +1,31 @@
 # Atrium — Patch Notes
 
+## v0.13.4 (2026-05-09) — Vault: seed-on-first-boot for fresh vault paths
+
+The Phase 17 vault loop is change-driven — the VaultWriter only fires when the worker emits `notify_project_dirty(project_id)`. Setting `vault-path` on a fresh empty directory and restarting Atrium therefore did *nothing* visible: the existing DB sat unmirrored until the user edited a task. The expected behaviour is "see my existing tasks mirrored to disk on first connect", and that previously took a separate `atrium-cli export org PATH` invocation.
+
+**Fix:** on every boot, after the vault loop attaches, check for `<vault>/.atrium/config.toml`. The writer creates that sidecar on every project flush, so its absence is a reliable "never been written" signal. When absent, spawn a tokio task that calls `write_all_projects_to_vault` against a fresh read connection, then writes the sidecar via `build_from_db` + `write_sidecar`. Two-phase because `write_all_projects_to_vault` doesn't touch the sidecar itself; without the explicit sidecar write, every subsequent boot would re-detect a fresh vault and re-seed.
+
+**Why background, not synchronous:** a 10K-task DB takes a couple of seconds to dump and the cold-start budget (spec §8) is < 250 ms. The seed spawns on the existing tokio runtime so the GTK window appears immediately while the seed runs in the background. Errors are best-effort logged; `atrium-cli export org PATH` remains available as the manual fallback.
+
+**Backward compat is verbatim.** Existing populated vaults (sidecar present) skip the seed unchanged — only fresh-or-erased vaults trigger it. Pre-existing `.org` files in a vault that's somehow lost its sidecar get backed up to `<file>.atrium.bak.<UTC>` by the v0.10.1 conflict-detection path before the seed overwrites them — hand-edits are never lost, only relocated.
+
+`read_vault_setup_from_settings` now returns the vault path alongside the config + loop + receiver tuple, so `boot_data_layer` can detect the sidecar without re-reading GSettings.
+
+Manual smoke (the path Brandon hit):
+
+```
+gsettings set io.github.virinvictus.atrium vault-path ~/Tasks
+mkdir -p ~/Tasks   # if absent
+cargo run -p atrium
+# After ~250ms the GUI is up; shortly after, ~/Tasks/ contains
+# every project's .org file plus ~/Tasks/.atrium/config.toml.
+```
+
+Test count holds at 829. Schema unchanged at v7.
+
+VERSION + Cargo.toml + patchnotes.md + AppStream metainfo bumped to 0.13.4.
+
 ## v0.13.3 (2026-05-09) — Org emit: blank line between successive headlines
 
 Pure stylistic patch found by visual inspection of an exported vault — the Org writer was emitting headlines back-to-back with the `:END:` of one drawer butting directly against the `*` of the next headline. Org-agenda parses both forms cleanly, but Emacs's own writers (with the default `org-blank-before-new-entry`) always insert a blank line before a new headline. Reading Atrium's vault in DoomEmacs surfaced the visual cramping immediately — every headline read as part of one big block instead of as discrete entries. A single-line addition in `emit_task` pushes a trailing newline after the last piece of headline content and before recursing into children; the recursion unwinding handles every separator (parent → first child, sibling → sibling, last child → parent's next sibling). The parser tolerates blank lines anywhere outside drawers so spec §7.3.3 round-trip discipline is intact. One existing byte-exact test (`emit_no_cookie_line_when_no_dates`) updated to expect the trailing blank. Test count holds at 824. Schema unchanged at v7.
