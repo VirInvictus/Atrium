@@ -1,5 +1,75 @@
 # Atrium — Patch Notes
 
+## v0.7.10 (2026-05-09) — Vault writer + atrium-cli export org
+
+Fifth patch on the Phase 16 arc. v0.7.9 gave us the importer
+(Org → DB); v0.7.10 lands the writer (DB → Org) so users can
+round-trip in both directions. With this patch, an Atrium DB
+can be projected to a vault directory, edited with Emacs / vim-
+orgmode / any Org tool, and re-imported — the round-trip
+discipline holds for every spec §7.3 construct already covered
+by the importer.
+
+**`atrium-core::sync::org::write::write_project_to_vault`.**
+Reads a project + every task in it (open + done) + tag names
+through a read-only `Connection`, builds an `OrgTask` tree
+mirroring spec §7.3.2's field mapping in reverse:
+
+- Task title → headline text
+- Task note → body verbatim
+- Task tags → headline `:tag1:tag2:`
+- completed_at present → DONE keyword + CLOSED cookie
+- completed_at None → TODO keyword
+- scheduled_for / deadline → SCHEDULED / DEADLINE cookies
+- task.uuid → `:ID:` property
+- repeat_rule → `:RRULE:` property
+- estimated_minutes → `:EFFORT:` `H:MM`
+- defer_until → `:DEFER_UNTIL:` `YYYY-MM-DD`
+- parent_id chain → nested headlines (depth = parent.depth + 1)
+
+The destination path is `<vault_root>/<area_title>/<project_title>.org`
+(or `<vault_root>/<project_title>.org` for unfiled projects).
+Filename sanitization replaces filesystem-hostile chars with
+`_` and collapses runs; empty / all-bad titles default to
+"untitled". Emit goes through the v0.7.8 `emit_org_file` →
+v0.7.6 `write_atomic` so a crash mid-write leaves the previous
+file intact (spec §7.3.3 rule 6).
+
+**`write_all_projects_to_vault`** walks `list_projects` and
+calls `write_project_to_vault` for each. Used by the new CLI.
+
+**New read primitive `list_all_in_project`.** The existing
+`list_project` filters `completed_at IS NULL`; for the writer we
+need open + done so the projected file reflects the full
+project state. Additive — doesn't change the existing read API.
+
+**`atrium-cli export org PATH [--dry-run]`.** New subcommand
+parsed via `args::parse_export`. Walks every project in the DB
+and writes one `.org` file per project under PATH. Dry-run mode
+walks the project list and prints what *would* be written
+without touching disk. Output: human (default) or `--json`
+(machine-readable summary with per-project counts + paths).
+
+**Limitations consciously deferred to v0.7.11+:** Project
+sub-headings (the `heading` table) aren't emitted yet — they
+round-trip as the importer's `headings_skipped` count grows on
+each cycle. Custom keywords (`WAITING`, etc.) round-trip back
+to TODO; the `:ORIG_KEYWORD:` machinery follows. File-level
+project metadata (`#+TITLE:`, `:SEQUENTIAL:`,
+`:REVIEW_INTERVAL:`, `:LAST_REVIEWED:`, `:ARCHIVED:`) not yet
+emitted. Auto-debounced worker write hook (Atrium → vault on
+TaskChanges) lands as a separate patch.
+
+**Test count:** 119 + 226 + 1 + 106 + 106 = **558** (up 7 from
+v0.7.9's 551 — three sanitize-filename tests, format-effort
+test, two end-to-end disk round-trip tests, and one effort-form
+test). Pure additive change. No schema. No new dependencies.
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.10**. Phase 16 progress: foundation + parser +
+emitter + importer + writer done; integrity check, JSON export,
+worker write hook, and the round-trip test fixture remain.
+
 ## v0.7.9 (2026-05-08) — Org importer (`atrium-cli import org`)
 
 Fourth patch on the Phase 16 arc. v0.7.6–v0.7.8 gave us the

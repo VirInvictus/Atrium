@@ -242,6 +242,23 @@ pub fn list_project(conn: &Connection, project_id: i64) -> Result<Vec<Task>, DbE
         .map_err(Into::into)
 }
 
+/// v0.7.10 — all tasks belonging to `project_id` regardless of
+/// completion state, ordered by position. Used by the Org vault
+/// writer (sync::org::write) so the projected `.org` file
+/// reflects the complete project state — DONE tasks land in the
+/// file with a CLOSED cookie, not silently dropped.
+pub fn list_all_in_project(conn: &Connection, project_id: i64) -> Result<Vec<Task>, DbError> {
+    let sql = format!(
+        "SELECT {TASK_COLUMNS} FROM task \
+         WHERE project_id = ?1 \
+         ORDER BY position"
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map(params![project_id], task_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
 /// All open tasks across the area's projects, ordered by project
 /// position then task position. Aggregate "click an area in the
 /// sidebar" view per spec §5.1.

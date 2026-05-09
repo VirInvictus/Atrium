@@ -188,6 +188,16 @@ pub enum Subcommand {
         path: String,
         dry_run: bool,
     },
+    /// `export SOURCE PATH [--dry-run]` — write the DB to a
+    /// vault directory. Phase 16, v0.7.10. Currently only `org`
+    /// is supported. Each project becomes a `<PATH>/<area>/
+    /// <project>.org` file (or `<PATH>/<project>.org` for
+    /// unfiled). Atomic writes per spec §7.3.3 rule 6.
+    Export {
+        source: ExportSource,
+        path: String,
+        dry_run: bool,
+    },
 }
 
 /// Supported import sources. v0.7.9 ships only `Org` (single-
@@ -195,6 +205,13 @@ pub enum Subcommand {
 /// other sources land in subsequent phases.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportSource {
+    Org,
+}
+
+/// Supported export targets. v0.7.10 ships only `Org` (vault
+/// projection). JSON dump and VTODO follow in v0.7.11+.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExportSource {
     Org,
 }
 
@@ -446,6 +463,7 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
         }
         "perspective" => parse_perspective(&raw[i..], &mut args)?,
         "import" => parse_import(&raw[i..], &mut args)?,
+        "export" => parse_export(&raw[i..], &mut args)?,
         other => return Err(format!("unknown subcommand: {other}")),
     });
 
@@ -732,6 +750,58 @@ fn parse_edit(rest: &[String], args: &mut Args) -> Result<EditArgs, String> {
     // the unchanged row) so users can use `edit ID` as a "show
     // single task in the list-row format" companion to `info`.
     Ok(edit)
+}
+
+/// Parse `export <source> <path> [--dry-run]`. v0.7.10 ships
+/// only the `org` source (write every project to a vault
+/// directory). Mirrors the `parse_import` shape.
+fn parse_export(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
+    let source_str = rest
+        .first()
+        .ok_or("export requires a source: org")?
+        .as_str();
+    let source = match source_str {
+        "org" => ExportSource::Org,
+        other => return Err(format!("unknown export source: {other}")),
+    };
+    let body = &rest[1..];
+
+    let mut path: Option<String> = None;
+    let mut dry_run = false;
+    let mut trailing: Vec<String> = Vec::new();
+    let mut iter = body.iter();
+    while let Some(tok) = iter.next() {
+        match tok.as_str() {
+            "--dry-run" => dry_run = true,
+            "--json" | "--tsv" | "--human" => trailing.push(tok.clone()),
+            "--db" => {
+                trailing.push(tok.clone());
+                let next = iter
+                    .next()
+                    .ok_or_else(|| "--db requires a path".to_string())?;
+                trailing.push(next.clone());
+            }
+            other if other.starts_with("--") => {
+                return Err(format!("unknown flag: {other}"));
+            }
+            positional => {
+                if path.is_some() {
+                    return Err(format!(
+                        "export takes a single PATH argument; extra positional: {positional}"
+                    ));
+                }
+                path = Some(positional.to_string());
+            }
+        }
+    }
+    apply_trailing_flags(&trailing, args)?;
+
+    let path = path.ok_or("export requires a path argument")?;
+    Ok(Subcommand::Export {
+        source,
+        path,
+        dry_run,
+    })
 }
 
 /// Parse `import <source> <path> [--dry-run]`. v0.7.9 ships only

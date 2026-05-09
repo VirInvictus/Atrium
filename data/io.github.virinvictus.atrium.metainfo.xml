@@ -90,6 +90,29 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.10" date="2026-05-09">
+      <description>
+        <p>Vault writer + atrium-cli export org. Fifth patch on
+           the Phase 16 arc. write_project_to_vault reads a
+           project + every task + tag names through a read-only
+           Connection, builds an OrgTask tree mirroring the
+           spec §7.3.2 field mapping in reverse, and emits via
+           the v0.7.8 atomic-write helper. write_all_projects_
+           to_vault walks list_projects.</p>
+        <p>atrium-cli gains `export org PATH [--dry-run]`. Dry-
+           run reports what would be written without touching
+           disk; JSON output for scripts. Round-trip
+           verified end-to-end via a smoke test that imports a
+           sample.org, exports the DB to a fresh directory, and
+           the resulting file re-parses to the same task tree.</p>
+        <p>Project sub-headings (heading table writes), custom
+           keyword preservation, file-level project metadata,
+           and the auto-debounced worker write hook ship in
+           v0.7.11+.</p>
+        <p>558 tests green (up 7 from v0.7.9). Pure additive
+           change; no schema, no new dependencies.</p>
+      </description>
+    </release>
     <release version="0.7.9" date="2026-05-08">
       <description>
         <p>Org importer (atrium-cli import org). Fourth patch on

@@ -23,7 +23,9 @@
 mod emit;
 mod import;
 mod parse;
+mod write;
 
 pub use emit::{emit_org_file, emit_org_text};
 pub use import::{ImportError, ImportSummary, import_org_file};
 pub use parse::{OrgKeyword, OrgRepeater, OrgTask, parse_org_file, parse_org_text};
+pub use write::{WriteError, WriteSummary, write_all_projects_to_vault, write_project_to_vault};

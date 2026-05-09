@@ -48,7 +48,7 @@ mod output;
 mod tests;
 
 use args::{
-    AddArgs, EditArgs, EditIcon, EditProject, Format, ImportSource, PerspectiveArgs,
+    AddArgs, EditArgs, EditIcon, EditProject, ExportSource, Format, ImportSource, PerspectiveArgs,
     PerspectiveSub, Subcommand, TargetSpec,
 };
 use output::{Row, format_row, format_rows, format_task_detail};
@@ -144,6 +144,13 @@ fn run(args: args::Args) -> ExitCode {
             dry_run,
         } => with_writer(&db_path, |rt, handle, _conn| {
             run_import(rt, handle, source, &path, dry_run, args.format)
+        }),
+        Subcommand::Export {
+            source,
+            path,
+            dry_run,
+        } => with_readonly(&db_path, |conn| {
+            run_export(conn, source, &path, dry_run, args.format)
         }),
     }
 }
@@ -487,6 +494,148 @@ fn json_string(s: &str) -> String {
         })
         .collect();
     format!("\"{escaped}\"")
+}
+
+/// Phase 16, v0.7.10 — `atrium-cli export org PATH [--dry-run]`.
+/// Writes every project in the DB to a vault directory.
+/// Dry-run walks the project list and reports what would be
+/// written without touching disk.
+fn run_export(
+    conn: &Connection,
+    source: ExportSource,
+    path: &str,
+    dry_run: bool,
+    format: Format,
+) -> CliResult<()> {
+    match source {
+        ExportSource::Org => {
+            let vault_root = std::path::PathBuf::from(path);
+            if dry_run {
+                // Mirror the writer's logic without writing: list
+                // projects, count tasks each, build the
+                // would-be-written paths.
+                let projects = atrium_core::db::read::list_projects(conn).map_err(CliError::Db)?;
+                let mut summaries: Vec<atrium_core::sync::org::WriteSummary> = Vec::new();
+                for project in projects {
+                    let tasks = atrium_core::db::read::list_all_in_project(conn, project.id)
+                        .map_err(CliError::Db)?;
+                    summaries.push(atrium_core::sync::org::WriteSummary {
+                        project_id: project.id,
+                        project_title: project.title.clone(),
+                        task_count: tasks.len(),
+                        file_path: dry_run_path(&vault_root, conn, &project)?,
+                    });
+                }
+                print_export_summary(&summaries, true, format);
+                return Ok(());
+            }
+            let summaries = atrium_core::sync::org::write_all_projects_to_vault(conn, &vault_root)
+                .map_err(|e| CliError::Args(format!("export failed: {e}")))?;
+            print_export_summary(&summaries, false, format);
+            Ok(())
+        }
+    }
+}
+
+/// Resolve the same path the real writer would use, without
+/// performing any write. Used by `run_export`'s dry-run branch.
+fn dry_run_path(
+    vault_root: &Path,
+    conn: &Connection,
+    project: &atrium_core::Project,
+) -> CliResult<std::path::PathBuf> {
+    let area_title = match project.area_id {
+        Some(aid) => atrium_core::db::read::area_by_id(conn, aid)
+            .map_err(CliError::Db)?
+            .map(|a| a.title),
+        None => None,
+    };
+    let mut path = vault_root.to_path_buf();
+    if let Some(area) = area_title {
+        path.push(sanitize_filename_for_dry_run(&area));
+    }
+    path.push(format!(
+        "{}.org",
+        sanitize_filename_for_dry_run(&project.title)
+    ));
+    Ok(path)
+}
+
+/// Mirror of `sync::org::write::sanitize_filename`. Re-implemented
+/// here rather than re-exported so the writer's helper stays
+/// crate-private.
+fn sanitize_filename_for_dry_run(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_was_underscore = false;
+    for ch in s.chars() {
+        let valid = ch.is_alphanumeric() || matches!(ch, ' ' | '-' | '_' | '.');
+        if valid {
+            out.push(ch);
+            prev_was_underscore = ch == '_';
+        } else if !prev_was_underscore {
+            out.push('_');
+            prev_was_underscore = true;
+        }
+    }
+    let trimmed = out.trim_matches(|c: char| c == ' ' || c == '_').to_string();
+    if trimmed.is_empty() {
+        "untitled".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn print_export_summary(
+    summaries: &[atrium_core::sync::org::WriteSummary],
+    dry_run: bool,
+    format: Format,
+) {
+    let prefix = if dry_run { "DRY-RUN " } else { "" };
+    match format {
+        Format::Json => {
+            let mut s = String::new();
+            s.push_str("{\n");
+            s.push_str(&format!("  \"dry_run\": {},\n", dry_run));
+            s.push_str(&format!("  \"project_count\": {},\n", summaries.len()));
+            s.push_str("  \"projects\": [\n");
+            for (i, sum) in summaries.iter().enumerate() {
+                s.push_str("    {\n");
+                s.push_str(&format!("      \"id\": {},\n", sum.project_id));
+                s.push_str(&format!(
+                    "      \"title\": {},\n",
+                    json_string(&sum.project_title)
+                ));
+                s.push_str(&format!("      \"task_count\": {},\n", sum.task_count));
+                s.push_str(&format!(
+                    "      \"path\": {}\n",
+                    json_string(&sum.file_path.to_string_lossy())
+                ));
+                s.push_str("    }");
+                if i + 1 < summaries.len() {
+                    s.push(',');
+                }
+                s.push('\n');
+            }
+            s.push_str("  ]\n}\n");
+            print!("{s}");
+        }
+        _ => {
+            println!(
+                "{prefix}Exported {} project{}.",
+                summaries.len(),
+                if summaries.len() == 1 { "" } else { "s" }
+            );
+            for sum in summaries {
+                println!(
+                    "  {} → {} ({} task{})",
+                    sum.project_title,
+                    sum.file_path.display(),
+                    sum.task_count,
+                    if sum.task_count == 1 { "" } else { "s" }
+                );
+            }
+        }
+    }
 }
 
 fn json_string_or_null(s: Option<&str>) -> String {
