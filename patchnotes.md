@@ -1,5 +1,23 @@
 # Atrium — Patch Notes
 
+## v0.13.2 (2026-05-09) — inline-rename gets the tab-completion popover
+
+The atrium-inline Slice 3 popover (v0.13.0) wired into the bottom-of-list capture entry and the Quick Entry modal but deliberately skipped the per-row inline-rename `Entry`: "the row's edit Entry recycles frequently and the popover lifecycle would need additional teardown bookkeeping." This patch closes that gap.
+
+**Where it attaches:** the GtkSignalListItemFactory's `setup()` callback, which runs *once per row's lifetime* — ahead of `bind()` and across recycles. The popover lives with the title_entry widget, not with whichever task is currently bound. No teardown bookkeeping needed; recycling a row swaps the bound task, not the popover.
+
+**Where the pool comes from:** `build_factory` gained a fourth parameter, a `PoolFn: Fn() -> Option<ReadPool> + Clone + 'static` closure. Lazy by design — the read pool isn't attached when the factory is built (factory construction happens in window setup, before `attach_data_layer`). The closure resolves the pool fresh from a weak-window ref each time setup() needs it; by the time the first row reaches setup, attach_data_layer has long since fired.
+
+**Behaviour matches the other surfaces.** Tab/Enter accept the highlighted candidate; ↓/↑ navigate; Esc dismisses without committing. Esc dismisses *only* the popover — the existing key controller checks the popover state structurally so Esc-to-cancel-rename still reaches the row's existing handler when no popover is open. Focus-leave dismisses the popover, then the existing focus-leave handler commits the rename and switches the stack back to the display label.
+
+**Until the user enters edit mode** (F2 / right-click → Rename / double-click into edit), the title_entry is invisible (the title_stack shows the display label) and the popover's listeners stay quiet. No overhead per paint or per scroll. The first text change fires the refresh, evaluates the inline-syntax context, and surfaces candidates if the cursor is on a `#`/`@`/`!` token.
+
+The `inline_complete` module's docstring is updated to drop the "defer to v0.13.x" note and document the row-level rationale.
+
+No new tests this release — the popover wiring is GTK-side glue and the underlying parser semantics are already covered by the existing 49 atrium-inline tests + 3 inline_complete byte/char tests. Test count holds at 824 across the workspace; fmt + clippy clean; regression gate clean. Schema unchanged at version 7.
+
+VERSION + Cargo.toml + patchnotes.md + AppStream metainfo bumped to 0.13.2.
+
 ## v0.13.1 (2026-05-09) — sidecar: perspective definitions round-trip
 
 A small follow-up patch closing the v0.10.1 sidecar carryover. The Phase 17 sidecar (`<vault>/.atrium/config.toml`) shipped tag colors + mode preference at v0.10.1; saved Perspectives reserved a `[perspectives]` placeholder section ("for future use") because perspective definitions cross more boundaries (renderer config, column lists) and the round-trip path wasn't fleshed out yet. Phase 18's Todoist mapper showed the shape — a `Vec<entry>` flowing cleanly through the worker — and v0.13.1 applies it to perspectives.

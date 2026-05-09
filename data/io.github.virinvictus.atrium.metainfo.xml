@@ -90,6 +90,35 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.13.2" date="2026-05-09">
+      <description>
+        <p>Inline-rename gets the tab-completion popover.
+           v0.13.0 Slice 3 wired the popover into the
+           bottom-of-list capture entry and the Quick Entry
+           modal but deliberately skipped the per-row inline-
+           rename Entry. v0.13.2 closes that gap by attaching
+           in the GtkSignalListItemFactory setup() callback —
+           which runs once per row's lifetime, across recycles.
+           The popover lives with the title_entry widget, not
+           with whichever task is currently bound, so no
+           teardown bookkeeping is needed.</p>
+        <p>build_factory gained a fourth argument — a closure
+           that resolves the read pool lazily — so the factory
+           can be built before attach_data_layer fires.
+           Behaviour matches the other surfaces (Tab/Enter
+           accept; ↓/↑ navigate; Esc dismisses popover only).
+           Until the user enters edit mode the title_entry is
+           invisible and the popover's listeners stay quiet —
+           no overhead per paint.</p>
+        <p>Test count holds at 824 across the workspace; the
+           popover wiring is GTK-side glue and underlying
+           parser semantics are already covered by the
+           existing atrium-inline + inline_complete tests.
+           Schema unchanged at version 7. No new third-party
+           crates.</p>
+      </description>
+      <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
+    </release>
     <release version="0.13.1" date="2026-05-09">
       <description>
         <p>Sidecar follow-up — saved Perspectives now round-trip
