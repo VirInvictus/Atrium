@@ -18,3 +18,4 @@
 //! acceptance contract.
 
 pub mod parser;
+pub mod recurrence;
