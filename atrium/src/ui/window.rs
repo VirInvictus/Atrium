@@ -2289,17 +2289,102 @@ impl AtriumWindow {
     }
 
     /// Rename handler — fires `update_task` with the new title.
+    ///
+    /// v0.13 (Slice 1) routes the new title through
+    /// [`atrium_core::quick_entry::parse`] so an inline rename can
+    /// pick up the same `#tag` / `@today` / `@deadline` syntax the
+    /// bottom-of-list entry and Quick Entry modal already speak.
+    /// Plain-text titles take a fast path identical to the
+    /// pre-v0.13 single-update behaviour.
+    ///
+    /// Semantics for the extended path:
+    ///
+    /// - `parsed.title` becomes the new title (with the inline
+    ///   tokens stripped out).
+    /// - `parsed.tag_names` are *added* to the existing tag set
+    ///   (rename never removes a tag — the user can't see the
+    ///   existing tags from the rename surface, so a destructive
+    ///   merge would surprise them; the tag editor and Inspector
+    ///   are the channels for tag removal).
+    /// - `parsed.scheduled_for` and `parsed.deadline` *set* the
+    ///   corresponding fields when present. They never clear.
+    /// - An empty title after parsing (the user typed only
+    ///   `#tag`) is rejected so the row doesn't lose its name.
     fn handle_rename(&self, id: i64, new_title: String) {
         let Some(worker) = self.worker() else {
             warn!("worker not attached; rename ignored");
             return;
         };
+
+        let parsed = atrium_core::quick_entry::parse(&new_title);
+
+        // Fast path — no inline syntax. Behaves identically to the
+        // pre-v0.13 single-update flow so renames of plain text
+        // can't regress.
+        if parsed.is_plain_title() {
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker
+                    .update_task(TaskUpdate::new(id).title(new_title))
+                    .await
+                {
+                    error!(?e, id, "update_task failed");
+                }
+            });
+            return;
+        }
+
+        // Extended path — apply the parsed scalars + merge tags.
+        if parsed.title.trim().is_empty() {
+            warn!(
+                id,
+                "inline rename produced an empty title; ignored to keep the row named"
+            );
+            return;
+        }
+
+        let Some(pool) = self.read_pool() else {
+            warn!("read pool not attached; inline rename ignored");
+            return;
+        };
+        let existing_tag_ids = pool
+            .with(|c| atrium_core::db::read::tag_ids_for_task(c, id))
+            .unwrap_or_default();
+
         glib::MainContext::default().spawn_local(async move {
-            if let Err(e) = worker
-                .update_task(TaskUpdate::new(id).title(new_title))
-                .await
-            {
-                error!(?e, id, "update_task failed");
+            // Single update for title + scheduled + deadline so the
+            // listener side sees one notify event per scalar field
+            // rather than three sequential updates.
+            let mut update = TaskUpdate::new(id).title(parsed.title.clone());
+            if let Some(sched) = parsed.scheduled_for {
+                update = update.schedule(Some(sched));
+            }
+            if let Some(due) = parsed.deadline {
+                update = update.deadline_value(Some(due));
+            }
+            if let Err(e) = worker.update_task(update).await {
+                error!(?e, id, "update_task (inline rename) failed");
+                return;
+            }
+
+            // Tag side: ensure each parsed name, then merge with
+            // existing IDs. The merge keeps the prior set intact —
+            // rename never removes a tag.
+            let mut merged: Vec<i64> = existing_tag_ids;
+            for name in &parsed.tag_names {
+                match worker.ensure_tag(name.clone()).await {
+                    Ok(tag) => {
+                        if !merged.contains(&tag.id) {
+                            merged.push(tag.id);
+                        }
+                    }
+                    Err(e) => {
+                        error!(?e, ?name, id, "ensure_tag failed during inline rename");
+                        return;
+                    }
+                }
+            }
+            if let Err(e) = worker.set_task_tags(id, merged).await {
+                error!(?e, id, "set_task_tags (inline rename) failed");
             }
         });
     }

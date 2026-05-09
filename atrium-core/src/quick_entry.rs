@@ -25,6 +25,19 @@ pub struct ParsedEntry {
     pub deadline: Option<NaiveDate>,
 }
 
+impl ParsedEntry {
+    /// True when the parsed input carries no inline-syntax artefacts
+    /// — the user typed plain title text and nothing else. Lets a
+    /// surface that uses [`parse`] take a fast path identical to the
+    /// pre-parser behaviour (a single title-only update with no tag
+    /// or schedule side effects). Used by the v0.13 inline-rename
+    /// path in the GTK binary so a rename of plain text behaves
+    /// exactly as it did before quick_entry was wired in.
+    pub fn is_plain_title(&self) -> bool {
+        self.tag_names.is_empty() && self.scheduled_for.is_none() && self.deadline.is_none()
+    }
+}
+
 pub fn parse(input: &str) -> ParsedEntry {
     parse_with_today(input, Local::now().date_naive())
 }
@@ -101,6 +114,23 @@ mod tests {
         assert!(p.tag_names.is_empty());
         assert!(p.scheduled_for.is_none());
         assert!(p.deadline.is_none());
+    }
+
+    #[test]
+    fn is_plain_title_branches() {
+        // Pure title — fast-path eligible.
+        assert!(parse_with_today("Buy milk", t()).is_plain_title());
+        // Empty input — also plain (no syntax artefacts).
+        assert!(parse_with_today("", t()).is_plain_title());
+        // Tag — extended path.
+        assert!(!parse_with_today("Buy milk #errand", t()).is_plain_title());
+        // Scheduled — extended path.
+        assert!(!parse_with_today("Call dentist @today", t()).is_plain_title());
+        // Deadline — extended path.
+        assert!(!parse_with_today("File taxes @deadline 2026-04-15", t()).is_plain_title());
+        // Unrecognised `@foo` stays in the title — still plain (no
+        // side effects produced by the parse).
+        assert!(parse_with_today("Email @foo", t()).is_plain_title());
     }
 
     #[test]
