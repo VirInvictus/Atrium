@@ -90,6 +90,26 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.4" date="2026-05-08">
+      <description>
+        <p>Task-level Mark Reviewed. The Review page's "This
+           week" weekly walk shipped at v0.7.2 with no way to
+           acknowledge an item; v0.7.4 closes the gap with a
+           true Mark Reviewed action mirroring the Phase 13
+           project-level pattern.</p>
+        <p>Migration 0006_task_last_reviewed_at.sql adds an
+           additive task.last_reviewed_at TEXT NULL column
+           (mirror of project.last_reviewed_at). The MarkTaskReviewed
+           worker command stamps it; rows in the weekly walk
+           gain a trailing flat Mark Reviewed button. Clicking
+           the button hides the row from the walk for 7 days.
+           After 7 days the row resurfaces if it still matches
+           the weekly-walk filter.</p>
+        <p>503 tests green (up from 501 — two new worker
+           tests for MarkTaskReviewed round-trip + not-found).
+           Pure additive change.</p>
+      </description>
+    </release>
     <release version="0.7.3" date="2026-05-08">
       <description>
         <p>Inspector check-off + perspective editor. Two

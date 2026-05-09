@@ -36,6 +36,7 @@ pub fn dummy_task(id: i64) -> Task {
         completed_at: None,
         repeat_rule: None,
         repeat_mode: None,
+        last_reviewed_at: None,
         position: id as f64,
         created_at: Utc::now(),
         modified_at: Utc::now(),

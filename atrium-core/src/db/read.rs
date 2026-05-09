@@ -14,7 +14,7 @@ use crate::error::DbError;
 
 const TASK_COLUMNS: &str = "id, uuid, title, note, project_id, parent_id, \
     scheduled_for, deadline, defer_until, estimated_minutes, completed_at, \
-    repeat_rule, repeat_mode, position, created_at, modified_at";
+    repeat_rule, repeat_mode, last_reviewed_at, position, created_at, modified_at";
 
 /// Fetch a single task by primary key.
 pub fn task_by_id(conn: &Connection, id: i64) -> Result<Option<Task>, DbError> {
@@ -834,6 +834,7 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         completed_at: row.get("completed_at")?,
         repeat_rule: row.get("repeat_rule")?,
         repeat_mode: row.get("repeat_mode")?,
+        last_reviewed_at: row.get("last_reviewed_at")?,
         position: row.get("position")?,
         created_at: row.get("created_at")?,
         modified_at: row.get("modified_at")?,

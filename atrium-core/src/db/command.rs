@@ -74,6 +74,13 @@ pub enum Command {
         id: i64,
         responder: oneshot::Sender<Result<Project, DbError>>,
     },
+    /// v0.7.4 — task-level analogue of MarkReviewed. Stamps
+    /// `task.last_reviewed_at = now()` so the canonical Review
+    /// page's weekly walk hides the row for 7 days.
+    MarkTaskReviewed {
+        id: i64,
+        responder: oneshot::Sender<Result<Task, DbError>>,
+    },
     DeleteProject {
         id: i64,
         responder: oneshot::Sender<Result<(), DbError>>,
@@ -141,6 +148,7 @@ impl Command {
             Self::UpdateProject { .. } => "UpdateProject",
             Self::ArchiveProject { .. } => "ArchiveProject",
             Self::MarkReviewed { .. } => "MarkReviewed",
+            Self::MarkTaskReviewed { .. } => "MarkTaskReviewed",
             Self::DeleteProject { .. } => "DeleteProject",
             Self::CreateTag { .. } => "CreateTag",
             Self::UpdateTag { .. } => "UpdateTag",

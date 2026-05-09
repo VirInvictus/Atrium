@@ -37,11 +37,12 @@ use crate::ui::task_list::TagPillMap;
 ///
 /// The page renders up to two sections — Projects to review
 /// (the `queue` argument; Phase 13's list_review_queue) and This
-/// week (the `weekly_tasks` argument; REVIEW_WEEKLY_WALK_FILTER).
-/// If both are empty, an `AdwStatusPage` "All caught up"
-/// placeholder shows instead.
+/// week (the `weekly_tasks` argument; REVIEW_WEEKLY_WALK_FILTER,
+/// excluding tasks marked reviewed in the last 7 days). If both
+/// are empty, an `AdwStatusPage` "All caught up" placeholder
+/// shows instead.
 #[allow(clippy::too_many_arguments)]
-pub fn build_page<F: Fn(i64) + 'static + Clone>(
+pub fn build_page<F, G>(
     today: NaiveDate,
     queue: &[Project],
     weekly_tasks: &[Task],
@@ -50,7 +51,12 @@ pub fn build_page<F: Fn(i64) + 'static + Clone>(
     tag_pills: &TagPillMap,
     worker: Option<WorkerHandle>,
     on_row_click: F,
-) -> gtk::Widget {
+    on_mark_reviewed: G,
+) -> gtk::Widget
+where
+    F: Fn(i64) + 'static + Clone,
+    G: Fn(i64) + 'static + Clone,
+{
     if queue.is_empty() && weekly_tasks.is_empty() {
         let status = adw::StatusPage::builder()
             .icon_name("checkmark-symbolic")
@@ -78,6 +84,7 @@ pub fn build_page<F: Fn(i64) + 'static + Clone>(
         project_titles,
         tag_pills,
         on_row_click,
+        on_mark_reviewed,
     ));
 
     let scroller = gtk::ScrolledWindow::builder()
@@ -122,20 +129,31 @@ fn build_queue_section(
     section.upcast()
 }
 
-/// "This week" section. Reuses `agenda::build_row` for visual
-/// consistency with the Agenda canonical page. Empty state gets
-/// the same inline note treatment.
-fn build_weekly_section<F: Fn(i64) + 'static + Clone>(
+/// "This week" section. Each row reuses `agenda::build_row` for
+/// the title + breadcrumb + date layout, wrapped in a horizontal
+/// box that adds a trailing **Mark Reviewed** button. Clicking
+/// the button dispatches `worker.mark_task_reviewed`; the row
+/// drops out via the TaskChanges-driven page rebuild and stays
+/// hidden from the weekly walk for 7 days.
+fn build_weekly_section<F, G>(
     weekly_tasks: &[Task],
     project_titles: &HashMap<i64, String>,
     tag_pills: &TagPillMap,
     on_row_click: F,
-) -> gtk::Widget {
+    on_mark_reviewed: G,
+) -> gtk::Widget
+where
+    F: Fn(i64) + 'static + Clone,
+    G: Fn(i64) + 'static + Clone,
+{
     let section = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(4)
         .build();
     section.append(&build_section_header("This week"));
+    section.append(&build_inline_note(
+        "Mark items reviewed to hide them for 7 days.",
+    ));
 
     if weekly_tasks.is_empty() {
         section.append(&build_inline_note("Nothing pressing this week."));
@@ -145,16 +163,57 @@ fn build_weekly_section<F: Fn(i64) + 'static + Clone>(
             .spacing(2)
             .build();
         for task in weekly_tasks {
-            list.append(&agenda::build_row(
+            list.append(&build_review_task_row(
                 task,
                 project_titles,
                 tag_pills,
                 on_row_click.clone(),
+                on_mark_reviewed.clone(),
             ));
         }
         section.append(&list);
     }
     section.upcast()
+}
+
+/// v0.7.4 — single weekly-walk row. Wraps an `agenda::build_row`
+/// (the visual content) in a horizontal box with a trailing
+/// `Mark Reviewed` button. Two independent click paths: the
+/// agenda body fires `on_row_click(id)` (opens Inspector); the
+/// button fires `on_mark_reviewed(id)`.
+fn build_review_task_row<F, G>(
+    task: &Task,
+    project_titles: &HashMap<i64, String>,
+    tag_pills: &TagPillMap,
+    on_row_click: F,
+    on_mark_reviewed: G,
+) -> gtk::Widget
+where
+    F: Fn(i64) + 'static,
+    G: Fn(i64) + 'static,
+{
+    let body = agenda::build_row(task, project_titles, tag_pills, on_row_click);
+    body.set_hexpand(true);
+
+    let row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .build();
+    row.append(&body);
+
+    let mark_button = gtk::Button::builder()
+        .label("Mark Reviewed")
+        .css_classes(["flat"])
+        .valign(gtk::Align::Center)
+        .tooltip_text("Hide from the weekly walk for 7 days")
+        .build();
+    let task_id = task.id;
+    mark_button.connect_clicked(move |_| {
+        on_mark_reviewed(task_id);
+    });
+    row.append(&mark_button);
+
+    row.upcast()
 }
 
 fn build_section_header(text: &str) -> gtk::Label {

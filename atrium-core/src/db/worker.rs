@@ -147,6 +147,18 @@ impl WorkerHandle {
         rx.await.map_err(|_| DbError::WorkerClosed)?
     }
 
+    /// v0.7.4 — task-level analogue of `mark_reviewed`. Stamps
+    /// `task.last_reviewed_at = now()` so the canonical Review
+    /// page's weekly walk hides the row for 7 days.
+    pub async fn mark_task_reviewed(&self, id: i64) -> Result<Task, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::MarkTaskReviewed { id, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
     pub async fn delete_project(&self, id: i64) -> Result<(), DbError> {
         let (responder, rx) = oneshot::channel();
         self.cmd_tx
@@ -459,6 +471,20 @@ impl Worker {
                 if let Ok(p) = &result {
                     let _ = self.library_tx.send(LibraryChanges {
                         projects_updated: vec![p.clone()],
+                        ..Default::default()
+                    });
+                }
+                let _ = responder.send(result);
+            }
+            Command::MarkTaskReviewed { id, responder } => {
+                // v0.7.4 — emit a TaskChanges{updated} so the
+                // canonical Review page rebuilds and the row drops
+                // out of the weekly walk (the page filter excludes
+                // tasks reviewed in the last 7 days).
+                let result = self.mark_task_reviewed(id);
+                if let Ok(t) = &result {
+                    let _ = self.changes_tx.send(TaskChanges {
+                        updated: vec![t.clone()],
                         ..Default::default()
                     });
                 }
@@ -1056,6 +1082,24 @@ impl Worker {
             return Err(DbError::NotFound);
         }
         read::project_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
+    }
+
+    /// v0.7.4 — task-level analogue. Stamps `task.last_reviewed_at
+    /// = now()` so the canonical Review page's weekly walk hides
+    /// the row for 7 days. The AFTER UPDATE trigger fires (we
+    /// don't touch modified_at here), so `task.modified_at` also
+    /// advances to now — accurate, since reviewing is a real
+    /// state change.
+    fn mark_task_reviewed(&mut self, id: i64) -> Result<Task, DbError> {
+        let n = self.conn.execute(
+            "UPDATE task SET last_reviewed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             WHERE id = ?1",
+            params![id],
+        )?;
+        if n == 0 {
+            return Err(DbError::NotFound);
+        }
+        read::task_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
     }
 
     fn delete_project(&mut self, id: i64) -> Result<(), DbError> {
@@ -1904,6 +1948,34 @@ mod tests {
     async fn mark_reviewed_unknown_id_is_not_found() {
         let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
         let result = handle.mark_reviewed(9999).await;
+        assert!(matches!(result, Err(DbError::NotFound)));
+    }
+
+    #[tokio::test]
+    async fn mark_task_reviewed_stamps_last_reviewed_at_and_emits_task_change() {
+        // v0.7.4 — task-level Mark Reviewed handler.
+        let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+        let task = handle
+            .create_task(NewTask::inbox("Audit the API"))
+            .await
+            .unwrap();
+        let _ = changes_rx.recv().await.unwrap();
+        assert!(task.last_reviewed_at.is_none());
+
+        let reviewed = handle.mark_task_reviewed(task.id).await.unwrap();
+        assert!(reviewed.last_reviewed_at.is_some());
+        assert_eq!(reviewed.id, task.id);
+
+        let changes = changes_rx.recv().await.unwrap();
+        assert_eq!(changes.updated.len(), 1);
+        assert_eq!(changes.updated[0].id, task.id);
+        assert!(changes.updated[0].last_reviewed_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn mark_task_reviewed_unknown_id_is_not_found() {
+        let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+        let result = handle.mark_task_reviewed(9999).await;
         assert!(matches!(result, Err(DbError::NotFound)));
     }
 

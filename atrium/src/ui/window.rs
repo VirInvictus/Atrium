@@ -2029,6 +2029,18 @@ impl AtriumWindow {
             self.refresh_dynamic_badges();
             return;
         }
+        // v0.7.4 — Review canonical page's "This week" section
+        // depends on the weekly-walk filter result + the per-task
+        // last_reviewed_at exclusion. Any task delta (especially a
+        // MarkTaskReviewed update) needs to rerun both, so rebuild
+        // the page in full when the active view is Review.
+        if matches!(active, ActiveList::Review) {
+            self.refresh_review_page();
+            self.refresh_counts();
+            self.refresh_canonical_badges();
+            self.refresh_dynamic_badges();
+            return;
+        }
         // Phase 14 — perspective views run a saved filter expression
         // against the global task set. The diff applier doesn't have
         // visibility into the filter, so rerun the read query (same
@@ -2718,6 +2730,19 @@ impl AtriumWindow {
             &project_areas,
             &area_titles,
         );
+        // v0.7.4 — exclude tasks marked reviewed within the last 7
+        // days. Mark Reviewed is a manual user action; the page
+        // hides the row for one cycle. After 7 days the row
+        // resurfaces if it still matches the weekly-walk filter.
+        let cutoff = today - chrono::Duration::days(7);
+        let weekly_tasks: Vec<atrium_core::Task> = weekly_tasks
+            .into_iter()
+            .filter(|t| {
+                t.last_reviewed_at
+                    .map(|when| when.date_naive() < cutoff)
+                    .unwrap_or(true)
+            })
+            .collect();
 
         let tag_pills: crate::ui::task_list::TagPillMap = pool
             .with(atrium_core::db::read::tag_info_per_task)
@@ -2735,6 +2760,26 @@ impl AtriumWindow {
             );
         };
 
+        // v0.7.4 — Mark Reviewed callback. Clicking the per-row
+        // button dispatches `worker.mark_task_reviewed(id)`; the
+        // worker emits a TaskChanges{updated} delta which triggers
+        // refresh_review_page (apply_task_changes routes to the
+        // Review-rebuild branch when the active list is Review).
+        let weak = self.downgrade();
+        let on_mark_reviewed = move |task_id: i64| {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            let Some(worker) = window.worker() else {
+                return;
+            };
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker.mark_task_reviewed(task_id).await {
+                    error!(?e, task_id, "mark_task_reviewed failed");
+                }
+            });
+        };
+
         let widget = crate::ui::review::build_page(
             today,
             &queue,
@@ -2744,6 +2789,7 @@ impl AtriumWindow {
             &tag_pills,
             self.worker(),
             on_click,
+            on_mark_reviewed,
         );
         self.imp().review_host.set_child(Some(&widget));
     }

@@ -30,6 +30,12 @@ pub struct Task {
     /// CUMULATIVE — matches Org's `++` and OmniFocus's "next instance
     /// after now"). Only meaningful when `repeat_rule` is set.
     pub repeat_mode: Option<String>,
+    /// v0.7.4 — when the user last marked this task as reviewed
+    /// (canonical Review page's task-level Mark Reviewed action).
+    /// NULL means "never reviewed." The Review page hides tasks
+    /// whose `last_reviewed_at` is within the last 7 days from
+    /// the weekly walk; otherwise the column is unused.
+    pub last_reviewed_at: Option<DateTime<Utc>>,
     pub position: f64,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,

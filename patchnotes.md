@@ -1,5 +1,50 @@
 # Atrium — Patch Notes
 
+## v0.7.4 (2026-05-08) — Task-level Mark Reviewed (migration 0006)
+
+The Review page's "This week" weekly walk shipped at v0.7.2 with
+no way to acknowledge an item — clicking through it revealed the
+gap. v0.7.4 closes it with a true Mark Reviewed action mirroring
+the Phase 13 project-level pattern.
+
+**Schema.** Migration `0006_task_last_reviewed_at.sql` adds an
+additive `task.last_reviewed_at TEXT NULL` column. Mirror of
+`project.last_reviewed_at` from migration 0001. Existing user
+DBs migrate cleanly; user_version 5 → 6.
+
+**Worker.** `Command::MarkTaskReviewed { id, responder }` +
+`WorkerHandle::mark_task_reviewed(id)` mirror the project-side
+wiring exactly. Handler runs `UPDATE task SET last_reviewed_at
+= strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1`, fetches
+the updated row, emits `TaskChanges{updated: vec![task]}`. Two
+new tests cover the round-trip and the not-found case.
+
+**UI.** Each row in the Review page's "This week" section now
+carries a trailing flat **Mark Reviewed** button (the agenda
+row treatment stays exactly the same — it's wrapped in a
+horizontal Box with the button as a sibling). Clicking the
+button dispatches `worker.mark_task_reviewed`; the row drops
+out via the TaskChanges-driven page rebuild.
+`apply_task_changes` now routes Review the same way it routes
+Forecast / Logbook / Agenda / Perspective — full page rebuild
+on any delta.
+
+**Filter.** `refresh_review_page` now excludes tasks whose
+`last_reviewed_at` is within the last 7 days from `today`.
+After 7 days the row resurfaces if it still matches the
+weekly-walk filter. A small inline note above the section
+("Mark items reviewed to hide them for 7 days.") tells users
+what the button does.
+
+Test count: 119 + 171 + 1 + 106 + 106 = **503** (up 2 from
+v0.7.3's 501 — the two MarkTaskReviewed worker tests).
+docs/schema.md picked up migration 0006 + the new column entry.
+Pure additive change. No spec semantics shifted; no new
+dependencies.
+
+VERSION + Cargo.toml + spec + roadmap + docs/schema +
+patchnotes + AppStream metainfo bumped to **0.7.4**.
+
 ## v0.7.3 (2026-05-08) — Inspector check-off + perspective editor
 
 Two functional gaps Brandon caught after living with v0.7.2:

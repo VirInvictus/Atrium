@@ -2,7 +2,7 @@
 
 This document is the **rationale** for the schema. The **contract** lives in [`spec.md`](../spec.md) §4 and the canonical SQL in [`atrium-core/src/db/migrations/0001_initial.sql`](../atrium-core/src/db/migrations/0001_initial.sql). When in doubt, the SQL wins.
 
-> **Schema discipline.** Migration `0001_initial.sql` shipped the full OmniFocus superset. The v0.1 line was schema-frozen — every Builder-mode column already existed. The freeze ended at v0.2.0. Migrations are now **append-only and backwards-compatible**: add columns / tables / triggers / indexes; renames + drops are major-bump-only. Current `user_version`: **5**. Migration history below.
+> **Schema discipline.** Migration `0001_initial.sql` shipped the full OmniFocus superset. The v0.1 line was schema-frozen — every Builder-mode column already existed. The freeze ended at v0.2.0. Migrations are now **append-only and backwards-compatible**: add columns / tables / triggers / indexes; renames + drops are major-bump-only. Current `user_version`: **6**. Migration history below.
 
 ## Migration history
 
@@ -13,6 +13,7 @@ This document is the **rationale** for the schema. The **contract** lives in [`s
 | `0003_repeat_mode.sql` | Phase 15 / v0.2.0 | First `ALTER TABLE` — adds `task.repeat_mode` (`NULL` / `'next'` / `'all'` / `'org-mode'`) for Org-mode-style completion semantics |
 | `0004_area_color.sql` | Phase 15.75 Slice A / v0.5.0 | Adds `area.color` (`TEXT NULL`, `'#RRGGBB'`) for per-area accent |
 | `0005_perspective_renderer.sql` | Phase 15.75 Slice A / v0.5.0 | Adds `perspective.renderer` (`'list'` / `'board'`, default `'list'`) + `perspective.renderer_config` (TEXT, JSON config — used by the kanban renderer for column definitions) |
+| `0006_task_last_reviewed_at.sql` | Phase 13 follow-up / v0.7.4 | Adds `task.last_reviewed_at` (TEXT NULL) for the canonical Review page's task-level Mark Reviewed action. Mirror of `project.last_reviewed_at`; rows reviewed within the last 7 days hide from the weekly walk. |
 
 ## Entity-Relationship diagram
 
@@ -122,6 +123,7 @@ The central row. Several columns deserve specific notes:
 - **`completed_at`** is ISO datetime; `NULL` = open task. Logbook is `WHERE completed_at IS NOT NULL`. Hard-delete model — there is no `deleted_at` column. Per Phase 1 design call.
 - **`repeat_rule`** stores the canonical RFC 5545 RRULE as text. Org-mode export renders a best-effort approximation in the SCHEDULED cookie (spec §7.3.3 rule 3).
 - **`repeat_mode`** (added in `0003`) controls completion semantics for repeating tasks: `NULL` (no repeat), `'next'` (advance to next occurrence — Things 3 default), `'all'` (regenerate the whole rule), `'org-mode'` (preserve original schedule, log completion to LOGBOOK). See `atrium-core/src/repeat.rs`.
+- **`last_reviewed_at`** (added in `0006`) is the task-level analogue of `project.last_reviewed_at`. Stamped by the `MarkTaskReviewed` worker command from the canonical Review page's per-row Mark Reviewed button. The Review page's weekly-walk filter excludes tasks reviewed within the last 7 days; otherwise the column is unread. NULL means "never reviewed."
 - **`position`** is `REAL` — midpoint insertion enables arbitrary reorder without renumbering siblings.
 
 ### `tag`

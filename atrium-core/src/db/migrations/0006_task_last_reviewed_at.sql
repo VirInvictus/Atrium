@@ -1,0 +1,30 @@
+-- 0006_task_last_reviewed_at.sql — v0.7.4
+--
+-- Adds `task.last_reviewed_at` to mirror `project.last_reviewed_at`
+-- (Phase 13 review semantics) at the task level. Used by the
+-- canonical Review page's "This week" weekly-walk section to
+-- exclude tasks the user has already acknowledged this cycle.
+--
+-- One new column on `task`:
+--
+--   last_reviewed_at TEXT NULL
+--                   ISO 8601 datetime stamped by the
+--                   `MarkTaskReviewed` worker command. NULL means
+--                   "never reviewed" — the default state for every
+--                   existing row at migration time. The Review
+--                   page filters out tasks whose `last_reviewed_at`
+--                   is within the last 7 days; the column is
+--                   otherwise unused (no ranking, no other surfaces
+--                   read it in v0.7.4).
+--
+-- Backwards-compatible additive change. NULL default means every
+-- existing task starts as "never reviewed," which is the correct
+-- semantics for a fresh feature. v0.7.3 binaries reading a v0.7.4
+-- DB simply ignore the column.
+--
+-- The matching `triggers` are intentionally absent: this column is
+-- a manual user-action stamp, not a passively-tracked field, so no
+-- AFTER UPDATE auto-bumping is wanted (mirrors the project
+-- equivalent at migration 0001's per-table setup).
+
+ALTER TABLE task ADD COLUMN last_reviewed_at TEXT NULL;

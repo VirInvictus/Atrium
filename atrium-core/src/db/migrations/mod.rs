@@ -22,12 +22,15 @@ use crate::error::DbError;
 /// v0.2.0 ends the v0.1 schema freeze. Versions 4 and 5 (Phase 15.75,
 /// v0.5.0) add `area.color` and `perspective.{renderer, renderer_config}`
 /// for the beauty pass and the kanban-board renderer respectively.
+/// Version 6 (v0.7.4) adds `task.last_reviewed_at` for the canonical
+/// Review page's task-level Mark Reviewed action.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
     (3, include_str!("0003_repeat_mode.sql")),
     (4, include_str!("0004_area_color.sql")),
     (5, include_str!("0005_perspective_renderer.sql")),
+    (6, include_str!("0006_task_last_reviewed_at.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.
