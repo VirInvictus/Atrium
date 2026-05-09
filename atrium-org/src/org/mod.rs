@@ -30,4 +30,7 @@ pub use parse::{
     OrgFile, OrgKeyword, OrgRepeater, OrgTask, parse_org_file, parse_org_file_with_meta,
     parse_org_text, parse_org_text_with_meta,
 };
-pub use write::{WriteError, WriteSummary, write_all_projects_to_vault, write_project_to_vault};
+pub use write::{
+    WriteError, WriteSummary, project_vault_path, write_all_projects_to_vault,
+    write_project_to_vault,
+};

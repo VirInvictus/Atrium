@@ -53,13 +53,14 @@
 //!   file, never a deadlock or memory blowup.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use atrium_core::DbError;
 use atrium_core::VaultDirtyNotifier;
 use atrium_core::db::read_pool::ReadPool;
+use chrono::{DateTime, Utc};
 use tokio::sync::mpsc;
 use tracing::{trace, warn};
 
@@ -200,6 +201,22 @@ impl VaultWriter {
     }
 
     fn write_project(&self, project_id: i64) {
+        // Conflict-detection pre-write: if the destination file
+        // exists with an mtime we don't recognise as our own, an
+        // external editor (Doom Emacs, vim-orgmode, etc.) has
+        // changed the file since our last write. Snapshot the
+        // current contents to <file>.atrium.bak.<timestamp> so
+        // the user's edit survives the overwrite. Spec §7.3.3
+        // rule 5 — last-writer-wins by mtime; the loser is
+        // preserved.
+        let dest = self.pool.with(|conn| {
+            crate::org::project_vault_path(conn, &self.root, project_id)
+                .map_err(|e| DbError::Sync(e.to_string()))
+        });
+        if let Ok(dest_path) = &dest {
+            self.maybe_back_up_external_edit(dest_path);
+        }
+
         let result = self.pool.with(|conn| {
             crate::org::write_project_to_vault(conn, &self.root, project_id)
                 .map_err(|e| DbError::Sync(e.to_string()))
@@ -227,6 +244,62 @@ impl VaultWriter {
             }
         }
     }
+
+    /// Inspect the current on-disk file (if any) before the writer
+    /// overwrites it. Returns `Some(backup_path)` when an external
+    /// edit was detected and snapshotted; `None` when the file
+    /// doesn't exist, our last-self-write mtime matches, or the
+    /// stat / copy failed (logged at warn level — never panics).
+    fn maybe_back_up_external_edit(&self, dest: &Path) -> Option<PathBuf> {
+        let mtime = match std::fs::metadata(dest).and_then(|m| m.modified()) {
+            Ok(m) => m,
+            Err(_) => return None,
+        };
+        let is_self = self
+            .recent_writes
+            .read()
+            .map(|rw| rw.is_self_write(dest, mtime))
+            .unwrap_or(false);
+        if is_self {
+            return None;
+        }
+        let bak = backup_path(dest, SystemTime::now());
+        match std::fs::copy(dest, &bak) {
+            Ok(_) => {
+                warn!(
+                    file = %dest.display(),
+                    backup = %bak.display(),
+                    "vault conflict: external edit backed up before overwrite"
+                );
+                Some(bak)
+            }
+            Err(e) => {
+                warn!(
+                    file = %dest.display(),
+                    error = %e,
+                    "vault conflict detected but backup copy failed; proceeding with overwrite"
+                );
+                None
+            }
+        }
+    }
+}
+
+/// Build a `<file>.atrium.bak.<UTC-timestamp>` path adjacent to
+/// `dest`. The timestamp format is filesystem-safe (no colons), UTC,
+/// and sortable so multiple backups for the same file order
+/// chronologically when listed.
+fn backup_path(dest: &Path, now: SystemTime) -> PathBuf {
+    let utc: DateTime<Utc> = now.into();
+    let stamp = utc.format("%Y%m%dT%H%M%SZ");
+    let file_name = match dest.file_name() {
+        Some(f) => f.to_os_string(),
+        None => std::ffi::OsString::from("vault"),
+    };
+    let mut bak_name = file_name;
+    bak_name.push(format!(".atrium.bak.{stamp}"));
+    let parent = dest.parent().unwrap_or_else(|| Path::new(""));
+    parent.join(bak_name)
 }
 
 /// Spawn a vault writer task on the current tokio runtime and
@@ -357,6 +430,164 @@ mod tests {
 
         let expected_path = scratch.join("Burst.org");
         assert!(expected_path.exists());
+
+        let _ = notifier.sender().send(VaultWriteRequest::Shutdown).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    // ── Conflict detection (spec §7.3.3 rule 5) ──────────────
+
+    #[test]
+    fn backup_path_format_is_filesystem_safe_and_sortable() {
+        // 1_715_270_400 unix seconds = 2024-05-09 16:00:00 UTC.
+        let dest = PathBuf::from("/tmp/vault/Errands.org");
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_715_270_400);
+        let bak = backup_path(&dest, now);
+        let s = bak.to_string_lossy();
+        assert!(s.starts_with("/tmp/vault/Errands.org.atrium.bak."));
+        assert!(s.ends_with("Z"), "stamp must end with Z: {s}");
+        assert!(!s.contains(':'), "no colons in path: {s}");
+        assert!(s.contains("20240509T160000Z"), "stamp shape: {s}");
+    }
+
+    #[tokio::test]
+    async fn writer_backs_up_external_edit_before_overwriting() {
+        let (writer_conn, pool, scratch) = fresh_setup("conflict");
+        let (handle, _changes_rx, _library_rx) = spawn_worker(writer_conn);
+        let project = handle
+            .create_project(NewProject {
+                title: "Conflict".to_string(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let _ = handle
+            .create_task(NewTask {
+                title: "Buy milk".to_string(),
+                project_id: Some(project.id),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // First flush — establishes the file + records the
+        // mtime in RecentWrites.
+        let notifier = spawn_vault_writer(scratch.clone(), pool);
+        notifier
+            .sender()
+            .send(VaultWriteRequest::ProjectDirty(project.id))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let dest = scratch.join("Conflict.org");
+        assert!(dest.exists());
+
+        // Simulate Doom Emacs saving the file — content changes,
+        // mtime advances. The writer hasn't seen this mtime, so
+        // the next flush should detect the conflict.
+        let external_content = "* TODO Buy milk\nThis is what the user typed in Doom\n";
+        std::fs::write(&dest, external_content).unwrap();
+
+        // Mutate DB and trigger another flush. This test uses
+        // spawn_worker (no vault hook), so the writer doesn't get
+        // pinged automatically — we send the ProjectDirty by hand
+        // to mirror what the worker would do.
+        let _ = handle
+            .create_task(NewTask {
+                title: "Buy bread".to_string(),
+                project_id: Some(project.id),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        notifier
+            .sender()
+            .send(VaultWriteRequest::ProjectDirty(project.id))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        // The user's edit must survive in a .atrium.bak.* sibling.
+        let entries: Vec<_> = std::fs::read_dir(&scratch)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        let bak = entries
+            .iter()
+            .find(|n| n.starts_with("Conflict.org.atrium.bak."))
+            .unwrap_or_else(|| panic!("no .atrium.bak.* sibling found in {entries:?}"));
+        let bak_text = std::fs::read_to_string(scratch.join(bak)).unwrap();
+        assert!(
+            bak_text.contains("This is what the user typed in Doom"),
+            "backup must hold the user's external edit; got: {bak_text}"
+        );
+        // The main file is now the DB's view (overwrite proceeded).
+        let main_text = std::fs::read_to_string(&dest).unwrap();
+        assert!(
+            main_text.contains("Buy bread"),
+            "main file should have DB state"
+        );
+
+        let _ = notifier.sender().send(VaultWriteRequest::Shutdown).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[tokio::test]
+    async fn writer_does_not_back_up_self_writes() {
+        let (writer_conn, pool, scratch) = fresh_setup("noselfbak");
+        let (handle, _changes_rx, _library_rx) = spawn_worker(writer_conn);
+        let project = handle
+            .create_project(NewProject {
+                title: "Clean".to_string(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let _ = handle
+            .create_task(NewTask {
+                title: "task one".to_string(),
+                project_id: Some(project.id),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        let notifier = spawn_vault_writer(scratch.clone(), pool);
+        // Trigger several flushes back-to-back. None of them
+        // should produce a backup — every overwrite is the
+        // writer overwriting its own previous output. We drive
+        // flushes by hand because spawn_worker has no vault hook.
+        for i in 0..3 {
+            let _ = handle
+                .create_task(NewTask {
+                    title: format!("task {i}"),
+                    project_id: Some(project.id),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            notifier
+                .sender()
+                .send(VaultWriteRequest::ProjectDirty(project.id))
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        // Drain.
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        let entries: Vec<_> = std::fs::read_dir(&scratch)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            !entries.iter().any(|n| n.contains(".atrium.bak.")),
+            "self-writes must not produce backups; saw: {entries:?}"
+        );
 
         let _ = notifier.sender().send(VaultWriteRequest::Shutdown).await;
         tokio::time::sleep(Duration::from_millis(50)).await;

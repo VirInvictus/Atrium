@@ -117,13 +117,7 @@ pub fn write_project_to_vault(
         headlines: tree,
     };
 
-    // Destination path.
-    let mut path = vault_root.to_path_buf();
-    if let Some(area) = &area_title {
-        path.push(sanitize_filename(area));
-    }
-    let file_name = format!("{}.org", sanitize_filename(&project.title));
-    path.push(&file_name);
+    let path = build_project_vault_path(vault_root, area_title.as_deref(), &project.title);
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| WriteError::Io {
@@ -143,6 +137,42 @@ pub fn write_project_to_vault(
         task_count: tasks.len(),
         file_path: path,
     })
+}
+
+/// Compute the destination path a project would land at without
+/// performing the write. Used by the conflict-detection path in
+/// [`crate::vault_writer::VaultWriter`] so it can stat the existing
+/// file and back up external edits before the atomic-overwrite
+/// runs. Cheap — one project + one area read.
+pub fn project_vault_path(
+    conn: &Connection,
+    vault_root: &Path,
+    project_id: i64,
+) -> Result<PathBuf, WriteError> {
+    let project = atrium_core::db::read::project_by_id(conn, project_id)?
+        .ok_or(WriteError::ProjectNotFound(project_id))?;
+    let area_title = match project.area_id {
+        Some(aid) => atrium_core::db::read::area_by_id(conn, aid)?.map(|a| a.title),
+        None => None,
+    };
+    Ok(build_project_vault_path(
+        vault_root,
+        area_title.as_deref(),
+        &project.title,
+    ))
+}
+
+fn build_project_vault_path(
+    vault_root: &Path,
+    area_title: Option<&str>,
+    project_title: &str,
+) -> PathBuf {
+    let mut path = vault_root.to_path_buf();
+    if let Some(area) = area_title {
+        path.push(sanitize_filename(area));
+    }
+    path.push(format!("{}.org", sanitize_filename(project_title)));
+    path
 }
 
 /// Write every project in the DB to `vault_root`. Used by the
