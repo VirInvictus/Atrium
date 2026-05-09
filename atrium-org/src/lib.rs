@@ -43,11 +43,13 @@ use atrium_core::{VaultConfig, WorkerHandle};
 use tokio::sync::mpsc;
 
 pub mod org;
+pub mod rrule_cookie;
 pub mod self_write;
 pub mod sidecar;
 pub mod vault_watcher;
 pub mod vault_writer;
 
+pub use rrule_cookie::{cookie_matches_rrule, org_repeater_to_rrule, rrule_to_org_cookie};
 pub use self_write::RecentWrites;
 pub use sidecar::{Sidecar, read_sidecar, sidecar_path, write_sidecar};
 pub use vault_watcher::{VaultWatcher, spawn_vault_watcher, spawn_vault_watcher_with_events};
