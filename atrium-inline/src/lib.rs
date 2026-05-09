@@ -1,7 +1,19 @@
 // SPDX-License-Identifier: MIT
-//! Inline-syntax parser for the bottom-of-list entry (Phase 6b),
-//! the Quick Entry modal (Phase 6c), the CLI's `capture`
-//! subcommand, and the GTK inline-rename surface (v0.13 Slice 1+).
+//! Inline-syntax parser shared by every Atrium capture surface.
+//!
+//! Lifted out of `atrium-core::quick_entry` in v0.13.0 (atrium-inline
+//! Slice 3) so future surfaces (the post-1.0 `atrium-tui`, the
+//! optional `atriumd` capture daemon, any future inline-rename
+//! variant) can speak the same vocabulary without depending on the
+//! storage layer. atrium-core stays inline-syntax-agnostic; the
+//! extraction goes one way, atrium-inline → atrium-core.
+//!
+//! Used by:
+//!
+//! - The bottom-of-list entry (Phase 6b).
+//! - The Quick Entry modal (Phase 6c).
+//! - The CLI's `capture` subcommand.
+//! - The GTK inline-rename surface (v0.13 Slice 1+).
 //!
 //! Supported syntax (per spec.md §6):
 //!
@@ -23,9 +35,11 @@
 //! Anything else is title text. Unrecognised `@foo` / `!foo`
 //! strings stay in the title verbatim — no silent data loss.
 
+pub mod completions;
+
 use chrono::{Datelike, Local, NaiveDate, Weekday};
 
-use crate::ScheduledFor;
+use atrium_core::ScheduledFor;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ParsedEntry {

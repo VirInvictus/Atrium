@@ -11,7 +11,6 @@ pub mod db;
 pub mod domain;
 pub mod error;
 pub mod paths;
-pub mod quick_entry;
 pub mod render;
 pub mod repeat;
 pub mod sync;

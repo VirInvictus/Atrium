@@ -19,6 +19,10 @@ atrium-search = { path = "../atrium-search" }
 # Org-agnostic. The GTK binary uses `spawn_org_vault` to wire the
 # vault hook through the worker.
 atrium-org = { path = "../atrium-org" }
+# v0.13.0 — inline-syntax parser (`#tag` / `@today` / `@weekday`
+# / `!priority`) lives in its own crate so the GTK binary, the
+# CLI, and the post-1.0 TUI all speak the same vocabulary.
+atrium-inline = { path = "../atrium-inline" }
 
 # Phase 0 set.
 anyhow.workspace = true

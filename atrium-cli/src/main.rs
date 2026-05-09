@@ -1329,7 +1329,7 @@ fn run_add(
 }
 
 /// `capture` — single-string Quick Entry equivalent. Parses the
-/// line through atrium_core::quick_entry (the same parser the GUI's
+/// line through atrium_inline (the same parser the GUI's
 /// Quick Entry modal and bottom-of-list entry use) and creates a
 /// task with the resolved title / tags / scheduled / deadline.
 /// Drops to Inbox (no project) — matching the GUI's Quick Entry
@@ -1341,7 +1341,7 @@ fn run_capture(
     line: &str,
     format: Format,
 ) -> CliResult<()> {
-    let parsed = atrium_core::quick_entry::parse(line);
+    let parsed = atrium_inline::parse(line);
     let projected_tags = parsed.projected_tag_names();
     if parsed.title.trim().is_empty() && projected_tags.is_empty() {
         return Err(CliError::Args(

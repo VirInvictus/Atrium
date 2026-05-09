@@ -44,6 +44,7 @@ version = "0.12.0"
 dependencies = [
  "anyhow",
  "atrium-core",
+ "atrium-inline",
  "atrium-org",
  "atrium-search",
  "chrono",
@@ -60,6 +61,7 @@ name = "atrium-cli"
 version = "0.12.0"
 dependencies = [
  "atrium-core",
+ "atrium-inline",
  "atrium-org",
  "atrium-search",
  "chrono",
@@ -85,6 +87,14 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "atrium-inline"
+version = "0.12.0"
+dependencies = [
+ "atrium-core",
+ "chrono",
 ]
 
 [[package]]

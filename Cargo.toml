@@ -1,5 +1,12 @@
 [workspace]
-members = ["atrium-core", "atrium-search", "atrium-org", "atrium-cli", "atrium"]
+members = [
+    "atrium-core",
+    "atrium-search",
+    "atrium-org",
+    "atrium-inline",
+    "atrium-cli",
+    "atrium",
+]
 default-members = ["atrium"]
 resolver = "2"
 

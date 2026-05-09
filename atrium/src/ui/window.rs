@@ -2291,7 +2291,7 @@ impl AtriumWindow {
     /// Rename handler — fires `update_task` with the new title.
     ///
     /// v0.13 (Slice 1) routes the new title through
-    /// [`atrium_core::quick_entry::parse`] so an inline rename can
+    /// [`atrium_inline::parse`] so an inline rename can
     /// pick up the same `#tag` / `@today` / `@deadline` syntax the
     /// bottom-of-list entry and Quick Entry modal already speak.
     /// Plain-text titles take a fast path identical to the
@@ -2316,7 +2316,7 @@ impl AtriumWindow {
             return;
         };
 
-        let parsed = atrium_core::quick_entry::parse(&new_title);
+        let parsed = atrium_inline::parse(&new_title);
 
         // Fast path — no inline syntax. Behaves identically to the
         // pre-v0.13 single-update flow so renames of plain text
@@ -2359,7 +2359,7 @@ impl AtriumWindow {
             pool.with(atrium_core::db::read::list_tags)
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|t| atrium_core::quick_entry::is_priority_tag_name(&t.name))
+                .filter(|t| atrium_inline::is_priority_tag_name(&t.name))
                 .map(|t| t.id)
                 .collect()
         } else {
@@ -2507,7 +2507,7 @@ impl AtriumWindow {
             return;
         };
         let active = self.active_list();
-        let parsed = atrium_core::quick_entry::parse(&raw_input);
+        let parsed = atrium_inline::parse(&raw_input);
         let projected_tags = parsed.projected_tag_names();
         if parsed.title.is_empty() && projected_tags.is_empty() {
             return;

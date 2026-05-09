@@ -152,7 +152,8 @@ pub enum Subcommand {
     Add(AddArgs),
     /// `capture LINE` — Quick-Entry-style one-shot capture.
     /// LINE is a single string parsed for `#tag` / `@date` /
-    /// `@deadline ...` inline syntax via atrium_core::quick_entry.
+    /// `@deadline ...` inline syntax via atrium_inline (the parser
+    /// extracted from atrium-core::quick_entry at v0.13.0).
     Capture {
         line: String,
     },

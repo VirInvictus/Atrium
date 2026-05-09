@@ -19,6 +19,10 @@ atrium-search = { path = "../atrium-search" }
 # new crate in directly so the `import org` / `export org` paths
 # keep working.
 atrium-org = { path = "../atrium-org" }
+# v0.13.0 — `quick_entry` parser lifted into its own crate so the
+# CLI's `capture` subcommand and the GTK binary share the parser
+# without dragging it through atrium-core.
+atrium-inline = { path = "../atrium-inline" }
 
 # Date arithmetic (today's date for the EvalContext, deadline / schedule
 # parsing for output).

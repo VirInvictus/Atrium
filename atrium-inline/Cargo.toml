@@ -1,0 +1,16 @@
+[package]
+name = "atrium-inline"
+description = "Inline-syntax parser shared by every Atrium capture surface — Quick Entry modal, bottom-of-list entry, CLI capture subcommand, and the GTK inline-rename row. Lifted out of atrium-core in v0.13.0 (Phase 18.x atrium-inline Slice 3) so future surfaces (TUI, atriumd) can speak the same vocabulary without dragging in the storage layer."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+chrono.workspace = true
+
+# atrium-core for the `ScheduledFor` enum the parser emits.
+# atrium-core stays Org-agnostic and inline-syntax-agnostic — the
+# extraction goes one way, atrium-inline → atrium-core.
+atrium-core = { path = "../atrium-core" }

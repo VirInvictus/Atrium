@@ -18,7 +18,7 @@ use gtk::glib;
 use gtk::glib::clone;
 use tracing::{debug, error, warn};
 
-use atrium_core::quick_entry as parser;
+use atrium_inline as parser;
 
 /// Open the Quick Entry modal anchored to `parent`. Returns
 /// immediately; commit/dismiss runs through the GTK event loop.
