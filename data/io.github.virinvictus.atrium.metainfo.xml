@@ -90,6 +90,29 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.9" date="2026-05-08">
+      <description>
+        <p>Org importer (atrium-cli import org). Fourth patch on
+           the Phase 16 arc. import_org_file reads a single .org
+           file and inserts every TODO-keyworded headline as a
+           task, mapping fields per spec §7.3.2: title, body
+           verbatim, headline :tags: → Atrium tags via
+           ensure_tag, SCHEDULED / DEADLINE → date fields,
+           :ID: → task UUID (preserved via the new additive
+           NewTask.uuid field), :RRULE: → repeat_rule, :EFFORT:
+           → estimated_minutes, :DEFER_UNTIL: → defer_until,
+           subtasks → parent_id.</p>
+        <p>atrium-cli gains `import org PATH [--dry-run]`. Dry-
+           run walks the parse tree and tallies counts without
+           touching the DB. JSON output for scripts.</p>
+        <p>Limitations deferred to v0.7.10+: project sub-headings
+           are skipped (headings_skipped count); DONE tasks have
+           completed_at = now() rather than the CLOSED cookie
+           timestamp; multi-file vault walk; re-import upsert.</p>
+        <p>551 tests green (up 9 from v0.7.8). Pure additive
+           change; no schema, no new dependencies.</p>
+      </description>
+    </release>
     <release version="0.7.8" date="2026-05-08">
       <description>
         <p>Org-mode emitter (round-trip safe). Third patch on

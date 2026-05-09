@@ -1,5 +1,71 @@
 # Atrium — Patch Notes
 
+## v0.7.9 (2026-05-08) — Org importer (`atrium-cli import org`)
+
+Fourth patch on the Phase 16 arc. v0.7.6–v0.7.8 gave us the
+foundation, parser, and emitter; v0.7.9 lands the one-shot
+importer that lets users pull an existing .org file into the DB
+through `atrium-cli`.
+
+**`NewTask.uuid` / `NewProject.uuid` (additive).** Both creator
+structs gain an `Option<String>` UUID field. `None` (and empty
+strings) keep the historical "worker generates a fresh v4"
+behaviour; `Some(s)` lets the importer preserve `:ID:` from the
+source vault file (spec §7.3.3 rule 2: ":ID: is the round-trip
+anchor"). All existing call sites updated. Three new worker
+tests cover the round-trip + the empty-string fallback.
+
+**`atrium-core::sync::org::import_org_file`.** Parses the file
+through `parse_org_file`, derives the project title from the
+file stem, and walks the headline tree creating tasks via the
+worker. Field mapping per spec §7.3.2:
+
+- Headline → Task.title
+- Headline `:tags:` → Atrium tags via `ensure_tag` (idempotent),
+  attached via `set_task_tags`
+- Body → Task.note (verbatim)
+- TODO / DONE / CANCELLED → keyword (DONE/CANCELLED toggled
+  via `toggle_complete` after create)
+- Custom keywords → folded to TODO with a lossy note
+- SCHEDULED → `scheduled_for`, DEADLINE → `deadline`
+- `:ID:` → `Task.uuid`
+- `:RRULE:` → `Task.repeat_rule` (verbatim)
+- `:EFFORT:` (`H:MM` or `Hh[Mm]` form) → `estimated_minutes`
+- `:DEFER_UNTIL:` → `defer_until`
+- Children → tasks with `parent_id` set
+
+**Dry-run mode.** `import_org_file(handle, path, dry_run=true)`
+walks the parse tree and tallies what *would* be created
+without touching the DB. The atrium-cli surface is
+`atrium-cli import org PATH --dry-run`.
+
+**Limitations consciously deferred:** project sub-headings
+(headlines without a TODO keyword) skipped and counted in
+`headings_skipped` — heading-table writes follow in v0.7.10+.
+DONE / CANCELLED tasks have `completed_at = now()`, not the
+CLOSED cookie's timestamp — surfaced as a lossy note. Repeater
+suffixes on SCHEDULED / DEADLINE recorded in the parsed tree
+but not converted to RFC 5545 RRULE; use `:RRULE:` for canonical
+round-trips. Multi-file vault walk lands in v0.7.10+. Re-imports
+always create new rows; full bidirectional sync (Phase 17) adds
+upsert-by-`:ID:`.
+
+**`atrium-cli import org PATH [--dry-run]`.** New subcommand
+parsed via `args::parse_import`, dispatched through the existing
+worker-runtime helper. Output formats: human (default),
+`--json` (machine-readable summary).
+
+**Test count:** 119 + 219 + 1 + 106 + 106 = **551** (up 9 from
+v0.7.8's 542 — three new worker uuid tests, one tally test,
+one effort-parser test, three effort edge cases, one
+end-to-end import test, one dry-run test). Pure additive
+change. No schema changes. No new dependencies.
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.9**. Phase 16 progress: foundation + parser +
+emitter + importer done; vault writer (DB → Org), worker hook,
+multi-file walk, and JSON export remain.
+
 ## v0.7.8 (2026-05-08) — Org-mode emitter (round-trip safe)
 
 Third patch on the Phase 16 arc. v0.7.6 + v0.7.7 gave us the

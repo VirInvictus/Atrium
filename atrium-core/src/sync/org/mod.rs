@@ -21,7 +21,9 @@
 //! writer follow in v0.7.8+.
 
 mod emit;
+mod import;
 mod parse;
 
 pub use emit::{emit_org_file, emit_org_text};
+pub use import::{ImportError, ImportSummary, import_org_file};
 pub use parse::{OrgKeyword, OrgRepeater, OrgTask, parse_org_file, parse_org_text};

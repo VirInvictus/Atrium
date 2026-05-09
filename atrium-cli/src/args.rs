@@ -180,6 +180,22 @@ pub enum Subcommand {
     /// perspectives. Read-side is `list perspectives`. Sub-subcommands:
     /// `create` / `edit` / `delete`. v0.6.5.
     Perspective(PerspectiveSub),
+    /// `import SOURCE PATH [--dry-run]` — read a vault file or
+    /// other supported source into the DB. Phase 16, v0.7.9.
+    /// Currently only `org` is supported.
+    Import {
+        source: ImportSource,
+        path: String,
+        dry_run: bool,
+    },
+}
+
+/// Supported import sources. v0.7.9 ships only `Org` (single-
+/// file Org-mode importer). Todoist, Things 3 (retired), and
+/// other sources land in subsequent phases.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportSource {
+    Org,
 }
 
 /// Sub-subcommand of `perspective`. Each variant carries its own
@@ -429,6 +445,7 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
             Subcommand::Kanban { name }
         }
         "perspective" => parse_perspective(&raw[i..], &mut args)?,
+        "import" => parse_import(&raw[i..], &mut args)?,
         other => return Err(format!("unknown subcommand: {other}")),
     });
 
@@ -715,6 +732,59 @@ fn parse_edit(rest: &[String], args: &mut Args) -> Result<EditArgs, String> {
     // the unchanged row) so users can use `edit ID` as a "show
     // single task in the list-row format" companion to `info`.
     Ok(edit)
+}
+
+/// Parse `import <source> <path> [--dry-run]`. v0.7.9 ships only
+/// the `org` source (single-file Org-mode import). Trailing
+/// global format flags (`--json`, `--human`, `--db PATH`) honour
+/// the standard apply_trailing_flags pass.
+fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
+    let source_str = rest
+        .first()
+        .ok_or("import requires a source: org")?
+        .as_str();
+    let source = match source_str {
+        "org" => ImportSource::Org,
+        other => return Err(format!("unknown import source: {other}")),
+    };
+    let body = &rest[1..];
+
+    let mut path: Option<String> = None;
+    let mut dry_run = false;
+    let mut trailing: Vec<String> = Vec::new();
+    let mut iter = body.iter();
+    while let Some(tok) = iter.next() {
+        match tok.as_str() {
+            "--dry-run" => dry_run = true,
+            "--json" | "--tsv" | "--human" => trailing.push(tok.clone()),
+            "--db" => {
+                trailing.push(tok.clone());
+                let next = iter
+                    .next()
+                    .ok_or_else(|| "--db requires a path".to_string())?;
+                trailing.push(next.clone());
+            }
+            other if other.starts_with("--") => {
+                return Err(format!("unknown flag: {other}"));
+            }
+            positional => {
+                if path.is_some() {
+                    return Err(format!(
+                        "import takes a single PATH argument; extra positional: {positional}"
+                    ));
+                }
+                path = Some(positional.to_string());
+            }
+        }
+    }
+    apply_trailing_flags(&trailing, args)?;
+
+    let path = path.ok_or("import requires a path argument")?;
+    Ok(Subcommand::Import {
+        source,
+        path,
+        dry_run,
+    })
 }
 
 /// Parse the rest-of-argv for `perspective <create|edit|delete>

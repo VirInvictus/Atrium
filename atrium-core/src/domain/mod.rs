@@ -49,7 +49,8 @@ impl Task {
 }
 
 /// Input for creating a new task. The DB assigns `id`; the worker
-/// generates `uuid` and computes `position` (last-in-sibling-list).
+/// generates `uuid` (or honors a caller-provided one — see `uuid`
+/// field below) and computes `position` (last-in-sibling-list).
 /// Timestamps default via the schema.
 #[derive(Debug, Clone, Default)]
 pub struct NewTask {
@@ -65,6 +66,12 @@ pub struct NewTask {
     /// Phase 15 — repeater mode (`BASIC` / `CUMULATIVE` / `NEXT`).
     /// `None` means "use the default", which is CUMULATIVE.
     pub repeat_mode: Option<String>,
+    /// v0.7.9 — caller-provided UUID. `None` means the worker
+    /// generates a fresh v4 UUID (the historical behaviour). The
+    /// Org importer uses this to preserve `:ID:` from the source
+    /// vault file (spec §7.3.3 rule 2: ":ID: is the round-trip
+    /// anchor"). Empty strings are rejected by the worker.
+    pub uuid: Option<String>,
 }
 
 impl NewTask {
@@ -268,6 +275,10 @@ pub struct NewProject {
     pub area_id: Option<i64>,
     pub sequential: bool,
     pub review_interval_days: Option<i64>,
+    /// v0.7.9 — caller-provided UUID. `None` means the worker
+    /// generates a fresh v4 UUID. The Org importer uses this to
+    /// preserve project `:ID:` values from a source vault.
+    pub uuid: Option<String>,
 }
 
 impl NewProject {

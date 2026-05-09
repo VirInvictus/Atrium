@@ -2408,6 +2408,10 @@ impl AtriumWindow {
                             estimated_minutes: task.estimated_minutes,
                             repeat_rule: task.repeat_rule,
                             repeat_mode: task.repeat_mode,
+                            // Undo-restore creates a fresh row; let
+                            // the worker generate a fresh UUID rather
+                            // than reusing the deleted task's ID.
+                            uuid: None,
                         };
                         match worker.create_task(new).await {
                             Ok(restored) => {

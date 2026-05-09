@@ -48,8 +48,8 @@ mod output;
 mod tests;
 
 use args::{
-    AddArgs, EditArgs, EditIcon, EditProject, Format, PerspectiveArgs, PerspectiveSub, Subcommand,
-    TargetSpec,
+    AddArgs, EditArgs, EditIcon, EditProject, Format, ImportSource, PerspectiveArgs,
+    PerspectiveSub, Subcommand, TargetSpec,
 };
 use output::{Row, format_row, format_rows, format_task_detail};
 
@@ -137,6 +137,13 @@ fn run(args: args::Args) -> ExitCode {
         }
         Subcommand::Perspective(sub) => with_writer(&db_path, |rt, handle, conn| {
             run_perspective(rt, handle, conn, sub, args.format)
+        }),
+        Subcommand::Import {
+            source,
+            path,
+            dry_run,
+        } => with_writer(&db_path, |rt, handle, _conn| {
+            run_import(rt, handle, source, &path, dry_run, args.format)
         }),
     }
 }
@@ -377,6 +384,116 @@ fn run_kanban(conn: &Connection, name: &str, format: Format) -> CliResult<()> {
     let columns = atrium_core::group_into_board(&tasks, &cfg, &tag_names);
     print_board(&perspective.name, &columns, &ctx_data, format);
     Ok(())
+}
+
+/// Phase 16, v0.7.9 — `atrium-cli import org PATH [--dry-run]`.
+/// Reads a single .org file via `atrium_core::sync::org::import_org_file`
+/// and prints a one-line summary. The summary mirrors the
+/// ImportSummary struct: project title (created), task count,
+/// tags ensured, headings skipped, and a list of lossy fields.
+fn run_import(
+    runtime: &tokio::runtime::Runtime,
+    handle: &atrium_core::WorkerHandle,
+    source: ImportSource,
+    path: &str,
+    dry_run: bool,
+    format: Format,
+) -> CliResult<()> {
+    match source {
+        ImportSource::Org => {
+            let path = std::path::PathBuf::from(path);
+            let summary = runtime
+                .block_on(async {
+                    atrium_core::sync::org::import_org_file(handle, &path, dry_run).await
+                })
+                .map_err(|e| CliError::Args(format!("import failed: {e}")))?;
+
+            print_import_summary(&summary, dry_run, format);
+            Ok(())
+        }
+    }
+}
+
+fn print_import_summary(
+    summary: &atrium_core::sync::org::ImportSummary,
+    dry_run: bool,
+    format: Format,
+) {
+    let prefix = if dry_run { "DRY-RUN " } else { "" };
+    match format {
+        Format::Json => {
+            // Render as a small JSON object so scripts can parse.
+            let mut s = String::new();
+            s.push_str("{\n");
+            s.push_str(&format!("  \"dry_run\": {},\n", dry_run));
+            s.push_str(&format!(
+                "  \"project_title\": {},\n",
+                json_string_or_null(summary.project_title.as_deref())
+            ));
+            s.push_str(&format!(
+                "  \"project_id\": {},\n",
+                summary
+                    .project_id
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "null".to_string())
+            ));
+            s.push_str(&format!(
+                "  \"tasks_created\": {},\n",
+                summary.tasks_created
+            ));
+            s.push_str(&format!("  \"tags_ensured\": {},\n", summary.tags_ensured));
+            s.push_str(&format!(
+                "  \"headings_skipped\": {},\n",
+                summary.headings_skipped
+            ));
+            s.push_str("  \"lossy\": [");
+            let mut first = true;
+            for note in &summary.lossy {
+                if !first {
+                    s.push_str(", ");
+                }
+                first = false;
+                s.push_str(&json_string(note));
+            }
+            s.push_str("]\n}\n");
+            print!("{s}");
+        }
+        _ => {
+            println!(
+                "{prefix}Imported project “{}”: {} tasks, {} tags, {} headings skipped.",
+                summary.project_title.as_deref().unwrap_or("?"),
+                summary.tasks_created,
+                summary.tags_ensured,
+                summary.headings_skipped,
+            );
+            for note in &summary.lossy {
+                println!("  lossy: {note}");
+            }
+        }
+    }
+}
+
+fn json_string(s: &str) -> String {
+    let escaped: String = s
+        .chars()
+        .map(|c| match c {
+            '"' => "\\\"".to_string(),
+            '\\' => "\\\\".to_string(),
+            '\n' => "\\n".to_string(),
+            '\r' => "\\r".to_string(),
+            '\t' => "\\t".to_string(),
+            other if (other as u32) < 0x20 => format!("\\u{:04x}", other as u32),
+            other => other.to_string(),
+        })
+        .collect();
+    format!("\"{escaped}\"")
+}
+
+fn json_string_or_null(s: Option<&str>) -> String {
+    match s {
+        Some(value) => json_string(value),
+        None => "null".to_string(),
+    }
 }
 
 /// Slice D follow-up (v0.6.5) — `atrium-cli perspective <SUB> NAME`
@@ -764,6 +881,7 @@ fn run_add(
         estimated_minutes: add.estimated_minutes,
         repeat_rule: None,
         repeat_mode: None,
+        uuid: None,
     };
 
     let task = runtime
