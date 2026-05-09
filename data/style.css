@@ -89,27 +89,29 @@ window.atrium-high-legibility .atrium-task-deadline {
 }
 
 /* Inline tag display ("#errand #work-focus") trails the title.
+ *
  * Phase 7g lifted this from a single dim caption to a chip-shaped
- * accent — visible enough to read at a glance, not loud enough to
- * compete with the title. The label is one widget rendering the
- * full `#tag #tag` string (per-tag widgets defer to a future slice
- * that wants different colours per tag); padding + radius are CSS
- * so we don't have to thread a Box through the factory. The
- * `.dim-label` class added in code is removed visually here by the
- * elevated colour. */
+ * accent. v0.7.5 retires the chip in favour of bare colored
+ * Pango spans — the chip background was reading as a Bootstrap-
+ * style badge stuck to the row, fighting the row's own area-
+ * tint. Without the chip, the tags read as inline typography
+ * with subtle hue accents (each `<span foreground=...>`
+ * produces the per-tag colour); the row stays the visual unit,
+ * not the tag.
+ *
+ * The label is still one widget rendering the full
+ * `#tag #tag` string with per-tag Pango spans for colour;
+ * `format_tag_names` in `atrium/src/ui/task_list.rs` produces
+ * the markup. */
 .atrium-task-tags {
   font-size: 0.85em;
   letter-spacing: 0.005em;
-  padding: 1px 6px;
-  border-radius: 6px;
-  background-color: alpha(@accent_bg_color, 0.15);
-  color: @accent_color;
+  padding: 0 4px;
+  background: none;
 }
-/* When the row is completed, blend the chip back into the row
- * fade so it doesn't visually outshout the dimmed title. */
-.atrium-task-row.completed .atrium-task-tags {
-  background-color: alpha(@accent_bg_color, 0.08);
-}
+/* When the row is completed, the existing `.completed` opacity
+ * already dims the entire row — nothing extra needed here now
+ * that the chip background is gone. */
 
 /* Cross-list context chip — "Area › Project". Surfaces the task's
  * hierarchy on views that don't already heading it (Today, Inbox,
@@ -641,15 +643,28 @@ listbox.navigation-sidebar {
 }
 
 /* Selected row in the sidebar gets a softer, accent-tinged
- * background instead of the system's stark blue. Adwaita's
- * `:selected` styling on rows is already accent-derived, but the
- * default alpha is high enough to dominate the row's icon tint.
- * Tone it down so the canonical accent on the icon stays readable
- * even when the row is selected. */
+ * background instead of the system's stark blue.
+ *
+ * v0.7.5 — added border-radius so the fill blooms with rounded
+ * corners (mirroring the v0.7.0 task-row selection treatment):
+ * selection becomes a glow, not a flat-bottomed rectangle. The
+ * outline:none drops the focus rectangle that was layering
+ * over the fill on focus. The horizontal margin gives the fill
+ * a 4 px breathing inset from the sidebar edges so the rounded
+ * corners actually have somewhere to round; without it, the
+ * rectangle clips at the listbox edge and the radius is lost. */
 listview.navigation-sidebar > row:selected,
 .navigation-sidebar > row:selected {
-  background: alpha(@accent_color, 0.12);
+  background: alpha(@accent_color, 0.14);
   color: @window_fg_color;
+  border-radius: 8px;
+  outline: none;
+  margin-left: 4px;
+  margin-right: 4px;
+}
+listview.navigation-sidebar > row:focus,
+.navigation-sidebar > row:focus {
+  outline: none;
 }
 
 /* Inspector-pane header treatment — the "Title" / "Schedule" /
@@ -769,9 +784,8 @@ listview.navigation-sidebar > row:selected,
 
 /* GtkListView's `show-separators=true` is on (window.ui), but the
  * default separator on dark themes is so faint it reads as "no
- * separator at all" (the user's screenshot showed the rows running
- * together as a wall of text). Bump the separator's contrast a hair
- * so it reads as a real divider without becoming a heavy gridline.
+ * separator at all". Bump the separator's contrast a hair so it
+ * reads as a real divider without becoming a heavy gridline.
  *
  * v0.7.0 — selector rewritten to use `.atrium-task-listview` (a
  * class added to the task GtkListView in window.ui) instead of
@@ -779,9 +793,15 @@ listview.navigation-sidebar > row:selected,
  * `:has()` and was emitting "Unknown pseudoclass" warnings on
  * every theme load; the new selector is identical in scope but
  * silent. The kanban / agenda lists are untouched because they
- * carry their own classes. */
+ * carry their own classes.
+ *
+ * v0.7.5 — alpha 0.30 → 0.12. After the v0.7.0 row-rhythm bump
+ * (margin 6 → 9 px), the v0.6.14 / v0.7.0 separators read as
+ * ledger-grid against the new whitespace. The lower alpha keeps
+ * a faint scan-tracking line for accessibility without
+ * outshouting the spacing. */
 .atrium-task-listview > row {
-  border-bottom: 1px solid alpha(@borders, 0.3);
+  border-bottom: 1px solid alpha(@borders, 0.12);
 }
 .atrium-task-listview > row:last-child {
   border-bottom: none;
@@ -828,5 +848,24 @@ listview.navigation-sidebar > row:selected,
 }
 .atrium-quick-add:hover,
 .atrium-quick-add:focus-within {
+  opacity: 1;
+}
+
+/* v0.7.5 — sidebar filter entry as a ghost (same treatment).
+ *
+ * The "Filter lists…" search entry sat with a visible bordered
+ * bg-color on top of the v0.7.1 sidebar atmospheric tint, reading
+ * as a permanent control rather than an as-needed affordance.
+ * Same fade-in shape as `.atrium-quick-add`: dim at rest, full on
+ * hover / focus. The :focus pseudo-class handles the case where
+ * the user lands focus directly on the entry; :hover handles the
+ * cursor passing through. */
+.atrium-filter-ghost {
+  opacity: 0.45;
+  transition: opacity 180ms ease-out;
+}
+.atrium-filter-ghost:hover,
+.atrium-filter-ghost:focus,
+.atrium-filter-ghost:focus-within {
   opacity: 1;
 }

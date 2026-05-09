@@ -90,6 +90,28 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.5" date="2026-05-08">
+      <description>
+        <p>Visual refinement pass — five items finishing the
+           v0.7.x polish arc. Tag pills retired the chip
+           background in favour of bare colored Pango spans
+           (the per-tag colour still renders, just as inline
+           typography rather than a Bootstrap-style badge).
+           The inspector's "No task selected" empty state
+           swapped a giant AdwStatusPage for a small centred
+           caption near the top of the pane. The sidebar
+           filter entry gained the same ghost treatment the
+           quick-add entry got at v0.7.0 (dim at rest, full on
+           hover / focus). Task-list row separators faded
+           further (alpha 0.30 → 0.12) so they hint without
+           outshouting the v0.7.0 row spacing. Sidebar
+           :selected rows gained rounded corners + horizontal
+           margin so the fill blooms rather than clipping at
+           the listbox edge.</p>
+        <p>Pure CSS + small UI tweaks. No schema changes; no
+           new dependencies. 503 tests still green.</p>
+      </description>
+    </release>
     <release version="0.7.4" date="2026-05-08">
       <description>
         <p>Task-level Mark Reviewed. The Review page's "This

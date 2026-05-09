@@ -1,5 +1,53 @@
 # Atrium — Patch Notes
 
+## v0.7.5 (2026-05-08) — Visual refinement pass
+
+The polish list deferred from v0.7.3 / v0.7.4 finally lands. Five
+items, all aimed at reducing remaining boxiness on the rows and
+panes after v0.7.0–v0.7.2 set the foundation.
+
+**Tag pill softening.** The `.atrium-task-tags` chip retired the
+visible bg-color (`alpha(@accent_bg_color, 0.15)`) in favour of
+bare colored Pango spans. Each `<span foreground=HEX>#tag</span>`
+still renders the per-tag colour for a row with multiple tags
+the colors stack inline, reading as typography rather than as a
+Bootstrap-style badge stuck onto the row. The `.completed`
+override goes away (no more chip background to dim; the row's
+existing opacity does the work).
+
+**Inspector empty state.** The big AdwStatusPage with the
+edit-symbolic icon and "No task selected" / "Select a row to
+edit it here." was claiming the full pane during navigation;
+v0.7.5 swaps it for a small centred caption ("Select a task to
+edit it here.") near the top of the pane. The pane's
+atmospheric tint signals the inspector's home; the caption is
+just a hint.
+
+**Sidebar filter ghost.** The "Filter lists…" search entry got
+the same opacity-on-hover/focus treatment the v0.7.0 quick-add
+introduced. New `.atrium-filter-ghost` class on the GtkSearchEntry,
+mirroring `.atrium-quick-add` semantics — dim at rest, full on
+:hover / :focus / :focus-within.
+
+**Row separator fade.** The `.atrium-task-listview > row`
+border-bottom alpha dropped 0.30 → 0.12. After the v0.7.0 row
+margin bump (6 → 9 px) the separators were reading as ledger-
+grid against the new whitespace; the lower alpha keeps a quiet
+scan-tracking line without outshouting the spacing.
+
+**Sidebar selection soft-fill.** The `:selected` state on
+sidebar rows gained `border-radius: 8px`, an `outline: none`
+override, and a 4 px horizontal margin so the rounded fill has
+breathing room to bloom rather than clipping at the listbox
+edge. Mirrors the v0.7.0 task-row selection treatment —
+selection becomes a glow, not a flat-bottomed rectangle.
+
+Pure CSS + small UI tweaks. No schema changes. No new
+dependencies. 503 tests still green.
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.5**.
+
 ## v0.7.4 (2026-05-08) — Task-level Mark Reviewed (migration 0006)
 
 The Review page's "This week" weekly walk shipped at v0.7.2 with

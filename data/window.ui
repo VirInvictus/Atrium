@@ -97,6 +97,14 @@
                             <property name="margin-top">4</property>
                             <property name="margin-bottom">4</property>
                             <property name="search-delay">100</property>
+                            <!-- v0.7.5 — same ghost treatment as the
+                                 quick-add at the bottom of the list:
+                                 dim by default, full opacity on hover
+                                 / focus-within. CSS class lives in
+                                 data/style.css. -->
+                            <style>
+                              <class name="atrium-filter-ghost"/>
+                            </style>
                           </object>
                         </child>
                         <child>

@@ -68,16 +68,29 @@ impl InspectorPane {
             .transition_type(gtk::StackTransitionType::Crossfade)
             .build();
 
-        let empty_state = adw::StatusPage::builder()
-            .icon_name("edit-symbolic")
-            .title("No task selected")
-            .description("Select a row to edit it here.")
+        // v0.7.5 — empty state pared down. The previous
+        // AdwStatusPage with a giant edit-symbolic icon dominated
+        // the pane during navigation (the inspector is empty more
+        // often than full). A small centred caption near the top
+        // of the pane reads as "ready and waiting" without
+        // claiming visual weight. The atmospheric tint of the
+        // pane itself signals that this is the inspector's home.
+        let empty_label = gtk::Label::builder()
+            .label("Select a task to edit it here.")
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Start)
+            .margin_top(28)
+            .margin_start(24)
+            .margin_end(24)
+            .wrap(true)
+            .justify(gtk::Justification::Center)
             .build();
-        empty_state.add_css_class("compact");
+        empty_label.add_css_class("dim-label");
+        empty_label.add_css_class("caption");
 
         let editor_host = adw::Bin::new();
 
-        stack.add_named(&empty_state, Some("empty"));
+        stack.add_named(&empty_label, Some("empty"));
         stack.add_named(&editor_host, Some("editor"));
         stack.set_visible_child_name("empty");
 
