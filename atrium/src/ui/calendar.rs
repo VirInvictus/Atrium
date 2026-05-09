@@ -19,9 +19,11 @@
 use std::collections::HashMap;
 
 use adw::prelude::*;
-use atrium_core::{ScheduledFor, Task};
+use atrium_core::{ScheduledFor, Task, TaskUpdate, WorkerHandle};
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
+use gtk::gdk;
 use gtk::glib;
+use tracing::error;
 
 /// One day in the rendered month grid. `tasks` holds open tasks
 /// whose `scheduled_for` is this date (deadline-only tasks are
@@ -227,11 +229,14 @@ where
 /// Build the calendar page widget for the month containing
 /// `viewed`. `today` drives the today-cell emphasis; `tasks` are
 /// bucketed by `scheduled_for`. Callbacks come bundled in
-/// [`CalendarCallbacks`].
+/// [`CalendarCallbacks`]. `worker`, when present, enables drag-
+/// to-reschedule between days; `None` keeps the page read-only
+/// (used by tests / future read-only contexts).
 pub fn build_page<PrevFn, NextFn, TodayFn, PickFn, RowFn>(
     viewed: NaiveDate,
     today: NaiveDate,
     tasks: &[Task],
+    worker: Option<WorkerHandle>,
     cb: CalendarCallbacks<PrevFn, NextFn, TodayFn, PickFn, RowFn>,
 ) -> gtk::Widget
 where
@@ -268,7 +273,7 @@ where
         on_pick_month,
     ));
     body.append(&build_weekday_strip());
-    body.append(&build_grid(&grid, on_row_click));
+    body.append(&build_grid(&grid, worker, on_row_click));
 
     let scroller = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
@@ -456,7 +461,7 @@ fn build_weekday_strip() -> gtk::Widget {
     strip.upcast()
 }
 
-fn build_grid<F>(grid: &MonthGrid, on_row_click: F) -> gtk::Widget
+fn build_grid<F>(grid: &MonthGrid, worker: Option<WorkerHandle>, on_row_click: F) -> gtk::Widget
 where
     F: Fn(i64) + 'static + Clone,
 {
@@ -472,7 +477,7 @@ where
     for (row_i, week) in grid.weeks.iter().enumerate() {
         for (col, cell) in week.iter().enumerate() {
             g.attach(
-                &build_cell(cell, on_row_click.clone()),
+                &build_cell(cell, worker.clone(), on_row_click.clone()),
                 col as i32,
                 row_i as i32,
                 1,
@@ -483,7 +488,7 @@ where
     g.upcast()
 }
 
-fn build_cell<F>(cell: &DayCell, on_row_click: F) -> gtk::Widget
+fn build_cell<F>(cell: &DayCell, worker: Option<WorkerHandle>, on_row_click: F) -> gtk::Widget
 where
     F: Fn(i64) + 'static + Clone,
 {
@@ -527,7 +532,10 @@ where
     }
     card.append(&header);
 
-    // Inline titles up to INLINE_PER_CELL.
+    // Inline titles up to INLINE_PER_CELL. Each title is its
+    // own draggable widget so the user can drop it on another
+    // day to reschedule (handler attaches at the cell level
+    // below).
     for task in cell.tasks.iter().take(INLINE_PER_CELL) {
         let row = gtk::Label::builder()
             .label(&task.title)
@@ -535,6 +543,7 @@ where
             .halign(gtk::Align::Start)
             .css_classes(["caption"])
             .build();
+        attach_task_drag_source(&row, task.id);
         card.append(&row);
     }
 
@@ -550,7 +559,56 @@ where
         card.append(&more_btn);
     }
 
+    // Drop target — drop a task here to reschedule it to this
+    // date. Mirrors Forecast's pattern. Out-of-month cells still
+    // accept drops so a user can drag into the previous / next
+    // month from the leading / trailing rows.
+    if let Some(worker) = worker {
+        attach_drop_target_for_date(&card, cell.date, worker);
+    }
+
     card.upcast()
+}
+
+/// Wire up a `gtk::DragSource` carrying the task id as an `i64`
+/// content provider. Mirrors the forecast / list-view drag shape
+/// so the same drop targets across the app accept calendar
+/// drags. Action: MOVE — this isn't a copy, it's a reschedule.
+fn attach_task_drag_source(widget: &gtk::Label, task_id: i64) {
+    let drag_source = gtk::DragSource::builder()
+        .actions(gdk::DragAction::MOVE)
+        .build();
+    drag_source
+        .connect_prepare(move |_, _, _| Some(gdk::ContentProvider::for_value(&task_id.to_value())));
+    widget.add_controller(drag_source);
+}
+
+/// Wire up a `gtk::DropTarget` accepting `i64` (task id) and
+/// rescheduling the dropped task to `target_date`. Same shape as
+/// forecast's drop handler; the worker handles the actual update
+/// and emits the TaskChanges delta that triggers a calendar
+/// refresh so the dropped task moves to its new cell on the next
+/// tick.
+fn attach_drop_target_for_date(card: &gtk::Box, target_date: NaiveDate, worker: WorkerHandle) {
+    let drop_target = gtk::DropTarget::new(i64::static_type(), gdk::DragAction::MOVE);
+    drop_target.connect_drop(move |_, value, _, _| {
+        let Ok(task_id) = value.get::<i64>() else {
+            return false;
+        };
+        let worker = worker.clone();
+        glib::MainContext::default().spawn_local(async move {
+            if let Err(e) = worker
+                .update_task(
+                    TaskUpdate::new(task_id).schedule(Some(ScheduledFor::Date(target_date))),
+                )
+                .await
+            {
+                error!(?e, task_id, ?target_date, "calendar drop failed");
+            }
+        });
+        true
+    });
+    card.add_controller(drop_target);
 }
 
 fn build_overflow_popover<F>(tasks: &[Task], on_row_click: F) -> gtk::Popover

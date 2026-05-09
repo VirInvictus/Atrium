@@ -2064,6 +2064,18 @@ impl AtriumWindow {
             self.refresh_dynamic_badges();
             return;
         }
+        // Phase 12.5 — Calendar Month View rebuilds in full on any
+        // task delta. Drag-to-reschedule produces a TaskChanges
+        // update for the dropped task, and the cleanest path to
+        // re-render the cells is to rebuild the grid from scratch
+        // (same shape as Forecast / Agenda above).
+        if matches!(active, ActiveList::Calendar) {
+            self.refresh_calendar_page();
+            self.refresh_counts();
+            self.refresh_canonical_badges();
+            self.refresh_dynamic_badges();
+            return;
+        }
         // v0.7.4 — Review canonical page's "This week" section
         // depends on the weekly-walk filter result + the per-task
         // last_reviewed_at exclusion. Any task delta (especially a
@@ -3050,6 +3062,7 @@ impl AtriumWindow {
             viewed,
             today,
             &tasks,
+            self.worker(),
             crate::ui::calendar::CalendarCallbacks {
                 on_prev,
                 on_next,
