@@ -90,6 +90,58 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.10.3" date="2026-05-09">
+      <description>
+        <p>Phase 17 closer: RRULE canonicalisation contract end-
+           to-end. Repeating tasks now emit both a best-fit Org
+           cookie and the canonical :RRULE: in the property
+           drawer; the watcher detects when a user edits the
+           cookie alone in Emacs and rewrites the file so the
+           cookie matches the canonical rule (DB stays
+           canonical). Plus the agenda-parity acceptance test
+           gates Phase 17's closure.</p>
+        <p>New atrium-org/src/rrule_cookie.rs ships three pure
+           helpers: rrule_to_org_cookie / rrule_to_org_repeater
+           project the canonical RRULE down to the cookie
+           (multi-weekday and BYMONTHDAY patterns degrade to
+           "nearest interval" per spec §7.3.3 rule 3); the
+           inverse org_repeater_to_rrule reconstructs the rule
+           the cookie implies; cookie_matches_rrule is the
+           equality check used by divergence detection.
+           Hand-rolled FREQ + INTERVAL parser; no toml-style
+           dependency.</p>
+        <p>Writer wiring: scheduled_repeater_from_task now reads
+           task.repeat_rule + repeat_mode and produces the
+           cookie via rrule_to_org_repeater. The v0.7.10 None-
+           returning placeholder finally flips on. SCHEDULED
+           lines now emit `<2026-05-11 Mon ++1w>` for repeating
+           tasks; the canonical :RRULE: still lives in the
+           property drawer as the source of truth.</p>
+        <p>Watcher fixes two related v0.10.0 → v0.10.2 gaps. The
+           :RRULE: property is now read on create (to_new_task)
+           and synced on update (diff_from + TaskUpdate.repeat_
+           rule_value); a user editing :RRULE: in Emacs now
+           propagates to DB. Divergence detection: when the
+           cookie disagrees with :RRULE:, surface
+           VaultEvent::RruleDiverged and synchronously rewrite
+           the file from DB.</p>
+        <p>Phase 17 closing acceptance test: synthesised vault
+           with tasks across every bucket (Overdue / Today /
+           Tomorrow / This Week / Next Week + every "shouldn't
+           appear" edge case) plus a spec-derived reference
+           classifier; both classifiers must agree on every
+           task. Visual style differs from stock org-agenda;
+           semantic groupings agree.</p>
+        <p>Phase 17 (vault → DB two-way sync) is closed. All
+           roadmap §17 checkboxes tick. v0.11 opens Phase 18
+           (Todoist CSV); Phase 12.5 (Calendar Month View) is
+           re-engaged from its earlier "subsumed by Agenda"
+           framing.</p>
+        <p>Test count: 637 across the workspace (up from 616 at
+           v0.10.2). Schema unchanged at version 7. No new
+           third-party dependencies.</p>
+      </description>
+    </release>
     <release version="0.10.2" date="2026-05-09">
       <description>
         <p>Phase 17 reliability slice: malformed vault files no

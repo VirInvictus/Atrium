@@ -1,5 +1,65 @@
 # Atrium — Patch Notes
 
+## v0.10.3 (2026-05-09) — Phase 17 closer: RRULE canonicalisation + divergence detection + agenda-parity acceptance
+
+v0.10.3 closes the Phase 17 patch arc. The RRULE canonicalisation contract (spec §7.3.3 rule 3) now runs end-to-end: writer emits both the best-fit Org cookie and the full `:RRULE:` property drawer entry; watcher catches the case where a user edits only the cookie in Emacs and rewrites the file to match the canonical `:RRULE:` (DB stays canonical). The agenda-parity acceptance test pins Atrium's Agenda canonical page against a spec-derived reference org-agenda classifier. **Phase 17 (vault → DB two-way sync) is closed.**
+
+**`rrule_cookie` helpers.** New `atrium-org/src/rrule_cookie.rs` ships three pure functions:
+
+- `rrule_to_org_cookie(rrule_text, mode)` and the typed sibling `rrule_to_org_repeater` — RRULE → cookie. `FREQ=WEEKLY` → `++1w`; `FREQ=DAILY;INTERVAL=3` → `++3d`; `FREQ=MONTHLY;BYMONTHDAY=1` → `++1m` (lossy — the BYMONTHDAY clause stays canonical in `:RRULE:`). Returns `None` only on malformed input (missing or unknown FREQ).
+- `org_repeater_to_rrule(repeater)` — cookie → `FREQ=WEEKLY` or `FREQ=DAILY;INTERVAL=3`. The inverse projection; cookies can only express FREQ + INTERVAL.
+- `cookie_matches_rrule(repeater, rrule_text)` — the equality check used by divergence detection. BY-clauses in the stored RRULE don't count as divergence; the cookie can't express them by design. Only flags as diverged when the user actually changed the cookie's frequency or interval.
+
+Hand-rolled FREQ + INTERVAL parser; no `toml`-style dependency.
+
+**Writer wiring.** `scheduled_repeater_from_task` was a `None`-returning placeholder since v0.7.10 with a comment about flipping it on later. v0.10.3 flips it on: reads `task.repeat_rule` + `task.repeat_mode`, runs them through `rrule_to_org_repeater`, returns the typed `OrgRepeater` the emitter consumes. SCHEDULED lines for repeating tasks now emit `<2026-05-11 Mon ++1w>`; the canonical `:RRULE:` still lives in the property drawer as the source of truth. Stock `org-agenda` renders the cookie; Atrium reads `:RRULE:` on read-back.
+
+**Watcher fixes two related v0.10.0 → v0.10.2 gaps.** The `:RRULE:` property had no path through the watcher: `to_new_task` ignored it on create and `diff_from` didn't compare it on update. A user adding `BYDAY=MO,WE` to the property in Emacs would not propagate to DB. Fix: `to_new_task` now reads `:RRULE:` and threads it through `NewTask.repeat_rule`; `diff_from` compares against `existing.repeat_rule` and uses `TaskUpdate.repeat_rule_value`.
+
+**Divergence detection.** New `collect_rrule_divergences` walks parsed headlines and flags any task whose `scheduled_repeater` (cookie) doesn't match its `:RRULE:` property under `cookie_matches_rrule`. For each divergence the watcher:
+
+1. Emits `VaultEvent::RruleDiverged { source, title, cookie, rrule }`.
+2. After the diff applies, synchronously calls `write_project_to_vault` to rewrite the file. The writer's `scheduled_repeater_from_task` projects the canonical `:RRULE:` back to the right cookie, so the file becomes self-consistent. The user's cookie edit is reverted; `RecentWrites` swallows the resulting inotify echo.
+
+The toast: *"<title>: Org cookie diverged from `:RRULE:` — DB kept the canonical rule"*.
+
+**Phase 17 closing acceptance test.** New `agenda_parity_with_reference_org_agenda` in `atrium/src/ui/agenda.rs` synthesises a vault with tasks across every bucket plus the "shouldn't appear" edge cases:
+
+- `today_scheduled` / `today_deadline` → Today
+- `tomorrow_scheduled` → Tomorrow
+- `this_week_after_tomorrow` / `this_week_deadline` → This Week
+- `next_week_start` / `next_week_end` → Next Week
+- `beyond_next_week` → None
+- `overdue_deadline` → Overdue
+- `overdue_with_today_schedule` → Overdue (precedence)
+- `no_anchor` / `someday` → None
+- `completed` → None
+- `deferred_future` → None
+
+Both Atrium's `classify` and a spec-derived reference org-agenda classifier (mirroring Org's `agenda-list` day-window logic) run over each task and must agree. Visual layout / sort order between the two surfaces still differs (GTK card sections vs Emacs text agenda); the test pins SEMANTIC parity only — the contract spec §17 closes with.
+
+**Multi-day RRULE round-trip fixture.** New `tests/fixtures/org/rrule_patterns.org` covers the three migration cases plus a daily-with-interval control:
+
+- Weekly single-day (BYDAY=SU) — cookie `++1w` lossless when SCHEDULED is a Sunday.
+- Weekly multi-day (BYDAY=MO,WE) — cookie `++1w` best-fit; canonical in `:RRULE:`.
+- Monthly day-of-month (BYMONTHDAY=1) — cookie `++1m` best-fit; canonical in `:RRULE:`.
+- Daily INTERVAL=3 — both representations express it.
+
+All four round-trip through Atrium with the canonical `:RRULE:` preserved verbatim in the property drawer.
+
+**Phase 17 status: closed.** Every checkbox under roadmap §17 ticks. The patch arc:
+
+- v0.10.0: `notify`-backed watcher; `RecentWrites` self-write filter; reader → DB diff by `:ID:`; `:ID:` allocation on read.
+- v0.10.1: GUI wiring (`spawn_vault_loop`); writer-side conflict detection; `<vault>/.atrium/config.toml` sidecar; `VaultEvent` channel; real `DomainError` / `UiError` / `AtriumError`.
+- v0.10.2: malformed-file pause/resume; custom-keyword preservation (two real bugs fixed); file-removal toast; concurrent-edit + 1K-task parse latency tests; new `ParseRecovered` + `FileRemoved` events.
+- v0.10.3: `rrule_cookie` helpers; writer emits both cookie + `:RRULE:`; watcher syncs `:RRULE:` to DB; divergence detection rewrites cookie-only edits to match canonical; multi-day round-trip fixture; agenda-parity acceptance test.
+
+**What's next.** v0.11 opens Phase 18 (Todoist CSV). Phase 12.5 (Calendar Month View) is re-engaged from its earlier "subsumed by Agenda" framing — the calendar lens is a different mental model than the chronological-band Agenda or the 30-day Forecast strip; tasks are tracked but it slots after the v0.10 work closes.
+
+**Test count: 637** across the workspace (up from 616 at v0.10.2). Schema unchanged at version 7. No new third-party dependencies.
+
+VERSION + Cargo.toml + spec.md + roadmap.md + patchnotes.md + README.md + CLAUDE.md + AppStream metainfo bumped to 0.10.3.
+
 ## v0.10.2 (2026-05-09) — Phase 17 reliability slice: malformed-file pause/resume, custom-keyword fix, concurrent-edit hardening
 
 The v0.10.0 / v0.10.1 vault loop ran the happy path. v0.10.2 hardens the unhappy ones — malformed files, custom keywords, file removals, concurrent edits — and adds three of the four roadmap §17 test scenarios. Two real v0.10.0 bugs surface and get fixed in the process.

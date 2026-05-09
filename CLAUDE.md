@@ -4,7 +4,7 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.10.2** (May 2026). Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0; v0.9.0 lifted the Org projection into its own `atrium-org` workspace crate; **v0.10.0 → v0.10.2 ship Phase 17's vault → DB direction.** v0.10.0: `notify`-backed `VaultWatcher`, `RecentWrites` self-write filter, reader→DB diff by `:ID:`. v0.10.1: GUI wiring (`spawn_vault_loop`), conflict detection (`<file>.atrium.bak.<UTC>` per spec §7.3.3 rule 5), sidecar config (`<vault>/.atrium/config.toml`), real `DomainError` / `UiError` / `AtriumError` types. v0.10.2: malformed-file pause/resume (`paused: HashSet<PathBuf>`; `ParseFailed` once on transition + `ParseRecovered` on recovery); custom-keyword preservation through the watcher path (fixing two v0.10.0 bugs — watcher's create path dropped `OrgKeyword::Custom`, `TaskUpdate` had no `orig_keyword` field); file-removal toast that retains tasks per spec §3.5; concurrent-edit + 1K-task parse latency test scenarios pinned. RRULE canonicalisation + divergence + agenda-parity acceptance test land at v0.10.3 (Phase 17 closer). Phase 12.5 (Calendar Month View) is re-engaged in the task list — currently subsumed by Agenda in the roadmap, decision pending.
+**Current release: v0.10.3** (May 2026). **Phase 17 (vault → DB two-way sync) is closed at v0.10.3.** Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0; v0.9.0 lifted the Org projection into its own `atrium-org` workspace crate; v0.10.0 → v0.10.3 closes Phase 17's vault → DB direction across four slices: v0.10.0 first slice (watcher + self-write filter + diff), v0.10.1 GUI wiring + conflict detection + sidecar, v0.10.2 reliability (malformed-file pause/resume + custom-keyword preservation + file-removal toast), v0.10.3 closer (RRULE canonicalisation + divergence detection + agenda-parity acceptance test). Phase 18 (Todoist CSV) opens at v0.11. Phase 12.5 (Calendar Month View) is re-engaged from its earlier "subsumed by Agenda" framing — slots after Phase 18 unless re-prioritised.
 
 Where each phase landed:
 
@@ -31,10 +31,17 @@ Where each phase landed:
   - **File removal: toast + retain.** Per spec §3.5 (DB canonical, vault projected), `rm`ing a vault file no longer silently leaves stale rows. Watcher emits `VaultEvent::FileRemoved`; GUI toasts; the next project flush recreates the file from DB.
   - **New VaultEvent variants:** `ParseRecovered { source }`, `FileRemoved { source }`. `ParseFailed` now means "first failure on this file since the last clean parse" rather than "every parse failure ever."
   - **Test scenarios.** Three of the four roadmap §17 items: `concurrent_atrium_and_external_edit_preserves_user_content_as_bak` (writer-side conflict detection under simultaneous edits), `large_file_parses_under_budget` (1K headlines, 500 ms wall budget), `external_file_removal_preserves_tasks_and_toasts`. Multi-day RRULE round-trip lands at v0.10.3.
+- **v0.10.3 — Phase 17 closer.**
+  - **`rrule_cookie` helpers** (atrium-org/src/rrule_cookie.rs). Three pure functions: `rrule_to_org_cookie(rrule_text, mode) -> Option<String>` and the typed sibling `rrule_to_org_repeater` (RRULE → cookie, lossy on multi-weekday / BYMONTHDAY); `org_repeater_to_rrule(repeater) -> Option<String>` (cookie → RRULE, FREQ + INTERVAL only); `cookie_matches_rrule(repeater, rrule_text) -> bool` (the divergence equality check — BY-clauses don't count as divergence since cookies can't express them). Hand-rolled FREQ + INTERVAL parser, no `toml`-style dep.
+  - **Writer wiring.** `scheduled_repeater_from_task` (the v0.7.10 None-returning placeholder) flips on. SCHEDULED for repeating tasks now lands as `<2026-05-11 Mon ++1w>`; `:RRULE:` in the property drawer stays canonical. Stock org-agenda renders the cookie; Atrium reads `:RRULE:` on read-back.
+  - **Watcher fixes two related v0.10.0 → v0.10.2 gaps.** `to_new_task` reads `:RRULE:` on create; `diff_from` syncs it on update via `TaskUpdate.repeat_rule_value`. A user adding `BYDAY=MO,WE` to the property in Emacs now propagates to DB.
+  - **Divergence detection.** `collect_rrule_divergences` walks parsed headlines and flags any task where `cookie_matches_rrule` returns false. New `VaultEvent::RruleDiverged` event surfaces the title + cookie + RRULE; the watcher synchronously calls `write_project_to_vault` to rewrite the file from canonical. RecentWrites swallows the resulting inotify echo.
+  - **Agenda parity acceptance test** (`atrium/src/ui/agenda.rs::tests::agenda_parity_with_reference_org_agenda`). Synthesised vault with tasks across every bucket plus all the "shouldn't appear" edge cases; reference classifier mirrors stock org-agenda's day-window logic from the Org spec; both must agree on every task. Visual style differs between the two surfaces — semantic groupings agree.
+  - **Multi-day RRULE round-trip fixture** (`atrium-org/tests/fixtures/org/rrule_patterns.org`). Four cases: weekly single-day, weekly multi-day, monthly day-of-month, daily INTERVAL=3. All round-trip through the existing fixture harness with `:RRULE:` preserved verbatim in the property drawer.
 
 **Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atriumd`, the post-1.0 `atrium-tui`). Don't add functionality to the GTK binary that can't be reached from the shell.
 
-**Test count: 616 across the workspace at v0.10.2**, all green. `bash scripts/regression.sh` runs in under 2 seconds. Schema version: 7.
+**Test count: 637 across the workspace at v0.10.3**, all green. `bash scripts/regression.sh` runs in under 2 seconds. Schema version: 7.
 
 ## Authoritative documents
 
@@ -95,6 +102,7 @@ The non-obvious mechanics that aren't visible from the code alone:
 - **`spawn_vault_loop` is two-step.** The Phase 17 GUI builder can't be one call: the watcher needs a `WorkerHandle` to dispatch incoming changes through, and the worker needs a `VaultConfig` (containing the writer-side notifier) to install the projection. v0.10.0 tried `spawn_org_vault_with_watcher(root, pool, worker_handle)` and the doc-comment had to lie — there was no valid call site. v0.10.1's shape: `spawn_vault_loop(root, pool)` builds the writer-side and shared `RecentWrites` up front, returns `(VaultConfig, VaultLoopHandle, events_rx)`. Caller passes `VaultConfig` into `spawn_worker_with_vault`, then feeds the resulting handle into `VaultLoopHandle::attach_watcher`. Don't try to collapse this back to one call.
 - **Vault sidecar is hand-rolled TOML.** Same ethos as the hand-rolled Org parser — `orgize`/`starsector` were rejected, the `toml` crate was rejected. The schema is small (top-level scalars + one level of `[section]` with string-string entries) and the emit/parse helpers in `atrium-org/src/sidecar.rs` round-trip deterministically (`BTreeMap` for emit order). If the schema ever needs arrays or nested tables, that's a re-discussion before adding `toml`.
 - **Conflict-detection backup format is `<file>.atrium.bak.<YYYYMMDDTHHMMSSZ>`.** Filesystem-safe (no colons), UTC, sortable. Don't use RFC 3339 with colons — it works on Linux ext4 but is unreliable on FAT32 / SMB shares users might have their vault on.
+- **`:RRULE:` is canonical; the SCHEDULED cookie is best-fit projection.** Spec §7.3.3 rule 3. `task.repeat_rule` carries the full RFC 5545 RRULE; the Org cookie's `+1w` / `++1w` / `.+1w` is a lossy summary the writer projects from canonical. When the user edits ONLY the cookie in Emacs (e.g. `+1w` → `+2w` without touching `:RRULE:`), divergence detection fires and the watcher rewrites the file from canonical. When the user edits ONLY `:RRULE:` (adding a BY-clause the cookie can't express), no divergence — the watcher syncs the new rule to DB and the next writer flush re-emits with consistent best-fit. **Don't try to make the cookie carry BY-clause information** — Org cookies can only encode FREQ + INTERVAL; that's the contract.
 
 ## Dependency discipline
 
@@ -181,7 +189,7 @@ Features that miss budget get gated or revised. If a proposed approach has obvio
 - **`~/.gitrepos/Viaduct/`** — the reference for the single-writer SQLite worker pattern. Look at the queue, command enum, and `TaskChanges`-equivalent delta shape before reinventing data-layer pieces.
 - **`~/.gitrepos/Hermitage/` and `~/.gitrepos/Framework/`** — the other native GTK4 / libadwaita apps in the portfolio. Useful for cross-checking GTK idioms, Flatpak manifest shape, and AppStream metainfo conventions.
 
-## Codebase map (current — v0.10.1)
+## Codebase map (current — v0.10.3)
 
 Five workspace crates split by responsibility. The data layer (`atrium-core`), search engine (`atrium-search`, extracted v0.4.2), Org projection (`atrium-org`, extracted v0.9.0), and headless CLI (`atrium-cli`, added v0.4.3) all stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them. atrium-core knows nothing about Org; the projection plugs in via the `VaultDirtyNotifier` trait so a future Markdown / TaskPaper / Todoist sibling can use the same hook.
 
@@ -232,6 +240,7 @@ atrium-org/                           ← Phase 16 Org-mode projection (v0.9.0);
 ├── src/vault_watcher.rs              ← `VaultWatcher` task — `notify` v8 backend; debounces 200 ms; consults RecentWrites to suppress self-writes; reader→DB diff by `:ID:` (CREATE / UPDATE / DELETE). v0.10.1: emits ParseFailed events; flatten_one recurses into children of non-keyword headings
 ├── src/self_write.rs                 ← `RecentWrites` — bounded TTL set of (path, mtime) keyed on exact tuple equality. Shared via Arc<RwLock<>> between writer + watcher.
 ├── src/sidecar.rs                    ← (v0.10.1) `<vault>/.atrium/config.toml` — Sidecar struct + emit_text/parse_text + read/write helpers + build_from_db. Hand-rolled minimal TOML; tag colours round-tripped.
+├── src/rrule_cookie.rs               ← (v0.10.3) `rrule_to_org_cookie` / `rrule_to_org_repeater` / `org_repeater_to_rrule` / `cookie_matches_rrule`. Pure helpers — RRULE ↔ Org cookie projection.
 └── src/org/
     ├── mod.rs                        ← OrgFile / OrgHeadline / OrgKeyword / parse_org_file / emit_org_file + post-write integrity check
     ├── parse.rs                      ← hand-rolled headline / cookie / properties / body / nested-subtask parser
