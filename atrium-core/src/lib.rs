@@ -14,6 +14,7 @@ pub mod paths;
 pub mod quick_entry;
 pub mod render;
 pub mod repeat;
+pub mod sync;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

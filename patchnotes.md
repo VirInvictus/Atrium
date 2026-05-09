@@ -1,5 +1,61 @@
 # Atrium — Patch Notes
 
+## v0.7.6 (2026-05-08) — Phase 16 foundation (Org vault projection)
+
+First patch on the Phase 16 arc. The roadmap calls for Org-mode
+import + two-way vault sync, staged across v0.7.6 → v0.8.0 with
+each patch shippable on its own. v0.7.6 lands the foundation
+pieces that everything later builds on, plus the dep-research
+decision that reverses the original plan.
+
+**Org parser dep-research and the reversal.** CLAUDE.md listed
+`orgize` as a pending dep for Phase 16. The v0.7.6 survey turned
+up two practical issues: orgize's last stable release (`0.9.0`,
+November 2021) is four years old; the active line has been in
+alpha (`0.10.0-alpha.X`) since November 2023. The obvious
+alternative — `starsector 1.0.1` — looked cleaner on paper
+("structural parser/emitter with emphasis on avoiding edits
+unrelated to changes") but its last release was October 2022 and
+it pulls orgize-alpha as a transitive anyway. Conclusion:
+hand-roll the Org subset Atrium needs, fitting the
+CalibreQuarry stdlib-only ethos. The "preserve unknown
+constructs verbatim" rule (spec §7.3.3 rule 1) is actually
+*easier* in a focused passthrough parser: capture every
+unrecognised line into the task's `unknown_lines` field and
+re-emit verbatim on write. CLAUDE.md's dependency-discipline
+section now records this decision so future passes don't
+re-litigate it.
+
+**Sync module skeleton.** `atrium-core/src/sync/mod.rs`
+declares the module structure for the Phase 16 work coming in
+v0.7.7+: `atomic` (write-temp + fsync + rename helper, lands
+this patch) and `org` (hand-rolled parser + emitter, lands in
+v0.7.7).
+
+**Atomic write helper.** `atrium-core/src/sync/atomic.rs`
+implements `write_atomic(path, contents) -> io::Result<()>` per
+spec §7.3.3 rule 6: write to `<path>.atrium.tmp` in the same
+directory, fsync, rename atomically. Best-effort cleanup of the
+temp file on failure. Five tests cover the happy path,
+overwrite, no-temp-file-leftover, and error cases (missing
+parent dir, root path).
+
+**Vault-path GSettings key.** New `vault-path` key in
+`data/io.github.virinvictus.atrium.gschema.xml`, default empty
+string (= "no vault configured"). Atrium runs DB-only when
+unset, which is a valid configuration per spec §3.5. The proper
+Settings → Org Vault → Choose folder UI lands in Phase 19.5;
+v0.7.7+ patches will read the key directly via gio::Settings
+when wiring the importer / writer / sync hook.
+
+Test count: 119 + 174 + 1 + 106 + 106 = **506** (up 3 from
+v0.7.5's 503 — the new atomic-write tests). Pure additive
+change. No schema changes. No new dependencies.
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.6**. Phase 16 progress: foundation done; parser
++ importer + writer follow.
+
 ## v0.7.5 (2026-05-08) — Visual refinement pass
 
 The polish list deferred from v0.7.3 / v0.7.4 finally lands. Five

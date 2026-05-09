@@ -90,6 +90,30 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.6" date="2026-05-08">
+      <description>
+        <p>Phase 16 foundation — first patch on the Org-mode
+           vault projection arc that ships across v0.7.6 →
+           v0.8.0. Lands the sync module skeleton
+           (atrium-core/src/sync/), an atomic write-temp +
+           fsync + rename helper for vault writes, and the
+           vault-path GSettings key (empty default = "no vault
+           configured"; Atrium runs DB-only without one).</p>
+        <p>Reversed the original plan to take an Org parsing
+           crate. The v0.7.6 dep survey found orgize's last
+           stable was four years old (active line has been in
+           alpha since 2023) and starsector — the obvious
+           alternative — was effectively abandoned and pulled
+           orgize-alpha transitively anyway. Atrium hand-rolls
+           the Org subset instead, fitting the stdlib-only
+           ethos. The "preserve unknown constructs verbatim"
+           rule (spec §7.3.3) becomes easier in a passthrough
+           parser, not harder.</p>
+        <p>Five new atomic-write tests, all green. No schema
+           changes; no new dependencies. Parser + importer +
+           writer follow in v0.7.7+.</p>
+      </description>
+    </release>
     <release version="0.7.5" date="2026-05-08">
       <description>
         <p>Visual refinement pass — five items finishing the

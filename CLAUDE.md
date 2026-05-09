@@ -86,7 +86,10 @@ Sign-off granted in subsequent phases:
 - `rrule` (Phase 15, v0.2.0) — RFC 5545 RRULE parsing + iteration for repeating tasks.
 - `regex` (Phase 15.5, v0.4.0) — `tag:~regex` match modifier in the search expression language. Already transitively in the dep graph via `tracing-subscriber`; promoted to a direct dependency for `atrium-core`.
 
-Pending dependency checks: `orgize` (Phase 17), `ical` / `rustical` (Phase 19).
+Pending dependency checks: `ical` / `rustical` (Phase 19).
+
+Resolved against (won't be added):
+- `orgize` / `starsector` (Phase 16, v0.7.6 dep-research pass) — both crates surveyed and rejected. orgize's last stable was 0.9.0 in 2021 with the active line in alpha since 2023; starsector's last release was October 2022 and pulls orgize-alpha as a transitive anyway. Phase 16 hand-rolls the Org subset (atrium-core/src/sync/org/), fitting the CalibreQuarry stdlib-only ethos. The "preserve unknown constructs verbatim" rule (spec §7.3.3 rule 1) is satisfied by capturing every unrecognised line into the task's `unknown_lines` field and re-emitting verbatim on write — easier in a focused passthrough parser than fighting either crate's AST.
 
 If a task pushes you toward a crate that isn't already in `Cargo.toml`, **stop and ask** — don't add it speculatively, and don't hand-roll a wide subset to dodge the conversation.
 

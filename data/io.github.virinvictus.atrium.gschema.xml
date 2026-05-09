@@ -61,5 +61,19 @@
         system fonts required. Phase 8c.
       </description>
     </key>
+
+    <key name="vault-path" type="s">
+      <default>""</default>
+      <summary>Org-mode vault directory</summary>
+      <description>
+        Absolute path to a directory holding `.org` files that
+        Atrium projects its data into (Phase 16, spec §7.3). Empty
+        string means "no vault configured" — Atrium runs DB-only,
+        which is a valid configuration. Convention is
+        `$HOME/Tasks/`. The Settings → Org Vault → Choose folder
+        UI to manage this lands in Phase 19.5; the `--vault PATH`
+        CLI flag overrides for this session.
+      </description>
+    </key>
   </schema>
 </schemalist>
