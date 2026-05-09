@@ -1,5 +1,84 @@
 # Atrium — Patch Notes
 
+## v0.8.0 (2026-05-09) — Phase 16 stamp + maintenance pass
+
+End of the eleven-patch v0.7.6 → v0.7.18 Phase 16 build-out.
+v0.8.0 is the version stamp + the maintenance pass the
+release-discipline rule requires of every major bump. No new
+features ship here — the work is closing the books on Phase 16
+and clearing the rough edges before Phase 17 (vault → DB
+`inotify` driver) gets going.
+
+**Phase 16 status.** Brandon's primary-direction interop
+target is shipping. Atrium's GTK binary, `atrium-cli`, and the
+`atrium-core::sync::org` parser/emitter together let a user
+keep a vault at `~/Tasks/` (or wherever the `vault-path`
+GSettings key points), edit tasks in Atrium, and have the
+`.org` files reflect the change inside ~150 ms — readable in
+stock `org-agenda`, Doom, vim-orgmode, or any other Org-aware
+tool. The eleven patches covered: parser + emitter (v0.7.7 +
+v0.7.8), one-shot importer + vault writer (v0.7.9 + v0.7.10),
+JSON snapshot export (v0.7.11), custom-keyword round-trip via
+migration 0007 (v0.7.12), file-level metadata (v0.7.13),
+multi-file walk + `ensure_area` (v0.7.14), post-write
+integrity check (v0.7.15), auto-debounced worker write hook
+(v0.7.16), round-trip test fixture + two importer-gap fixes
+(v0.7.17), GUI vault integration (v0.7.18). All Phase 16
+roadmap bullets are now `[x]` except the deferred sidecar
+(`<vault>/.atrium/config.toml`) — that's a Phase 17 follow-up.
+
+**Maintenance pass — refactoring.** Per the global hard rule
+that majors are the sanctioned moment to refactor, three items
+landed on the v0.8.0 patch:
+
+- **Worker test split.** `atrium-core/src/db/worker.rs` had
+  grown to **2622 lines** with the `mod tests` body taking up
+  the back half. Split into `worker.rs` (1469 lines, source
+  only) and a new `worker_tests.rs` (1161 lines) loaded as the
+  worker module's tests submodule via
+  `#[cfg(test)] #[path = "worker_tests.rs"] mod tests;`. Same
+  test set, same coverage — just a 2x reduction in the file
+  Brandon (and editors) load when working on the worker.
+- **Dead-code prune in the Org writer.** `build_org_tree` in
+  `atrium-core/src/sync/org/write.rs` was carrying a
+  `HashMap<i64, usize>` lookup that was populated then
+  immediately discarded with `let _ = by_index;` — leftover
+  scaffolding from the v0.7.10 implementation iteration. Six
+  lines deleted; the comment explaining the consumed-bit-vector
+  approach replaced the noise.
+- **Comment audit — stripped per-patch v0.7.X markers.** Inline
+  comments like `// v0.7.13 — adds file-level :PROPERTIES:`
+  were a useful navigation aid during the active build-out, but
+  they age into noise the moment the arc closes (and Brandon's
+  CLAUDE.md says "Comment when doing something confusing… let
+  the code speak"). Bulk pass across `atrium-core/src/sync` and
+  `atrium-core/src/db` reduced v0.7.X-prefixed comments from
+  74 → 26 (the survivors are the ones that actually flag
+  load-bearing context — additive migrations, the spec rule the
+  comment cites, the schema column it documents). Manual
+  follow-up fixes for orphan first-line doc comments where the
+  `///` line started lowercase after the prefix was stripped.
+
+**Four-doc sweep.** Per release discipline, every minor or
+major bump touches `spec.md`, `roadmap.md`, `patchnotes.md`,
+and `VERSION` together. v0.8.0 also refreshes `CLAUDE.md`'s
+Status section + Codebase map (last touched at v0.6.20 —
+needed the full sync module + vault writer + migrations 0006
+and 0007 + the v0.7.x version arc summary), the README
+"Architecture (in one paragraph)" + version-arc rundown, and
+the AppStream metainfo with a `<release>` entry for 0.8.0.
+
+**Test count:** **582 tests** — unchanged from v0.7.18 (the
+maintenance work is structural, not behavioural). All green;
+`bash scripts/regression.sh` runs in under 2 seconds.
+
+**Schema:** unchanged at version 7. **Dependencies:**
+unchanged. **Migration:** none.
+
+VERSION + Cargo.toml + spec + roadmap + patchnotes + README
++ CLAUDE.md + AppStream metainfo bumped to **0.8.0**. Phase 17
+(`inotify`-driven vault → DB sync) is what's next.
+
 ## v0.7.18 (2026-05-09) — GUI vault integration
 
 Thirteenth patch on the Phase 16 arc. v0.7.16 wired the

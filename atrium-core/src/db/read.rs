@@ -242,7 +242,7 @@ pub fn list_project(conn: &Connection, project_id: i64) -> Result<Vec<Task>, DbE
         .map_err(Into::into)
 }
 
-/// v0.7.10 — all tasks belonging to `project_id` regardless of
+/// all tasks belonging to `project_id` regardless of
 /// completion state, ordered by position. Used by the Org vault
 /// writer (sync::org::write) so the projected `.org` file
 /// reflects the complete project state — DONE tasks land in the
@@ -449,7 +449,7 @@ pub fn list_projects(conn: &Connection) -> Result<Vec<Project>, DbError> {
         .map_err(Into::into)
 }
 
-/// v0.7.11 — every project including archived. Used by the JSON
+/// every project including archived. Used by the JSON
 /// snapshot exporter so a backup includes the full project
 /// history, not just the active set.
 pub fn list_all_projects(conn: &Connection) -> Result<Vec<Project>, DbError> {
@@ -460,7 +460,7 @@ pub fn list_all_projects(conn: &Connection) -> Result<Vec<Project>, DbError> {
         .map_err(Into::into)
 }
 
-/// v0.7.11 — every heading row across all projects, ordered by
+/// every heading row across all projects, ordered by
 /// project then position. Used by the JSON snapshot exporter.
 pub fn list_headings(conn: &Connection) -> Result<Vec<crate::domain::Heading>, DbError> {
     let sql = "SELECT id, uuid, project_id, title, position, created_at, modified_at \
@@ -481,7 +481,7 @@ pub fn list_headings(conn: &Connection) -> Result<Vec<crate::domain::Heading>, D
         .map_err(Into::into)
 }
 
-/// v0.7.11 — every task_tag relation as `(task_id, tag_id)` pairs.
+/// every task_tag relation as `(task_id, tag_id)` pairs.
 /// Used by the JSON snapshot exporter so tag membership is
 /// preserved alongside the task + tag tables.
 pub fn list_task_tags(conn: &Connection) -> Result<Vec<(i64, i64)>, DbError> {

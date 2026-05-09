@@ -254,22 +254,27 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 
 ---
 
-## Phase 16: Org-Mode Import + Two-Way Vault Sync — Atrium ↔ Emacs Parity (was 17 + 17.5)
+## Phase 16: Org-Mode Import + Two-Way Vault Sync — Atrium ↔ Emacs Parity (was 17 + 17.5) — **shipped at v0.8.0**
 *Brandon's primary-direction interop target. Atrium's vault is fully compatible with Emacs / Doom / vim-orgmode out of the box: open the same `~/Tasks/` directory in `org-agenda` and the result should look like Atrium's Agenda canonical page. v0.6.19 elevated this from a deferred two-stage plan (read-only first, then bidirectional) to a single must-ship goal.*
 
 The contract: a user can run Atrium and Emacs side-by-side against the same vault, edit tasks in either, and the other reflects the change without manual reconciliation. Org's `:ID:` property is the round-trip anchor; SCHEDULED / DEADLINE / CLOSED cookies map to `scheduled_for` / `deadline` / `completed_at`; headline tags map to Atrium tags; `:PROPERTIES:` drawers carry per-task metadata that doesn't have a native Org cookie. Conflict handling is explicit (loser preserved at `<file>.atrium.bak.<timestamp>`), never silent.
 
-- [ ] **Org parser/emitter research:** evaluate the `orgize` crate vs hand-rolled subset; flag for sign-off if `orgize` is added.
-- [ ] **Vault discovery + GSettings:** `vault-path` key; default `~/Tasks/`; Settings → Org Vault → Choose folder; "no vault" remains a valid configuration (Atrium runs DB-only).
-- [ ] **One-shot importer (`src/sync/org/import.rs`):** point at a directory or single file, dry-run mode showing what would land. Coverage: TODO/DONE/CANCELLED keywords, SCHEDULED/DEADLINE/CLOSED cookies, headline tags, `:PROPERTIES:` drawers, body text, nested subtasks. Maps per spec §7.3.
-- [ ] **Writer (`src/sync/org/write.rs`):** emits `<vault>/<Area>/<Project>.org` per spec §7.3 — `#+TITLE:` headers, `:PROPERTIES:` drawers, SCHEDULED/DEADLINE/CLOSED cookies, headline tags, full field mapping. The output must be readable by stock `org-agenda` *as a regular Org file* — no Atrium-specific tooling required on the Emacs side.
-- [ ] **`:ID:` allocation:** every task/project on first vault write receives a stable UUID; imported tasks keep their `:ID:` if present, get one assigned (and the file rewritten) if absent.
-- [ ] **Atomic file writes:** `write-temp + fsync + rename` for every vault write. Crash-safe.
-- [ ] **Sidecar (`<vault>/.atrium/config.toml`):** tag colors, perspectives placeholder, mode preference. Read on startup, written on relevant changes. Other Org tools ignore the directory.
-- [ ] **Worker write hook:** every `TaskChanges` commit queues a vault-write job for affected projects; debounced 100 ms to coalesce bursts.
-- [ ] **Post-write integrity check:** newly-written file parses cleanly with Atrium's own reader; mismatch → toast + rollback.
-- [ ] **Atrium native JSON export ships in this phase too** — universal lossless backup format.
-- [ ] **Round-trip test fixture:** import → export → diff = empty (modulo whitespace and section ordering).
+The full Phase 16 surface landed across the eleven-patch v0.7.6 → v0.7.18 arc; v0.8.0 stamps it complete. Phase 17 (vault → DB `inotify` driver) is what's next — Atrium can now write the vault, but reads-back-from-vault is still gated on Phase 17.
+
+- [x] **Org parser/emitter research:** evaluated `orgize` and `starsector` (both dormant) against a hand-rolled subset and chose hand-rolled — no new crates needed. (v0.7.6 → v0.7.7)
+- [x] **Vault discovery + GSettings:** `vault-path` key, default empty (no-vault is valid); GTK binary reads on boot and routes through `spawn_worker_with_vault` when set. (v0.7.6 + v0.7.18)
+- [x] **One-shot importer (`atrium-core/src/sync/org/import.rs`):** `atrium-cli import org PATH [--dry-run]` covers TODO/DONE/CANCELLED keywords, SCHEDULED/DEADLINE/CLOSED cookies, headline tags, `:PROPERTIES:` drawers, body text, nested subtasks; multi-file vault walk added in v0.7.14 with `<vault>/<area>/<project>.org` mapping subdirectories onto Atrium areas. (v0.7.9 + v0.7.14)
+- [x] **Writer (`atrium-core/src/sync/org/write.rs`):** `atrium-cli export org PATH` emits `<vault>/<Area>/<Project>.org` per spec §7.3 — `#+TITLE:`, top-level + per-task `:PROPERTIES:` drawers, SCHEDULED/DEADLINE/CLOSED cookies, headline tags, full field mapping. Output reads cleanly in stock `org-agenda`. (v0.7.10 + v0.7.13)
+- [x] **`:ID:` allocation:** importer preserves source `:ID:` (`NewTask.uuid` additive field); writer emits `:ID:` for every task/project. New rows get UUIDv4 from the existing schema default.
+- [x] **Atomic file writes:** `write-temp + fsync + rename` helper added in v0.7.6; every `emit_org_file` call routes through it.
+- [ ] **Sidecar (`<vault>/.atrium/config.toml`):** tag colors, perspectives placeholder, mode preference. *Deferred — vault discipline currently relies on the SQLite as canonical for these; sidecar is a Phase 17 follow-up if vault-edited Emacs sessions need to surface tag colors.*
+- [x] **Worker write hook:** `WorkerHandle::spawn_with_vault(conn, VaultConfig { root, read_pool })` spawns a `VaultWriter` task that receives `ProjectDirty(project_id)` notifications from every Task / Project / Tag write the worker dispatches, debounced ~100ms (50ms tick), and rewrites the project's `.org` via the v0.7.10 writer. (v0.7.16)
+- [x] **Post-write integrity check:** every `emit_org_file_with_meta` re-reads the file and verifies it parses cleanly through Atrium's own reader; failure propagates as `io::Error`. (v0.7.15)
+- [x] **Atrium native JSON export:** `atrium-cli export json PATH` writes the entire DB state (areas / projects / headings / tasks / tags / task_tags / perspectives) into a versioned snapshot via `atrium-core::sync::json::Snapshot`. (v0.7.11)
+- [x] **Round-trip test fixture:** five complicated `.org` files round-tripped through importer + writer + parser, asserting AST equality between source and regenerated trees. Surfaced + fixed two real importer gaps (CLOSED cookie preservation via `NewTask.completed_at`, CANCELLED keyword preservation via `task.orig_keyword`). (v0.7.17)
+- [x] **Custom-keyword round-trip:** migration 0007's `task.orig_keyword` column stashes non-canonical TODO keywords (WAITING, BLOCKED, IN-PROGRESS, CANCELLED) so headlines round-trip without losing their label. (v0.7.12 + v0.7.17)
+- [x] **Multi-file vault walk:** `WorkerHandle::ensure_area` idempotent-create-by-name helper backs the `<vault>/<area>/<project>.org` mapping. (v0.7.14)
+- [x] **GUI vault integration:** GTK binary reads `vault-path` GSettings key on boot and, when non-empty, calls `spawn_worker_with_vault` so every DB write auto-flushes to the vault. (v0.7.18)
 
 ## Phase 17: Two-Way Org Sync — Vault → DB (was 17.5)
 *Emacs / Doom / vim-orgmode edits flow back. Atrium's Agenda view and Emacs's `org-agenda` buffer both read the same source of truth; whichever you edit, the other catches up.*

@@ -90,6 +90,45 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.8.0" date="2026-05-09">
+      <description>
+        <p>Phase 16 stamp + maintenance pass. End of the
+           eleven-patch v0.7.6 → v0.7.18 Phase 16 build-out.
+           Atrium's GTK binary, atrium-cli, and the hand-rolled
+           atrium-core::sync::org parser/emitter together let a
+           user keep a vault at the configured path, edit tasks
+           in Atrium, and see the .org files reflect the change
+           inside ~150 ms — readable in stock org-agenda, Doom,
+           vim-orgmode, or any other Org-aware tool.</p>
+        <p>Phase 16 surface: parser + emitter (no third-party
+           Org crate — orgize and starsector were both dormant);
+           one-shot importer (atrium-cli import org PATH);
+           inverse vault writer (atrium-cli export org PATH);
+           lossless JSON snapshot (atrium-cli export json PATH);
+           custom-keyword round-trip via migration 0007's
+           task.orig_keyword; file-level #+TITLE: + top-level
+           :PROPERTIES: metadata; multi-file vault walk +
+           WorkerHandle::ensure_area; post-write integrity check;
+           auto-debounced worker write hook
+           (spawn_worker_with_vault + VaultWriter task with
+           ~100 ms debounce); five-fixture round-trip test suite
+           that surfaced + fixed two real importer gaps; GUI
+           vault integration so the GTK binary auto-flushes
+           every DB write.</p>
+        <p>v0.8.0 ships the maintenance pass per release
+           discipline: worker.rs test split into worker_tests.rs
+           (2622 → 1469 lines source + 1161 lines tests), dead-
+           code prune in the Org writer's build_org_tree, and a
+           comment audit that stripped per-patch v0.7.X markers
+           from atrium-core/src/sync and atrium-core/src/db
+           (74 → 26 surviving markers). Four-doc sweep for spec,
+           roadmap, README, and CLAUDE.md.</p>
+        <p>582 tests across the four crates, all green.
+           Schema unchanged at version 7. No new dependencies.
+           Phase 17 (vault → DB inotify-driven sync) is what's
+           next.</p>
+      </description>
+    </release>
     <release version="0.7.18" date="2026-05-09">
       <description>
         <p>GUI vault integration. Thirteenth patch on the

@@ -113,7 +113,7 @@ pub fn write_project_to_vault(
     let tag_names = crate::db::read::tag_names_per_task(conn)?;
 
     let tree = build_org_tree(&tasks, &tag_names);
-    // v0.7.13 — file-level preamble carries the project title +
+    // file-level preamble carries the project title +
     // project metadata so the importer can round-trip them
     // cleanly. The OrgFile struct bundles directives +
     // file_properties + headlines.
@@ -204,22 +204,12 @@ fn build_org_tree(tasks: &[Task], tag_names: &HashMap<i64, Vec<String>>) -> Vec<
         })
         .collect();
 
-    // Second pass: attach children to parents. Walk tasks in
-    // input order; for each task with a parent_id that resolves
-    // to an earlier task, move it into that parent's children.
-    // We work back-to-front so taking ownership of children
-    // doesn't shift earlier indices.
-    let mut top: Vec<OrgTask> = Vec::new();
-    let mut by_index: HashMap<i64, usize> = HashMap::new();
-    for (idx, task) in tasks.iter().enumerate() {
-        by_index.insert(task.id, idx);
-        let _ = idx;
-    }
-    let _ = by_index; // not needed by the simple recursion below
-
-    // Simpler approach: build the tree recursively by collecting
+    // Second pass: build the tree recursively by collecting
     // children as we go. For each top-level task (parent_id None
     // OR parent not in the map), recursively pull its descendants.
+    // The `consumed` bit-vector marks tasks already attached so
+    // sibling sweeps don't re-claim them.
+    let mut top: Vec<OrgTask> = Vec::new();
     let mut consumed: Vec<bool> = vec![false; tasks.len()];
 
     fn pull_subtree(
@@ -269,7 +259,7 @@ fn build_org_tree(tasks: &[Task], tag_names: &HashMap<i64, Vec<String>>) -> Vec<
     top
 }
 
-/// v0.7.13 — file-level directives for a project's `.org` file.
+/// file-level directives for a project's `.org` file.
 /// Currently emits `#+TITLE:`. Other directives (`#+CATEGORY:`,
 /// `#+FILETAGS:`, `#+STARTUP:` …) follow when Atrium grows
 /// project-level analogues; v0.7.13 starts with the one
@@ -280,7 +270,7 @@ fn build_file_directives(project: &Project) -> HashMap<String, String> {
     out
 }
 
-/// v0.7.13 — file-level :PROPERTIES: drawer for a project. The
+/// file-level :PROPERTIES: drawer for a project. The
 /// keys mirror spec §7.3.2's project mapping:
 ///
 /// | Atrium field | Org property |
@@ -331,7 +321,7 @@ fn inactive_timestamp(when: chrono::DateTime<chrono::Utc>) -> String {
 }
 
 fn task_to_org(task: &Task, depth: usize, tag_names: &HashMap<i64, Vec<String>>) -> OrgTask {
-    // v0.7.12 — when the importer stashed a non-canonical Org
+    // when the importer stashed a non-canonical Org
     // keyword (WAITING, BLOCKED, IN-PROGRESS, etc.) we restore
     // it on emit. The completed_at column still drives whether
     // the task counts as done in Atrium; the Org keyword is
@@ -569,7 +559,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// v0.7.13 — file-level project metadata round-trip end-to-end.
+    /// file-level project metadata round-trip end-to-end.
     /// Import an .org file with `#+TITLE:` + a top-level
     /// `:PROPERTIES:` block carrying `:SEQUENTIAL:` /
     /// `:REVIEW_INTERVAL:` / `:LAST_REVIEWED:` / `:ARCHIVED:`;
@@ -646,7 +636,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// v0.7.12 — the custom-keyword round-trip end-to-end.
+    /// the custom-keyword round-trip end-to-end.
     /// Import an .org file with a `WAITING` headline; export the
     /// resulting DB; the regenerated file's headline carries
     /// `WAITING` again. orig_keyword is the only data path that

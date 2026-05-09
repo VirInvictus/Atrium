@@ -24,11 +24,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **v0.6.17 → v0.6.20 — interaction polish + roadmap revision.** v0.6.17 wired click-to-open on Forecast rows (drag-to-reschedule was working; click was a dead-end). v0.6.18 was the efficiency pass (SQL fast-path on the list-renderer perspective + search-bar paths; eliminated a duplicate tag-map fetch). v0.6.19 + v0.6.20 were the roadmap revision triggered by Brandon's gap-analysis prompt — Things 3 import retired, Org-mode promoted to Phase 16/17 as the must-ship two-way mirror, Todoist promoted to its own Phase 18, new Phase 19.5 (productivity essentials) with the calendar item targeting Evolution Data Server (not iCal-file feeds — Atrium reads what GNOME Calendar already consumes).
 
-**Test counts as of v0.6.20:** 119 atrium (binary) + 174 atrium-core (lib + 1 mode-flip integration) + 106 atrium-search + 106 atrium-cli = 505 tests. All green; ship-gate runs in under 2 seconds.
+**v0.7.0 → v0.7.5 — visual fusion + Review absorbs Weekly Review (May 2026).** Visual-fusion + whitespace polish (v0.7.0 / v0.7.1 / v0.7.5), the Review canonical page absorbing the Weekly Review perspective + sidebar "Lists" auto-title retired (v0.7.2), inspector check-off + perspective editor dialog (v0.7.3), task-level Mark Reviewed via migration 0006 + per-row button on the weekly walk + 7-day exclusion (v0.7.4).
+
+**Phase 16 shipped at v0.8.0 (May 2026) — Org-mode import + DB → vault writer.** The eleven-patch v0.7.6 → v0.7.18 build-out covered: Phase 16 foundation + atomic-write helper + `vault-path` GSettings (v0.7.6); hand-rolled `atrium-core::sync::org` parser + matching emitter (v0.7.7 / v0.7.8) — `orgize` and `starsector` were both evaluated and rejected as dormant, so no third-party Org crate was added; one-shot importer `atrium-cli import org PATH` (v0.7.9); inverse vault writer `atrium-cli export org PATH` (v0.7.10); lossless JSON snapshot `atrium-cli export json PATH` via `atrium-core::sync::json::Snapshot` (v0.7.11); custom-keyword round-trip via migration 0007's `task.orig_keyword` (v0.7.12); file-level metadata — `#+TITLE:` directive + top-level `:PROPERTIES:` block via `parse_org_text_with_meta` / `emit_org_text_with_meta` + `OrgFile` struct + `NewProject.{last_reviewed_at, archived_at}` (v0.7.13); multi-file vault walk + `WorkerHandle::ensure_area` (v0.7.14); post-write integrity check that re-reads every emitted file through Atrium's own reader (v0.7.15); auto-debounced worker write hook — `WorkerHandle::spawn_with_vault(conn, VaultConfig { root, read_pool })` spawns a `VaultWriter` task that receives `ProjectDirty(project_id)` notifications from every Task / Project / Tag write the worker dispatches, debounces ~100 ms, and rewrites the project's `.org` (v0.7.16); five-fixture round-trip test suite that surfaced + fixed two real importer gaps (CLOSED-cookie preservation via additive `NewTask.completed_at`, CANCELLED-keyword preservation via `orig_keyword`) (v0.7.17); GUI vault integration — GTK binary reads `vault-path` GSettings on boot and routes through `spawn_worker_with_vault` so every DB write auto-flushes (v0.7.18). **Schema version: 7** (migrations 0006 task-level Mark Reviewed + 0007 task.orig_keyword).
+
+**v0.8.0 stamps Phase 16 + ships the maintenance pass.** Per the release-discipline rule that majors are the sanctioned moment to refactor: worker.rs test split into `worker_tests.rs` (2622 → 1469 lines source + 1161 lines tests, loaded via `#[cfg(test)] #[path = "worker_tests.rs"] mod tests;`), dead-code prune in the Org writer's `build_org_tree` (the discarded `by_index: HashMap<i64, usize>`), and a comment audit that stripped per-patch v0.7.X markers from `atrium-core/src/sync` and `atrium-core/src/db` (74 → 26 surviving markers — kept where they flag load-bearing context, dropped where they were temporary navigation noise).
+
+**Test counts as of v0.8.0:** 582 tests across the four crates. All green; ship-gate runs in under 2 seconds.
 
 **Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines are all designed so they can be exercised through `atrium-cli` (or future siblings like `atrium-import`, `atrium-export`). The 2.0-era TUI (`atrium-tui`) is the same shape: another headless consumer of `atrium-core` + `atrium-search`. Don't add functionality to the GTK binary that can't be reached from the shell.
 
-**Phase 16 (Org-mode import + read-only vault sync) is what's next** — primary plain-text covenant. Phase 17 follows with full two-way `inotify` sync. Brandon's "MUST" interop direction; the agenda-parity acceptance test (Atrium's Agenda page and stock `org-agenda` over the same vault produce semantically equivalent buckets) gates Phase 17. v0.6.19 retired the Things 3 import phase (`.things` JSON is macOS-only — vanishingly small GNOME audience); promoted Todoist to its own Phase 18 as the first-class cross-platform on-ramp; added Phase 19.5 covering the nine productivity essentials surfaced by the gap-analysis pass (system notifications, subtasks UI, **GNOME Calendar / Evolution Data Server overlay**, AdwPreferencesWindow, task dependencies, drag-drop external capture, templates, onboarding, backup UI). See `roadmap.md` and `spec.md` §7 for the full revision.
+**Phase 17 (vault → DB two-way `inotify` sync) is what's next.** Atrium can now write the vault end-to-end (`spawn_worker_with_vault` auto-flushes every DB write); reads-back-from-vault land in Phase 17. The agenda-parity acceptance test (Atrium's Agenda page and stock `org-agenda` over the same vault produce semantically equivalent buckets) is the gate. v0.6.19's revision still stands: Things 3 import retired (`.things` JSON is macOS-only); Todoist is its own Phase 18; Phase 19.5 covers the nine productivity essentials surfaced by the gap-analysis pass (system notifications, subtasks UI, **GNOME Calendar / Evolution Data Server overlay**, AdwPreferencesWindow, task dependencies, drag-drop external capture, templates, onboarding, backup UI). See `roadmap.md` and `spec.md` §7 for the full plan.
 
 ## Authoritative documents
 
@@ -160,9 +166,9 @@ When implementing the data layer, **`~/.gitrepos/Viaduct/`** is the reference fo
 
 `~/.gitrepos/Hermitage/` and `~/.gitrepos/Framework/` are the other native GTK4/libadwaita apps in the portfolio — useful for cross-checking GTK idioms, Flatpak manifest shape, and AppStream metainfo conventions.
 
-## Codebase map (current — v0.6.20)
+## Codebase map (current — v0.8.0)
 
-Four workspace crates split by responsibility. The data layer (`atrium-core`), the search engine (`atrium-search`, extracted v0.4.2), and the headless CLI (`atrium-cli`, added v0.4.3) all stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them without dragging GTK along.
+Four workspace crates split by responsibility. The data layer (`atrium-core`), the search engine (`atrium-search`, extracted v0.4.2), and the headless CLI (`atrium-cli`, added v0.4.3) all stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them without dragging GTK along. The Phase 16 sync surface (Org parser/emitter, JSON snapshot, vault writer task) lives entirely under `atrium-core::sync` so the GTK binary just calls `spawn_worker_with_vault` and never deals with file IO directly.
 
 ```
 atrium-search/                        ← Calibre-powered search engine (v0.4.2 — extracted from atrium-core)
@@ -170,60 +176,77 @@ atrium-search/                        ← Calibre-powered search engine (v0.4.2 
 ├── src/lex.rs                        ← Token enum + tokenizer
 ├── src/parse.rs                      ← recursive-descent parser → Expr AST + sort modifiers
 ├── src/ast.rs                        ← Expr + Field + State + MatchKind + Comparator + Value + DateKeyword + SortSpec
-├── src/dates.rs                      ← (v0.5.3) date keyword + relative-day → concrete date resolution
+├── src/dates.rs                      ← date keyword + relative-day → concrete date resolution
 ├── src/eval.rs                       ← in-memory evaluator + EvalContext (lazy regex cache, Damerau-Levenshtein for fuzzy)
-├── src/rank.rs                       ← (v0.5.2) FTS5 bm25 + recency factor for bare-text ranking
-├── src/sql_translate.rs              ← (v0.5.3) Expr → SQL fast-path; SqlValue; in-memory fallback for regex / fuzzy / composite
+├── src/rank.rs                       ← FTS5 bm25 + recency factor for bare-text ranking
+├── src/sql_translate.rs              ← Expr → SQL fast-path; SqlValue; in-memory fallback for regex / fuzzy / composite
 └── src/tests.rs                      ← integration tests (parse + eval + translate round-trips)
 
-atrium-cli/                           ← headless CLI (v0.4.3 → v0.6.5 — full task + perspective CRUD from the shell)
+atrium-cli/                           ← headless CLI (v0.4.3 → v0.7.x — full task + perspective CRUD + Phase 16 import/export)
 ├── src/main.rs                       ← subcommand dispatch, DB open, EvalContext build, write paths
-├── src/args.rs                       ← stdlib argv parser; Args / Format / Subcommand types
+├── src/args.rs                       ← stdlib argv parser; Args / Format / Subcommand types (incl. Import/Export)
 ├── src/output.rs                     ← TSV / JSON / human-readable formatters (incl. kanban columns)
+├── src/import.rs                     ← (v0.7.9 / v0.7.14) `import org PATH [--dry-run]` — single .org or vault directory
+├── src/export.rs                     ← (v0.7.10 / v0.7.11) `export org PATH` (vault writer) + `export json PATH` (snapshot)
 └── src/tests.rs                      ← argv parsing + output formatting tests
 
-atrium-core/                          ← headless data layer
-├── src/lib.rs                        ← re-exports (Task / WorkerHandle / RepeatRule / SqlBindValue / …)
+atrium-core/                          ← headless data layer + Phase 16 sync surface
+├── src/lib.rs                        ← re-exports (Task / WorkerHandle / VaultConfig / spawn_worker_with_vault / RepeatRule / …)
 ├── src/paths.rs                      ← XDG path helpers, APP_ID
 ├── src/error.rs                      ← thiserror hierarchy (DbError::BadRepeatRule v0.2.0)
 ├── src/repeat.rs                     ← RFC 5545 RRULE wrapper, RepeatMode, CountStep (Phase 15)
-├── src/quick_entry.rs                ← (v0.4.5) #tag / @today / @deadline parser, lifted from atrium binary so atrium-cli can reuse
-├── src/render.rs                     ← (v0.5.4) Slice D foundation — kanban column projection from a saved Perspective
-├── src/test_support.rs               ← dummy_task helpers behind `test-support` feature (v0.2.0 maintenance)
-├── src/domain/                       ← Task / Project / Area / Tag / Perspective / ScheduledFor types
+├── src/quick_entry.rs                ← #tag / @today / @deadline parser, lifted from atrium binary so atrium-cli can reuse
+├── src/render.rs                     ← Slice D foundation — kanban column projection from a saved Perspective
+├── src/test_support.rs               ← dummy_task helpers behind `test-support` feature
+├── src/domain/                       ← Task / Project / Area / Tag / Perspective / ScheduledFor / NewTask (incl. uuid, completed_at) types
+├── src/sync/                         ← (Phase 16, v0.7.x) export + projection surface
+│   ├── mod.rs                        ← module root, re-exports
+│   ├── atomic.rs                     ← write-temp + fsync + rename helper used by every vault write
+│   ├── json.rs                       ← `Snapshot` type + `export_json`; lossless versioned DB dump
+│   ├── vault_writer.rs               ← `VaultWriter` task — receives ProjectDirty over a tokio mpsc, debounces ~100 ms (50 ms tick), rewrites affected .org via write.rs
+│   └── org/
+│       ├── mod.rs                    ← OrgFile / OrgHeadline / OrgKeyword / parse_org_file / emit_org_file / parse_org_text_with_meta / emit_org_text_with_meta + post-write integrity check
+│       ├── parse.rs                  ← hand-rolled headline / cookie / properties / body / nested-subtask parser; rejected orgize + starsector as dormant
+│       ├── emit.rs                   ← inverse — emits stable, org-agenda-readable output
+│       ├── import.rs                 ← single-file + multi-file vault importer; uses WorkerHandle::ensure_area for <vault>/<area>/<project>.org mapping; threads :ID:, CLOSED, CANCELLED through additive NewTask fields
+│       └── write.rs                  ← project → .org file writer; build_org_tree fans Tasks back into nested OrgHeadlines
 └── src/db/
-    ├── worker.rs                     ← single-writer task; spawn_worker; regenerate-on-complete (Phase 15)
+    ├── worker.rs                     ← single-writer task; spawn / spawn_with_vault; ProjectDirty notifier into VaultWriter
+    ├── worker_tests.rs               ← (v0.8.0) tests submodule extracted from worker.rs via #[path = "worker_tests.rs"] mod tests
     ├── read_pool.rs                  ← read-only connection pool
     ├── read.rs                       ← list_inbox / list_today / list_forecast / list_review_queue / list_agenda / search / counts / tag_info_per_task
-    ├── command.rs                    ← Command enum (Create/Update/Toggle/Delete/Perspective/MarkReviewed/MoveToColumn/…)
-    ├── changes.rs                    ← TaskChanges, LibraryChanges deltas (perspectives_* added v0.1.17)
+    ├── command.rs                    ← Command enum (Create/Update/Toggle/Delete/Perspective/MarkReviewed/MarkTaskReviewed/EnsureArea/EnsureTag/MoveToColumn/…)
+    ├── changes.rs                    ← TaskChanges, LibraryChanges deltas
     ├── fixtures.rs                   ← --fixture stress generators
     └── migrations/
-        ├── mod.rs                    ← migrate(&mut conn) runner; user_version PRAGMA (currently 5)
+        ├── mod.rs                    ← migrate(&mut conn) runner; user_version PRAGMA (currently 7)
         ├── 0001_initial.sql          ← OmniFocus superset (Phase 1)
-        ├── 0002_perspectives.sql     ← perspective table (Phase 14, v0.1.17, additive)
-        ├── 0003_repeat_mode.sql      ← task.repeat_mode column (Phase 15, v0.2.0, first ALTER)
-        ├── 0004_area_color.sql       ← (v0.5.0) area.color for per-area accent
-        └── 0005_perspective_renderer.sql ← (v0.5.0) perspective.renderer + renderer_config (kanban / list)
+        ├── 0002_perspectives.sql    ← perspective table (Phase 14, v0.1.17, additive)
+        ├── 0003_repeat_mode.sql     ← task.repeat_mode column (Phase 15, v0.2.0, first ALTER)
+        ├── 0004_area_color.sql      ← area.color for per-area accent
+        ├── 0005_perspective_renderer.sql ← perspective.renderer + renderer_config (kanban / list)
+        ├── 0006_task_last_reviewed_at.sql ← (v0.7.4) task-level Mark Reviewed for the canonical Review page's weekly walk
+        └── 0007_task_orig_keyword.sql ← (v0.7.12) task.orig_keyword preserves WAITING / BLOCKED / IN-PROGRESS / CANCELLED through round-trip
 
 atrium/                               ← GTK binary
 ├── build.rs                          ← compiles GSettings schema for cargo-only runs
-├── src/main.rs                       ← Application, CLI flags, accels, action wiring, bridges
+├── src/main.rs                       ← Application, CLI flags, accels, action wiring; boot_data_layer reads vault-path GSettings → spawn_worker_with_vault (v0.7.18)
 ├── src/error.rs
 ├── src/ui/
 │   ├── mod.rs
 │   ├── window.rs                     ← AtriumWindow (composite template); ContextMode; build_context_resolver
-│   ├── task_list.rs                  ← row factory, ActiveList, apply_changes_seq, TagPillMap (v0.3.0)
+│   ├── task_list.rs                  ← row factory, ActiveList, apply_changes_seq, TagPillMap
 │   ├── task_object.rs                ← AtriumTask glib::Object wrapper (context_label, row_state)
 │   ├── inspector.rs                  ← Simple-Mode modal Inspector (AdwDialog, Phase 7i)
-│   ├── inspector_pane.rs             ← Builder-Mode side pane (Phase 10) + repeat editor (Phase 15)
+│   ├── inspector_pane.rs             ← Builder-Mode side pane (Phase 10) + repeat editor (Phase 15) + check-off (v0.7.3)
 │   ├── tag_editor.rs                 ← per-task tag editor (AdwDialog, Phase 7g)
-│   ├── filter.rs                     ← thin window-side shim over atrium_search (v0.4.0); warnings + EvalContext glue + SQL fast-path bridge (v0.6.18)
-│   ├── forecast.rs                   ← Phase 12 calendar-axis page; build_page + drag-to-reschedule + click-to-open (v0.6.17)
-│   ├── review.rs                     ← Phase 13 project review queue
-│   ├── logbook.rs                    ← (Slice C2) day-grouped Logbook page
-│   ├── agenda.rs                     ← (v0.6.4 Slice D2) Agenda canonical page — Overdue / Today / Tomorrow / This Week / Next Week
-│   ├── board.rs                      ← (v0.6.0–v0.6.3 Slice D1) kanban Perspective renderer + drag-drop column moves
+│   ├── filter.rs                     ← thin window-side shim over atrium_search; warnings + EvalContext glue + SQL fast-path bridge
+│   ├── forecast.rs                   ← Phase 12 calendar-axis page; build_page + drag-to-reschedule + click-to-open
+│   ├── review.rs                     ← (v0.7.2) canonical Review page absorbing the Weekly Review perspective; per-row Mark Reviewed (v0.7.4)
+│   ├── perspective_editor.rs        ← (v0.7.3) perspective editor dialog
+│   ├── logbook.rs                    ← day-grouped Logbook page
+│   ├── agenda.rs                     ← Agenda canonical page — Overdue / Today / Tomorrow / This Week / Next Week
+│   ├── board.rs                      ← kanban Perspective renderer + drag-drop column moves
 │   ├── shortcuts.rs                  ← Ctrl+? / F1 dialog
 │   ├── about.rs                      ← AdwAboutDialog
 │   └── typography.rs                 ← bundled font install + CSS load
@@ -233,30 +256,32 @@ atrium/                               ← GTK binary
 └── src/debug/mod.rs                  ← Memory Watch + /proc/self/status sampler
 
 data/                                 ← installed assets
-├── window.ui                         ← composite template (sidebar_empty_hint added v0.2.2)
-├── style.css                         ← typography + per-surface tweaks; v0.3.0 swatches; v0.6.10 soft-accent pass; v0.6.12 state-aware row treatment
+├── window.ui                         ← composite template
+├── style.css                         ← typography + per-surface tweaks; v0.3.0 swatches; v0.6.10 soft-accent pass; v0.6.12 state-aware row treatment; v0.7.x visual-fusion pass
 ├── fonts/                            ← Inter + Source Serif 4 + JetBrains Mono + Atkinson Hyperlegible
 ├── icons/hicolor/scalable/apps/io.github.virinvictus.atrium.svg
-├── io.github.virinvictus.atrium.gschema.xml
+├── io.github.virinvictus.atrium.gschema.xml ← (v0.7.6) adds vault-path key
 ├── io.github.virinvictus.atrium.desktop
 ├── io.github.virinvictus.atrium.metainfo.xml
 └── io.github.virinvictus.atrium.yml  ← Flatpak manifest
 
 docs/                                 ← long-form references
-├── schema.md                         ← per-column rationale + ER diagram (covers migrations 0001–0005)
+├── schema.md                         ← per-column rationale + ER diagram (covers migrations 0001–0007)
 ├── keymap.md                         ← canonical written shortcut map
 ├── accessibility.md                  ← Phase 8f audit findings + conventions
 ├── perf-baseline.md                  ← release-mode RSS baseline + cold-start measurements
 ├── regression.md                     ← ship-gate regression-script doc (incl. atrium-cli + kanban smoke)
-└── gtd-patterns.md                   ← (Slice C) GTD patterns reference — Inbox flow, Weekly Review, contexts vs. tags
+└── gtd-patterns.md                   ← GTD patterns reference — Inbox flow, Weekly Review, contexts vs. tags
 
 scripts/regression.sh                 ← ship-gate: fmt → clippy → test → atrium-cli smoke → kanban smoke
 
-tests/                                ← integration tests
-└── mode_flip_snapshot.rs             ← Phase 10 acceptance (mode flip never touches DB)
+atrium-core/tests/                    ← integration tests
+├── mode_flip_snapshot.rs             ← Phase 10 acceptance (mode flip never touches DB)
+├── org_roundtrip.rs                  ← (v0.7.17) Phase 16 round-trip — five fixtures imported, exported, re-parsed, AST-equality asserted
+└── fixtures/org/                     ← kitchen_sink / custom_keywords / deep_nesting / project_metadata / unicode .org files
 ```
 
-**Test counts as of v0.6.20:** 119 atrium (binary) + 173 atrium-core (lib) + 1 mode-flip integration + 106 atrium-search + 106 atrium-cli = **505 tests**. All green; `bash scripts/regression.sh` runs in under 2 seconds.
+**Test counts as of v0.8.0:** **582 tests** across the workspace. All green; `bash scripts/regression.sh` runs in under 2 seconds.
 
 The dialog primitives standardised in the v0.0.37 bugsweep:
 

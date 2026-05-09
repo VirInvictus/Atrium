@@ -151,7 +151,7 @@ impl OrgTask {
     }
 }
 
-/// v0.7.13 — file-level Org metadata captured alongside the
+/// file-level Org metadata captured alongside the
 /// headline tree. `directives` carries `#+TITLE:`, `#+CATEGORY:`,
 /// etc. as case-insensitive keys (uppercased). `file_properties`
 /// carries the entries of any top-level `:PROPERTIES: ... :END:`
@@ -173,8 +173,8 @@ pub fn parse_org_file(path: &Path) -> io::Result<Vec<OrgTask>> {
     Ok(parse_org_file_with_meta(path)?.headlines)
 }
 
-/// v0.7.13 — Phase 16 entry point that captures file-level
-/// metadata alongside the headline tree.
+/// Phase 16 entry point that captures file-level metadata
+/// alongside the headline tree.
 pub fn parse_org_file_with_meta(path: &Path) -> io::Result<OrgFile> {
     let text = fs::read_to_string(path)?;
     Ok(parse_org_text_with_meta(&text))
@@ -824,7 +824,7 @@ fn foo() {}
 
     #[test]
     fn captures_file_directives_with_meta() {
-        // v0.7.13 — parse_org_text_with_meta surfaces the same
+        // parse_org_text_with_meta surfaces the same
         // preamble that parse_org_text drops.
         let input = "\
 #+TITLE: Q3 Plans
@@ -853,7 +853,7 @@ fn foo() {}
 
     #[test]
     fn captures_file_level_properties_block() {
-        // v0.7.13 — a top-level :PROPERTIES: ... :END: block
+        // a top-level :PROPERTIES: ... :END: block
         // before the first headline lands in
         // OrgFile::file_properties; headline-attached drawers
         // still go to OrgTask::properties.

@@ -43,7 +43,7 @@ pub fn emit_org_text(tasks: &[OrgTask]) -> String {
     out
 }
 
-/// v0.7.13 — emit an `OrgFile` (preamble + headlines).
+/// Emit an `OrgFile` (preamble + headlines) back to Org text.
 /// Directives render as `#+KEY: value` lines (sorted for stable
 /// output); the file-level `:PROPERTIES:` block follows when
 /// non-empty; a blank line separates preamble from the first
@@ -110,34 +110,33 @@ pub fn emit_org_file(path: &Path, tasks: &[OrgTask]) -> io::Result<()> {
     write_atomic(path, text.as_bytes())
 }
 
-/// v0.7.13 — atomically write an `OrgFile` (preamble + headlines)
-/// to `path`. Goes through the same `write_atomic` helper as
+/// Atomically write an `OrgFile` (preamble + headlines) to
+/// `path`. Goes through the same `write_atomic` helper as
 /// [`emit_org_file`].
 ///
-/// v0.7.15 — runs a post-write integrity check (per spec §7.3.3 /
-/// Phase 16 roadmap: "newly-written file parses cleanly with
-/// Atrium's own reader"). After the atomic rename, the file is
-/// re-read and parsed; if parsing fails, the function returns an
-/// `io::Error::Other` describing the divergence. Logs a
-/// `tracing::warn` so the failure is visible even if the caller
-/// swallows the error.
+/// Runs a post-write integrity check (per spec §7.3.3: "newly-
+/// written file parses cleanly with Atrium's own reader"). After
+/// the atomic rename, the file is re-read and parsed; if parsing
+/// fails, the function returns an `io::Error::Other` describing
+/// the divergence. Logs a `tracing::warn` so the failure is
+/// visible even if the caller swallows the error.
 ///
-/// Rollback to a `.atrium.bak.<timestamp>` is the second half of
-/// the spec rule and lands in v0.7.16+ alongside the auto-
-/// debounced worker write hook (the hook needs to know how to
-/// recover too). For now an integrity failure still leaves the
-/// just-written (possibly questionable) file on disk; the
-/// `Err` lets the caller decide whether to surface a toast,
-/// retry, or quietly accept the file.
+/// Rollback to a `.atrium.bak.<timestamp>` (spec §7.3.3 rule 5)
+/// is a sibling concern that lives with the auto-debounced
+/// worker write hook in `crate::sync::vault_writer`; the hook
+/// owns recovery decisions. For now an integrity failure still
+/// leaves the just-written (possibly questionable) file on
+/// disk; the `Err` lets the caller decide whether to surface a
+/// toast, retry, or quietly accept the file.
 pub fn emit_org_file_with_meta(path: &Path, file: &OrgFile) -> io::Result<()> {
     let text = emit_org_text_with_meta(file);
     write_atomic(path, text.as_bytes())?;
     verify_emitted_file(path)
 }
 
-/// v0.7.15 — re-parse the file we just wrote. Returns the parse
-/// failure as an `io::Error::Other` when the parser rejects the
-/// file outright. (The hand-rolled parser is permissive — any
+/// Re-parse the file we just wrote. Returns the parse failure
+/// as an `io::Error::Other` when the parser rejects the file
+/// outright. (The hand-rolled parser is permissive — any
 /// unrecognised line lands in body or unknown_lines — so
 /// "rejects" in practice means an `io::Error` from the read
 /// itself, e.g. a permission flip mid-write.)
@@ -534,7 +533,7 @@ CLOSED: [2026-05-08 Fri 09:00]
 
     #[test]
     fn roundtrip_with_meta_directives_and_file_properties() {
-        // v0.7.13 — file-level metadata round-trips through the
+        // file-level metadata round-trips through the
         // new with_meta path: parse → emit → re-parse and check
         // the directives / file_properties / headlines come back
         // equal.
@@ -589,7 +588,7 @@ CLOSED: [2026-05-08 Fri 09:00]
 
     #[test]
     fn emit_with_meta_writes_a_file_that_parses_back() {
-        // v0.7.15 — post-write integrity check is wired into
+        // post-write integrity check is wired into
         // emit_org_file_with_meta. A round-trip-eligible OrgFile
         // should write and verify cleanly. This test just makes
         // sure the success path doesn't surface a spurious

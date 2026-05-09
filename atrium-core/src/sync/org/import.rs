@@ -102,10 +102,10 @@ pub async fn import_org_file(
     import_org_file_with_area(handle, path, None, dry_run).await
 }
 
-/// v0.7.14 — full single-file importer that accepts an optional
-/// `area_id` to file the resulting project under. Used by the
-/// multi-file vault walker ([`import_org_directory`]) to map
-/// vault subdirectories onto Atrium areas.
+/// Full single-file importer that accepts an optional
+/// `area_id` to file the resulting project under. Used by
+/// [`import_org_directory`] to map vault subdirectories onto
+/// Atrium areas.
 pub async fn import_org_file_with_area(
     handle: &WorkerHandle,
     path: &Path,
@@ -119,7 +119,7 @@ pub async fn import_org_file_with_area(
     })?;
     let tasks = file.headlines;
 
-    // v0.7.13 — file-level metadata threading. #+TITLE: wins over
+    // file-level metadata threading. #+TITLE: wins over
     // the file stem when present (matches Org's own convention).
     // The file-level :PROPERTIES: drawer carries project-level
     // fields (:SEQUENTIAL: / :REVIEW_INTERVAL: / :LAST_REVIEWED:
@@ -178,7 +178,7 @@ pub async fn import_org_file_with_area(
             review_interval_days: project_review_interval,
             last_reviewed_at: project_last_reviewed,
             archived_at: project_archived,
-            // v0.7.14 — caller's area_id wins. None for the
+            // caller's area_id wins. None for the
             // single-file path; Some for the directory walker.
             area_id,
             ..Default::default()
@@ -193,8 +193,8 @@ pub async fn import_org_file_with_area(
     Ok(summary)
 }
 
-/// v0.7.14 — multi-file vault import. Walks `vault_root` for
-/// `.org` files and routes each through `import_org_file_with_area`:
+/// Multi-file vault import. Walks `vault_root` for `.org`
+/// files and routes each through `import_org_file_with_area`:
 ///
 /// - Files at `<vault_root>/<project>.org` → unfiled Project.
 /// - Files at `<vault_root>/<area>/<project>.org` → Project filed
@@ -397,7 +397,7 @@ fn import_task<'a>(
         // canonical states; the orig_keyword column carries the
         // original text.
         //
-        // v0.7.17 — CANCELLED is also stashed since Atrium's
+        // CANCELLED is also stashed since Atrium's
         // completed_at column doesn't distinguish "done" from
         // "cancelled"; without orig_keyword preservation a
         // CANCELLED task round-trips back as DONE. The writer
@@ -443,7 +443,7 @@ fn import_task<'a>(
         let scheduled_for = org.scheduled.map(ScheduledFor::Date);
         let id_property = org.properties.get("ID").cloned();
 
-        // v0.7.17 — DONE / CANCELLED tasks now thread the source
+        // DONE / CANCELLED tasks now thread the source
         // CLOSED cookie through to NewTask.completed_at so the
         // round-trip preserves the exact completion timestamp.
         // The earlier toggle_complete-after-create path stamped
