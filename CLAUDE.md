@@ -4,7 +4,7 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.10.3** (May 2026). **Phase 17 (vault → DB two-way sync) is closed at v0.10.3.** Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0; v0.9.0 lifted the Org projection into its own `atrium-org` workspace crate; v0.10.0 → v0.10.3 closes Phase 17's vault → DB direction across four slices: v0.10.0 first slice (watcher + self-write filter + diff), v0.10.1 GUI wiring + conflict detection + sidecar, v0.10.2 reliability (malformed-file pause/resume + custom-keyword preservation + file-removal toast), v0.10.3 closer (RRULE canonicalisation + divergence detection + agenda-parity acceptance test). Phase 18 (Todoist CSV) opens at v0.11. Phase 12.5 (Calendar Month View) is re-engaged from its earlier "subsumed by Agenda" framing — slots after Phase 18 unless re-prioritised.
+**Current release: v0.11.0** (May 2026). **Phase 12.5 (Calendar Month View) shipped at v0.11.0** — third lens over Atrium's task data alongside Forecast (30-day strip) and Agenda (chronological bands); paper-calendar grid; Builder-only canonical page sitting between Forecast and Review. Re-engaged from the earlier "subsumed by Agenda" framing in the v0.6.x roadmap revision. Phase 17 (vault → DB two-way sync) closed at v0.10.3 across four slices: v0.10.0 first slice (watcher + self-write filter + diff), v0.10.1 GUI wiring + conflict detection + sidecar, v0.10.2 reliability (malformed-file pause/resume + custom-keyword preservation + file-removal toast), v0.10.3 closer (RRULE canonicalisation + divergence detection + agenda-parity acceptance test). Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0; v0.9.0 lifted the Org projection into its own `atrium-org` workspace crate. Phase 18 (Todoist CSV) is what's next.
 
 Where each phase landed:
 
@@ -38,10 +38,19 @@ Where each phase landed:
   - **Divergence detection.** `collect_rrule_divergences` walks parsed headlines and flags any task where `cookie_matches_rrule` returns false. New `VaultEvent::RruleDiverged` event surfaces the title + cookie + RRULE; the watcher synchronously calls `write_project_to_vault` to rewrite the file from canonical. RecentWrites swallows the resulting inotify echo.
   - **Agenda parity acceptance test** (`atrium/src/ui/agenda.rs::tests::agenda_parity_with_reference_org_agenda`). Synthesised vault with tasks across every bucket plus all the "shouldn't appear" edge cases; reference classifier mirrors stock org-agenda's day-window logic from the Org spec; both must agree on every task. Visual style differs between the two surfaces — semantic groupings agree.
   - **Multi-day RRULE round-trip fixture** (`atrium-org/tests/fixtures/org/rrule_patterns.org`). Four cases: weekly single-day, weekly multi-day, monthly day-of-month, daily INTERVAL=3. All round-trip through the existing fixture harness with `:RRULE:` preserved verbatim in the property drawer.
+- **v0.11.0 — Phase 12.5 Calendar Month View.**
+  - **`atrium/src/ui/calendar.rs`** — pure date math (first_of_month, grid_anchor / grid_end, last_day_of_month, week_rows, previous_month / next_month) + GTK widget tree. Mon-start ISO weeks; out-of-month leading / trailing cells flagged so they render muted; today emphasis on the cell containing `today`. `build_month_grid` filters input tasks to open + scheduled-date only — completed and deadline-only tasks don't appear (the paper-calendar idiom uses the When-axis only).
+  - **`build_page`** — header strip (Prev / month-year MenuButton with 4×3 picker / Today / Next), weekday strip, 7×N grid OR vertical week strip when `compact: bool` is true. Page Up / Page Down via local-scope `gtk::ShortcutController`.
+  - **`CalendarCallbacks`** struct bundles five closure callbacks (on_prev, on_next, on_today, on_pick_month, on_row_click, on_day_drill) so build_page stays under clippy's `too_many_arguments` threshold.
+  - **Drag-to-reschedule** — each title is a `gtk::DragSource` carrying the task id; each cell is a `gtk::DropTarget`. Mirrors Forecast's pattern. Out-of-month cells accept drops too.
+  - **Click-day handling** — single-click pops a peek popover with the day's tasks; double-click drills via `set_active_list(SearchResults("scheduled:YYYY-MM-DD"))`. The search engine already speaks that syntax.
+  - **Narrow-window collapse** — below 600 px (`COMPACT_WIDTH_THRESHOLD`), the grid swaps for a vertical week strip focused on the week containing today. Window watches `notify::default-width`; cached compact-mode flag prevents rebuild storms during drag-resize.
+  - **Builder-only** — `top_tier_extras(builder=true)` produces 5 entries (Agenda, Forecast, Calendar, Review, Logbook); `show_calendar` no-ops in Simple Mode so the `Ctrl+Shift+M` accelerator stays bound system-wide without leaking the Builder feature into Simple's surface.
+  - **State** — `imp::AtriumWindow.calendar_viewed: Cell<Option<NaiveDate>>` (NaiveDate has no Default; lazy init to today's first-of-month on first open). `set_calendar_viewed` always normalises through `first_of_month` so the field stays canonical.
 
 **Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atriumd`, the post-1.0 `atrium-tui`). Don't add functionality to the GTK binary that can't be reached from the shell.
 
-**Test count: 637 across the workspace at v0.10.3**, all green. `bash scripts/regression.sh` runs in under 2 seconds. Schema version: 7.
+**Test count: 650 across the workspace at v0.11.0**, all green. `bash scripts/regression.sh` runs in under 2 seconds. Schema version: 7.
 
 ## Authoritative documents
 
@@ -189,7 +198,7 @@ Features that miss budget get gated or revised. If a proposed approach has obvio
 - **`~/.gitrepos/Viaduct/`** — the reference for the single-writer SQLite worker pattern. Look at the queue, command enum, and `TaskChanges`-equivalent delta shape before reinventing data-layer pieces.
 - **`~/.gitrepos/Hermitage/` and `~/.gitrepos/Framework/`** — the other native GTK4 / libadwaita apps in the portfolio. Useful for cross-checking GTK idioms, Flatpak manifest shape, and AppStream metainfo conventions.
 
-## Codebase map (current — v0.10.3)
+## Codebase map (current — v0.11.0)
 
 Five workspace crates split by responsibility. The data layer (`atrium-core`), search engine (`atrium-search`, extracted v0.4.2), Org projection (`atrium-org`, extracted v0.9.0), and headless CLI (`atrium-cli`, added v0.4.3) all stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them. atrium-core knows nothing about Org; the projection plugs in via the `VaultDirtyNotifier` trait so a future Markdown / TaskPaper / Todoist sibling can use the same hook.
 
@@ -252,7 +261,7 @@ atrium/                               ← GTK binary
 ├── build.rs                          ← compiles GSettings schema for cargo-only runs
 ├── src/main.rs                       ← Application; boot_data_layer reads vault-path GSettings → spawn_worker_with_vault
 ├── src/ui/                           ← window, task list/object, inspector + inspector_pane, tag editor, filter, forecast, review,
-│                                       perspective_editor, logbook, agenda, board, shortcuts, about, typography
+│                                       perspective_editor, logbook, agenda, calendar, board, shortcuts, about, typography
 ├── src/quickentry/modal.rs           ← Quick Entry modal (adw::Window, fade-in); parser lives in atrium-core::quick_entry
 └── src/debug/mod.rs                  ← Memory Watch + /proc/self/status sampler
 

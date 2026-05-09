@@ -1,6 +1,6 @@
 # Atrium — Roadmap
 
-What's done, what's next, what's deferred. Sequenced for a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. Current release: **v0.10.3** — Phase 17 (vault → DB two-way sync) is closed. The patch arc shipped four slices: v0.10.0 first slice (watcher + self-write filter + diff), v0.10.1 GUI wiring + conflict detection + sidecar, v0.10.2 reliability (malformed-file pause/resume + custom-keyword preservation + file-removal toast), v0.10.3 closer (RRULE canonicalisation + divergence detection + agenda-parity acceptance test). Phase 18 (Todoist CSV) is what's next. Phase 12.5 (Calendar Month View) is re-engaged from its earlier "subsumed by Agenda" framing.
+What's done, what's next, what's deferred. Sequenced for a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. Current release: **v0.11.0** — Phase 12.5 (Calendar Month View) shipped. The third lens over Atrium's task data alongside Forecast (30-day strip) and Agenda (chronological bands); paper-calendar grid for users who think in calendar pages; Builder-only canonical page. Phase 17 (vault → DB two-way sync) closed at v0.10.3. Phase 18 (Todoist CSV) is what's next.
 
 ---
 
@@ -87,20 +87,20 @@ These items belong to shipped phases but didn't land — listed here so they don
 
 ---
 
-## Phase 12.5: Builder Mode — Calendar Month View
+## Phase 12.5: Builder Mode — Calendar Month View — **shipped at v0.11.0**
 *The other side of Forecast — a familiar month grid for users who think in calendar pages.*
 
-> **Re-engaged after v0.10.x.** The earlier framing called this subsumed by the Agenda canonical page, but Agenda's chronological-band layout (Overdue / Today / Tomorrow / This Week / Next Week) and Forecast's 30-day strip are both linear — neither gives the paper-calendar lens users coming from `cal`, GNOME Calendar, Apple Calendar, etc. expect. Calendar Month View is a third lens over the same data; Builder-only sidebar entry next to Forecast. Re-engagement decision lives in the Phase 12.5 task list; implementation slots after Phase 17 closes (so v0.11.x or v0.12.x).
+The earlier framing called this subsumed by the Agenda canonical page, but Agenda's chronological-band layout (Overdue / Today / Tomorrow / This Week / Next Week) and Forecast's 30-day strip are both linear — neither gives the paper-calendar lens users coming from `cal`, GNOME Calendar, Apple Calendar, etc. expect. Calendar Month View is a third lens over the same data: paper-calendar grid + month nav + drag-to-reschedule + peek/drill clicks + narrow-window collapse. Builder-only canonical page sitting between Forecast and Review.
 
-- [ ] **Month-grid widget:** `GtkGrid` of 7 columns × 5–6 weeks; each cell is a day. Optional ISO week-number column on the left.
-- [ ] **Per-day task rendering:** count badge for normal density; up to ~3 task titles inline; "+N more" overflow link that opens a popover with the full day's list.
-- [ ] **Today indicator** + overdue/due-today emphasis + month/year header that updates with navigation.
-- [ ] **Month nav:** prev / next / "go to today" + month picker; `Page Up` / `Page Down` for keyboard-driven traversal; `Ctrl+Shift+M` opens the view.
-- [ ] **Drag-to-reschedule between days:** dropping a task on a different cell updates `scheduled_for` (or `deadline` with a modifier — see UX call before implementing).
-- [ ] **Click-day-to-filter:** clicking a day cell opens a side panel (or popover) listing that day's tasks; double-click swaps the content pane to a date-scoped filter.
-- [ ] **Narrow-window collapse:** below a breakpoint, the month grid collapses to a vertical week strip so the view stays usable on small windows / mobile-shaped portrait sizes.
-- [ ] **Builder-only sidebar entry** `Calendar` next to `Forecast` (visible when mode = Builder).
-- [ ] **Tests:** date-filter SELECT correctness across month boundaries, DST edges, and leap-day February.
+- [x] **Month-grid widget** (v0.11.0): `GtkGrid` 7 columns × 5–6 weeks via `atrium/src/ui/calendar.rs::build_month_grid` + `build_grid`. Mon-start ISO weeks; out-of-month leading / trailing cells flagged so they render muted.
+- [x] **Per-day task rendering** (v0.11.0): count badge in cell header; up to 3 task titles inline; "+N more" overflow `MenuButton` with a popover that opens each task in the inspector.
+- [x] **Today indicator + month/year header** (v0.11.0): today's cell tagged with `atrium-calendar-cell-today` for accent painting; magazine-spread page subtitle binds "<Month> <Year>" so the title strip tracks navigation.
+- [x] **Month nav** (v0.11.0): Prev / Today / Next buttons + month/year `MenuButton` opening a 4×3 picker. `Page_Up` / `Page_Down` via a local-scope `gtk::ShortcutController`. `Ctrl+Shift+M` opens the page (`app.show-list::calendar` action; mode-gated to no-op in Simple).
+- [x] **Drag-to-reschedule between days** (v0.11.0): each task title is a `gtk::DragSource` carrying the task id; each cell is a `gtk::DropTarget` accepting `i64` and updating `scheduled_for` via the worker. Out-of-month cells accept drops too. Shift-modifier for deadline-vs-schedule deferred per spec.
+- [x] **Click-day-to-filter** (v0.11.0): single-click opens a peek popover with the day's full task list (each task is a flat button that opens the inspector); double-click drills into a date-scoped search via `scheduled:YYYY-MM-DD` so the user gets the standard list view's editing affordances.
+- [x] **Narrow-window collapse** (v0.11.0): below the 600 px `COMPACT_WIDTH_THRESHOLD`, the grid swaps for a vertical week strip — 7 day cards stacked vertically, focused on the week containing today. Window watches `notify::default-width` and rebuilds on threshold flips (cached compact-mode flag prevents rebuild storms during drag-resize).
+- [x] **Builder-only sidebar entry** (v0.11.0): `top_tier_extras(builder=true)` produces 5 entries (Agenda, Forecast, Calendar, Review, Logbook); Calendar sits between Forecast and Review.
+- [x] **Tests** (v0.11.0): 13 lib tests in `atrium/src/ui/calendar.rs::tests` cover date math (month boundaries, leap February, DST transitions), week-row counts (5 vs 6), year-wrap on prev/next, today-cell marking, out-of-month flagging, completed + deadline-only task exclusion (the calendar uses the When-axis only; deadline-only surfaces in Forecast / Agenda).
 
 ---
 ## Phase 16: Org-Mode Import + Two-Way Vault Sync — Atrium ↔ Emacs Parity (was 17 + 17.5) — **shipped at v0.8.0**

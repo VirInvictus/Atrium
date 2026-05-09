@@ -90,6 +90,59 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.11.0" date="2026-05-09">
+      <description>
+        <p>Phase 12.5 — Calendar Month View. Builder Mode gains
+           the third lens over the same task data Forecast (30-
+           day strip) and Agenda (chronological bands) already
+           cover: a paper-calendar grid for users who think in
+           calendar pages. Re-engaged from its earlier
+           "subsumed by Agenda" framing — the lens is genuinely
+           different.</p>
+        <p>New atrium/src/ui/calendar.rs ships pure date-math
+           helpers (first_of_month, grid_anchor, week_rows,
+           previous_month / next_month, build_month_grid) and
+           the GTK widget tree (build_page producing a 7×N grid
+           with day cells: day number + count badge + up to 3
+           inline task titles + "+N more" overflow popover).
+           Today's cell highlighted; out-of-month leading /
+           trailing days muted; ISO Mon-start week alignment
+           matching Atrium's Agenda buckets.</p>
+        <p>Drag-to-reschedule between days mirrors Forecast's
+           pattern: each task title is a DragSource carrying
+           the task id; each cell is a DropTarget that updates
+           scheduled_for via the worker. Out-of-month cells
+           accept drops too so users can drag into the next or
+           previous month from leading / trailing rows.</p>
+        <p>Click-day-to-filter: single-click opens a peek
+           popover with the day's full task list (each task is
+           a flat button that opens the inspector); double-click
+           drills into a date-scoped search via "scheduled:YYYY-
+           MM-DD" so users get the full editing surface (drag,
+           multi-select, complete) on the standard list view.</p>
+        <p>Narrow-window collapse: below the 600 px width
+           threshold the month grid swaps for a vertical week
+           strip — 7 day cards stacked vertically, focused on
+           the week containing today, with full task lists
+           inline. The window watches its own default-width and
+           rebuilds the calendar when the threshold flips.</p>
+        <p>Builder-only: sidebar entry "Calendar" sits between
+           Forecast and Review in Builder Mode; mode-flip
+           filters it out in Simple. Ctrl+Shift+M opens the
+           page from anywhere; Page Up / Page Down step months
+           when the calendar has focus.</p>
+        <p>13 calendar lib tests cover the date-math edge
+           cases: month boundaries, leap February, DST
+           transitions (March / November 2026), short / long
+           months, year wrap on prev/next, today-cell marking,
+           out-of-month flagging, completed-task and deadline-
+           only-task exclusion (calendar shows scheduled tasks
+           only — the paper-calendar idiom).</p>
+        <p>Test count: 650 across the workspace (up from 637 at
+           v0.10.3). Schema unchanged at version 7. No new
+           third-party dependencies.</p>
+      </description>
+    </release>
     <release version="0.10.3" date="2026-05-09">
       <description>
         <p>Phase 17 closer: RRULE canonicalisation contract end-

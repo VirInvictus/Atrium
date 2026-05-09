@@ -1,5 +1,29 @@
 # Atrium — Patch Notes
 
+## v0.11.0 (2026-05-09) — Phase 12.5: Calendar Month View
+
+Builder Mode gains a third lens over the same task data Forecast and Agenda already cover. Forecast is the 30-day strip; Agenda is the chronological-band view (Overdue / Today / Tomorrow / This Week / Next Week); Calendar is the paper-calendar grid for users who think in calendar pages. The earlier roadmap framing called Phase 12.5 "subsumed by Agenda"; that turned out to be wrong — the calendar lens is a different mental model and v0.11 re-engages it as a Builder-only canonical page (mirroring Forecast's shape, not a Perspective renderer).
+
+**The grid.** New `atrium/src/ui/calendar.rs` ships pure date-math helpers (`first_of_month`, `grid_anchor`, `grid_end`, `last_day_of_month`, `week_rows`, `previous_month` / `next_month`, `build_month_grid`) and the GTK widget tree built on top. The grid is 7×N (Mon-start ISO weeks; matches the Agenda buckets). Each `DayCell` shows: day number, count badge when there are tasks, up to 3 inline task titles, and a "+N more" overflow popover when the day has more than fits. Today's cell carries an emphasis class; out-of-month leading / trailing cells render muted so the focal month reads cleanly.
+
+**Navigation.** Header strip carries Prev / Today / Next buttons + a month/year `MenuButton` that opens a 4×3 month-picker popover. Page Up / Page Down step months when the calendar has focus (scoped via `gtk::ShortcutController` so the keys stay free for other surfaces). `Ctrl+Shift+M` opens the page from anywhere.
+
+**Drag-to-reschedule.** Mirrors Forecast's pattern: each inline task title is a `DragSource` carrying the task id; each cell is a `DropTarget` accepting `i64` and updating `scheduled_for` via the worker. Out-of-month leading and trailing cells accept drops too, so users can drag into the previous or next month from the visible rows. Spec mentions a Shift-modifier for deadline-vs-schedule but defers the decision; v0.11 ships plain schedule and the modifier becomes a v0.11.x patch if Brandon asks for it.
+
+**Click-day-to-filter.** Single-click on a cell opens a peek popover with the day's full task list — each task is a flat button that opens the inspector. Empty days surface a "Nothing scheduled" line so the affordance is consistent. Double-click drills into the standard list view via a `scheduled:YYYY-MM-DD` search expression — the user gets full editing affordances (drag, multi-select, complete) instead of being stuck in the calendar peek.
+
+**Narrow-window collapse.** Below 600 px (`COMPACT_WIDTH_THRESHOLD`), the month grid swaps for a vertical week strip — 7 day cards stacked vertically, focused on the week containing today (or the first week of the viewed month if today's outside it). Each card shows the day's full task list inline. The window watches its own `notify::default-width` and rebuilds the calendar when the threshold flips; a `Cell<Option<bool>>` cache avoids rebuild storms during a drag-resize.
+
+**Builder-only.** Sidebar entry "Calendar" sits between Forecast and Review in Builder Mode's top-tier extras; mode-flip filters it out in Simple. The `Ctrl+Shift+M` accelerator stays bound system-wide (`AtriumWindow::show_calendar` no-ops when in Simple) so users in Builder always get the shortcut without leaking the Builder feature into Simple's surface.
+
+**Tests: 13 new calendar lib tests.** Cover the date-math edge cases: month boundaries (Jan 31 → Feb 1), leap February (29 days in 2024), DST transitions (March 2026 starts Sunday → 31 in-month days; November 2026 → 30), short and long months (5 vs 6 row grids), year wrap on prev/next, today-cell marking, out-of-month flagging, completed-task and deadline-only-task exclusion (the paper-calendar idiom uses the When-axis only).
+
+**ActiveList::Calendar variant** added with `canonical_title()` returning "Calendar". `top_tier_extras(builder=true)` now produces 5 entries (Agenda, Forecast, Calendar, Review, Logbook) — the existing test pinned this and was updated.
+
+**Test count: 650** across the workspace (up from 637 at v0.10.3). Schema unchanged at version 7. No new third-party dependencies.
+
+VERSION + Cargo.toml + spec.md + roadmap.md + patchnotes.md + README.md + CLAUDE.md + AppStream metainfo bumped to 0.11.0.
+
 ## v0.10.3 (2026-05-09) — Phase 17 closer: RRULE canonicalisation + divergence detection + agenda-parity acceptance
 
 v0.10.3 closes the Phase 17 patch arc. The RRULE canonicalisation contract (spec §7.3.3 rule 3) now runs end-to-end: writer emits both the best-fit Org cookie and the full `:RRULE:` property drawer entry; watcher catches the case where a user edits only the cookie in Emacs and rewrites the file to match the canonical `:RRULE:` (DB stays canonical). The agenda-parity acceptance test pins Atrium's Agenda canonical page against a spec-derived reference org-agenda classifier. **Phase 17 (vault → DB two-way sync) is closed.**
