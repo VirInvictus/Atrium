@@ -4,7 +4,7 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.11.0** (May 2026). **Phase 12.5 (Calendar Month View) shipped at v0.11.0** — third lens over Atrium's task data alongside Forecast (30-day strip) and Agenda (chronological bands); paper-calendar grid; Builder-only canonical page sitting between Forecast and Review. Re-engaged from the earlier "subsumed by Agenda" framing in the v0.6.x roadmap revision. Phase 17 (vault → DB two-way sync) closed at v0.10.3 across four slices: v0.10.0 first slice (watcher + self-write filter + diff), v0.10.1 GUI wiring + conflict detection + sidecar, v0.10.2 reliability (malformed-file pause/resume + custom-keyword preservation + file-removal toast), v0.10.3 closer (RRULE canonicalisation + divergence detection + agenda-parity acceptance test). Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0; v0.9.0 lifted the Org projection into its own `atrium-org` workspace crate. Phase 18 (Todoist CSV) is what's next.
+**Current release: v0.12.0** (May 2026). **Phase 18 (Todoist CSV import) shipped at v0.12.0** — three hand-rolled stdlib parsers (CSV, NL recurrence, mapper) compose into `atrium-cli import todoist PATH --into PROJECT_NAME [--dry-run]`; new `WorkerHandle::ensure_heading` API; Org writer learned to emit project sub-headings as depth-1 keyword-less headlines with tasks interleaved by `position`; deterministic v5 UUID namespace for re-import stability; the home.csv "butter test" pins Todoist → DB → vault → re-parse round-trip. Phase 12.5 (Calendar Month View) shipped at v0.11.0. Phase 17 (vault → DB two-way sync) closed at v0.10.3 across four slices. Phase 16 (Org-mode import + DB → vault writer) shipped at v0.8.0; v0.9.0 lifted the Org projection into its own `atrium-org` workspace crate. Phase 18.5 (Org-mode power features) and Phase 19.5 (productivity essentials) are next.
 
 Where each phase landed:
 
@@ -47,10 +47,19 @@ Where each phase landed:
   - **Narrow-window collapse** — below 600 px (`COMPACT_WIDTH_THRESHOLD`), the grid swaps for a vertical week strip focused on the week containing today. Window watches `notify::default-width`; cached compact-mode flag prevents rebuild storms during drag-resize.
   - **Builder-only** — `top_tier_extras(builder=true)` produces 5 entries (Agenda, Forecast, Calendar, Review, Logbook); `show_calendar` no-ops in Simple Mode so the `Ctrl+Shift+M` accelerator stays bound system-wide without leaking the Builder feature into Simple's surface.
   - **State** — `imp::AtriumWindow.calendar_viewed: Cell<Option<NaiveDate>>` (NaiveDate has no Default; lazy init to today's first-of-month on first open). `set_calendar_viewed` always normalises through `first_of_month` so the field stays canonical.
+- **v0.12.0 — Phase 18 Todoist CSV import.**
+  - **`atrium-cli/src/import/todoist/{parser,recurrence,mapper}.rs`** — three hand-rolled stdlib parsers compose into the importer. `parser::parse_csv` (CSV → typed `Vec<TodoistRow>` enum); `recurrence::parse_recurrence` (NL phrasing → RFC 5545 RRULE + scheduled anchor); `mapper::import_todoist` (row stream → worker calls + `ImportSummary`). All three are stdlib-only — no `csv` crate, no `regex` (pattern-matching by tokenised words for the small phrase set).
+  - **`WorkerHandle::ensure_heading`** — idempotent heading-create-by-(project_id, LOWER(title)). Mirrors `ensure_area` / `ensure_tag`. New `NewHeading` input + `Command::EnsureHeading` variant + `read::heading_by_id` / `list_headings_in_project` supporting reads. Handler emits `notify_project_dirty(project_id)`.
+  - **Org writer heading-emit.** `build_org_tree` → `build_project_tree(tasks, headings, tag_names)`. Unions (heading rows, top-level tasks) and sorts by `position` with headings tie-breaking ahead of tasks. Each heading becomes a depth-1 keyword-less `OrgTask` carrying `:ID:` (uuid); subsequent top-level tasks attach as depth-2 children. Tasks before any heading stay at depth 1 — projects with no headings emit identically to pre-v0.12.
+  - **Position layout for vault round-trip.** Heading positions 1.0, 2.0, 3.0 from `next_heading_position`. Top-level tasks then get an explicit `update_task` to position = `section_idx + i * 0.001` so they slot strictly between heading rows. Subtasks inherit per-parent positions from `next_task_position(parent_id, …)` automatically.
+  - **`PRIORITY=4` policy.** Todoist's "no priority" default emits no tag. 1-3 (user-elevated) emits `priority-N`. Keeps the noise floor low; Phase 19.5's numeric priority column will replace tag projection when it lands.
+  - **Deterministic v5 UUIDs.** Each task gets a v5 UUID derived from `SHA-1(project_name || NUL || title)` under a frozen Todoist namespace. Re-runs onto the same project produce stable IDs → Org-vault `:ID:` round-trip is invariant. `uuid` crate gained additive `v5` feature flag (sha1_smol via the existing crate).
+  - **CLI subcommand.** `atrium-cli import todoist PATH --into PROJECT_NAME [--dry-run]`. `ImportSource::Org | Todoist { project_name }` enum. Trying `--into` on `import org` errors out (org file's `#+TITLE:` is canonical). TSV / `--json` / `--human` output mirrors the Org importer's shape.
+  - **The home.csv butter test** (`home_csv_round_trips_through_db_and_vault`). 10 sections, 46 tasks, recurring tasks, 2 distinct labels — round-trips Todoist → DB → vault → re-parse with structural fidelity. Lossy report covers `UnparseableRecurrence`, `DroppedTimeOfDay`, `DroppedTimezone`, `DroppedDuration`, `DroppedDeadline`.
 
 **Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atriumd`, the post-1.0 `atrium-tui`). Don't add functionality to the GTK binary that can't be reached from the shell.
 
-**Test count: 650 across the workspace at v0.11.0**, all green. `bash scripts/regression.sh` runs in under 2 seconds. Schema version: 7.
+**Test count: 798 across the workspace at v0.12.0**, all green. `bash scripts/regression.sh` runs in under 2 seconds. Schema version: 7.
 
 ## Authoritative documents
 
@@ -121,7 +130,7 @@ The non-obvious mechanics that aren't visible from the code alone:
 
 Sign-off granted in subsequent phases:
 
-- `uuid` (Phase 1) — UUID v4 generation for `:ID:` round-trip.
+- `uuid` (Phase 1) — UUID v4 generation for `:ID:` round-trip. **v0.12.0 added the `v5` feature flag** (additive — same crate, pulls in sha1_smol) so the Todoist importer can derive deterministic name-based UUIDs from `(project_name, title)` and keep re-imports stable.
 - `rrule` (Phase 15, v0.2.0) — RFC 5545 RRULE parsing + iteration for repeating tasks.
 - `regex` (Phase 15.5, v0.4.0) — `tag:~regex` match modifier in the search expression language. Already transitively in the dep graph via `tracing-subscriber`; promoted to a direct dependency for `atrium-core`.
 - `notify` (Phase 17, v0.10.0) — cross-platform filesystem watcher for vault → DB sync. Direct dep of `atrium-org`. Canonical Rust file-watching crate (used by watchexec / cargo-watch). Default features only — uses inotify on Linux, which is what Atrium ships.
@@ -163,7 +172,7 @@ The v0.1 freeze's good instinct still applies: when a feature seems to need a ne
 ## Build / test / lint
 
 ```bash
-cargo test --workspace            # all tests (582 at v0.8.0)
+cargo test --workspace            # all tests (798 at v0.12.0)
 cargo test <test_name>            # single test
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
@@ -213,12 +222,17 @@ atrium-search/                        ← Calibre-powered search engine (extract
 ├── src/sql_translate.rs              ← Expr → SQL fast-path; in-memory fallback for regex / fuzzy / composite
 └── src/tests.rs                      ← parse + eval + translate round-trips
 
-atrium-cli/                           ← headless CLI (full task + perspective CRUD + Phase 16 import/export)
+atrium-cli/                           ← headless CLI (full task + perspective CRUD + Phase 16/18 import/export)
 ├── src/main.rs                       ← subcommand dispatch, DB open, EvalContext build, write paths
-├── src/args.rs                       ← stdlib argv parser
+├── src/args.rs                       ← stdlib argv parser; ImportSource::Org | Todoist { project_name } (v0.12.0)
 ├── src/output.rs                     ← TSV / JSON / human-readable formatters (incl. kanban columns)
-├── src/import.rs                     ← `import org PATH [--dry-run]` — single .org or vault directory
-└── src/export.rs                     ← `export org PATH` (vault writer) + `export json PATH` (snapshot)
+├── src/export.rs                     ← `export org PATH` (vault writer) + `export json PATH` (snapshot)
+└── src/import/                       ← `import <SOURCE> PATH [...flags]`
+    ├── mod.rs                        ← module root — pulls in source-specific submodules
+    └── todoist/                      ← (v0.12.0) Phase 18 Todoist CSV importer
+        ├── parser.rs                 ← hand-rolled CSV → `Vec<TodoistRow>` (Meta / Section / Task / Blank)
+        ├── recurrence.rs             ← NL phrasing → RFC 5545 RRULE + scheduled anchor
+        └── mapper.rs                 ← row stream → worker calls + `ImportSummary` (project + sections + tasks + tags + lossy report)
 
 atrium-core/                          ← headless data layer
 ├── src/lib.rs                        ← re-exports (Task / WorkerHandle / VaultConfig / VaultDirtyNotifier / spawn_worker / spawn_worker_with_vault / RepeatRule / …)
@@ -255,7 +269,7 @@ atrium-org/                           ← Phase 16 Org-mode projection (v0.9.0);
     ├── parse.rs                      ← hand-rolled headline / cookie / properties / body / nested-subtask parser
     ├── emit.rs                       ← inverse — emits stable, org-agenda-readable output
     ├── import.rs                     ← single-file + multi-file vault importer; uses WorkerHandle::ensure_area
-    └── write.rs                      ← project → .org file writer; build_org_tree fans Tasks back into nested OrgHeadlines
+    └── write.rs                      ← project → .org file writer; (v0.12.0) `build_project_tree` interleaves heading rows + tasks by `position` so sections emit as depth-1 keyword-less headlines
 
 atrium/                               ← GTK binary
 ├── build.rs                          ← compiles GSettings schema for cargo-only runs

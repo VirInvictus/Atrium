@@ -90,6 +90,68 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.12.0" date="2026-05-09">
+      <description>
+        <p>Phase 18 — Todoist CSV import. The cross-platform
+           productivity app most likely-to-migrate Linux user
+           is leaving behind now has a real export path into
+           Atrium. New `atrium-cli import todoist PATH --into
+           PROJECT_NAME [--dry-run]` reads a Todoist CSV
+           export, walks its row stream, and materialises the
+           project + sections + tasks + tags + recurrence
+           rules through the single-writer worker.</p>
+        <p>Three hand-rolled stdlib parsers compose the
+           pipeline. The CSV parser tolerates UTF-8 BOMs, quoted
+           fields with embedded commas, escaped double-quotes,
+           and blank separator rows; classifies each row by its
+           TYPE column into Meta / Section / Task / Blank. The
+           natural-language recurrence parser turns Todoist's
+           loose phrasing ("Every Sunday at 10am", "every 3
+           day at 9am" with the singular typo, "Every 1stday",
+           "3 days ago at 15:00") into RFC 5545 RRULE strings
+           plus a scheduled anchor; six pattern-matchers cover
+           every phrasing in the Home.csv fixture plus sensible
+           extensions. The mapper layer turns the parsed row
+           stream into worker calls — section rows become
+           heading rows, task rows become tasks with parent_id
+           chains driven by the INDENT column, @label tokens
+           strip from the title and become Atrium tags,
+           PRIORITY 1-3 emits a priority-N tag (4 is Todoist's
+           default and emits no tag).</p>
+        <p>Phase 18 prerequisites in atrium-core +
+           atrium-org: WorkerHandle::ensure_heading is the new
+           idempotent heading-create-by-(project, title-NOCASE)
+           API; the Org writer learned to emit heading rows as
+           depth-1 keyword-less headlines and interleave them
+           with top-level tasks by `position`, so a vault file
+           opens in DoomEmacs as a section-bearing project
+           rather than a flat list. New name-based v5 UUID
+           namespace gives tasks deterministic IDs derived
+           from `(project_name, label-stripped title)` so
+           re-runs onto the same project produce stable
+           `:ID:` round-trips.</p>
+        <p>The closing acceptance gate is the home.csv "butter
+           test": the sanitised version of Brandon's daughter
+           Rin's chore-tracker (10 sections, 46 tasks, deeply-
+           nested shopping list, weekly + every-3-days
+           recurrence, two distinct labels) round-trips
+           Todoist → DB → vault → re-parse without losing data
+           or scrambling structure. Embedded commas in titles
+           survive, recurring tasks carry both an Org cookie
+           on SCHEDULED and the canonical :RRULE: in the drawer,
+           @chore / @home labels emit as Org headline tags,
+           and no @-prefixed leftovers remain in any title.</p>
+        <p>New deps: uuid v5 feature flag (additive — pulls in
+           sha1_smol via the existing uuid crate) for
+           deterministic name-based UUIDs. atrium-cli grew
+           direct uuid + thiserror entries (was transitive).
+           No new third-party crates.</p>
+        <p>Test count: 798 across the workspace (up from 765
+           at v0.11.0). Schema unchanged at version 7. The
+           regression gate stays under 2 seconds.</p>
+      </description>
+      <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
+    </release>
     <release version="0.11.0" date="2026-05-09">
       <description>
         <p>Phase 12.5 — Calendar Month View. Builder Mode gains
