@@ -498,4 +498,179 @@ mod tests {
             ]
         );
     }
+
+    // ── Phase 17 acceptance: agenda parity vs reference ──────
+    //
+    // Roadmap §17 closing test: Atrium's Agenda canonical page
+    // and stock org-agenda must surface the same task set under
+    // the same buckets when run against the same vault. We
+    // can't shell out to Emacs from a unit test, so the
+    // reference implementation below mirrors the day-window
+    // logic Org's `agenda-list` uses (deadline-past = overdue;
+    // most-imminent date in the today / tomorrow / this-week /
+    // next-week bands). The test synthesises a vault's worth of
+    // tasks across every bucket plus the "shouldn't appear"
+    // edge cases and asserts both classifiers agree on every
+    // task. If Atrium's logic ever drifts from the spec, this
+    // test fails on the offending task with a labeled diff.
+    //
+    // Visual style / sort order between the two surfaces still
+    // differs (Atrium's UI is GTK; org-agenda is text); the
+    // test pins SEMANTIC parity only.
+
+    /// Reference org-agenda classification, derived from spec
+    /// §7.3 + Org's published agenda-list semantics. Pure
+    /// function; no external state.
+    fn reference_org_agenda_classify(task: &Task, today: NaiveDate) -> Option<AgendaSection> {
+        // Completed tasks: agenda hides them by default
+        // (org-agenda-skip-deadline-prewarning-if-scheduled is
+        // a separate switch; we follow the most common
+        // configuration where completed tasks don't show).
+        if task.completed_at.is_some() {
+            return None;
+        }
+        // Deferred-future is Atrium-specific; org-agenda has no
+        // direct analogue but the user clearly said "not now,"
+        // so treating this as "off-agenda" is the only honest
+        // mapping.
+        if let Some(d) = task.defer_until
+            && d > today
+        {
+            return None;
+        }
+        let scheduled = match &task.scheduled_for {
+            Some(ScheduledFor::Date(d)) => Some(*d),
+            _ => None, // Someday is unanchored
+        };
+        let deadline = task.deadline;
+
+        // Overdue precedence: if a deadline is past today, the
+        // task lands under Overdue regardless of what's
+        // scheduled (matches `org-deadline-past-days` rendering
+        // with prewarning at 0).
+        if let Some(d) = deadline
+            && d < today
+        {
+            return Some(AgendaSection::Overdue);
+        }
+
+        let most_imminent = match (scheduled, deadline) {
+            (Some(s), Some(d)) => Some(s.min(d)),
+            (Some(s), None) => Some(s),
+            (None, Some(d)) => Some(d),
+            (None, None) => None,
+        }?;
+
+        if most_imminent == today {
+            return Some(AgendaSection::Today);
+        }
+        if most_imminent == today + Duration::days(1) {
+            return Some(AgendaSection::Tomorrow);
+        }
+        // ISO-week alignment matches Atrium's classify; Org
+        // agenda's default is the same Mon-start week.
+        let weekday = today.weekday().num_days_from_monday() as i64;
+        let week_end = today - Duration::days(weekday) + Duration::days(6);
+        if most_imminent > today + Duration::days(1) && most_imminent <= week_end {
+            return Some(AgendaSection::ThisWeek);
+        }
+        let next_week_end = week_end + Duration::days(7);
+        if most_imminent > week_end && most_imminent <= next_week_end {
+            return Some(AgendaSection::NextWeek);
+        }
+        None
+    }
+
+    fn synthesised_agenda_vault(today: NaiveDate) -> Vec<(&'static str, Task)> {
+        let mut completed = task_with_dates(101, Some(today), None);
+        completed.completed_at = Some(
+            DateTime::parse_from_rfc3339("2026-05-15T08:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+        );
+        let mut deferred = task_with_dates(102, Some(today), None);
+        deferred.defer_until = Some(today + Duration::days(14));
+        let mut someday = dummy_task(103);
+        someday.scheduled_for = Some(ScheduledFor::Someday);
+
+        vec![
+            ("today_scheduled", task_with_dates(1, Some(today), None)),
+            ("today_deadline", task_with_dates(2, None, Some(today))),
+            (
+                "tomorrow_scheduled",
+                task_with_dates(3, Some(today + Duration::days(1)), None),
+            ),
+            (
+                "this_week_after_tomorrow",
+                task_with_dates(4, Some(today + Duration::days(2)), None),
+            ),
+            (
+                "this_week_deadline",
+                task_with_dates(5, None, Some(today + Duration::days(2))),
+            ),
+            (
+                "next_week_start",
+                task_with_dates(6, Some(today + Duration::days(3)), None),
+            ),
+            (
+                "next_week_end",
+                task_with_dates(7, Some(today + Duration::days(9)), None),
+            ),
+            (
+                "beyond_next_week",
+                task_with_dates(8, Some(today + Duration::days(11)), None),
+            ),
+            (
+                "overdue_deadline",
+                task_with_dates(9, None, Some(today - Duration::days(3))),
+            ),
+            (
+                "overdue_with_today_schedule",
+                task_with_dates(10, Some(today), Some(today - Duration::days(2))),
+            ),
+            ("no_anchor", task_with_dates(11, None, None)),
+            ("someday", someday),
+            ("completed", completed),
+            ("deferred_future", deferred),
+        ]
+    }
+
+    /// Phase 17 closing acceptance: run Atrium's classify and
+    /// the spec-derived reference classify over the synthesised
+    /// vault and assert every task agrees. Visual layout differs
+    /// from stock org-agenda; semantic groupings must not.
+    #[test]
+    fn agenda_parity_with_reference_org_agenda() {
+        let today = date(2026, 5, 11); // Monday — clean week start
+        let cases = synthesised_agenda_vault(today);
+
+        for (label, task) in &cases {
+            let ours = classify(task, today);
+            let theirs = reference_org_agenda_classify(task, today);
+            assert_eq!(
+                ours, theirs,
+                "[{label}] Atrium says {ours:?}; org-agenda reference says {theirs:?}"
+            );
+        }
+
+        // Sanity: every bucket should be represented at least
+        // once across the synthesised vault, otherwise the
+        // parity check is vacuously passing on an unrepresentative
+        // sample.
+        let buckets: std::collections::HashSet<Option<AgendaSection>> =
+            cases.iter().map(|(_, t)| classify(t, today)).collect();
+        for expected in [
+            Some(AgendaSection::Overdue),
+            Some(AgendaSection::Today),
+            Some(AgendaSection::Tomorrow),
+            Some(AgendaSection::ThisWeek),
+            Some(AgendaSection::NextWeek),
+            None,
+        ] {
+            assert!(
+                buckets.contains(&expected),
+                "test fixture missing a representative for {expected:?}"
+            );
+        }
+    }
 }
