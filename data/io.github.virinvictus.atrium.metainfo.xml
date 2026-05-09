@@ -90,6 +90,26 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.13.5" date="2026-05-09">
+      <description>
+        <p>Hotfix on top of v0.13.4: the fresh-vault seed now
+           registers its writes in the shared `RecentWrites` set
+           that the writer + watcher consult to suppress
+           self-induced echoes. v0.13.4 missed the handshake, so
+           on every fresh-vault boot the watcher treated all of
+           Atrium's seeded `.org` files as external edits and the
+           writer flushed each one with a `<file>.atrium.bak.
+           <UTC>` backup — surfacing as a flood of "vault
+           conflict" warnings.</p>
+        <p>Fix exposes the shared filter set via a new
+           `VaultLoopHandle::recent_writes()` accessor; the
+           boot-path seed records each file's `(path, mtime)`
+           immediately after writing it, closing the watcher's
+           self-write window before the 200 ms debounce
+           fires.</p>
+      </description>
+      <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
+    </release>
     <release version="0.13.4" date="2026-05-09">
       <description>
         <p>Fresh vaults seed on first boot. Phase 17's vault loop

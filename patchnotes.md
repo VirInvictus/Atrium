@@ -1,5 +1,24 @@
 # Atrium — Patch Notes
 
+## v0.13.5 (2026-05-09) — Vault: seed registers writes in RecentWrites
+
+Hotfix on top of v0.13.4. The fresh-vault seed bypassed `RecentWrites` (the shared self-write filter set the writer + watcher both consult to suppress self-induced echoes), so on every fresh-vault boot the watcher saw all 50 of Brandon's seeded `.org` files as external edits, fed them through the worker as no-op updates, the writer flushed each project, and the writer's pre-flush conflict check legitimately treated each file as foreign — backing every one up to `<file>.atrium.bak.<UTC>`. Boot logs filled with 50 spurious "vault conflict: external edit" warnings; `~/Tasks` collected 50 stale backup files.
+
+Fix wires the missing handshake. New `VaultLoopHandle::recent_writes()` accessor returns a clone of the shared `Arc<RwLock<RecentWrites>>` so out-of-band writers can register the files they wrote before `attach_watcher` consumes the handle. The seed in `boot_data_layer` snapshots this Arc before attaching the watcher, then in the per-project loop stats each file's mtime immediately after `write_project_to_vault` and records `(path, mtime)` in the set. By the time the watcher's 200 ms debounce fires, all 50 records are in — its self-write filter matches and skips the events; the worker never sees an update; the writer never wakes up to back anything up.
+
+Validation on Brandon's box: deleted `~/Tasks/.atrium/config.toml` to re-trigger the seed path. Boot log:
+
+```
+INFO atrium: vault watcher attached
+INFO atrium: fresh vault seeded from DB count=50
+```
+
+Zero conflict warnings; zero `.atrium.bak.*` files left behind. Pre-fix the same boot produced 50 of each.
+
+Test count holds at 829. Schema unchanged at v7. The race-window analysis is documented in the commit body.
+
+VERSION + Cargo.toml + patchnotes.md + AppStream metainfo bumped to 0.13.5.
+
 ## v0.13.4 (2026-05-09) — Vault: seed-on-first-boot for fresh vault paths
 
 The Phase 17 vault loop is change-driven — the VaultWriter only fires when the worker emits `notify_project_dirty(project_id)`. Setting `vault-path` on a fresh empty directory and restarting Atrium therefore did *nothing* visible: the existing DB sat unmirrored until the user edited a task. The expected behaviour is "see my existing tasks mirrored to disk on first connect", and that previously took a separate `atrium-cli export org PATH` invocation.
