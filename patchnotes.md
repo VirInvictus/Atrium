@@ -1,5 +1,53 @@
 # Atrium — Patch Notes
 
+## v0.7.15 (2026-05-09) — Post-write Org integrity check
+
+Tenth patch on the Phase 16 arc. With the importer + writer +
+multi-file walk in place, every vault write now goes through a
+post-write parse-back assertion: the file we just wrote must
+re-read cleanly through Atrium's own parser. If it doesn't, the
+emit returns an `io::Error::Other` describing the divergence,
+and a `tracing::warn` lands in the log so the failure is visible
+even when the caller swallows the error.
+
+**`emit_org_file_with_meta` now calls `verify_emitted_file`
+after the atomic rename.** The verification path:
+
+1. Re-read the just-written file from disk.
+2. Parse it via `parse_org_file_with_meta`.
+3. On success → `Ok(())`. On any read or parse error →
+   `Err(io::Error::Other)` with the underlying error
+   wrapped + a `tracing::warn` event.
+
+The hand-rolled parser is intentionally permissive — anything it
+doesn't recognise lands in body or unknown_lines — so "rejects"
+in practice means an `io::Error` from the read itself (e.g. the
+file mysteriously vanished mid-write, or the user hit a
+permission flip on the parent directory). It's the minimum bar
+the spec calls for: "newly-written file parses cleanly with
+Atrium's own reader."
+
+**Rollback to `.atrium.bak.<timestamp>`** is the second half of
+the spec rule (§7.3.3 rule 5: "Conflicts are surfaced, not
+silenced"). It defers to v0.7.16+ alongside the auto-debounced
+worker write hook, since both paths need to know how to recover
+gracefully — preserving the previous file content before the
+atomic rename + writing it back to a `.bak` on integrity
+failure is a meaningful infrastructure piece on its own.
+v0.7.15's Err return lets callers (the v0.7.16 worker hook) make
+that decision.
+
+**Test count:** 119 + 242 + 1 + 106 + 106 = **574** (up 1 from
+v0.7.14's 573 — the integrity-check-passes-on-good-file test).
+Pure additive change. No schema. No new dependencies.
+
+VERSION + Cargo.toml + spec + patchnotes + AppStream metainfo
+bumped to **0.7.15**. Phase 16 progress: foundation + parser +
+emitter + importer + writer + JSON export + custom-keyword +
+file-level metadata + multi-file walk + integrity check done;
+the auto-debounced worker write hook (the last roadmap bullet
+before the v0.8.0 stamp) remains.
+
 ## v0.7.14 (2026-05-09) — Multi-file vault walk + ensure_area
 
 Ninth patch on the Phase 16 arc. With v0.7.6 → v0.7.13 in

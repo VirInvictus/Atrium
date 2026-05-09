@@ -113,9 +113,49 @@ pub fn emit_org_file(path: &Path, tasks: &[OrgTask]) -> io::Result<()> {
 /// v0.7.13 — atomically write an `OrgFile` (preamble + headlines)
 /// to `path`. Goes through the same `write_atomic` helper as
 /// [`emit_org_file`].
+///
+/// v0.7.15 — runs a post-write integrity check (per spec §7.3.3 /
+/// Phase 16 roadmap: "newly-written file parses cleanly with
+/// Atrium's own reader"). After the atomic rename, the file is
+/// re-read and parsed; if parsing fails, the function returns an
+/// `io::Error::Other` describing the divergence. Logs a
+/// `tracing::warn` so the failure is visible even if the caller
+/// swallows the error.
+///
+/// Rollback to a `.atrium.bak.<timestamp>` is the second half of
+/// the spec rule and lands in v0.7.16+ alongside the auto-
+/// debounced worker write hook (the hook needs to know how to
+/// recover too). For now an integrity failure still leaves the
+/// just-written (possibly questionable) file on disk; the
+/// `Err` lets the caller decide whether to surface a toast,
+/// retry, or quietly accept the file.
 pub fn emit_org_file_with_meta(path: &Path, file: &OrgFile) -> io::Result<()> {
     let text = emit_org_text_with_meta(file);
-    write_atomic(path, text.as_bytes())
+    write_atomic(path, text.as_bytes())?;
+    verify_emitted_file(path)
+}
+
+/// v0.7.15 — re-parse the file we just wrote. Returns the parse
+/// failure as an `io::Error::Other` when the parser rejects the
+/// file outright. (The hand-rolled parser is permissive — any
+/// unrecognised line lands in body or unknown_lines — so
+/// "rejects" in practice means an `io::Error` from the read
+/// itself, e.g. a permission flip mid-write.)
+fn verify_emitted_file(path: &Path) -> io::Result<()> {
+    match super::parse::parse_org_file_with_meta(path) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "post-write Org integrity check failed; file remains on disk"
+            );
+            Err(io::Error::other(format!(
+                "post-write integrity check failed for {}: {e}",
+                path.display()
+            )))
+        }
+    }
 }
 
 fn emit_task(task: &OrgTask, out: &mut String) {
@@ -545,6 +585,42 @@ CLOSED: [2026-05-08 Fri 09:00]
         };
         let emitted = emit_org_text_with_meta(&file);
         assert!(emitted.starts_with("* TODO Plain"), "got: {emitted}");
+    }
+
+    #[test]
+    fn emit_with_meta_writes_a_file_that_parses_back() {
+        // v0.7.15 — post-write integrity check is wired into
+        // emit_org_file_with_meta. A round-trip-eligible OrgFile
+        // should write and verify cleanly. This test just makes
+        // sure the success path doesn't surface a spurious
+        // integrity error.
+        use super::super::parse::{OrgFile, parse_org_file_with_meta};
+
+        let dir =
+            std::env::temp_dir().join(format!("atrium-emit-integrity-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ok.org");
+
+        let mut directives = HashMap::new();
+        directives.insert("TITLE".to_string(), "Round-trip OK".to_string());
+        let file = OrgFile {
+            directives,
+            file_properties: HashMap::new(),
+            headlines: parse_org_text("* TODO Sample\n"),
+        };
+        emit_org_file_with_meta(&path, &file).expect("integrity check should pass");
+
+        // Sanity: the file is on disk and parses to the same
+        // shape we wrote.
+        let parsed = parse_org_file_with_meta(&path).unwrap();
+        assert_eq!(
+            parsed.directives.get("TITLE").map(String::as_str),
+            Some("Round-trip OK")
+        );
+        assert_eq!(parsed.headlines.len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

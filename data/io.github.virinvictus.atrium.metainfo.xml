@@ -90,6 +90,25 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.7.15" date="2026-05-09">
+      <description>
+        <p>Post-write Org integrity check. Tenth patch on the
+           Phase 16 arc. Every vault write now goes through a
+           post-write parse-back assertion: the file Atrium
+           just wrote must re-read cleanly through Atrium's
+           own reader. If it doesn't, the emit returns an
+           io::Error::Other and a tracing::warn lands in the
+           log so the failure is visible.</p>
+        <p>Rollback to .atrium.bak.&lt;timestamp&gt; is the
+           second half of the spec rule and lands with the
+           auto-debounced worker write hook in v0.7.16+. v0.7.15
+           ships the lightweight detection layer; the v0.7.16
+           hook can make recovery decisions on top of the Err
+           return.</p>
+        <p>574 tests green (up 1 from v0.7.14). Pure additive
+           change; no schema, no new dependencies.</p>
+      </description>
+    </release>
     <release version="0.7.14" date="2026-05-09">
       <description>
         <p>Multi-file vault walk + ensure_area. Ninth patch on
