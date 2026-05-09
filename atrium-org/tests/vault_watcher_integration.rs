@@ -539,3 +539,113 @@ async fn external_custom_keyword_round_trips_through_orig_keyword() {
     drop(handle);
     let _ = std::fs::remove_dir_all(&vault);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_atrium_and_external_edit_preserves_user_content_as_bak() {
+    // Spec §7.3.3 rule 5 end-to-end: GUI mutates DB while a user
+    // is also saving the same vault file in Doom Emacs. The
+    // writer's pre-flush conflict check catches the divergent
+    // mtime, backs up the user's content, and the atomic write
+    // proceeds. The user's edit survives in `.atrium.bak.*`;
+    // the main file ends up with the DB's view; ConflictBackup
+    // event surfaces.
+    let scratch =
+        std::env::temp_dir().join(format!("atrium-watcher-concurrent-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let db_path = scratch.join("atrium.db");
+    let conn = open(&db_path).unwrap();
+    let pool = ReadPool::new(&db_path, 4);
+
+    let (vault_config, vault_loop, mut events_rx) =
+        atrium_org::spawn_vault_loop(scratch.clone(), pool.clone());
+    let (handle, _changes_rx, _library_rx) = spawn_worker_with_vault(conn, Some(vault_config));
+
+    let project = handle
+        .create_project(NewProject {
+            title: "Race".to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let task = handle
+        .create_task(NewTask {
+            title: "Original".to_string(),
+            project_id: Some(project.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let _watcher = vault_loop.attach_watcher(handle.clone()).unwrap();
+
+    let project_path = scratch.join("Race.org");
+    assert!(project_path.exists(), "initial vault file missing");
+
+    // Simulated concurrent edits: external first, then DB
+    // mutation immediately after. The writer's ~100 ms debounce
+    // gives the user's external write an mtime that lands
+    // before the writer fires.
+    let external_content = "* TODO Original\nUser typed this in Doom\n";
+    std::fs::write(&project_path, external_content).unwrap();
+
+    let new_title = "Renamed by Atrium GUI".to_string();
+    handle
+        .update_task(atrium_core::TaskUpdate::new(task.id).title(new_title.clone()))
+        .await
+        .unwrap();
+
+    // Let both halves settle: writer flush (~100 ms debounce +
+    // 50 ms tick) + watcher debounce (200 ms) + any retries.
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    // Assert 1: a `.atrium.bak.*` sibling preserves the user's
+    // content.
+    let entries: Vec<_> = std::fs::read_dir(&scratch)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    let bak = entries
+        .iter()
+        .find(|n| n.starts_with("Race.org.atrium.bak."))
+        .unwrap_or_else(|| panic!("no backup of user edit; saw: {entries:?}"));
+    let bak_text = std::fs::read_to_string(scratch.join(bak)).unwrap();
+    assert!(
+        bak_text.contains("User typed this in Doom"),
+        "backup must preserve user content; got: {bak_text}"
+    );
+
+    // Assert 2: the main file holds the DB's view (the rename).
+    let main_text = std::fs::read_to_string(&project_path).unwrap();
+    assert!(
+        main_text.contains(&new_title),
+        "main file should reflect DB after writer overwrites; got: {main_text}"
+    );
+
+    // Assert 3: at least one ConflictBackup event surfaced.
+    let mut saw_conflict = false;
+    while let Ok(event) = events_rx.try_recv() {
+        if matches!(event, atrium_org::VaultEvent::ConflictBackup { .. }) {
+            saw_conflict = true;
+        }
+    }
+    assert!(
+        saw_conflict,
+        "ConflictBackup event must surface for the GUI to toast"
+    );
+
+    // Assert 4: DB has the GUI's title, NOT "Original" or the
+    // user's external phrasing — the writer beat the watcher.
+    let tasks = pool
+        .with(|conn| atrium_core::db::read::list_all_in_project(conn, project.id))
+        .unwrap();
+    assert_eq!(tasks.len(), 1, "no spurious tasks: {tasks:?}");
+    assert_eq!(
+        tasks[0].title, new_title,
+        "DB should hold the GUI rename; the user's external content is in .atrium.bak"
+    );
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
