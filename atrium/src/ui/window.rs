@@ -1616,6 +1616,35 @@ impl AtriumWindow {
         }
     }
 
+    /// v0.15.0 — Phase 18.5 Tier-1 statistics-cookie resolver.
+    /// Snapshots the per-parent `(done, total)` map from the read
+    /// pool once and returns a closure that turns each task into
+    /// its `[N/M]` cookie string. The cookie folds child TODO
+    /// counts (from the snapshot) with body-checkbox counts
+    /// (parsed from each task's note), mirroring Org's
+    /// `org-checkbox-hierarchical-statistics` default. A task with
+    /// zero subtasks but a body checklist still earns a cookie;
+    /// a task with neither stays empty. Both modes.
+    fn build_cookie_resolver(&self) -> impl Fn(&Task) -> String + use<> {
+        let child_counts: HashMap<i64, (u32, u32)> = self
+            .read_pool()
+            .and_then(|pool| {
+                pool.with(atrium_core::db::read::count_done_total_per_parent)
+                    .ok()
+            })
+            .unwrap_or_default();
+        move |task: &Task| -> String {
+            let (child_done, child_total) = child_counts.get(&task.id).copied().unwrap_or((0, 0));
+            let (body_done, body_total) = atrium_core::count_body_checkboxes(&task.note);
+            let total = child_total.saturating_add(body_total);
+            if total == 0 {
+                return String::new();
+            }
+            let done = child_done.saturating_add(body_done);
+            format!("[{done}/{total}]")
+        }
+    }
+
     fn build_context_resolver(&self, active: &ActiveList) -> impl Fn(&Task) -> String + use<> {
         let project_titles = self.imp().project_titles.borrow().clone();
         let area_titles = self.imp().area_titles.borrow().clone();
@@ -1881,6 +1910,7 @@ impl AtriumWindow {
             };
             let context_for = self.build_context_resolver(&active);
             let area_color_for = self.build_area_color_resolver();
+            let cookie_for = self.build_cookie_resolver();
             replace_store_with_tags_seq(
                 &store,
                 &tasks,
@@ -1888,6 +1918,7 @@ impl AtriumWindow {
                 false,
                 context_for,
                 area_color_for,
+                cookie_for,
             );
             // v0.4.1 — `sort:KEY` modifiers in the saved
             // perspective override position order. apply()
@@ -2010,6 +2041,7 @@ impl AtriumWindow {
                 };
                 let context_for = self.build_context_resolver(&active);
                 let area_color_for = self.build_area_color_resolver();
+                let cookie_for = self.build_cookie_resolver();
                 replace_store_with_tags_seq(
                     &store,
                     &tasks,
@@ -2017,6 +2049,7 @@ impl AtriumWindow {
                     sequential,
                     context_for,
                     area_color_for,
+                    cookie_for,
                 );
                 // Skip the position sort when the search expression
                 // pinned a sort — apply() already ordered the Vec.
@@ -2167,6 +2200,7 @@ impl AtriumWindow {
         };
         let context_for = self.build_context_resolver(&active);
         let area_color_for = self.build_area_color_resolver();
+        let cookie_for = self.build_cookie_resolver();
         crate::ui::task_list::apply_changes_seq(
             &store,
             changes,
@@ -2176,6 +2210,7 @@ impl AtriumWindow {
             sequential,
             context_for,
             area_color_for,
+            cookie_for,
         );
         self.update_empty_state(&store);
         // Phase 5c: any task delta might have moved a count.
@@ -2641,6 +2676,10 @@ impl AtriumWindow {
                             // come back DONE with its original
                             // completion timestamp, not flip to TODO.
                             completed_at: task.completed_at,
+                            // Preserve the per-task warning window so
+                            // a sensitive deadline keeps its early
+                            // surfacing across the delete/undo cycle.
+                            deadline_warn_days: task.deadline_warn_days,
                         };
                         match worker.create_task(new).await {
                             Ok(restored) => {

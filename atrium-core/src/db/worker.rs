@@ -803,8 +803,8 @@ impl Worker {
             "INSERT INTO task \
              (uuid, title, note, project_id, parent_id, scheduled_for, deadline, \
               defer_until, estimated_minutes, repeat_rule, repeat_mode, orig_keyword, \
-              completed_at, position) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              completed_at, deadline_warn_days, position) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 uuid,
                 new.title,
@@ -819,6 +819,7 @@ impl Worker {
                 new.repeat_mode,
                 new.orig_keyword,
                 new.completed_at,
+                new.deadline_warn_days,
                 position,
             ],
         )?;
@@ -935,6 +936,10 @@ impl Worker {
         if let Some(orig) = update.orig_keyword {
             sets.push("orig_keyword = ?");
             bound.push(Box::new(orig));
+        }
+        if let Some(warn) = update.deadline_warn_days {
+            sets.push("deadline_warn_days = ?");
+            bound.push(Box::new(warn));
         }
         bound.push(Box::new(update.id));
 
@@ -1083,6 +1088,10 @@ impl Worker {
             // The respawn is a fresh open instance — no completion
             // timestamp until the user toggles it complete again.
             completed_at: None,
+            // Per-task warning window carries forward — the
+            // sensitivity of the deadline doesn't change just
+            // because the previous instance closed.
+            deadline_warn_days: completed.deadline_warn_days,
         };
         let inserted = self.create_task(new_task)?;
 

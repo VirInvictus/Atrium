@@ -14,6 +14,15 @@
 //! shape (`[[perspectives]]`) so each entry carries its own block
 //! of fields (name / icon / filter / renderer / renderer_config).
 //!
+//! v0.16.0 adds **custom TODO sequences** (Phase 18.5 Tier-1) —
+//! per-vault declared keyword sets so the writer can emit
+//! `#+TODO:` preambles and the watcher can map external keywords
+//! into Atrium's TODO/DONE binary while preserving the original
+//! label via `task.orig_keyword`. Same array-of-tables shape as
+//! perspectives. Adding two new value types: string arrays
+//! (`workflow = ["TODO", "NEXT"]`) — the smallest extension to
+//! the hand-rolled parser that covers the schema.
+//!
 //! ## Format
 //!
 //! ```toml
@@ -77,6 +86,35 @@ pub struct Sidecar {
     /// Atrium and re-emitting the sidecar will see the new order
     /// here on the next round-trip.
     pub perspectives: Vec<PerspectiveEntry>,
+    /// v0.16.0 — per-vault custom TODO keyword sequences (Phase
+    /// 18.5 Tier-1). Empty = no override (Atrium's default
+    /// TODO/DONE binary applies; external keywords still preserve
+    /// via `task.orig_keyword` per the existing v0.10.2 path).
+    /// Single-sequence-per-vault is the typical Org pattern, but
+    /// multiple are accepted for users running multiple workflows
+    /// from the same vault.
+    pub todo_sequences: Vec<TodoSequenceEntry>,
+}
+
+/// One row of the `[[todo_sequences]]` array. Mirrors Org's
+/// `#+TODO: STATE1 STATE2 | DONE1 DONE2` shape — workflow states
+/// (open) on the left of the pipe, done states on the right.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TodoSequenceEntry {
+    /// Optional human-readable name. Atrium ignores it on import
+    /// (the keyword sets are what matter); a user might use it
+    /// to label different sequences when running multiple in one
+    /// vault. Defaults to `"default"` on emit when empty.
+    pub name: String,
+    /// Open keywords (left of the `#+TODO:` pipe). Order is the
+    /// cycle order Emacs would walk via `org-todo`. Empty entries
+    /// are silently dropped on parse.
+    pub workflow: Vec<String>,
+    /// Done keywords (right of the pipe). Atrium maps any of
+    /// these to the canonical DONE state on import, stashing the
+    /// source label in `task.orig_keyword` so the writer can
+    /// recover it on emit.
+    pub done: Vec<String>,
 }
 
 /// One row of the `[[perspectives]]` array. Mirrors the subset
@@ -144,6 +182,37 @@ impl Sidecar {
                 }
             }
         }
+
+        // v0.16.0 — TODO sequences. Same shape rules as
+        // perspectives: empty Vec emits a commented placeholder
+        // so a hand-editor sees the section's intent; non-empty
+        // emits one [[todo_sequences]] block per entry, separated
+        // by blank lines.
+        out.push('\n');
+        if self.todo_sequences.is_empty() {
+            out.push_str("# [[todo_sequences]]\n");
+            out.push_str("# name = \"default\"\n");
+            out.push_str("# workflow = [\"TODO\", \"NEXT\", \"WAITING\"]\n");
+            out.push_str("# done = [\"DONE\", \"CANCELLED\"]\n");
+        } else {
+            for (i, seq) in self.todo_sequences.iter().enumerate() {
+                if i > 0 {
+                    out.push('\n');
+                }
+                out.push_str("[[todo_sequences]]\n");
+                let name = if seq.name.is_empty() {
+                    "default"
+                } else {
+                    &seq.name
+                };
+                out.push_str(&format!("name = {}\n", quote_string(name)));
+                out.push_str(&format!(
+                    "workflow = {}\n",
+                    emit_string_array(&seq.workflow)
+                ));
+                out.push_str(&format!("done = {}\n", emit_string_array(&seq.done)));
+            }
+        }
         out
     }
 
@@ -161,6 +230,9 @@ impl Sidecar {
             /// Inside the most recent `[[perspectives]]` block —
             /// the index points at `out.perspectives[idx]`.
             Perspective(usize),
+            /// v0.16.0 — inside the most recent
+            /// `[[todo_sequences]]` block.
+            TodoSequence(usize),
             /// Some other named section we don't care about.
             Unknown,
         }
@@ -179,18 +251,23 @@ impl Sidecar {
             // `[perspectives`.
             if let Some(rest) = line.strip_prefix("[[").and_then(|s| s.strip_suffix("]]")) {
                 let name = rest.trim();
-                if name == "perspectives" {
-                    out.perspectives.push(PerspectiveEntry {
-                        // `renderer` defaults to "list" so a
-                        // perspective entry that omits the field
-                        // still parses cleanly.
-                        renderer: "list".to_string(),
-                        ..PerspectiveEntry::default()
-                    });
-                    cursor = Cursor::Perspective(out.perspectives.len() - 1);
-                } else {
-                    cursor = Cursor::Unknown;
-                }
+                cursor = match name {
+                    "perspectives" => {
+                        out.perspectives.push(PerspectiveEntry {
+                            // `renderer` defaults to "list" so a
+                            // perspective entry that omits the field
+                            // still parses cleanly.
+                            renderer: "list".to_string(),
+                            ..PerspectiveEntry::default()
+                        });
+                        Cursor::Perspective(out.perspectives.len() - 1)
+                    }
+                    "todo_sequences" => {
+                        out.todo_sequences.push(TodoSequenceEntry::default());
+                        Cursor::TodoSequence(out.todo_sequences.len() - 1)
+                    }
+                    _ => Cursor::Unknown,
+                };
                 continue;
             }
             if let Some(rest) = line.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
@@ -205,22 +282,32 @@ impl Sidecar {
                 continue;
             };
             let key = unquote_key(k.trim());
-            let value = unquote_string(v.trim());
+            let raw_value = v.trim();
             match &cursor {
                 Cursor::Toplevel if key == "mode" => {
-                    out.mode = Some(value);
+                    out.mode = Some(unquote_string(raw_value));
                 }
                 Cursor::Tags => {
-                    out.tag_colors.insert(key, value);
+                    out.tag_colors.insert(key, unquote_string(raw_value));
                 }
                 Cursor::Perspective(idx) => {
                     let entry = &mut out.perspectives[*idx];
+                    let value = unquote_string(raw_value);
                     match key.as_str() {
                         "name" => entry.name = value,
                         "filter" => entry.filter = value,
                         "icon" => entry.icon = Some(value),
                         "renderer" if !value.is_empty() => entry.renderer = value,
                         "renderer_config" => entry.renderer_config = Some(value),
+                        _ => {}
+                    }
+                }
+                Cursor::TodoSequence(idx) => {
+                    let entry = &mut out.todo_sequences[*idx];
+                    match key.as_str() {
+                        "name" => entry.name = unquote_string(raw_value),
+                        "workflow" => entry.workflow = parse_string_array(raw_value),
+                        "done" => entry.done = parse_string_array(raw_value),
                         _ => {}
                     }
                 }
@@ -268,6 +355,13 @@ pub fn build_from_db(conn: &Connection) -> Result<Sidecar, DbError> {
         mode: None,
         tag_colors,
         perspectives,
+        // v0.16.0 — TODO sequences live only in the file, not the
+        // SQL schema. `build_from_db` leaves them empty; the
+        // sidecar reader is the only source. Caller (writer
+        // flush path) merges this DB-derived view with the
+        // existing on-disk sidecar's sequence list before writing
+        // back, so a hand-edited sequence survives a re-emit.
+        todo_sequences: Vec::new(),
     })
 }
 
@@ -363,6 +457,77 @@ fn unquote_key(k: &str) -> String {
     }
 }
 
+/// v0.16.0 — emit a `Vec<String>` as a single-line TOML inline
+/// array of basic strings (`["TODO", "NEXT", "WAITING"]`).
+/// Empty input emits `[]`.
+fn emit_string_array(items: &[String]) -> String {
+    let mut out = String::with_capacity(2 + items.len() * 8);
+    out.push('[');
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&quote_string(item));
+    }
+    out.push(']');
+    out
+}
+
+/// v0.16.0 — parse a single-line TOML inline array of basic
+/// strings. Tolerant: malformed entries are dropped silently.
+/// Returns an empty Vec for non-array shapes (the section just
+/// loses that field; the rest of the entry survives).
+fn parse_string_array(raw: &str) -> Vec<String> {
+    let trimmed = raw.trim();
+    let Some(inner) = trimmed.strip_prefix('[').and_then(|s| s.strip_suffix(']')) else {
+        return Vec::new();
+    };
+    let inner = inner.trim();
+    if inner.is_empty() {
+        return Vec::new();
+    }
+    // Split on top-level commas — the values are basic strings
+    // (`"…"`), so commas inside escaped strings stay quoted.
+    // Simpler than tokenising: walk character by character,
+    // toggling a quoted-flag, splitting on commas seen outside
+    // of quotes.
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut in_string = false;
+    let mut prev_was_escape = false;
+    for ch in inner.chars() {
+        if in_string {
+            current.push(ch);
+            if ch == '\\' && !prev_was_escape {
+                prev_was_escape = true;
+                continue;
+            }
+            if ch == '"' && !prev_was_escape {
+                in_string = false;
+            }
+            prev_was_escape = false;
+        } else if ch == ',' {
+            parts.push(std::mem::take(&mut current));
+        } else if ch == '"' {
+            in_string = true;
+            current.push(ch);
+        } else if !ch.is_whitespace() {
+            // Junk between elements — preserve so unquote treats
+            // it as an unstructured token (which yields an empty
+            // string after unquote, dropped below).
+            current.push(ch);
+        }
+    }
+    if !current.trim().is_empty() {
+        parts.push(current);
+    }
+    parts
+        .into_iter()
+        .map(|p| unquote_string(p.trim()))
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -375,6 +540,7 @@ mod tests {
             mode: Some("builder".to_string()),
             tag_colors,
             perspectives: Vec::new(),
+            todo_sequences: Vec::new(),
         }
     }
 
@@ -512,6 +678,7 @@ work = \"#3584e4\"
                 renderer: "board".into(),
                 renderer_config: Some(cfg.into()),
             }],
+            todo_sequences: Vec::new(),
         };
         let parsed = Sidecar::parse_text(&s.emit_text());
         assert_eq!(parsed.perspectives[0].renderer_config.as_deref(), Some(cfg),);
@@ -572,6 +739,101 @@ work = \"#3584e4\"
         let quoted = quote_key(key);
         assert!(quoted.starts_with('"') && quoted.ends_with('"'));
         assert_eq!(unquote_key(&quoted), key);
+    }
+
+    // v0.16.0 — Phase 18.5 Tier-1 TODO sequences. Round-trip
+    // single + multi-sequence + missing-section + cleared.
+    #[test]
+    fn todo_sequences_round_trip_single() {
+        let mut s = populated();
+        s.todo_sequences = vec![TodoSequenceEntry {
+            name: "default".into(),
+            workflow: vec!["TODO".into(), "NEXT".into(), "WAITING".into()],
+            done: vec!["DONE".into(), "CANCELLED".into()],
+        }];
+        let text = s.emit_text();
+        assert!(text.contains("[[todo_sequences]]"));
+        assert!(text.contains("\"TODO\""));
+        assert!(text.contains("\"NEXT\""));
+        assert!(text.contains("\"DONE\""));
+        let parsed = Sidecar::parse_text(&text);
+        assert_eq!(parsed.todo_sequences.len(), 1);
+        assert_eq!(parsed.todo_sequences[0].name, "default");
+        assert_eq!(
+            parsed.todo_sequences[0].workflow,
+            vec![
+                "TODO".to_string(),
+                "NEXT".to_string(),
+                "WAITING".to_string()
+            ]
+        );
+        assert_eq!(
+            parsed.todo_sequences[0].done,
+            vec!["DONE".to_string(), "CANCELLED".to_string()]
+        );
+    }
+
+    #[test]
+    fn todo_sequences_round_trip_multi() {
+        let mut s = populated();
+        s.todo_sequences = vec![
+            TodoSequenceEntry {
+                name: "default".into(),
+                workflow: vec!["TODO".into()],
+                done: vec!["DONE".into()],
+            },
+            TodoSequenceEntry {
+                name: "research".into(),
+                workflow: vec!["TODO".into(), "READING".into(), "DRAFTING".into()],
+                done: vec!["DONE".into()],
+            },
+        ];
+        let text = s.emit_text();
+        let parsed = Sidecar::parse_text(&text);
+        assert_eq!(parsed.todo_sequences.len(), 2);
+        assert_eq!(parsed.todo_sequences[0].name, "default");
+        assert_eq!(parsed.todo_sequences[1].name, "research");
+        assert_eq!(parsed.todo_sequences[1].workflow.len(), 3);
+    }
+
+    #[test]
+    fn missing_todo_sequences_section_parses_to_empty() {
+        let s = populated();
+        // populated() has no sequences; emit + reparse must hold
+        // an empty Vec.
+        let text = s.emit_text();
+        let parsed = Sidecar::parse_text(&text);
+        assert!(parsed.todo_sequences.is_empty());
+    }
+
+    #[test]
+    fn empty_todo_sequences_emits_commented_placeholder() {
+        let s = populated();
+        let text = s.emit_text();
+        assert!(text.contains("# [[todo_sequences]]"));
+        assert!(text.contains("# workflow ="));
+    }
+
+    #[test]
+    fn parse_string_array_basic_shapes() {
+        assert_eq!(parse_string_array("[]"), Vec::<String>::new());
+        assert_eq!(
+            parse_string_array(r#"["TODO", "NEXT"]"#),
+            vec!["TODO".to_string(), "NEXT".to_string()]
+        );
+        // Embedded escaped quotes survive the comma-split.
+        assert_eq!(
+            parse_string_array(r#"["a \"b\" c", "d"]"#),
+            vec!["a \"b\" c".to_string(), "d".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_string_array_drops_empty_entries() {
+        assert_eq!(
+            parse_string_array(r#"["TODO", "", "NEXT"]"#),
+            vec!["TODO".to_string(), "NEXT".to_string()]
+        );
     }
 
     #[test]

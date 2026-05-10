@@ -90,6 +90,76 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.16.0" date="2026-05-10">
+      <description>
+        <p>Phase 18.5 Tier-1 custom TODO sequences land. The
+           most-cited Org feature (Bernt Hansen, Jethro Kuan,
+           every GTD-with-Org tutorial) — per-vault declared
+           keyword sets — round-trip end-to-end through Atrium's
+           sync. Zero schema impact: sequences live in the
+           sidecar (`[[todo_sequences]]` slot), and the existing
+           `task.orig_keyword` column from v0.7.12 carries the
+           labels through Atrium's TODO/DONE binary.</p>
+        <p>The vault writer projects each sequence as a
+           `#+TODO: workflow | done` preamble per project file.
+           The watcher maps in-set done keywords to Atrium's
+           completed state with the source label preserved;
+           out-of-set keywords surface a toast and stash via the
+           existing Custom path (graceful degradation, never
+           destroy data). Builder Mode Inspector pane gains a
+           keyword picker visible only when a sequence is
+           configured. CLI: `atrium-cli vault sequences list/set
+           /clear --vault PATH`.</p>
+      </description>
+    </release>
+    <release version="0.15.0" date="2026-05-10">
+      <description>
+        <p>Two Phase 18.5 features bundled — statistics cookies on
+           parent headlines (`[2/5]` / `[40%]`) and body inline
+           checkboxes (`- [ ]` / `- [X]`). Karl Voit names both
+           essential, and Org's `org-checkbox-hierarchical-statistics`
+           folds the two into one unified count, so they ship
+           together. Both modes; zero schema migrations.</p>
+        <p>The Org parser captures cookies from headlines and
+           strips them from titles; the writer re-emits cookies
+           projected from DB state on every flush, preserving the
+           user's chosen shape (counter vs percent) across
+           round-trips. New `atrium_core::checkbox` module surfaces
+           a forgiving body-checkbox parser + toggle helper. The
+           Inspector renders a "Subtasks" group above Notes
+           listing each checkbox as a CheckButton; toggles rewrite
+           the body in place. Cookie counter folds child TODOs +
+           body checkboxes so a parent with both gets one unified
+           [N/M]. Task list rows show the cookie inline between
+           title and tags; tabular figures keep digits aligned
+           when counts cross a digit boundary.</p>
+      </description>
+    </release>
+    <release version="0.14.0" date="2026-05-10">
+      <description>
+        <p>First Phase 18.5 item lands. The Org-mode `-Nd` warning
+           suffix on the DEADLINE cookie (`DEADLINE: &lt;2026-04-15
+           Wed -7d&gt;` — "surface 7 days early") becomes a per-task
+           override on the previously-global TODAY heads-up window,
+           so a sensitive deadline can surface earlier than the
+           default 7 days without changing how unmarked tasks
+           behave.</p>
+        <p>Schema migration `0008_task_deadline_warn_days.sql` adds
+           `task.deadline_warn_days` (`user_version` 7 → 8). Today
+           and the sidebar badge use `COALESCE(deadline_warn_days,
+           default)` so per-task overrides win without disturbing
+           the global default. Builder Mode Inspector pane gains a
+           SpinRow (visible only when a deadline is set) that
+           writes through to the new column. atrium-cli accepts
+           `--deadline-warn N` on `add` and `edit`. Org parser /
+           emitter / watcher learn the warning shape — both `-` and
+           `--` prefixes parse to the same value, the writer
+           canonicalises onto `-`, and external Emacs edits flow
+           back through the diff path. Test count: 11 new tests
+           across parser, emitter, read layer, worker, and
+           end-to-end watcher scenarios.</p>
+      </description>
+    </release>
     <release version="0.13.5" date="2026-05-09">
       <description>
         <p>Hotfix on top of v0.13.4: the fresh-vault seed now

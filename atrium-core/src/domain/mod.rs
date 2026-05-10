@@ -44,6 +44,14 @@ pub struct Task {
     /// a vault round-trip; otherwise it falls back to the
     /// canonical keyword implied by `completed_at`.
     pub orig_keyword: Option<String>,
+    /// v0.14.0 — Phase 18.5 Tier-1 per-task override on the
+    /// global TODAY_DEADLINE_WINDOW_DAYS (currently 7). When set,
+    /// Today surfaces this task starting `deadline_warn_days`
+    /// before its `deadline` instead of using the global default.
+    /// NULL means "use the global default." Only meaningful when
+    /// `deadline` is also set. Round-trips to Org as the `-Nd`
+    /// warning suffix on the DEADLINE cookie.
+    pub deadline_warn_days: Option<i64>,
     pub position: f64,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
@@ -94,6 +102,12 @@ pub struct NewTask {
     /// task is already done at that timestamp" — the worker
     /// inserts with completed_at set directly, no toggle needed.
     pub completed_at: Option<DateTime<Utc>>,
+    /// v0.14.0 — Phase 18.5 Tier-1 per-task override on the
+    /// global TODAY_DEADLINE_WINDOW_DAYS. Threaded through the
+    /// Org importer when a `-Nd` warning suffix appears on the
+    /// source vault file's DEADLINE cookie. None falls through
+    /// to NULL.
+    pub deadline_warn_days: Option<i64>,
 }
 
 impl NewTask {
@@ -155,6 +169,13 @@ pub struct TaskUpdate {
     /// delete + create cycle. `Some(None)` clears (back to a
     /// canonical TODO/DONE), `Some(Some(name))` sets.
     pub orig_keyword: Option<Option<String>>,
+    /// v0.14.0 — Phase 18.5 Tier-1 per-task warning window.
+    /// `Some(None)` clears the override (back to the global
+    /// default of TODAY_DEADLINE_WINDOW_DAYS); `Some(Some(n))`
+    /// sets it. The vault watcher writes through this when an
+    /// external Emacs edit changes the `-Nd` suffix on the
+    /// DEADLINE cookie.
+    pub deadline_warn_days: Option<Option<i64>>,
 }
 
 impl TaskUpdate {
@@ -253,6 +274,16 @@ impl TaskUpdate {
         self
     }
 
+    /// v0.14.0 — set or clear the per-task warning window. Pass
+    /// `None` to clear (back to the global default of
+    /// TODAY_DEADLINE_WINDOW_DAYS); pass `Some(n)` to set the
+    /// override. Only meaningful when the task also has a
+    /// `deadline`.
+    pub fn deadline_warn_days_value(mut self, value: Option<i64>) -> Self {
+        self.deadline_warn_days = Some(value);
+        self
+    }
+
     /// `true` when no field will change. The worker treats no-op
     /// updates as a read of the current row.
     pub fn is_noop(&self) -> bool {
@@ -268,6 +299,7 @@ impl TaskUpdate {
             && self.repeat_mode.is_none()
             && self.completed_at.is_none()
             && self.orig_keyword.is_none()
+            && self.deadline_warn_days.is_none()
     }
 }
 

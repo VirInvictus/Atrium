@@ -50,7 +50,7 @@ mod tests;
 
 use args::{
     AddArgs, EditArgs, EditIcon, EditProject, ExportSource, Format, ImportSource, PerspectiveArgs,
-    PerspectiveSub, Subcommand, TargetSpec,
+    PerspectiveSub, Subcommand, TargetSpec, VaultSequencesOp,
 };
 use output::{Row, format_row, format_rows, format_task_detail};
 
@@ -153,6 +153,12 @@ fn run(args: args::Args) -> ExitCode {
         } => with_readonly(&db_path, |conn| {
             run_export(conn, source, &path, dry_run, args.format)
         }),
+        Subcommand::VaultSequences { op, vault } => {
+            // No DB needed — sidecar lives on disk and the
+            // sub-subcommand operates on the file directly. Skip
+            // both the readonly-open and writer-spawn paths.
+            run_vault_sequences(&vault, op, args.format).unwrap_or_exit_code()
+        }
     }
 }
 
@@ -686,6 +692,110 @@ fn json_string(s: &str) -> String {
         })
         .collect();
     format!("\"{escaped}\"")
+}
+
+/// v0.16.0 — Phase 18.5 Tier-1 `atrium-cli vault sequences …`.
+/// Manipulates the vault sidecar's `[[todo_sequences]]` slot
+/// directly via the sidecar helpers; no DB round-trip required.
+/// `list` prints in TSV / JSON / human format; `set` replaces
+/// the configured sequence outright (single-sequence-per-vault
+/// is the typical case); `clear` drops all configured sequences.
+fn run_vault_sequences(vault: &str, op: VaultSequencesOp, format: Format) -> CliResult<()> {
+    let root = std::path::PathBuf::from(vault);
+    if !root.exists() {
+        return Err(CliError::Args(format!(
+            "vault path does not exist: {}",
+            root.display()
+        )));
+    }
+    let mut sidecar = atrium_org::sidecar::read_sidecar(&root)
+        .map_err(|e| CliError::Args(format!("read sidecar: {e}")))?;
+
+    match op {
+        VaultSequencesOp::List => {
+            print_todo_sequences(&sidecar.todo_sequences, format);
+            Ok(())
+        }
+        VaultSequencesOp::Set {
+            name,
+            workflow,
+            done,
+        } => {
+            // Replace outright. If the user wants multi-sequence
+            // they re-run with a different --name and the parser
+            // appends — but v0.16.0 ships single-sequence-only
+            // because that's what every Org tutorial uses.
+            sidecar.todo_sequences = vec![atrium_org::sidecar::TodoSequenceEntry {
+                name: name.unwrap_or_else(|| "default".to_string()),
+                workflow,
+                done,
+            }];
+            atrium_org::sidecar::write_sidecar(&root, &sidecar)
+                .map_err(|e| CliError::Args(format!("write sidecar: {e}")))?;
+            print_todo_sequences(&sidecar.todo_sequences, format);
+            Ok(())
+        }
+        VaultSequencesOp::Clear => {
+            sidecar.todo_sequences.clear();
+            atrium_org::sidecar::write_sidecar(&root, &sidecar)
+                .map_err(|e| CliError::Args(format!("write sidecar: {e}")))?;
+            println!("vault sequences cleared");
+            Ok(())
+        }
+    }
+}
+
+fn print_todo_sequences(sequences: &[atrium_org::sidecar::TodoSequenceEntry], format: Format) {
+    match format {
+        Format::Tsv => {
+            println!("name\tworkflow\tdone");
+            for s in sequences {
+                println!("{}\t{}\t{}", s.name, s.workflow.join(","), s.done.join(","));
+            }
+        }
+        Format::Json => {
+            // Hand-rolled to avoid pulling serde_json into
+            // formatting; the shape is small + flat.
+            print!("[");
+            for (i, s) in sequences.iter().enumerate() {
+                if i > 0 {
+                    print!(",");
+                }
+                print!(
+                    "{{\"name\":\"{name}\",\"workflow\":[{wf}],\"done\":[{dn}]}}",
+                    name = json_escape(&s.name),
+                    wf = s
+                        .workflow
+                        .iter()
+                        .map(|k| format!("\"{}\"", json_escape(k)))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    dn = s
+                        .done
+                        .iter()
+                        .map(|k| format!("\"{}\"", json_escape(k)))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+            }
+            println!("]");
+        }
+        Format::Human => {
+            if sequences.is_empty() {
+                println!("(no TODO sequences configured)");
+                return;
+            }
+            for s in sequences {
+                println!("# {}", s.name);
+                println!("  workflow: {}", s.workflow.join(" "));
+                println!("  done:     {}", s.done.join(" "));
+            }
+        }
+    }
+}
+
+fn json_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// Phase 16, v0.7.10/v0.7.11 — `atrium-cli export <SOURCE> PATH [--dry-run]`.
@@ -1297,6 +1407,7 @@ fn run_add(
         uuid: None,
         orig_keyword: None,
         completed_at: None,
+        deadline_warn_days: add.deadline_warn,
     };
 
     let task = runtime
@@ -1444,6 +1555,16 @@ fn run_edit(
                 .parse()
                 .map_err(|_| CliError::Args(format!("--estimated: not an integer: {s}")))?;
             update = update.estimated_minutes_value(Some(n));
+        }
+    }
+    if let Some(s) = edit.deadline_warn.as_deref() {
+        if s.eq_ignore_ascii_case("none") {
+            update = update.deadline_warn_days_value(None);
+        } else {
+            let n: i64 = s
+                .parse()
+                .map_err(|_| CliError::Args(format!("--deadline-warn: not an integer: {s}")))?;
+            update = update.deadline_warn_days_value(Some(n));
         }
     }
 

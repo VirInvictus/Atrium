@@ -14,7 +14,8 @@ use crate::error::DbError;
 
 const TASK_COLUMNS: &str = "id, uuid, title, note, project_id, parent_id, \
     scheduled_for, deadline, defer_until, estimated_minutes, completed_at, \
-    repeat_rule, repeat_mode, last_reviewed_at, orig_keyword, position, created_at, modified_at";
+    repeat_rule, repeat_mode, last_reviewed_at, orig_keyword, deadline_warn_days, \
+    position, created_at, modified_at";
 
 /// Fetch a single task by primary key.
 pub fn task_by_id(conn: &Connection, id: i64) -> Result<Option<Task>, DbError> {
@@ -55,19 +56,22 @@ pub fn count_tasks(conn: &Connection) -> Result<i64, DbError> {
     Ok(conn.query_row("SELECT count(*) FROM task", [], |r| r.get(0))?)
 }
 
-/// Heads-up window for upcoming deadlines surfaced in Today (spec
-/// §4.2). A task with a deadline within `today + N` days appears in
-/// Today even before that deadline arrives, matching Things 3's
-/// "deadlines approaching" behaviour. The window stays at one
-/// constant for v0.1; turning it into a GSettings key is a Phase 8d
-/// preferences task.
+/// Default heads-up window for upcoming deadlines surfaced in Today
+/// (spec §4.2). A task with a deadline within `today + N` days
+/// appears in Today even before that deadline arrives, matching
+/// Things 3's "deadlines approaching" behaviour. v0.14.0 (Phase
+/// 18.5 Tier-1) made this a per-task overridable default — when
+/// `task.deadline_warn_days` is set, the per-task value wins; when
+/// NULL, the global constant applies. Turning the global default
+/// itself into a GSettings key is a Phase 8d / 19.5 preferences
+/// task.
 pub const TODAY_DEADLINE_WINDOW_DAYS: i64 = 7;
 
 /// Today list per spec §4.2:
 ///
 /// > `task WHERE completed_at IS NULL`
 /// > `  AND ( scheduled_for ≤ today`
-/// > `        OR deadline ≤ today + TODAY_DEADLINE_WINDOW_DAYS )`
+/// > `        OR deadline ≤ today + COALESCE(deadline_warn_days, N) )`
 /// > `  AND ( defer_until IS NULL OR defer_until ≤ today )`
 ///
 /// The `scheduled_for != '__someday__'` clause is the implementation
@@ -76,16 +80,20 @@ pub const TODAY_DEADLINE_WINDOW_DAYS: i64 = 7;
 /// underscores (`0x5F`) which compare *less than* any digit, so a
 /// naive `scheduled_for <= ?today` would otherwise match it.
 ///
-/// The `deadline ≤ today + window` clause is the v0.0.38 Things-3
-/// alignment: deadlines approaching surface as a heads-up so the
-/// user isn't blindsided. Earlier versions used `deadline ≤ today`,
-/// which left a future-deadlined task buried in Anytime until its
-/// deadline date arrived.
+/// The deadline clause is the v0.0.38 Things-3 alignment: deadlines
+/// approaching surface as a heads-up so the user isn't blindsided.
+/// Earlier versions used `deadline ≤ today`, which left a future-
+/// deadlined task buried in Anytime until its deadline date arrived.
+/// v0.14.0 (Phase 18.5 Tier-1) added the per-task warning override
+/// via `COALESCE(deadline_warn_days, ?2)` so a sensitive task can
+/// surface earlier than the global default.
 pub fn list_today(conn: &Connection, today: NaiveDate) -> Result<Vec<Task>, DbError> {
     let today_str = today.format("%Y-%m-%d").to_string();
-    let horizon_str = (today + chrono::Duration::days(TODAY_DEADLINE_WINDOW_DAYS))
-        .format("%Y-%m-%d")
-        .to_string();
+    // SQLite stores `deadline` as an ISO date string. The horizon
+    // is computed per-row in SQL by adding `COALESCE(warn, default)`
+    // days to the parameter `today`, then comparing to the deadline
+    // string lexicographically — both sides use `YYYY-MM-DD`, which
+    // sorts cleanly without converting to julianday.
     let sql = format!(
         "SELECT {TASK_COLUMNS} FROM task \
          WHERE completed_at IS NULL \
@@ -93,13 +101,17 @@ pub fn list_today(conn: &Connection, today: NaiveDate) -> Result<Vec<Task>, DbEr
                  (scheduled_for IS NOT NULL \
                     AND scheduled_for != '__someday__' \
                     AND scheduled_for <= ?1) \
-                 OR (deadline IS NOT NULL AND deadline <= ?2) \
+                 OR (deadline IS NOT NULL \
+                     AND deadline <= date(?1, '+' || COALESCE(deadline_warn_days, ?2) || ' days')) \
                ) \
            AND (defer_until IS NULL OR defer_until <= ?1) \
          ORDER BY position"
     );
     let mut stmt = conn.prepare_cached(&sql)?;
-    let rows = stmt.query_map(params![today_str, horizon_str], task_from_row)?;
+    let rows = stmt.query_map(
+        params![today_str, TODAY_DEADLINE_WINDOW_DAYS],
+        task_from_row,
+    )?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
 }
@@ -320,9 +332,9 @@ pub fn count_open_canonical(
         |r| r.get(0),
     )?;
 
-    let horizon_str = (today + chrono::Duration::days(TODAY_DEADLINE_WINDOW_DAYS))
-        .format("%Y-%m-%d")
-        .to_string();
+    // Mirror list_today's per-row deadline horizon (v0.14.0): each
+    // task's effective horizon is `today + COALESCE(deadline_warn_days,
+    // global_default)`. Sidebar badge must match list contents.
     let today_count: i64 = conn.query_row(
         "SELECT count(*) FROM task \
          WHERE completed_at IS NULL \
@@ -330,10 +342,11 @@ pub fn count_open_canonical(
                  (scheduled_for IS NOT NULL \
                     AND scheduled_for != '__someday__' \
                     AND scheduled_for <= ?1) \
-                 OR (deadline IS NOT NULL AND deadline <= ?2) \
+                 OR (deadline IS NOT NULL \
+                     AND deadline <= date(?1, '+' || COALESCE(deadline_warn_days, ?2) || ' days')) \
                ) \
            AND (defer_until IS NULL OR defer_until <= ?1)",
-        params![today_str, horizon_str],
+        params![today_str, TODAY_DEADLINE_WINDOW_DAYS],
         |r| r.get(0),
     )?;
 
@@ -391,6 +404,76 @@ pub fn count_open_per_project(conn: &Connection) -> Result<HashMap<i64, i64>, Db
     for row in rows {
         let (pid, c) = row?;
         out.insert(pid, c);
+    }
+    Ok(out)
+}
+
+/// v0.15.0 — Phase 18.5 Tier-1 statistics-cookie projection.
+/// `(done, total)` per project, keyed by project id. Total
+/// counts every task in the project (including completed); done
+/// counts the subset with non-NULL `completed_at`. The
+/// projection feeds both the inline `[N/M]` cookie on the project
+/// sub-heading the writer emits and the future cookie display on
+/// the project sidebar entry. Projects that hold zero tasks are
+/// absent from the map (cookie isn't meaningful when there's
+/// nothing to count).
+pub fn count_done_total_per_project(
+    conn: &Connection,
+) -> Result<HashMap<i64, (u32, u32)>, DbError> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT project_id, \
+                SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END), \
+                count(*) \
+         FROM task \
+         WHERE project_id IS NOT NULL \
+         GROUP BY project_id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, i64>(2)?,
+        ))
+    })?;
+    let mut out = HashMap::new();
+    for row in rows {
+        let (pid, done, total) = row?;
+        // Counts can never realistically overflow u32 (4B tasks per
+        // project), but be defensive at the cast.
+        let done = u32::try_from(done).unwrap_or(u32::MAX);
+        let total = u32::try_from(total).unwrap_or(u32::MAX);
+        out.insert(pid, (done, total));
+    }
+    Ok(out)
+}
+
+/// v0.15.0 — `(done, total)` per parent task, keyed by parent
+/// task id. Counts immediate children (one level only — Org's
+/// statistics cookie convention is per-headline, not recursive,
+/// matching `org-hierarchical-todo-statistics` defaults). Parent
+/// tasks with zero children are absent from the map.
+pub fn count_done_total_per_parent(conn: &Connection) -> Result<HashMap<i64, (u32, u32)>, DbError> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT parent_id, \
+                SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END), \
+                count(*) \
+         FROM task \
+         WHERE parent_id IS NOT NULL \
+         GROUP BY parent_id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, i64>(2)?,
+        ))
+    })?;
+    let mut out = HashMap::new();
+    for row in rows {
+        let (pid, done, total) = row?;
+        let done = u32::try_from(done).unwrap_or(u32::MAX);
+        let total = u32::try_from(total).unwrap_or(u32::MAX);
+        out.insert(pid, (done, total));
     }
     Ok(out)
 }
@@ -928,6 +1011,7 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         repeat_mode: row.get("repeat_mode")?,
         last_reviewed_at: row.get("last_reviewed_at")?,
         orig_keyword: row.get("orig_keyword")?,
+        deadline_warn_days: row.get("deadline_warn_days")?,
         position: row.get("position")?,
         created_at: row.get("created_at")?,
         modified_at: row.get("modified_at")?,
@@ -961,6 +1045,22 @@ mod tests {
              (uuid, title, scheduled_for, deadline, defer_until, completed_at, position) \
              VALUES (?, ?, ?, ?, ?, ?, ?)",
             params![uuid, title, scheduled, deadline, defer, completed, 1.0],
+        )
+        .unwrap();
+    }
+
+    fn insert_task_with_warn(
+        conn: &Connection,
+        uuid: &str,
+        title: &str,
+        deadline: &str,
+        warn: Option<i64>,
+    ) {
+        conn.execute(
+            "INSERT INTO task \
+             (uuid, title, deadline, deadline_warn_days, position) \
+             VALUES (?, ?, ?, ?, ?)",
+            params![uuid, title, deadline, warn, 1.0],
         )
         .unwrap();
     }
@@ -1116,6 +1216,59 @@ mod tests {
             None,
         );
         assert!(list_today(&conn, today()).unwrap().is_empty());
+    }
+
+    // v0.14.0 — Phase 18.5 Tier-1: per-task `deadline_warn_days`
+    // overrides the global TODAY_DEADLINE_WINDOW_DAYS. With today
+    // = 2026-05-15, a deadline 14 days out (2026-05-29) only
+    // surfaces in Today when the row carries an override large
+    // enough to cover it.
+    #[test]
+    fn today_includes_deadline_when_per_task_warn_overrides_default() {
+        let conn = fresh_conn();
+        insert_task_with_warn(&conn, "with-warn", "sensitive", "2026-05-29", Some(14));
+        insert_task_with_warn(&conn, "no-warn", "default", "2026-05-29", None);
+        let rows = list_today(&conn, today()).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "sensitive");
+    }
+
+    #[test]
+    fn today_excludes_deadline_when_per_task_warn_is_below_offset() {
+        // A deadline 5 days out with warn=2 is *below* the global
+        // default's reach, but the override wins — the per-task
+        // value is the contract, not a maximum.
+        let conn = fresh_conn();
+        insert_task_with_warn(&conn, "tight", "tight window", "2026-05-20", Some(2));
+        assert!(list_today(&conn, today()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn today_per_task_warn_zero_surfaces_only_on_or_past_deadline() {
+        // warn=0 means "no early surfacing." The deadline itself
+        // stays in scope (`deadline ≤ today + 0` ⇒ deadline ≤ today),
+        // but a future deadline doesn't.
+        let conn = fresh_conn();
+        insert_task_with_warn(&conn, "future", "tomorrow", "2026-05-16", Some(0));
+        insert_task_with_warn(&conn, "now", "today", "2026-05-15", Some(0));
+        insert_task_with_warn(&conn, "past", "yesterday", "2026-05-14", Some(0));
+        let rows = list_today(&conn, today()).unwrap();
+        let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(titles, vec!["today", "yesterday"]);
+    }
+
+    #[test]
+    fn today_count_matches_list_today_with_per_task_warn() {
+        // Sidebar badge + list contents must agree under the
+        // per-row horizon (v0.14.0 mirrored the COALESCE into
+        // count_open_canonical alongside list_today).
+        let conn = fresh_conn();
+        insert_task_with_warn(&conn, "with-warn", "sensitive", "2026-05-29", Some(14));
+        insert_task_with_warn(&conn, "no-warn", "default", "2026-05-29", None);
+        let counts = count_open_canonical(&conn, today()).unwrap();
+        let listed = list_today(&conn, today()).unwrap().len() as i64;
+        assert_eq!(counts.today, listed);
+        assert_eq!(counts.today, 1);
     }
 
     #[test]

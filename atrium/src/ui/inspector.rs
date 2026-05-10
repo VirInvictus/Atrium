@@ -27,7 +27,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use atrium_core::{Project, ScheduledFor, Task, TaskUpdate, WorkerHandle};
+use atrium_core::{
+    Project, ScheduledFor, Task, TaskUpdate, WorkerHandle, parse_body_checkboxes,
+    toggle_body_checkbox,
+};
 use chrono::NaiveDate;
 use gtk::glib;
 use gtk::glib::clone;
@@ -172,12 +175,80 @@ pub fn open<F>(
     let notes_group = adw::PreferencesGroup::builder().title("Notes").build();
     notes_group.add(&notes_scroll);
 
+    // ── v0.15.0 — Body checkboxes (Phase 18.5 Tier-2). Identical
+    // shape to the Builder Mode pane minus the immediate worker
+    // dispatch — Simple Mode is modal, so a checkbox toggle just
+    // edits the buffer text. The dialog's Apply button picks up
+    // the resulting note string; Cancel discards both text edits
+    // and toggles together (Apply/Cancel transactional surface).
+    let subtasks_group = adw::PreferencesGroup::builder().title("Subtasks").build();
+    let subtasks_list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .build();
+    subtasks_list.add_css_class("boxed-list");
+    subtasks_group.add(&subtasks_list);
+    let rebuild_subtasks = Rc::new({
+        let buffer = notes_buffer.clone();
+        let list = subtasks_list.clone();
+        let group = subtasks_group.clone();
+        move || {
+            while let Some(child) = list.first_child() {
+                list.remove(&child);
+            }
+            let body = buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .to_string();
+            let checkboxes = parse_body_checkboxes(&body);
+            if checkboxes.is_empty() {
+                group.set_visible(false);
+                return;
+            }
+            group.set_visible(true);
+            for cb in checkboxes {
+                let row = adw::ActionRow::builder().title(&cb.label).build();
+                let check = gtk::CheckButton::builder()
+                    .active(cb.state.is_done())
+                    .valign(gtk::Align::Center)
+                    .build();
+                check.set_inconsistent(matches!(
+                    cb.state,
+                    atrium_core::CheckboxState::Indeterminate
+                ));
+                let line_index = cb.line_index;
+                let buffer_for_click = buffer.clone();
+                check.connect_toggled(move |_| {
+                    let current = buffer_for_click
+                        .text(
+                            &buffer_for_click.start_iter(),
+                            &buffer_for_click.end_iter(),
+                            false,
+                        )
+                        .to_string();
+                    let updated = toggle_body_checkbox(&current, line_index);
+                    if updated == current {
+                        return;
+                    }
+                    buffer_for_click.set_text(&updated);
+                });
+                row.add_prefix(&check);
+                row.set_activatable_widget(Some(&check));
+                list.append(&row);
+            }
+        }
+    });
+    rebuild_subtasks();
+    let rebuild_for_changed = rebuild_subtasks.clone();
+    notes_buffer.connect_changed(move |_| {
+        rebuild_for_changed();
+    });
+
     // ── PreferencesPage container holds the four groups; gives
     //    automatic padding, scrolling, and the Adwaita background.
     let page = adw::PreferencesPage::new();
     page.add(&title_group);
     page.add(&dates_group);
     page.add(&tags_group);
+    page.add(&subtasks_group);
     page.add(&notes_group);
 
     toolbar.set_content(Some(&page));

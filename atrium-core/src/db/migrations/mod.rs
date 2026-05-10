@@ -26,7 +26,10 @@ use crate::error::DbError;
 /// Review page's task-level Mark Reviewed action. Version 7
 /// (v0.7.12) adds `task.orig_keyword` so the Org importer can stash
 /// non-canonical keywords (WAITING, BLOCKED, etc.) for round-trip
-/// preservation by the writer.
+/// preservation by the writer. Version 8 (v0.14.0, Phase 18.5
+/// Tier-1) adds `task.deadline_warn_days` so a per-task warning
+/// suffix on the Org DEADLINE cookie (`-Nd` / `--Nd`) can override
+/// the global TODAY_DEADLINE_WINDOW_DAYS for that task only.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
@@ -35,6 +38,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (5, include_str!("0005_perspective_renderer.sql")),
     (6, include_str!("0006_task_last_reviewed_at.sql")),
     (7, include_str!("0007_task_orig_keyword.sql")),
+    (8, include_str!("0008_task_deadline_warn_days.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

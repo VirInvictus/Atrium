@@ -1,5 +1,69 @@
 # Atrium — Patch Notes
 
+## v0.16.0 (2026-05-10) — Phase 18.5 Tier-1: custom TODO sequences
+
+The most-cited Org feature in the v0.6.19 research pass — Bernt Hansen's NEXT-replaces-priority workflow, Jethro Kuan's processing pipeline, every GTD-with-Org tutorial — lands. Per-vault declared TODO keyword sequences round-trip through Atrium's vault sync end-to-end: the writer projects them as `#+TODO:` preambles, the watcher validates against them, the Inspector pane picks from them, the CLI manages them. Zero schema impact (sequences live in the sidecar; existing `task.orig_keyword` from v0.7.12 carries the labels through Atrium's TODO/DONE binary).
+
+**Sidecar.** `<vault>/.atrium/config.toml` gains a `[[todo_sequences]]` array-of-tables slot. Each entry carries `name`, `workflow` (open keywords), and `done` (completion keywords) — mirroring Org's `#+TODO: STATE1 STATE2 | DONE1 DONE2` shape. The hand-rolled TOML parser learns one new value type (single-line inline string arrays); the rest of the schema stays unchanged. Empty `todo_sequences` emits a commented placeholder so an Emacs-side power user editing the sidecar by hand sees the section is intentional. Backward-compat: pre-v0.16.0 sidecars without the section parse cleanly to an empty Vec; existing tag colours + perspectives + mode survive untouched.
+
+**Writer.** `write_project_to_vault` reads the sidecar's first sequence (single-sequence-per-vault is the typical Org pattern; multi-sequence support stays available in the sidecar shape but the writer projects only the first into `#+TODO:` for now). When configured, every project file's preamble carries `#+TODO: workflow | done`. The vault-writer's sidecar refresh path now reads the on-disk sequences before re-emitting (the DB doesn't carry sequences, so without this merge every flush would silently erase them).
+
+**Watcher.** New `keyword_is_done` + `keyword_is_known` helpers walk the configured sequence's sets. The `to_new_task` and `diff_from` paths thread the sequence through; `org_keyword_to_orig` learns to stash workflow keywords under sequence-aware logic so a NEXT or WAITING task round-trips with its label intact. Unknown keywords (out of both sets) surface a new `VaultEvent::UnknownKeyword { source, keyword }` event so the GUI can prompt the user — they still preserve via the existing Custom path; never destroy data.
+
+**Builder Mode Inspector.** New `adw::ComboRow` keyword picker between the title row and the dates group. Visible only when a sequence is configured (no sequence = no override = the title-row checkbox stays the binary toggle). Selection writes through to `task.orig_keyword` + `task.completed_at` together — picking a workflow keyword reopens; picking a done keyword stamps `now()` (or preserves the existing completion timestamp on a re-pick).
+
+**CLI.** `atrium-cli vault sequences list/set/clear --vault PATH`. Vault path is required because atrium-cli is process-isolated from the GTK GSettings store. `set --workflow TODO,NEXT,WAITING --done DONE,CANCELLED` replaces the configured sequence outright. Output respects `--json` / `--tsv` / `--human`.
+
+**Architecture choice flagged for follow-up.** The watcher reads the sidecar on every diff event. That's cheap (small file, buffered I/O) and means a sidecar edit takes effect immediately without restart, but if profiling ever shows it as a bottleneck the writer's existing `last_sidecar` cache pattern can mirror to the watcher.
+
+15 new tests across the sidecar (round-trip with single + multi sequences, missing-section degrades cleanly, string-array parse with embedded escapes), the watcher (keyword_is_done + keyword_is_known + org_keyword_to_orig under varied sequence configurations), and the writer (#+TODO: emit gated on sequence presence). Workspace passes 818 tests; fmt + clippy clean. Schema unchanged at version 8.
+
+VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo + CLAUDE.md status block bumped to 0.16.0.
+
+## v0.15.0 (2026-05-10) — Phase 18.5: statistics cookies + body inline checkboxes
+
+Two Phase 18.5 features land bundled because they reinforce each other: Karl Voit names both essential, and Org's `org-checkbox-hierarchical-statistics` (default on) folds body checkboxes into parent statistics cookies as one unified count. The bundle ships zero migrations and works in both modes.
+
+**Statistics cookies — Tier-1.** The Org parser learns to recognise `[done/total]` and `[N%]` cookies on the headline between the title and tags. Captured cookies are stripped from the title text (so `task.title` stays clean) and stashed on a new `OrgTask.statistics_cookie` field whose variant preserves the user's chosen shape across the round-trip. The writer's new `stamp_statistics_cookies` walker computes the values fresh from DB state on every emit — a stale `[2/5]` self-heals to `[3/5]` the next time the writer flushes. New `count_done_total_per_project` + `count_done_total_per_parent` SQL helpers in `atrium-core::db::read` feed both the writer projection and the GUI inline cookie label.
+
+**Body inline checkboxes — Tier-2.** New `atrium_core::checkbox` module surfaces a small forgiving parser: `- [ ]`, `- [X]`, `- [-]` (plus `+` and `*` bullet variants for Org compatibility), with a `toggle_body_checkbox(body, line_index)` helper that rewrites a single line in place. The body string stays the source of truth — the Inspector renders a projection above the Notes textview as a list of `gtk::CheckButton` rows; clicking a checkbox toggles the line in the buffer, which triggers the Inspector pane's worker dispatch (Builder Mode) or simply updates the buffer that the dialog's Apply will pick up (Simple Mode, transactional). 14 unit tests in the checkbox module cover all three states, alternative bullets, indented checkboxes, indeterminate-clears-to-unchecked toggle semantics, trailing-newline preservation, and done/total counting.
+
+**Cookie + checkbox integration.** The cookie counter folds body-checkbox done/total alongside child-TODO counts. A parent task with three subtasks (one DONE) and four body checkboxes (two checked) gets `[3/7]`. A task with no subtasks but a body checklist still earns a cookie. Mirrors what every "Org statistics cookies aren't recursive by default" tutorial expects — child counts stay local to the immediate parent (per `org-hierarchical-todo-statistics`'s default), but body checkboxes count regardless.
+
+**GUI surface.** Task list rows whose task has children or body checkboxes show the cookie as a small dim suffix on the title (between the title and the tag pills). Mirrors Org's headline shape: title, cookie, tags. New `.atrium-task-cookie` CSS class with tabular figures so `[3/5]` doesn't shift width when a count crosses a digit boundary. The cookie label updates live as children get toggled (the diff applier re-runs the cookie resolver on every TaskChanges update).
+
+**Open architectural work for follow-ups (deliberately not in v0.15.0).**
+
+- **Inline checkbox embedding inside the textview.** v0.15.0 renders checkboxes as a separate "Subtasks" group above the textview. Org-mode-style in-text widgets (a clickable `[ ]` rendered inside the rich text) require GtkTextChildAnchor + add_child_at_anchor scaffolding. Polish item; the current shape is functional.
+- **Cookie display in the sidebar projects.** Sidebar projects already carry numeric badges from `count_open_per_project`; v0.15.0 doesn't touch them. The vault file gets the cookie projection, and the per-task row shows the cookie. Switching the sidebar badges to the cookie shape would be visual cleanup, not a feature.
+- **Recursive cookie counting.** Org's `org-hierarchical-todo-statistics` defaults to non-recursive (immediate children only); we follow. A custom Atrium recursive variant could come if real users ask.
+
+11 new tests in atrium-core's `checkbox` module + 6 cookie-shape tests in the Org parser + 4 emit roundtrip tests + 5 cookie-projection tests in the writer + the GUI hooks (no GTK unit tests this release; the visible behaviour is exercised through the regression smoke). Workspace passes 803 tests; fmt + clippy clean. Schema unchanged at version 8.
+
+VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo + CLAUDE.md status block bumped to 0.15.0.
+
+## v0.14.0 (2026-05-10) — Phase 18.5 Tier-1: DEADLINE warning windows
+
+First Phase 18.5 item lands. Org-mode's per-deadline `-Nd` / `--Nd` warning suffix (`DEADLINE: <2026-04-15 Wed -7d>` — "surface 7 days early") becomes a per-task override on Atrium's previously-global `TODAY_DEADLINE_WINDOW_DAYS` constant. A sensitive deadline can now surface in Today earlier than the default 7-day heads-up window without disturbing how unmarked tasks behave; users coming from Org-mode get the round-trip they expect. The roadmap calls this out as the lowest-cost Tier-1 item — schema is one additive column, the read query gains a `COALESCE`, and the Org parser/emitter learns to recognise the suffix shape it had been ignoring.
+
+**Schema.** Migration `0008_task_deadline_warn_days.sql` adds `task.deadline_warn_days INTEGER NULL`. `user_version` 7 → 8. Append-only per the post-v0.2.0 schema rule; existing rows default NULL = "use the global default." v0.13.x binaries reading a v0.14.0 DB ignore the column.
+
+**Today list + sidebar badge.** `db::read::list_today` + `count_open_canonical.today` both moved their static `today + N` horizon into a per-row SQL expression: `deadline ≤ date(?today, '+' || COALESCE(deadline_warn_days, ?default) || ' days')`. The badge count and the list contents stay in lockstep — one COALESCE in two queries. The pure-Rust mirrors in `task_list::CanonicalList::Today::matches` and `atrium_search::eval::is_in_today_list` got the same treatment so in-memory filter evaluation agrees with the SQL.
+
+**Org parser/emitter.** `parse_timestamp_inner` walks the post-date tokens once and pulls the first that matches `+`/`++`/`.+` (repeater) and the first that matches `-`/`--` (warning) regardless of order — Org allows either sequence. Both warning prefixes parse to the same `u32` days; Atrium normalises onto the single-dash form on emit since there's no global-default-override concept that would distinguish them. Day units land canonically; week/month/year units (`-2w`, `-1m`, `-1y`) fold into 14/30/365-day approximations on parse so the integer-day column stays straightforward. SCHEDULED-side warnings are accepted and round-trip verbatim into a sibling `OrgTask.scheduled_warning` field — Atrium doesn't model them in the DB but won't drop them on a round-trip.
+
+**Vault watcher diff.** External Emacs edits to the `-Nd` suffix flow back into `task.deadline_warn_days` via the existing diff path (a new `parsed_warn != existing.deadline_warn_days` arm dispatches `TaskUpdate::deadline_warn_days_value`). Tested end-to-end: append a TODO with `-7d` → DB lands at `Some(7)` and the writer round-trips the cookie; flip the suffix to `--14d` → DB lands at `Some(14)` and the writer normalises onto `-14d`; remove the suffix entirely → DB clears to NULL.
+
+**Builder Mode UI.** `inspector_pane.rs` gains an `adw::SpinRow` ("Heads-up window", range 0–60, step 1) wired to the deadline-button callback so the row's visibility tracks whether the task has a deadline set. `0` in the SpinRow means "use the default 7"; any positive value writes the override via `TaskUpdate::deadline_warn_days_value`. Autosaves on value-changed, consistent with the existing pane's pattern. Simple Mode's modal Inspector dialog stays unchanged — Builder-only UI exposure, schema column round-trips through the vault regardless of mode (mode-as-view, per the Phase 10 acceptance test).
+
+**CLI.** `atrium-cli add --deadline-warn N` (alias `--warn`) and `atrium-cli edit --deadline-warn N|none`. Negative integers reject at parse time; `none` clears the column. `info`'s human-readable output gains a `warn  N days before deadline` row when the column is set.
+
+**Tests.** Six new parser tests cover `-7d`, `--7d` normalisation, repeater + warning in either order, `w`/`m`/`y` unit folding, and SCHEDULED-side verbatim round-trip. Three new emit tests cover plain warning round-trip, repeater + warning canonicalisation order, and `--7d → -7d` normalisation. Four new read-layer tests cover per-task override winning over the global default, override below the default still being honoured, `warn=0` semantics (deadline-or-past only), and badge-vs-list parity. One worker test covers set/clear via `TaskUpdate`. One end-to-end watcher integration test covers external add → DB sync → writer round-trip → external flip → DB sync → external clear → DB clear.
+
+11 new tests across parser, emitter, read layer, worker, and end-to-end watcher scenarios; full ship gate (`scripts/regression.sh`) passes. Schema version 8.
+
+VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo bumped to 0.14.0.
+
 ## v0.13.5 (2026-05-09) — Vault: seed registers writes in RecentWrites
 
 Hotfix on top of v0.13.4. The fresh-vault seed bypassed `RecentWrites` (the shared self-write filter set the writer + watcher both consult to suppress self-induced echoes), so on every fresh-vault boot the watcher saw all 50 of Brandon's seeded `.org` files as external edits, fed them through the worker as no-op updates, the writer flushed each project, and the writer's pre-flush conflict check legitimately treated each file as foreign — backing every one up to `<file>.atrium.bak.<UTC>`. Boot logs filled with 50 spurious "vault conflict: external edit" warnings; `~/Tasks` collected 50 stale backup files.

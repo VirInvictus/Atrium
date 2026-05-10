@@ -105,6 +105,16 @@ pub enum VaultEvent {
         cookie: String,
         rrule: String,
     },
+
+    /// v0.16.0 — the watcher saw a TODO keyword on a headline
+    /// that isn't in any of the vault's configured `[[todo_sequences]]`
+    /// sets. The keyword is preserved verbatim via
+    /// `task.orig_keyword` (graceful degradation; never destroy
+    /// data) but the GUI may want to prompt the user to add it
+    /// to the workflow set so future occurrences map cleanly.
+    /// Surfaces once per (file, keyword) on the first sighting;
+    /// subsequent same-keyword edits stay quiet.
+    UnknownKeyword { source: PathBuf, keyword: String },
 }
 
 /// Write-only Org vault setup. Spins up a [`VaultWriter`] against

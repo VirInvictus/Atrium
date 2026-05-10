@@ -7,6 +7,7 @@
 //! daemon, the eventual `atrium-tui` frontend, integration tests)
 //! depends on `atrium-core` directly.
 
+pub mod checkbox;
 pub mod db;
 pub mod domain;
 pub mod error;
@@ -18,6 +19,9 @@ pub mod sync;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
+pub use checkbox::{
+    BodyCheckbox, CheckboxState, count_body_checkboxes, parse_body_checkboxes, toggle_body_checkbox,
+};
 pub use db::changes::{LibraryChanges, TaskChanges};
 pub use db::read::SqlBindValue;
 pub use db::vault_hook::{VaultConfig, VaultDirtyNotifier};

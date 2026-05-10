@@ -501,6 +501,11 @@ fn bridge_vault_events(
                         "“{title}”: Org cookie diverged from :RRULE: — DB kept the canonical rule"
                     ));
                 }
+                atrium_org::VaultEvent::UnknownKeyword { keyword, .. } => {
+                    win.show_toast(&format!(
+                        "Vault uses keyword “{keyword}” that isn't in the configured TODO sequence — preserved verbatim"
+                    ));
+                }
             }
         }
         tracing::info!("vault-event channel closed; bridge exiting");

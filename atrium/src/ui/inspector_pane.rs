@@ -29,8 +29,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use atrium_core::{Project, RepeatMode, RepeatRule, ScheduledFor, Task, TaskUpdate, WorkerHandle};
+use atrium_core::{
+    Project, RepeatMode, RepeatRule, ScheduledFor, Task, TaskUpdate, WorkerHandle,
+    parse_body_checkboxes, toggle_body_checkbox,
+};
 use chrono::NaiveDate;
+use gtk::gio;
 use gtk::glib;
 use gtk::glib::clone;
 use tracing::error;
@@ -246,6 +250,20 @@ where
     let title_group = adw::PreferencesGroup::new();
     title_group.add(&title_row);
 
+    // v0.16.0 — Phase 18.5 Tier-1 keyword picker. Hidden when
+    // the vault has no `[[todo_sequences]]` configured (the
+    // canonical TODO/DONE is the binary the title-row checkbox
+    // already toggles). When configured, the picker exposes the
+    // workflow + done sets so the user can pick NEXT / WAITING /
+    // etc. without typing into the title field. Selection writes
+    // through to `task.orig_keyword` + `completed_at` together.
+    if let Some(sequence) = read_active_sequence()
+        && (!sequence.workflow.is_empty() || !sequence.done.is_empty())
+    {
+        let keyword_row = build_keyword_picker(&sequence, &task, worker.clone(), task_id);
+        title_group.add(&keyword_row);
+    }
+
     // ── Schedule + Deadline + Project ────────────────────────────
     let schedule_state: Rc<RefCell<Option<ScheduledFor>>> =
         Rc::new(RefCell::new(task.scheduled_for));
@@ -276,9 +294,49 @@ where
 
     let deadline_state: Rc<RefCell<Option<NaiveDate>>> = Rc::new(RefCell::new(task.deadline));
     let original_deadline = task.deadline;
+
+    // v0.14.0 — DEADLINE warning window (Phase 18.5 Tier-1). The
+    // SpinRow is built up-front so the deadline-button callback can
+    // toggle its visibility when the user clears or sets the
+    // deadline. 0 in the SpinRow means "use the global default";
+    // any positive value sets a per-task override that surfaces
+    // the task in Today that many days early.
+    let warn_row = adw::SpinRow::with_range(0.0, 60.0, 1.0);
+    warn_row.set_title("Heads-up window");
+    warn_row.set_subtitle(
+        "Days before the deadline this task surfaces in Today. 0 uses the default (7).",
+    );
+    warn_row.set_value(task.deadline_warn_days.unwrap_or(0) as f64);
+    warn_row.set_visible(task.deadline.is_some());
+    let original_warn = task.deadline_warn_days;
+    {
+        let worker = worker.clone();
+        warn_row.connect_changed(move |row| {
+            let raw = row.value().round() as i64;
+            let new = if raw == 0 { None } else { Some(raw) };
+            if new == original_warn {
+                return;
+            }
+            let worker = worker.clone();
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker
+                    .update_task(TaskUpdate::new(task_id).deadline_warn_days_value(new))
+                    .await
+                {
+                    error!(?e, task_id, "inspector pane: deadline-warn autosave failed");
+                }
+            });
+        });
+    }
+
     let deadline_button = build_date_button(&deadline_state, format_deadline_label, {
         let worker = worker.clone();
+        let warn_row = warn_row.clone();
         move |new| {
+            // Toggle the warning row's visibility in lockstep with
+            // the deadline. A task without a deadline can't have a
+            // meaningful per-task heads-up window.
+            warn_row.set_visible(new.is_some());
             if new == original_deadline {
                 return;
             }
@@ -332,6 +390,7 @@ where
     let dates_group = adw::PreferencesGroup::new();
     dates_group.add(&schedule_row);
     dates_group.add(&deadline_row);
+    dates_group.add(&warn_row);
 
     // ── Classify cluster: Project + Tags ─────────────────────────
     let tag_count_text = format_tag_count(tag_count);
@@ -431,6 +490,100 @@ where
     });
     notes_view.add_controller(notes_focus);
 
+    // ── v0.15.0 — Body checkboxes (Phase 18.5 Tier-2) ────────────
+    // Subtasks group lives above the Notes textview and reflects
+    // any `- [ ]` / `- [X]` / `- [-]` lines as interactive
+    // CheckButtons. Clicking a checkbox toggles the line in the
+    // buffer (which triggers our notes_buffer change handler) and
+    // dispatches the worker update directly so the change isn't
+    // gated on focus-out — the click *is* the commit. The
+    // notes_view stays the source of truth; this section is a
+    // projection rendered on every buffer edit.
+    let subtasks_group = adw::PreferencesGroup::builder().title("Subtasks").build();
+    let subtasks_list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .build();
+    subtasks_list.add_css_class("boxed-list");
+    subtasks_group.add(&subtasks_list);
+
+    let rebuild_subtasks = std::rc::Rc::new({
+        let buffer = notes_buffer.clone();
+        let list = subtasks_list.clone();
+        let group = subtasks_group.clone();
+        let worker = worker.clone();
+        move || {
+            // Drain existing children.
+            while let Some(child) = list.first_child() {
+                list.remove(&child);
+            }
+            let body = buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .to_string();
+            let checkboxes = parse_body_checkboxes(&body);
+            if checkboxes.is_empty() {
+                group.set_visible(false);
+                return;
+            }
+            group.set_visible(true);
+            for cb in checkboxes {
+                let row = adw::ActionRow::builder().title(&cb.label).build();
+                let check = gtk::CheckButton::builder()
+                    .active(cb.state.is_done())
+                    .valign(gtk::Align::Center)
+                    .build();
+                check.set_inconsistent(matches!(
+                    cb.state,
+                    atrium_core::CheckboxState::Indeterminate
+                ));
+                let line_index = cb.line_index;
+                let buffer_for_click = buffer.clone();
+                let worker_for_click = worker.clone();
+                check.connect_toggled(move |_| {
+                    let current = buffer_for_click
+                        .text(
+                            &buffer_for_click.start_iter(),
+                            &buffer_for_click.end_iter(),
+                            false,
+                        )
+                        .to_string();
+                    let updated = toggle_body_checkbox(&current, line_index);
+                    if updated == current {
+                        return;
+                    }
+                    // Replace the buffer text in one shot so the
+                    // user's cursor doesn't drift mid-edit. Setting
+                    // .text fires the buffer's `changed` signal,
+                    // which triggers the rebuild closure below.
+                    buffer_for_click.set_text(&updated);
+                    let value = updated;
+                    let worker = worker_for_click.clone();
+                    glib::MainContext::default().spawn_local(async move {
+                        if let Err(e) = worker
+                            .update_task(TaskUpdate::new(task_id).note(value))
+                            .await
+                        {
+                            error!(?e, task_id, "inspector pane: checkbox toggle failed");
+                        }
+                    });
+                });
+                row.add_prefix(&check);
+                row.set_activatable_widget(Some(&check));
+                list.append(&row);
+            }
+        }
+    });
+
+    // Initial population.
+    rebuild_subtasks();
+
+    // Rebuild on every buffer change (text edits, toggles, paste,
+    // …). This is what keeps the checklist in lockstep with the
+    // raw body text the user sees in the textview.
+    let rebuild_for_changed = rebuild_subtasks.clone();
+    notes_buffer.connect_changed(move |_| {
+        rebuild_for_changed();
+    });
+
     // ── Builder-only fields ──────────────────────────────────────
     // The pane only renders in Builder Mode, so an "exposed only in
     // Builder" subtitle reads as redundant noise. v0.6.11 dropped
@@ -522,10 +675,117 @@ where
     page.add(&title_group);
     page.add(&dates_group);
     page.add(&classify_group);
+    page.add(&subtasks_group);
     page.add(&notes_group);
     page.add(&builder_group);
 
     (page.upcast(), title_row)
+}
+
+/// v0.16.0 — Phase 18.5 Tier-1. Read the vault's first
+/// configured TODO sequence (if any). Returns `None` when no
+/// vault is configured, the sidecar is missing / malformed, or
+/// no `[[todo_sequences]]` block is present. Cheap call (one
+/// GSettings read + one small file read); safe to invoke on
+/// every Inspector rebuild.
+fn read_active_sequence() -> Option<atrium_org::sidecar::TodoSequenceEntry> {
+    let settings = gio::Settings::new(atrium_core::APP_ID);
+    let raw: String = settings.string("vault-path").into();
+    let path = raw.trim();
+    if path.is_empty() {
+        return None;
+    }
+    let root = std::path::PathBuf::from(path);
+    let sidecar = atrium_org::sidecar::read_sidecar(&root).ok()?;
+    sidecar.todo_sequences.into_iter().next()
+}
+
+/// v0.16.0 — build the keyword-picker row. ComboRow lists
+/// workflow keywords first, then done keywords, in user-defined
+/// order. Selection writes through to `task.orig_keyword` (the
+/// canonical round-trip column for non-canonical keywords) +
+/// `completed_at` (set to `now()` when the user picks a done
+/// keyword on an open task; cleared when picking a workflow
+/// keyword on a done task). Builder-only — Simple Mode keeps
+/// the title-row checkbox as the binary toggle.
+fn build_keyword_picker(
+    sequence: &atrium_org::sidecar::TodoSequenceEntry,
+    task: &Task,
+    worker: WorkerHandle,
+    task_id: i64,
+) -> adw::ComboRow {
+    // Build the choice list. Two halves separated by a dash so
+    // the user can tell open keywords from done at a glance.
+    let mut choices: Vec<String> = Vec::new();
+    choices.extend(sequence.workflow.iter().cloned());
+    choices.extend(sequence.done.iter().cloned());
+    let str_refs: Vec<&str> = choices.iter().map(String::as_str).collect();
+    let model = gtk::StringList::new(&str_refs);
+
+    // Resolve the task's current keyword. Priority order:
+    //   1. orig_keyword (carries non-canonical labels verbatim)
+    //   2. canonical from completed_at (DONE / TODO)
+    let current_keyword = task.orig_keyword.clone().unwrap_or_else(|| {
+        if task.completed_at.is_some() {
+            "DONE".to_string()
+        } else {
+            "TODO".to_string()
+        }
+    });
+    let initial_index = choices
+        .iter()
+        .position(|c| c == &current_keyword)
+        .unwrap_or(0) as u32;
+
+    let row = adw::ComboRow::builder()
+        .title("Keyword")
+        .subtitle("From the vault's configured TODO sequence")
+        .model(&model)
+        .selected(initial_index)
+        .build();
+
+    let workflow_set: std::collections::HashSet<String> =
+        sequence.workflow.iter().cloned().collect();
+    let original_keyword = current_keyword;
+    let initial_completed = task.completed_at;
+    row.connect_selected_notify(move |row| {
+        let idx = row.selected() as usize;
+        let Some(picked) = choices.get(idx).cloned() else {
+            return;
+        };
+        if picked == original_keyword {
+            return;
+        }
+        let is_workflow = workflow_set.contains(&picked);
+        // The orig_keyword column carries the literal label.
+        // Canonical TODO/DONE map to None (column default); any
+        // other keyword stashes verbatim. Matches the watcher's
+        // org_keyword_to_orig logic.
+        let new_orig = match picked.as_str() {
+            "TODO" | "DONE" => None,
+            other => Some(other.to_string()),
+        };
+        let new_completed = if is_workflow {
+            None
+        } else {
+            // Done state. If the task was already done preserve
+            // the existing timestamp; otherwise stamp now().
+            initial_completed.or_else(|| Some(chrono::Utc::now()))
+        };
+        let worker = worker.clone();
+        glib::MainContext::default().spawn_local(async move {
+            let mut update = TaskUpdate::new(task_id).orig_keyword(new_orig);
+            update = update.completed_at(new_completed);
+            if let Err(e) = worker.update_task(update).await {
+                error!(
+                    ?e,
+                    task_id, "inspector pane: keyword picker autosave failed"
+                );
+            }
+        });
+    });
+
+    row
 }
 
 /// Phase 15 — install the repeat-rule editor into a Builder

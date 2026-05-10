@@ -87,6 +87,26 @@ pub struct OrgRepeater {
     pub unit: char,
 }
 
+/// v0.15.0 — Phase 18.5 Tier-1 statistics cookie on a parent
+/// headline. Two shapes per Org spec: `[done/total]` and `[N%]`.
+/// The variant is preserved verbatim across a round-trip so the
+/// emitter writes back the form the user wrote — Atrium's
+/// projection happens to always *compute* the cookie when it
+/// emits a parent, but the *shape* (fraction vs percent) is the
+/// user's call. When Atrium synthesises a cookie for a parent
+/// that didn't carry one on read, it defaults to `Counter` (the
+/// fraction form) — that's what the overwhelming majority of
+/// "how I org" tutorials use.
+///
+/// Empty shapes (`[/]`, `[%]`) parse as zero values; the next
+/// emit overwrites them with the freshly-computed counts. The
+/// shape preservation is the variant choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatisticsCookie {
+    Counter { done: u32, total: u32 },
+    Percent { value: u8 },
+}
+
 /// One headline + everything that belongs to it. The full
 /// document parses into a flat top-level vec; subtasks (deeper
 /// headlines) appear under [`children`].
@@ -107,10 +127,31 @@ pub struct OrgTask {
     pub scheduled: Option<NaiveDate>,
     /// Repeater suffix on the SCHEDULED cookie.
     pub scheduled_repeater: Option<OrgRepeater>,
+    /// Warning suffix on the SCHEDULED cookie (`-Nd` / `--Nd`).
+    /// v0.14.0 — Org allows a warning period on SCHEDULED, though
+    /// it's rare. Atrium has no DB column for it (the spec only
+    /// models the deadline-side warning), so this field exists
+    /// purely for verbatim round-trip — the emitter writes it back
+    /// in the same shape we read it.
+    pub scheduled_warning: Option<u32>,
     /// `DEADLINE:` cookie date.
     pub deadline: Option<NaiveDate>,
     /// Repeater suffix on the DEADLINE cookie.
     pub deadline_repeater: Option<OrgRepeater>,
+    /// Warning suffix on the DEADLINE cookie (`-Nd` / `--Nd`).
+    /// v0.14.0 (Phase 18.5 Tier-1) — projected to / from
+    /// `Task.deadline_warn_days`. Org distinguishes `-` (per-task
+    /// warning) from `--` (override of the global default), but
+    /// Atrium has no global-default-override concept so both forms
+    /// parse to the same value and the emitter normalises onto `-`.
+    pub deadline_warning: Option<u32>,
+    /// v0.15.0 — Phase 18.5 Tier-1 statistics cookie on a parent
+    /// headline (`[2/5]` or `[40%]`). Captured from the source on
+    /// read, stripped from the title, re-emitted on write. The
+    /// variant preserves the user's chosen shape across the
+    /// round-trip; Atrium recomputes the values from DB state on
+    /// every emit so a stale cookie self-heals on the next flush.
+    pub statistics_cookie: Option<StatisticsCookie>,
     /// `CLOSED:` cookie timestamp. Preserves the time-of-day if
     /// present; defaults to noon UTC if Org gave us only a date.
     pub closed: Option<DateTime<Utc>>,
@@ -132,6 +173,16 @@ pub struct OrgTask {
 }
 
 impl OrgTask {
+    /// v0.15.0 — minimal builder for tests in sibling crates.
+    /// Produces an empty task at `depth` with everything else
+    /// defaulted; tests fill in the fields they care about
+    /// rather than carrying every literal field forward whenever
+    /// OrgTask gains a new column.
+    #[doc(hidden)]
+    pub fn default_test_node(depth: usize) -> Self {
+        Self::new(depth, String::new())
+    }
+
     fn new(depth: usize, title: String) -> Self {
         Self {
             depth,
@@ -140,8 +191,11 @@ impl OrgTask {
             tags: Vec::new(),
             scheduled: None,
             scheduled_repeater: None,
+            scheduled_warning: None,
             deadline: None,
             deadline_repeater: None,
+            deadline_warning: None,
+            statistics_cookie: None,
             closed: None,
             properties: HashMap::new(),
             body: String::new(),
@@ -207,13 +261,14 @@ pub fn parse_org_text_with_meta(text: &str) -> OrgFile {
     for raw_line in text.lines() {
         // Detect a headline first — it terminates the current
         // task's body and starts a new one.
-        if let Some((depth, keyword, title, tags)) = parse_headline(raw_line) {
+        if let Some((depth, keyword, title, cookie, tags)) = parse_headline(raw_line) {
             if let Some(task) = current.take() {
                 flat.push(task);
             }
             let mut task = OrgTask::new(depth, title);
             task.keyword = keyword;
             task.tags = tags;
+            task.statistics_cookie = cookie;
             current = Some(task);
             in_properties = false;
             continue;
@@ -383,10 +438,22 @@ fn walk_mut<'a>(top: &'a mut Vec<OrgTask>, path: &[usize]) -> &'a mut OrgTask {
 }
 
 /// Try to recognise a headline. Pattern:
-/// `^(\*+) (?:KEYWORD )?title (?:\s+:tag1:tag2:)?$`
+/// `^(\*+) (?:KEYWORD )?title (?:\s+\[N/M|N%\])?(?:\s+:tag1:tag2:)?$`
 ///
-/// Returns `(depth, keyword, title, tags)` on match.
-fn parse_headline(line: &str) -> Option<(usize, Option<OrgKeyword>, String, Vec<String>)> {
+/// Returns `(depth, keyword, title, cookie, tags)` on match.
+/// v0.15.0 added the cookie return — the trailing `[done/total]`
+/// or `[N%]` statistics cookie on parent headlines, stripped
+/// from the title text and surfaced separately.
+#[allow(clippy::type_complexity)]
+fn parse_headline(
+    line: &str,
+) -> Option<(
+    usize,
+    Option<OrgKeyword>,
+    String,
+    Option<StatisticsCookie>,
+    Vec<String>,
+)> {
     if !line.starts_with('*') {
         return None;
     }
@@ -399,13 +466,18 @@ fn parse_headline(line: &str) -> Option<(usize, Option<OrgKeyword>, String, Vec<
     }
     let body = rest[1..].trim_end();
     if body.is_empty() {
-        return Some((stars_end, None, String::new(), Vec::new()));
+        return Some((stars_end, None, String::new(), None, Vec::new()));
     }
 
     // Split off trailing tags `:foo:bar:`. The pattern requires
     // the tag chunk to be at the very end of the line, preceded
     // by at least one whitespace char.
-    let (title_with_keyword, tags) = strip_trailing_tags(body);
+    let (title_with_keyword_and_cookie, tags) = strip_trailing_tags(body);
+
+    // Then split off the trailing statistics cookie if present.
+    // Cookie sits between title and tags in canonical Org
+    // headlines: `* TODO Project [3/5] :work:`.
+    let (title_with_keyword, cookie) = strip_trailing_cookie(&title_with_keyword_and_cookie);
 
     // First word might be a TODO-cycle keyword.
     let (keyword, title) = match title_with_keyword.split_once(' ') {
@@ -417,7 +489,7 @@ fn parse_headline(line: &str) -> Option<(usize, Option<OrgKeyword>, String, Vec<
         _ => (None, title_with_keyword),
     };
 
-    Some((stars_end, keyword, title.trim().to_string(), tags))
+    Some((stars_end, keyword, title.trim().to_string(), cookie, tags))
 }
 
 fn is_todo_keyword(word: &str) -> bool {
@@ -446,6 +518,74 @@ fn parse_keyword(word: &str) -> OrgKeyword {
         "CANCELLED" => OrgKeyword::Cancelled,
         other => OrgKeyword::Custom(other.to_string()),
     }
+}
+
+/// v0.15.0 — strip a trailing statistics cookie (`[N/M]` or
+/// `[N%]`) from a headline body. The cookie pattern matches only
+/// when it sits at the very end of the (already tag-stripped)
+/// body, separated by at least one whitespace char from the
+/// title. Empty shapes (`[/]`, `[%]`) parse with zero values —
+/// the next emit recomputes from DB state.
+fn strip_trailing_cookie(body: &str) -> (String, Option<StatisticsCookie>) {
+    let trimmed = body.trim_end();
+    if !trimmed.ends_with(']') {
+        return (trimmed.to_string(), None);
+    }
+    // Find the matching `[`. Cookies don't nest, so the last
+    // unmatched `[` is the start.
+    let bracket_open = trimmed.rfind('[');
+    let Some(open_idx) = bracket_open else {
+        return (trimmed.to_string(), None);
+    };
+    // Cookie must be preceded by whitespace (so we don't snip
+    // user-content brackets at title start, e.g. "* TODO [draft]
+    // ...").
+    if open_idx == 0 {
+        return (trimmed.to_string(), None);
+    }
+    let preceding = &trimmed[..open_idx];
+    if !preceding.ends_with(char::is_whitespace) {
+        return (trimmed.to_string(), None);
+    }
+    let inner = &trimmed[open_idx + 1..trimmed.len() - 1];
+    let cookie = parse_cookie_inner(inner);
+    if cookie.is_none() {
+        return (trimmed.to_string(), None);
+    }
+    (preceding.trim_end().to_string(), cookie)
+}
+
+/// Parse the contents of a cookie: `2/5`, `40%`, `/`, `%`, or
+/// empty fraction/percent. Returns `None` for shapes that don't
+/// match — those stay in the title verbatim.
+fn parse_cookie_inner(inner: &str) -> Option<StatisticsCookie> {
+    let inner = inner.trim();
+    if let Some(rest) = inner.strip_suffix('%') {
+        // Percent form. `[%]` (empty) or `[N%]`.
+        if rest.is_empty() {
+            return Some(StatisticsCookie::Percent { value: 0 });
+        }
+        let value: u8 = rest.parse().ok()?;
+        if value > 100 {
+            return None;
+        }
+        return Some(StatisticsCookie::Percent { value });
+    }
+    if let Some((done_part, total_part)) = inner.split_once('/') {
+        // Fraction form. `[/]` (both empty) or `[N/M]`.
+        let done = if done_part.is_empty() {
+            0
+        } else {
+            done_part.parse().ok()?
+        };
+        let total = if total_part.is_empty() {
+            0
+        } else {
+            total_part.parse().ok()?
+        };
+        return Some(StatisticsCookie::Counter { done, total });
+    }
+    None
 }
 
 /// Strip trailing `:tag1:tag2:` from a headline body.
@@ -525,17 +665,21 @@ fn extract_cookies(line: &str, task: &mut OrgTask) -> bool {
     let mut found_any = false;
 
     if let Some(rest) = line.find("SCHEDULED:")
-        && let Some((date, repeater)) = parse_active_timestamp(&line[rest + "SCHEDULED:".len()..])
+        && let Some((date, repeater, warning)) =
+            parse_active_timestamp(&line[rest + "SCHEDULED:".len()..])
     {
         task.scheduled = Some(date);
         task.scheduled_repeater = repeater;
+        task.scheduled_warning = warning;
         found_any = true;
     }
     if let Some(rest) = line.find("DEADLINE:")
-        && let Some((date, repeater)) = parse_active_timestamp(&line[rest + "DEADLINE:".len()..])
+        && let Some((date, repeater, warning)) =
+            parse_active_timestamp(&line[rest + "DEADLINE:".len()..])
     {
         task.deadline = Some(date);
         task.deadline_repeater = repeater;
+        task.deadline_warning = warning;
         found_any = true;
     }
     if let Some(rest) = line.find("CLOSED:")
@@ -549,8 +693,11 @@ fn extract_cookies(line: &str, task: &mut OrgTask) -> bool {
 }
 
 /// Parse an active timestamp `<YYYY-MM-DD ...>` returning the
-/// date and any trailing repeater (`+1w`, `++1w`, `.+1w`).
-fn parse_active_timestamp(text: &str) -> Option<(NaiveDate, Option<OrgRepeater>)> {
+/// date and any trailing repeater (`+1w`, `++1w`, `.+1w`) and
+/// warning suffix (`-Nd`, `--Nd`). Per Org docs, repeater and
+/// warning may appear in either order — both are recognised
+/// independently of position.
+fn parse_active_timestamp(text: &str) -> Option<(NaiveDate, Option<OrgRepeater>, Option<u32>)> {
     let start = text.find('<')?;
     let end = text[start..].find('>')? + start;
     let inner = &text[start + 1..end];
@@ -564,7 +711,7 @@ fn parse_inactive_timestamp(text: &str) -> Option<DateTime<Utc>> {
     let start = text.find('[')?;
     let end = text[start..].find(']')? + start;
     let inner = &text[start + 1..end];
-    let (date, _repeater) = parse_timestamp_inner(inner)?;
+    let (date, _repeater, _warning) = parse_timestamp_inner(inner)?;
 
     // Look for a `HH:MM` after the date.
     let parts: Vec<&str> = inner.split_whitespace().collect();
@@ -584,13 +731,30 @@ fn parse_inactive_timestamp(text: &str) -> Option<DateTime<Utc>> {
     Some(dt.and_utc())
 }
 
-fn parse_timestamp_inner(inner: &str) -> Option<(NaiveDate, Option<OrgRepeater>)> {
-    let mut parts = inner.split_whitespace();
+fn parse_timestamp_inner(inner: &str) -> Option<(NaiveDate, Option<OrgRepeater>, Option<u32>)> {
+    let mut parts = inner.split_whitespace().peekable();
     let date_part = parts.next()?;
     let date = NaiveDate::parse_from_str(date_part, "%Y-%m-%d").ok()?;
 
-    let repeater = parts.find_map(parse_repeater);
-    Some((date, repeater))
+    // Org allows the repeater and warning suffixes to appear in
+    // either order. Walk the remaining tokens once and pick out
+    // the first that matches each shape — they're disjoint
+    // (`+`/`++`/`.+` vs. `-`/`--`) so a token can only ever match
+    // one or the other.
+    let mut repeater = None;
+    let mut warning = None;
+    for token in parts {
+        if repeater.is_none()
+            && let Some(r) = parse_repeater(token)
+        {
+            repeater = Some(r);
+        } else if warning.is_none()
+            && let Some(w) = parse_warning(token)
+        {
+            warning = Some(w);
+        }
+    }
+    Some((date, repeater, warning))
 }
 
 fn parse_repeater(token: &str) -> Option<OrgRepeater> {
@@ -619,6 +783,41 @@ fn parse_repeater(token: &str) -> Option<OrgRepeater> {
         interval,
         unit,
     })
+}
+
+/// v0.14.0 — parse a warning suffix `-Nd` / `--Nd` (or w/m/y).
+/// Org's `--` form is meant to override the global default
+/// `org-deadline-warning-days`, but Atrium has no global-default-
+/// override concept — both prefixes parse to the same numeric
+/// days value, and the emitter normalises onto `-`. The unit is
+/// folded to days for the DB column (Atrium models the column as
+/// integer days; weeks/months/years would force a calendar-aware
+/// projection that doesn't match the existing `today + N days`
+/// query shape). Uncommon non-day units `w`/`m`/`y` resolve to
+/// 7/30/365 day approximations on parse.
+fn parse_warning(token: &str) -> Option<u32> {
+    // Strip the `--` prefix first so a `-` doesn't swallow `--N`'s
+    // leading dash. Both prefixes parse identically — Atrium has
+    // no global-default-override concept that would distinguish
+    // them.
+    let rest = match token.strip_prefix("--") {
+        Some(r) => r,
+        None => token.strip_prefix('-')?,
+    };
+    if rest.is_empty() {
+        return None;
+    }
+    let unit_pos = rest.find(|c: char| c.is_ascii_alphabetic())?;
+    let interval: u32 = rest[..unit_pos].parse().ok()?;
+    let unit = rest[unit_pos..].chars().next()?;
+    let days = match unit {
+        'd' => interval,
+        'w' => interval.checked_mul(7)?,
+        'm' => interval.checked_mul(30)?,
+        'y' => interval.checked_mul(365)?,
+        _ => return None,
+    };
+    Some(days)
 }
 
 #[cfg(test)]
@@ -701,6 +900,169 @@ SCHEDULED: <2026-05-15 Fri ++1w>
         let t = &tasks[0];
         assert_eq!(t.title, "Run errands");
         assert_eq!(t.tags, vec!["errand", "home"]);
+    }
+
+    // v0.15.0 — Phase 18.5 Tier-1 statistics cookies. Captured
+    // and stripped from the title; emit roundtrip preserves the
+    // shape variant.
+    #[test]
+    fn parses_counter_cookie_strips_title() {
+        let input = "* Project [3/5]\n";
+        let tasks = parse_org_text(input);
+        let t = &tasks[0];
+        assert_eq!(t.title, "Project");
+        assert_eq!(
+            t.statistics_cookie,
+            Some(StatisticsCookie::Counter { done: 3, total: 5 })
+        );
+    }
+
+    #[test]
+    fn parses_percent_cookie_strips_title() {
+        let input = "* TODO Big initiative [40%]\n";
+        let tasks = parse_org_text(input);
+        let t = &tasks[0];
+        assert_eq!(t.title, "Big initiative");
+        assert_eq!(
+            t.statistics_cookie,
+            Some(StatisticsCookie::Percent { value: 40 })
+        );
+    }
+
+    #[test]
+    fn parses_cookie_before_tags() {
+        let input = "* TODO Project [2/4] :work:focus:\n";
+        let tasks = parse_org_text(input);
+        let t = &tasks[0];
+        assert_eq!(t.title, "Project");
+        assert_eq!(t.tags, vec!["work", "focus"]);
+        assert_eq!(
+            t.statistics_cookie,
+            Some(StatisticsCookie::Counter { done: 2, total: 4 })
+        );
+    }
+
+    #[test]
+    fn parses_empty_cookie_shapes() {
+        let counter_input = "* TODO Project [/]\n";
+        assert_eq!(
+            parse_org_text(counter_input)[0].statistics_cookie,
+            Some(StatisticsCookie::Counter { done: 0, total: 0 })
+        );
+        let percent_input = "* TODO Project [%]\n";
+        assert_eq!(
+            parse_org_text(percent_input)[0].statistics_cookie,
+            Some(StatisticsCookie::Percent { value: 0 })
+        );
+    }
+
+    #[test]
+    fn does_not_strip_user_brackets_in_title() {
+        // A bracketed token at the START of the title isn't a
+        // cookie (no preceding whitespace). Stays in the title.
+        let input = "* TODO [draft] Plan\n";
+        let tasks = parse_org_text(input);
+        assert_eq!(tasks[0].title, "[draft] Plan");
+        assert_eq!(tasks[0].statistics_cookie, None);
+    }
+
+    #[test]
+    fn rejects_malformed_cookie_keeps_in_title() {
+        // `[abc]` doesn't match either cookie shape.
+        let input = "* TODO Project [abc]\n";
+        let tasks = parse_org_text(input);
+        // Lands in title verbatim — not a recognised cookie.
+        assert_eq!(tasks[0].title, "Project [abc]");
+        assert_eq!(tasks[0].statistics_cookie, None);
+    }
+
+    // v0.14.0 — DEADLINE warning suffix (`-Nd` / `--Nd`). Phase
+    // 18.5 Tier-1; round-trips the warning days into
+    // `OrgTask.deadline_warning` for both prefix shapes.
+    #[test]
+    fn parses_deadline_with_warning_suffix() {
+        let input = "\
+* TODO File taxes
+DEADLINE: <2026-04-15 Wed -7d>
+";
+        let tasks = parse_org_text(input);
+        let t = &tasks[0];
+        assert_eq!(t.deadline, Some(d(2026, 4, 15)));
+        assert_eq!(t.deadline_warning, Some(7));
+        assert!(t.deadline_repeater.is_none());
+    }
+
+    #[test]
+    fn parses_deadline_with_double_dash_warning() {
+        // Org's `--` form overrides the global default; Atrium has
+        // no global-default-override concept so it normalises onto
+        // the single-dash form. Both prefixes parse to the same
+        // numeric days value.
+        let input = "\
+* TODO Renew passport
+DEADLINE: <2026-08-01 Sat --14d>
+";
+        let tasks = parse_org_text(input);
+        assert_eq!(tasks[0].deadline_warning, Some(14));
+    }
+
+    #[test]
+    fn parses_deadline_with_repeater_and_warning_in_either_order() {
+        // Per Org docs, repeater and warning may appear in either
+        // order. We pull both out regardless of position.
+        let repeater_first = "\
+* TODO Renew domain
+DEADLINE: <2026-12-01 Tue +1y -30d>
+";
+        let warning_first = "\
+* TODO Renew domain
+DEADLINE: <2026-12-01 Tue -30d +1y>
+";
+        for input in [repeater_first, warning_first] {
+            let tasks = parse_org_text(input);
+            let t = &tasks[0];
+            assert_eq!(t.deadline_warning, Some(30));
+            let rep = t.deadline_repeater.as_ref().unwrap();
+            assert_eq!(rep.mode, "+");
+            assert_eq!(rep.interval, 1);
+            assert_eq!(rep.unit, 'y');
+        }
+    }
+
+    #[test]
+    fn parses_warning_suffix_units_w_m_y() {
+        // Day units land canonically; week/month/year units fold
+        // into days so the column stays integer-day.
+        let cases = [
+            ("DEADLINE: <2026-06-01 Mon -2w>", 14),
+            ("DEADLINE: <2026-06-01 Mon -1m>", 30),
+            ("DEADLINE: <2026-06-01 Mon -1y>", 365),
+        ];
+        for (line, expected) in cases {
+            let input = format!("* TODO X\n{line}\n");
+            let tasks = parse_org_text(&input);
+            assert_eq!(
+                tasks[0].deadline_warning,
+                Some(expected),
+                "unit fold for {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn parses_scheduled_warning_suffix_for_round_trip() {
+        // Org allows `-Nd` after SCHEDULED too (rare). Atrium has
+        // no DB column for it, but the parser captures it so the
+        // emitter can write it back verbatim — preserves user
+        // intent across a round-trip even though Atrium doesn't
+        // semantically interpret it.
+        let input = "\
+* TODO Pay rent
+SCHEDULED: <2026-05-01 Fri -3d>
+";
+        let tasks = parse_org_text(input);
+        assert_eq!(tasks[0].scheduled, Some(d(2026, 5, 1)));
+        assert_eq!(tasks[0].scheduled_warning, Some(3));
     }
 
     #[test]

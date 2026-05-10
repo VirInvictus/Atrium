@@ -4,7 +4,7 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.13.0** (May 2026). **Schema version: 7.** **817 tests across the workspace, all green.** `bash scripts/regression.sh` runs in under 2 seconds.
+**Current release: v0.16.0** (May 2026). **Schema version: 8.** **All workspace tests green; `bash scripts/regression.sh` ships clean.** Phase 18.5 Tier-1 trio shipped: DEADLINE warning windows (v0.14.0), statistics cookies + body inline checkboxes (v0.15.0), custom TODO sequences (v0.16.0). Remaining Phase 18.5 items: CLOCK time tracking (Tier-1, biggest), Quick Entry templates (Tier-1), Org links + time-of-day on scheduled (Tier-2). Phase 19.5 productivity essentials follow.
 
 Five workspace crates: `atrium-core` (data layer), `atrium-search` (Calibre-style search expression language), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary.
 

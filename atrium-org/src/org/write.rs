@@ -113,13 +113,29 @@ pub fn write_project_to_vault(
     let headings = atrium_core::db::read::list_headings_in_project(conn, project_id)?;
     let tag_names = atrium_core::db::read::tag_names_per_task(conn)?;
 
-    let tree = build_project_tree(&tasks, &headings, &tag_names);
+    let mut tree = build_project_tree(&tasks, &headings, &tag_names);
+    // v0.15.0 — stamp statistics cookies on every parent.
+    for node in &mut tree {
+        stamp_statistics_cookies(node);
+    }
+    // v0.16.0 — Phase 18.5 Tier-1 custom TODO sequences. Read
+    // the sidecar's configured sequence (if any) so the writer
+    // can project a `#+TODO:` preamble. Single-sequence-per-vault
+    // is the typical Org pattern; multi-sequence support would
+    // need a different directives shape (the HashMap is keyed by
+    // name, so two #+TODO: keys would collide). Defer that until
+    // a real user asks. NotFound silently → no preamble, which
+    // is the correct behaviour for vaults that haven't configured
+    // sequences.
+    let todo_sequence = crate::sidecar::read_sidecar(vault_root)
+        .ok()
+        .and_then(|s| s.todo_sequences.into_iter().next());
     // file-level preamble carries the project title +
     // project metadata so the importer can round-trip them
     // cleanly. The OrgFile struct bundles directives +
     // file_properties + headlines.
     let file = OrgFile {
-        directives: build_file_directives(&project),
+        directives: build_file_directives(&project, todo_sequence.as_ref()),
         file_properties: build_file_properties(&project),
         headlines: tree,
     };
@@ -330,6 +346,67 @@ fn build_task_subtree(
     node
 }
 
+/// v0.15.0 — Phase 18.5 Tier-1 statistics-cookie projection.
+/// Walks an OrgTask subtree post-order; any node with children
+/// gets a `Counter { done, total }` cookie counting *immediate*
+/// children only (Org's `org-hierarchical-todo-statistics`
+/// default — recursive variants exist but aren't the convention).
+///
+/// "Done" means the child's keyword is Done or Cancelled. TODO,
+/// custom workflow keywords (WAITING / IN-PROGRESS / etc.), and
+/// keyword-less section sub-headings count as not-done. The done
+/// criterion is keyword-based on purpose: the Org file is the
+/// surface, and Org's own statistics counter only sees the
+/// keyword. Custom keyword sequences (Phase 18.5 follow-up,
+/// v0.16.0) will let the user map workflow keywords to "done"
+/// per-vault — until then, Done|Cancelled is the canonical set.
+///
+/// Preserves an existing `statistics_cookie` *shape* (Counter
+/// vs Percent) when present; only the values get overwritten.
+/// This is what gives the user control: if their source file
+/// has `[40%]`, the writer keeps emitting `[N%]` after Atrium
+/// recomputes from DB state.
+fn stamp_statistics_cookies(node: &mut OrgTask) {
+    // Recurse first so children get their own cookies.
+    for child in &mut node.children {
+        stamp_statistics_cookies(child);
+    }
+    // v0.15.0 — child TODOs + body checkboxes both contribute to
+    // the cookie. Mirrors Org's `org-checkbox-hierarchical-statistics`
+    // (default on). A task with zero child headlines but a body
+    // checklist still earns a cookie.
+    let (body_done, body_total) = atrium_core::count_body_checkboxes(&node.body);
+    let mut child_done = 0u32;
+    let child_total = u32::try_from(node.children.len()).unwrap_or(u32::MAX);
+    for child in &node.children {
+        if matches!(
+            child.keyword,
+            Some(super::parse::OrgKeyword::Done) | Some(super::parse::OrgKeyword::Cancelled)
+        ) {
+            child_done = child_done.saturating_add(1);
+        }
+    }
+    let total = child_total.saturating_add(body_total);
+    let done = child_done.saturating_add(body_done);
+    if total == 0 {
+        // Leaf with no body checkboxes — no cookie. Clear any
+        // stale shape captured on read.
+        node.statistics_cookie = None;
+        return;
+    }
+    use super::parse::StatisticsCookie;
+    let new_cookie = match node.statistics_cookie {
+        Some(StatisticsCookie::Percent { .. }) => {
+            // Preserve percent shape.
+            let value = ((u64::from(done) * 100) / u64::from(total)) as u8;
+            StatisticsCookie::Percent { value }
+        }
+        // Default + Counter both land on the fraction form.
+        _ => StatisticsCookie::Counter { done, total },
+    };
+    node.statistics_cookie = Some(new_cookie);
+}
+
 /// Convert a Heading row into a depth-1 OrgTask carrying the
 /// section's title and `:ID:` (uuid) so a future Org importer
 /// can match heading rows back by id rather than by title.
@@ -345,8 +422,13 @@ fn heading_to_org(heading: &Heading) -> OrgTask {
         tags: Vec::new(),
         scheduled: None,
         scheduled_repeater: None,
+        scheduled_warning: None,
         deadline: None,
         deadline_repeater: None,
+        deadline_warning: None,
+        // v0.15.0 — sub-headings get cookies set later by the
+        // emit-time projection from DB state, not here.
+        statistics_cookie: None,
         closed: None,
         properties,
         body: String::new(),
@@ -356,13 +438,31 @@ fn heading_to_org(heading: &Heading) -> OrgTask {
 }
 
 /// file-level directives for a project's `.org` file.
-/// Currently emits `#+TITLE:`. Other directives (`#+CATEGORY:`,
-/// `#+FILETAGS:`, `#+STARTUP:` …) follow when Atrium grows
-/// project-level analogues; v0.7.13 starts with the one
-/// directive every Org tool reads.
-fn build_file_directives(project: &Project) -> HashMap<String, String> {
+/// Currently emits `#+TITLE:` and (v0.16.0, optional) `#+TODO:`
+/// when the vault sidecar configures a custom keyword sequence.
+/// Other directives (`#+CATEGORY:`, `#+FILETAGS:`, `#+STARTUP:`
+/// …) follow when Atrium grows project-level analogues.
+fn build_file_directives(
+    project: &Project,
+    todo_sequence: Option<&crate::sidecar::TodoSequenceEntry>,
+) -> HashMap<String, String> {
     let mut out = HashMap::new();
     out.insert("TITLE".to_string(), project.title.clone());
+    // v0.16.0 — emit `#+TODO: STATE1 STATE2 | DONE1 DONE2` when
+    // the vault has a configured sequence. Skipping when the
+    // workflow + done sets are both empty avoids emitting an
+    // empty `#+TODO: |` line that would just confuse readers.
+    if let Some(seq) = todo_sequence
+        && (!seq.workflow.is_empty() || !seq.done.is_empty())
+    {
+        let workflow = seq.workflow.join(" ");
+        let done = seq.done.join(" ");
+        // Org's pipe-with-spaces convention is what every
+        // tutorial uses; sticking to it keeps the file readable
+        // alongside the rest of an Emacs user's Org corpus.
+        let value = format!("{workflow} | {done}");
+        out.insert("TODO".to_string(), value);
+    }
     out
 }
 
@@ -458,8 +558,25 @@ fn task_to_org(task: &Task, depth: usize, tag_names: &HashMap<i64, Vec<String>>)
         tags,
         scheduled,
         scheduled_repeater: scheduled_repeater_from_task(task, scheduled),
+        scheduled_warning: None,
         deadline: task.deadline,
         deadline_repeater: None,
+        // v0.14.0 — project the per-task warning window onto the
+        // DEADLINE cookie. NULL → no suffix (org-agenda falls back
+        // to its global default); Some(n) → `-Nd` after the date.
+        // Stored as `u32` in OrgTask but the DB column is `i64`;
+        // negative values shouldn't reach here (the GUI clamps to
+        // 0 and the parser only produces unsigned), but we clamp
+        // defensively before the cast.
+        deadline_warning: task
+            .deadline_warn_days
+            .filter(|n| *n >= 0)
+            .and_then(|n| u32::try_from(n).ok()),
+        // v0.15.0 — projected from DB at emit time, not here.
+        // The build_project_tree pass that walks tasks + headings
+        // recomputes counters for parents after the children are
+        // attached, since this scope can't see the children yet.
+        statistics_cookie: None,
         closed: task.completed_at,
         properties,
         body: task.note.clone(),
@@ -527,6 +644,177 @@ const _: fn() -> Option<DateTime<Utc>> = || None;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // v0.15.0 — Phase 18.5 statistics cookies. The projection
+    // walks an OrgTask tree post-order; every parent gets a
+    // `Counter` cookie counting child Done|Cancelled vs total
+    // children, plus body-checkbox done/total folded in.
+    #[test]
+    fn stamp_cookie_counts_only_immediate_children() {
+        use super::super::parse::{OrgKeyword, OrgTask, StatisticsCookie};
+        let mut grandchild = OrgTask::default_test_node(3);
+        grandchild.keyword = Some(OrgKeyword::Done);
+        let mut child = OrgTask::default_test_node(2);
+        child.keyword = Some(OrgKeyword::Todo);
+        child.children.push(grandchild);
+        let mut parent = OrgTask::default_test_node(1);
+        parent.keyword = Some(OrgKeyword::Todo);
+        parent.children.push(child);
+        stamp_statistics_cookies(&mut parent);
+        // Parent has 1 immediate child (the TODO middle one).
+        // Done count is 0 (the middle child is TODO; the
+        // grandchild's DONE doesn't bubble up — Org's default
+        // `org-hierarchical-todo-statistics` is non-recursive).
+        assert_eq!(
+            parent.statistics_cookie,
+            Some(StatisticsCookie::Counter { done: 0, total: 1 })
+        );
+        // The middle child has 1 DONE grandchild.
+        assert_eq!(
+            parent.children[0].statistics_cookie,
+            Some(StatisticsCookie::Counter { done: 1, total: 1 })
+        );
+    }
+
+    #[test]
+    fn stamp_cookie_folds_body_checkboxes() {
+        use super::super::parse::{OrgKeyword, OrgTask, StatisticsCookie};
+        let mut child = OrgTask::default_test_node(2);
+        child.keyword = Some(OrgKeyword::Todo);
+        let mut parent = OrgTask::default_test_node(1);
+        parent.keyword = Some(OrgKeyword::Todo);
+        parent.body = "- [X] body done\n- [ ] body open\n- [-] partial".to_string();
+        parent.children.push(child);
+        stamp_statistics_cookies(&mut parent);
+        // 1 child + 3 body checkboxes = 4 total; 0 child done +
+        // 1 body done = 1 done.
+        assert_eq!(
+            parent.statistics_cookie,
+            Some(StatisticsCookie::Counter { done: 1, total: 4 })
+        );
+    }
+
+    #[test]
+    fn stamp_cookie_preserves_percent_shape() {
+        use super::super::parse::{OrgKeyword, OrgTask, StatisticsCookie};
+        let mut child_done = OrgTask::default_test_node(2);
+        child_done.keyword = Some(OrgKeyword::Done);
+        let mut child_open = OrgTask::default_test_node(2);
+        child_open.keyword = Some(OrgKeyword::Todo);
+        let mut parent = OrgTask::default_test_node(1);
+        parent.keyword = Some(OrgKeyword::Todo);
+        parent.statistics_cookie = Some(StatisticsCookie::Percent { value: 0 });
+        parent.children.push(child_done);
+        parent.children.push(child_open);
+        stamp_statistics_cookies(&mut parent);
+        // Source had a percent cookie; projection preserves the
+        // shape and recomputes the value (1 of 2 = 50%).
+        assert_eq!(
+            parent.statistics_cookie,
+            Some(StatisticsCookie::Percent { value: 50 })
+        );
+    }
+
+    #[test]
+    fn stamp_cookie_clears_on_leaf_with_no_body_checkboxes() {
+        use super::super::parse::{OrgKeyword, OrgTask, StatisticsCookie};
+        let mut leaf = OrgTask::default_test_node(1);
+        leaf.keyword = Some(OrgKeyword::Todo);
+        // Stale cookie captured on read — should be cleared since
+        // the task has neither children nor body checkboxes.
+        leaf.statistics_cookie = Some(StatisticsCookie::Counter { done: 0, total: 0 });
+        stamp_statistics_cookies(&mut leaf);
+        assert_eq!(leaf.statistics_cookie, None);
+    }
+
+    #[test]
+    fn stamp_cookie_appears_on_leaf_with_only_body_checkboxes() {
+        use super::super::parse::{OrgKeyword, OrgTask, StatisticsCookie};
+        let mut leaf = OrgTask::default_test_node(1);
+        leaf.keyword = Some(OrgKeyword::Todo);
+        leaf.body = "- [X] one\n- [ ] two".to_string();
+        stamp_statistics_cookies(&mut leaf);
+        assert_eq!(
+            leaf.statistics_cookie,
+            Some(StatisticsCookie::Counter { done: 1, total: 2 })
+        );
+    }
+
+    // v0.16.0 — Phase 18.5 Tier-1 #+TODO: preamble emission.
+    // No sidecar configured → no preamble. Sidecar with an
+    // empty workflow + done → no preamble. Sidecar with values →
+    // preamble lands in the directive map.
+    #[test]
+    fn build_file_directives_omits_todo_when_no_sequence() {
+        use atrium_core::test_support::dummy_task;
+        let _ = dummy_task(0); // touch test_support so it stays in the linked set
+        let project = atrium_core::Project {
+            id: 1,
+            uuid: "u".into(),
+            title: "Errands".into(),
+            note: String::new(),
+            area_id: None,
+            sequential: false,
+            review_interval_days: None,
+            last_reviewed_at: None,
+            archived_at: None,
+            position: 1.0,
+            created_at: chrono::Utc::now(),
+            modified_at: chrono::Utc::now(),
+        };
+        let directives = build_file_directives(&project, None);
+        assert_eq!(directives.get("TITLE").map(String::as_str), Some("Errands"));
+        assert!(!directives.contains_key("TODO"));
+    }
+
+    #[test]
+    fn build_file_directives_emits_todo_with_sequence() {
+        let project = atrium_core::Project {
+            id: 1,
+            uuid: "u".into(),
+            title: "Errands".into(),
+            note: String::new(),
+            area_id: None,
+            sequential: false,
+            review_interval_days: None,
+            last_reviewed_at: None,
+            archived_at: None,
+            position: 1.0,
+            created_at: chrono::Utc::now(),
+            modified_at: chrono::Utc::now(),
+        };
+        let seq = crate::sidecar::TodoSequenceEntry {
+            name: "default".into(),
+            workflow: vec!["TODO".into(), "NEXT".into(), "WAITING".into()],
+            done: vec!["DONE".into(), "CANCELLED".into()],
+        };
+        let directives = build_file_directives(&project, Some(&seq));
+        assert_eq!(
+            directives.get("TODO").map(String::as_str),
+            Some("TODO NEXT WAITING | DONE CANCELLED")
+        );
+    }
+
+    #[test]
+    fn build_file_directives_omits_todo_when_sequence_is_empty() {
+        let project = atrium_core::Project {
+            id: 1,
+            uuid: "u".into(),
+            title: "Errands".into(),
+            note: String::new(),
+            area_id: None,
+            sequential: false,
+            review_interval_days: None,
+            last_reviewed_at: None,
+            archived_at: None,
+            position: 1.0,
+            created_at: chrono::Utc::now(),
+            modified_at: chrono::Utc::now(),
+        };
+        let seq = crate::sidecar::TodoSequenceEntry::default();
+        let directives = build_file_directives(&project, Some(&seq));
+        assert!(!directives.contains_key("TODO"));
+    }
 
     #[test]
     fn format_effort_renders_h_mm() {

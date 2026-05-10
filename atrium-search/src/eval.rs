@@ -149,9 +149,9 @@ fn match_state(task: &Task, state: State, ctx: &EvalContext<'_>) -> bool {
 
 /// Mirror of `db::read::list_today` membership: open AND
 /// (Schedule ≤ today OR Deadline ≤ today + heads-up window) AND
-/// defer-resolved. The window matches `read::TODAY_DEADLINE_WINDOW_DAYS`
-/// (7 days, locked at v0.1; spec §4.2 notes a future Phase 8d
-/// preferences task to make it user-configurable).
+/// defer-resolved. v0.14.0 (Phase 18.5 Tier-1) — per-task
+/// `deadline_warn_days` overrides the global default; NULL falls
+/// back to the v0.1 frozen constant.
 fn is_in_today_list(task: &Task, today: NaiveDate) -> bool {
     if task.completed_at.is_some() {
         return false;
@@ -164,7 +164,10 @@ fn is_in_today_list(task: &Task, today: NaiveDate) -> bool {
         Some(ScheduledFor::Someday) => false,
         None => false,
     };
-    let horizon = today + Duration::days(TODAY_DEADLINE_WINDOW_DAYS);
+    let warn_days = task
+        .deadline_warn_days
+        .unwrap_or(TODAY_DEADLINE_WINDOW_DAYS);
+    let horizon = today + Duration::days(warn_days);
     let deadline_approaching = task.deadline.is_some_and(|d| d <= horizon);
     scheduled_today_or_past || deadline_approaching
 }

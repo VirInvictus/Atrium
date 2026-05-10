@@ -923,3 +923,99 @@ async fn external_rrule_property_edit_syncs_to_db() {
     drop(handle);
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn external_deadline_warning_suffix_round_trips_through_db() {
+    // v0.14.0 — Phase 18.5 Tier-1: external Emacs edits to the
+    // DEADLINE warning suffix (`-Nd` / `--Nd`) flow back through
+    // the watcher into `task.deadline_warn_days`. The writer
+    // re-emits the canonical `-Nd` form on every flush so a
+    // double-dash round-trip normalises onto a single dash.
+    let (conn, vault, pool) = fresh_setup("ext-deadline-warn");
+    let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
+
+    let project_path = vault.join("Errands.org");
+
+    // Append a TODO with a -7d warning. After the writer rewrites
+    // the file with :ID:, the DB should hold deadline_warn_days=7.
+    let existing = std::fs::read_to_string(&project_path).unwrap();
+    let appended = format!("{existing}\n* TODO File taxes\nDEADLINE: <2026-04-15 Wed -7d>\n");
+    std::fs::write(&project_path, appended).unwrap();
+
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let tasks = pool
+        .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+        .unwrap();
+    let taxes = tasks
+        .iter()
+        .find(|t| t.title == "File taxes")
+        .expect("task should land in DB");
+    assert_eq!(
+        taxes.deadline_warn_days,
+        Some(7),
+        "DEADLINE -7d suffix should round-trip into deadline_warn_days"
+    );
+
+    // The writer rewrites the file. Double-check the cookie
+    // survived the round-trip (writer emits `-7d` after `:ID:`
+    // landed). Re-read the file to confirm.
+    let after_first = std::fs::read_to_string(&project_path).unwrap();
+    assert!(
+        after_first.contains("-7d"),
+        "writer must preserve -7d on round-trip; got:\n{after_first}"
+    );
+
+    // External flip: change `-7d` to `--14d`. Atrium normalises
+    // both prefixes onto the same column, so the DB should land
+    // at 14 and the writer's next flush emits canonical `-14d`.
+    let edited = after_first.replace("-7d", "--14d");
+    std::fs::write(&project_path, edited).unwrap();
+
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let tasks2 = pool
+        .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+        .unwrap();
+    let updated = tasks2
+        .iter()
+        .find(|t| t.title == "File taxes")
+        .expect("task should still exist after warning flip");
+    assert_eq!(
+        updated.deadline_warn_days,
+        Some(14),
+        "watcher must sync the new warning value via deadline_warn_days_value"
+    );
+
+    let final_text = std::fs::read_to_string(&project_path).unwrap();
+    assert!(
+        final_text.contains("-14d"),
+        "writer must re-emit canonical -14d after sync; got:\n{final_text}"
+    );
+    assert!(
+        !final_text.contains("--14d"),
+        "writer must normalise --14d to -14d; got:\n{final_text}"
+    );
+
+    // External clear: drop the warning suffix entirely. The DB
+    // should return to NULL (use-the-global-default).
+    let cleared = final_text.replace(" -14d", "");
+    std::fs::write(&project_path, cleared).unwrap();
+
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let tasks3 = pool
+        .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+        .unwrap();
+    let cleared_row = tasks3
+        .iter()
+        .find(|t| t.title == "File taxes")
+        .expect("task should still exist after warning clear");
+    assert_eq!(
+        cleared_row.deadline_warn_days, None,
+        "removing -Nd suffix must clear the per-task override back to NULL"
+    );
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&vault);
+}

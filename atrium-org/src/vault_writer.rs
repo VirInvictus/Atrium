@@ -231,18 +231,29 @@ impl VaultWriter {
         }
     }
 
-    /// Re-read the sidecar-shaped slice of the DB (tag colours)
-    /// and write `<vault>/.atrium/config.toml` when the result
-    /// differs from the last write. Idempotent: a flush burst
-    /// that doesn't touch tag colours produces no sidecar IO.
+    /// Re-read the sidecar-shaped slice of the DB (tag colours +
+    /// perspectives) and write `<vault>/.atrium/config.toml` when
+    /// the result differs from the last write. Idempotent: a
+    /// flush burst that doesn't touch sidecar state produces no
+    /// sidecar IO. v0.16.0 — `todo_sequences` lives only on disk
+    /// (not in SQL), so we read the existing on-disk sidecar and
+    /// preserve its sequences before emitting; otherwise every
+    /// flush would silently erase user-configured sequences.
     fn refresh_sidecar_if_changed(&mut self) {
-        let next = match self.pool.with(crate::sidecar::build_from_db) {
+        let mut next = match self.pool.with(crate::sidecar::build_from_db) {
             Ok(s) => s,
             Err(e) => {
                 warn!(error = %e, "sidecar refresh: DB read failed; skipping");
                 return;
             }
         };
+        // Preserve disk-only fields (todo_sequences) by reading
+        // the existing sidecar and folding them forward. NotFound
+        // returns Sidecar::default() with an empty Vec, which is
+        // the right behaviour for fresh vaults.
+        if let Ok(on_disk) = crate::sidecar::read_sidecar(&self.root) {
+            next.todo_sequences = on_disk.todo_sequences;
+        }
         if self.last_sidecar.as_ref() == Some(&next) {
             return;
         }

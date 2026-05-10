@@ -140,6 +140,9 @@ pub fn format_task_detail(task: &Task, row: &Row) -> String {
     if let Some(min) = task.estimated_minutes {
         out.push_str(&format!("est   {min} minutes\n"));
     }
+    if let Some(warn) = task.deadline_warn_days {
+        out.push_str(&format!("warn  {warn} days before deadline\n"));
+    }
     if let Some(rule) = &task.repeat_rule {
         out.push_str(&format!("rule  {rule}\n"));
     }

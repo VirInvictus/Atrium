@@ -204,6 +204,17 @@ pub enum Subcommand {
         path: String,
         dry_run: bool,
     },
+    /// v0.16.0 — `vault sequences SUBCOMMAND ...` — manage the
+    /// vault sidecar's `[[todo_sequences]]` (Phase 18.5 Tier-1).
+    /// Operates on `<vault>/.atrium/config.toml` directly via the
+    /// sidecar helpers; no DB round-trip needed. Vault root is
+    /// resolved from a required `--vault PATH` flag (atrium-cli
+    /// is process-isolated from the GTK GSettings store, so we
+    /// can't reuse the GUI's vault-path key).
+    VaultSequences {
+        op: VaultSequencesOp,
+        vault: String,
+    },
 }
 
 /// Supported import sources. v0.7.9 ships `Org` (single-file
@@ -236,6 +247,27 @@ pub enum PerspectiveSub {
     Create { name: String, args: PerspectiveArgs },
     Edit { name: String, args: PerspectiveArgs },
     Delete { name: String },
+}
+
+/// v0.16.0 — sub-subcommand of `vault sequences`. The set
+/// operation replaces the configured sequence outright (single-
+/// sequence-per-vault is the typical case; multi-sequence support
+/// would land here when a real user asks). Clear removes all
+/// configured sequences.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VaultSequencesOp {
+    /// `vault sequences list` — print the configured sequences
+    /// in TSV / JSON / human format.
+    List,
+    /// `vault sequences set --workflow STATES --done STATES [--name NAME]`.
+    /// `workflow` + `done` are comma-separated keyword lists.
+    Set {
+        name: Option<String>,
+        workflow: Vec<String>,
+        done: Vec<String>,
+    },
+    /// `vault sequences clear` — drop all configured sequences.
+    Clear,
 }
 
 /// Flags shared by `perspective create` and `perspective edit`. Each
@@ -296,6 +328,10 @@ pub struct EditArgs {
     /// `None` = leave alone, `Some("none")` = clear, otherwise the
     /// raw integer text validated at parse time.
     pub estimated: Option<String>,
+    /// v0.14.0 — per-task DEADLINE warning window override.
+    /// `None` = leave alone, `Some("none")` = clear back to the
+    /// global default, otherwise the integer days as text.
+    pub deadline_warn: Option<String>,
     /// Tag names to ensure are attached after the field update. Ran
     /// against the current tag set: anything in `tags_add` that
     /// isn't already attached is added; anything already attached
@@ -340,6 +376,10 @@ pub struct AddArgs {
     pub due: Option<String>,
     pub defer: Option<String>,
     pub estimated_minutes: Option<i64>,
+    /// v0.14.0 — per-task DEADLINE warning window. `None` falls
+    /// through to the global default; `Some(n)` writes the
+    /// override on create.
+    pub deadline_warn: Option<i64>,
 }
 
 impl Default for Args {
@@ -478,6 +518,7 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
         "perspective" => parse_perspective(&raw[i..], &mut args)?,
         "import" => parse_import(&raw[i..], &mut args)?,
         "export" => parse_export(&raw[i..], &mut args)?,
+        "vault" => parse_vault(&raw[i..], &mut args)?,
         other => return Err(format!("unknown subcommand: {other}")),
     });
 
@@ -538,6 +579,18 @@ fn parse_add(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
                     .parse()
                     .map_err(|_| format!("--estimated must be an integer, got {v}"))?;
                 add.estimated_minutes = Some(n);
+                i += 1;
+            }
+            "--deadline-warn" | "--warn" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--deadline-warn requires a value")?;
+                let n: i64 = v
+                    .parse()
+                    .map_err(|_| format!("--deadline-warn must be an integer, got {v}"))?;
+                if n < 0 {
+                    return Err("--deadline-warn must be a non-negative integer".into());
+                }
+                add.deadline_warn = Some(n);
                 i += 1;
             }
             // Global format flags can appear anywhere.
@@ -720,6 +773,20 @@ fn parse_edit(rest: &[String], args: &mut Args) -> Result<EditArgs, String> {
                     })?;
                 }
                 edit.estimated = Some(v.clone());
+                i += 1;
+            }
+            "--deadline-warn" | "--warn" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--deadline-warn requires a value")?;
+                if !v.eq_ignore_ascii_case("none") {
+                    let n: i64 = v.parse().map_err(|_| {
+                        format!("--deadline-warn must be an integer or 'none', got {v}")
+                    })?;
+                    if n < 0 {
+                        return Err("--deadline-warn must be a non-negative integer".into());
+                    }
+                }
+                edit.deadline_warn = Some(v.clone());
                 i += 1;
             }
             "--tag" | "--add-tag" => {
@@ -1056,6 +1123,113 @@ fn parse_perspective_args(
         return Err("perspective requires a name".into());
     }
     Ok((name, p))
+}
+
+/// v0.16.0 — `vault SUBCOMMAND ARGS`. Currently dispatches only
+/// `sequences`. Future work could add `vault tags` / `vault
+/// perspectives` here, but for now the sidecar's tags/perspectives
+/// are GUI-managed and the CLI stays narrow.
+fn parse_vault(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
+    let sub = rest
+        .first()
+        .ok_or("vault requires a sub-subcommand (sequences)")?;
+    match sub.as_str() {
+        "sequences" => parse_vault_sequences(&rest[1..], args),
+        other => Err(format!("unknown vault sub-subcommand: {other}")),
+    }
+}
+
+/// `vault sequences SUBCOMMAND [--vault PATH] [...]`. Vault path
+/// is a required flag because atrium-cli is process-isolated from
+/// the GTK GSettings store; without `--vault` the subcommand
+/// can't know which sidecar to read or write.
+fn parse_vault_sequences(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
+    let sub = rest
+        .first()
+        .ok_or("vault sequences requires a sub-subcommand (list / set / clear)")?;
+    let body = &rest[1..];
+
+    let mut vault: Option<String> = None;
+    let mut name: Option<String> = None;
+    let mut workflow: Vec<String> = Vec::new();
+    let mut done: Vec<String> = Vec::new();
+
+    let mut i = 0;
+    while i < body.len() {
+        let tok = body[i].as_str();
+        match tok {
+            "--vault" => {
+                i += 1;
+                vault = Some(
+                    body.get(i)
+                        .ok_or("--vault requires a path argument")?
+                        .clone(),
+                );
+                i += 1;
+            }
+            "--name" => {
+                i += 1;
+                name = Some(body.get(i).ok_or("--name requires a value")?.clone());
+                i += 1;
+            }
+            "--workflow" => {
+                i += 1;
+                let v = body.get(i).ok_or("--workflow requires a value")?;
+                workflow = split_keyword_list(v);
+                i += 1;
+            }
+            "--done" => {
+                i += 1;
+                let v = body.get(i).ok_or("--done requires a value")?;
+                done = split_keyword_list(v);
+                i += 1;
+            }
+            "--json" => {
+                args.format = Format::Json;
+                i += 1;
+            }
+            "--tsv" => {
+                args.format = Format::Tsv;
+                i += 1;
+            }
+            "--human" => {
+                args.format = Format::Human;
+                i += 1;
+            }
+            other => return Err(format!("unknown flag: {other}")),
+        }
+    }
+
+    let vault = vault.ok_or("vault sequences requires --vault PATH")?;
+
+    let op = match sub.as_str() {
+        "list" => VaultSequencesOp::List,
+        "set" => {
+            if workflow.is_empty() && done.is_empty() {
+                return Err(
+                    "vault sequences set requires --workflow and/or --done with at least one keyword".into(),
+                );
+            }
+            VaultSequencesOp::Set {
+                name,
+                workflow,
+                done,
+            }
+        }
+        "clear" => VaultSequencesOp::Clear,
+        other => return Err(format!("unknown vault sequences sub-subcommand: {other}")),
+    };
+
+    Ok(Subcommand::VaultSequences { op, vault })
+}
+
+/// Split a `--workflow TODO,NEXT,WAITING` argument into individual
+/// keywords. Trims whitespace per element; drops empty entries.
+fn split_keyword_list(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// Pull non-flag tokens into a space-joined expression, leaving

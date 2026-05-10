@@ -10,6 +10,7 @@
  *   .atrium-task-row           — task row container Box (task_list.rs)
  *   .atrium-task-title         — task title EditableLabel
  *   .atrium-task-tags          — inline tag-names-csv Label
+ *   .atrium-task-cookie        — statistics cookie [N/M] (v0.15.0)
  *   .atrium-task-context       — Area › Project chip (cross-list context)
  *   .atrium-task-schedule      — schedule pill (Today / Tomorrow / …)
  *   .atrium-task-deadline      — deadline pill (Due …)
@@ -86,6 +87,17 @@ window.atrium-high-legibility .atrium-task-deadline {
 }
 .atrium-task-deadline {
   font-weight: 500;
+}
+
+/* v0.15.0 — statistics cookie. Sits between title and tags. Reads
+ * as secondary numeric — same dim treatment as the schedule pill,
+ * with tabular figures so [3/5] doesn't shift to [13/15] on
+ * count change. */
+.atrium-task-cookie {
+  font-size: 0.85em;
+  font-feature-settings: var(--atrium-inter-features), "tnum";
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
 }
 
 /* Inline tag display ("#errand #work-focus") trails the title.

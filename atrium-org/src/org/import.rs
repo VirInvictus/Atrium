@@ -470,6 +470,11 @@ fn import_task<'a>(
             uuid: id_property,
             orig_keyword,
             completed_at: completed_at_for_insert,
+            // v0.14.0 — round-trip the DEADLINE warning suffix
+            // (`-Nd` / `--Nd`) into the per-task override column.
+            // Both prefix shapes parse to the same `u32` days; the
+            // emitter normalises onto `-`.
+            deadline_warn_days: org.deadline_warning.map(i64::from),
         };
         let created = handle.create_task(new).await?;
         summary.tasks_created += 1;

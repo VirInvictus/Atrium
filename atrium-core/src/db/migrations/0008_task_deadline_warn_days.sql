@@ -1,0 +1,26 @@
+-- 0008_task_deadline_warn_days.sql — v0.14.0
+--
+-- Phase 18.5 Tier-1 — DEADLINE warning windows. Per-task override
+-- on the global TODAY_DEADLINE_WINDOW_DAYS constant (default 7) so
+-- a sensitive deadline can surface in Today earlier than the rest.
+-- Round-trips to Org as the `-Nd` / `--Nd` warning suffix on the
+-- DEADLINE cookie (e.g. `DEADLINE: <2026-05-15 Fri -7d>` means
+-- "surface 7 days early"). Atrium normalises both prefixes onto a
+-- single column — there is no "global default override" concept
+-- to distinguish them by, so `--` becomes `-` on emit.
+--
+-- One new column on `task`:
+--
+--   deadline_warn_days   INTEGER NULL
+--                        Number of days *before* the task's
+--                        deadline that the task should start
+--                        surfacing in Today. NULL means "use the
+--                        global default" (TODAY_DEADLINE_WINDOW_DAYS,
+--                        currently 7). Only meaningful when
+--                        `deadline` is also set.
+--
+-- Backwards-compatible additive change. Existing tasks default
+-- NULL = "no per-task override." v0.13.x binaries reading a
+-- v0.14.x DB ignore the column. user_version 7 → 8.
+
+ALTER TABLE task ADD COLUMN deadline_warn_days INTEGER NULL;

@@ -29,7 +29,7 @@
 use std::io;
 use std::path::Path;
 
-use super::parse::{OrgFile, OrgRepeater, OrgTask};
+use super::parse::{OrgFile, OrgRepeater, OrgTask, StatisticsCookie};
 use atrium_core::sync::atomic::write_atomic;
 
 /// Emit a tree of `OrgTask` values back to Org text. No preamble
@@ -166,6 +166,14 @@ fn emit_task(task: &OrgTask, out: &mut String) {
         out.push(' ');
     }
     out.push_str(&task.title);
+    // v0.15.0 — statistics cookie sits between title and tags
+    // per Org spec. Whitespace-separated from both sides so
+    // `parse_headline`'s strip_trailing_cookie pass picks it up
+    // cleanly on a re-read.
+    if let Some(cookie) = task.statistics_cookie {
+        out.push(' ');
+        out.push_str(&render_cookie(cookie));
+    }
     if !task.tags.is_empty() {
         out.push(' ');
         out.push(':');
@@ -247,11 +255,15 @@ fn emit_task(task: &OrgTask, out: &mut String) {
 fn render_cookies(task: &OrgTask) -> Vec<String> {
     let mut chunks: Vec<String> = Vec::new();
     if let Some(date) = task.scheduled {
-        let stamp = render_active(date, task.scheduled_repeater.as_ref());
+        let stamp = render_active(
+            date,
+            task.scheduled_repeater.as_ref(),
+            task.scheduled_warning,
+        );
         chunks.push(format!("SCHEDULED: {stamp}"));
     }
     if let Some(date) = task.deadline {
-        let stamp = render_active(date, task.deadline_repeater.as_ref());
+        let stamp = render_active(date, task.deadline_repeater.as_ref(), task.deadline_warning);
         chunks.push(format!("DEADLINE: {stamp}"));
     }
     if let Some(closed) = task.closed {
@@ -276,18 +288,44 @@ fn render_cookies(task: &OrgTask) -> Vec<String> {
     chunks
 }
 
-fn render_active(date: chrono::NaiveDate, repeater: Option<&OrgRepeater>) -> String {
-    let day = date.format("%a");
-    match repeater {
-        Some(r) => format!(
-            "<{} {} {}{}{}>",
-            date.format("%Y-%m-%d"),
-            day,
-            r.mode,
-            r.interval,
-            r.unit
-        ),
-        None => format!("<{} {}>", date.format("%Y-%m-%d"), day),
+fn render_active(
+    date: chrono::NaiveDate,
+    repeater: Option<&OrgRepeater>,
+    warning_days: Option<u32>,
+) -> String {
+    // Build the optional `<sp>+1w<sp>-7d` suffix run. The two
+    // pieces are independent — both, either, or neither may be
+    // present. Org accepts the warning before or after the
+    // repeater; we always emit repeater-then-warning so byte-stable
+    // round-trips have a fixed canonical order. Atrium normalises
+    // the warning prefix onto `-` (single dash) since Atrium has
+    // no global-default-override concept that would distinguish
+    // `-` from `--`.
+    let mut suffix = String::new();
+    if let Some(r) = repeater {
+        suffix.push(' ');
+        suffix.push_str(&format!("{}{}{}", r.mode, r.interval, r.unit));
+    }
+    if let Some(days) = warning_days {
+        suffix.push(' ');
+        suffix.push_str(&format!("-{days}d"));
+    }
+    format!(
+        "<{} {}{}>",
+        date.format("%Y-%m-%d"),
+        date.format("%a"),
+        suffix
+    )
+}
+
+/// v0.15.0 — render a statistics cookie back to its `[N/M]` or
+/// `[N%]` text shape. Variant choice preserves the user's
+/// original form across a round-trip; values come from whatever
+/// the projection populated.
+fn render_cookie(cookie: StatisticsCookie) -> String {
+    match cookie {
+        StatisticsCookie::Counter { done, total } => format!("[{done}/{total}]"),
+        StatisticsCookie::Percent { value } => format!("[{value}%]"),
     }
 }
 
@@ -349,9 +387,112 @@ SCHEDULED: <2026-05-15 Fri> DEADLINE: <2026-06-01 Mon>
         assert_roundtrip("* TODO Next-from-completion\nSCHEDULED: <2026-05-15 Fri .+2w>\n");
     }
 
+    // v0.14.0 — DEADLINE warning suffix round-trips through the
+    // emitter unchanged. Phase 18.5 Tier-1.
+    #[test]
+    fn roundtrip_deadline_with_warning_suffix() {
+        assert_roundtrip("* TODO File taxes\nDEADLINE: <2026-04-15 Wed -7d>\n");
+    }
+
+    #[test]
+    fn roundtrip_deadline_with_repeater_and_warning() {
+        // Order canonicalised on emit (repeater first, warning
+        // second); both shapes parse cleanly so the round-trip is
+        // stable.
+        assert_roundtrip("* TODO Renew domain\nDEADLINE: <2026-12-01 Tue +1y -30d>\n");
+    }
+
+    #[test]
+    fn emit_normalises_double_dash_warning_to_single_dash() {
+        // Atrium has no global-default-override concept, so
+        // `--Nd` and `-Nd` mean the same thing. The emitter
+        // canonicalises onto `-`. After one round-trip the input's
+        // `--7d` becomes `-7d`; the parsed shape stays equal.
+        let input = "* TODO Audit\nDEADLINE: <2026-09-01 Tue --7d>\n";
+        let first = super::super::parse::parse_org_text(input);
+        let emitted = emit_org_text(&first);
+        assert!(
+            emitted.contains("-7d"),
+            "expected canonical -7d in emitted text, got:\n{emitted}"
+        );
+        assert!(
+            !emitted.contains("--7d"),
+            "expected --7d to normalise away, got:\n{emitted}"
+        );
+        let second = super::super::parse::parse_org_text(&emitted);
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn roundtrip_scheduled_warning_suffix_is_preserved() {
+        // Atrium has no DB column for SCHEDULED-side warnings,
+        // but the OrgTask round-trip preserves them verbatim.
+        assert_roundtrip("* TODO Pay rent\nSCHEDULED: <2026-05-01 Fri -3d>\n");
+    }
+
     #[test]
     fn roundtrip_headline_tags() {
         assert_roundtrip("* TODO Run errands :errand:home:\n");
+    }
+
+    // v0.15.0 — Phase 18.5 Tier-1 statistics cookies. Both shapes
+    // round-trip; cookie sits between title and tags as the
+    // parser expects.
+    #[test]
+    fn roundtrip_counter_cookie() {
+        // Synthesise an OrgTask with children so the writer's
+        // projection populates the cookie.
+        let parent = OrgTask {
+            depth: 1,
+            keyword: None,
+            title: "Project".to_string(),
+            tags: Vec::new(),
+            scheduled: None,
+            scheduled_repeater: None,
+            scheduled_warning: None,
+            deadline: None,
+            deadline_repeater: None,
+            deadline_warning: None,
+            statistics_cookie: Some(StatisticsCookie::Counter { done: 2, total: 5 }),
+            closed: None,
+            properties: HashMap::new(),
+            body: String::new(),
+            unknown_lines: Vec::new(),
+            children: Vec::new(),
+        };
+        let text = emit_org_text(&[parent]);
+        assert!(text.contains("[2/5]"), "expected [2/5] in:\n{text}");
+        // Re-parse + check the cookie survives.
+        let reparsed = super::super::parse::parse_org_text(&text);
+        assert_eq!(
+            reparsed[0].statistics_cookie,
+            Some(StatisticsCookie::Counter { done: 2, total: 5 })
+        );
+    }
+
+    #[test]
+    fn roundtrip_percent_cookie_preserves_shape() {
+        // Source-shape preservation: a `[40%]` source emits back
+        // as `[N%]`, not `[N/M]`.
+        let input = "* TODO Big initiative [40%]\n";
+        let first = super::super::parse::parse_org_text(input);
+        let emitted = emit_org_text(&first);
+        assert!(emitted.contains("[40%]"), "expected [40%] in:\n{emitted}");
+        let second = super::super::parse::parse_org_text(&emitted);
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn roundtrip_cookie_with_tags() {
+        let input = "* TODO Project :work:focus:\n";
+        let mut parsed = super::super::parse::parse_org_text(input);
+        parsed[0].statistics_cookie = Some(StatisticsCookie::Counter { done: 1, total: 3 });
+        let emitted = emit_org_text(&parsed);
+        // Cookie should sit between title and tags.
+        assert!(
+            emitted.contains("Project [1/3] :work:focus:"),
+            "expected `Project [1/3] :work:focus:` in:\n{emitted}"
+        );
     }
 
     #[test]

@@ -233,6 +233,33 @@ async fn update_task_sets_and_clears_estimated_minutes() {
 }
 
 #[tokio::test]
+async fn update_task_sets_and_clears_deadline_warn_days() {
+    // v0.14.0 — Phase 18.5 Tier-1: per-task DEADLINE warning
+    // window set/clear via the TaskUpdate builder. NULL is the
+    // "fall back to global default" sentinel.
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let task = handle
+        .create_task(NewTask::inbox("sensitive"))
+        .await
+        .unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    assert_eq!(task.deadline_warn_days, None);
+
+    let with_warn = handle
+        .update_task(TaskUpdate::new(task.id).deadline_warn_days_value(Some(14)))
+        .await
+        .unwrap();
+    assert_eq!(with_warn.deadline_warn_days, Some(14));
+    let _ = changes_rx.recv().await.unwrap();
+
+    let cleared = handle
+        .update_task(TaskUpdate::new(task.id).deadline_warn_days_value(None))
+        .await
+        .unwrap();
+    assert_eq!(cleared.deadline_warn_days, None);
+}
+
+#[tokio::test]
 async fn update_task_sets_and_clears_repeat_rule() {
     // Phase 15 — repeat_rule + repeat_mode set/clear via the
     // TaskUpdate builder. Validates that round-trip survives.

@@ -182,11 +182,15 @@ impl ActiveList {
                     &task.scheduled_for,
                     Some(ScheduledFor::Date(d)) if *d <= today
                 );
-                // Spec §4.2 (v0.0.38) — deadlines surface in Today
-                // for a heads-up window of TODAY_DEADLINE_WINDOW_DAYS,
-                // not only for `deadline ≤ today`. Mirrors the SQL
-                // in `atrium_core::db::read::list_today`.
-                let horizon = today + chrono::Duration::days(TODAY_DEADLINE_WINDOW_DAYS);
+                // Spec §4.2 — deadlines surface in Today for a
+                // heads-up window. Per-task `deadline_warn_days`
+                // (v0.14.0) overrides the global default; NULL falls
+                // back to TODAY_DEADLINE_WINDOW_DAYS. Mirrors the
+                // COALESCE in `atrium_core::db::read::list_today`.
+                let warn_days = task
+                    .deadline_warn_days
+                    .unwrap_or(TODAY_DEADLINE_WINDOW_DAYS);
+                let horizon = today + chrono::Duration::days(warn_days);
                 let deadline_match = task.deadline.is_some_and(|d| d <= horizon);
                 let not_deferred = task.defer_until.is_none_or(|d| d <= today);
                 (scheduled_match || deadline_match) && not_deferred
@@ -328,6 +332,15 @@ where
         // has long since attached.
         crate::ui::inline_complete::attach(&title_entry, pool_source());
 
+        // v0.15.0 — Phase 18.5 Tier-1 statistics cookie. Sits
+        // immediately after the title (mirrors Org's headline
+        // shape: title, cookie, tags). Hidden when the task has
+        // no children. Window populates `cookie_label` before
+        // binding via `count_done_total_per_parent`.
+        let cookie = gtk::Label::builder().visible(false).build();
+        cookie.add_css_class("atrium-task-cookie");
+        cookie.add_css_class("dim-label");
+
         // v0.3.0 — tags label renders Pango markup so per-pill
         // colours can ship as inline <span foreground="…"> tokens.
         // Format helper lives in this module; window-side wires the
@@ -379,6 +392,7 @@ where
 
         row.append(&check);
         row.append(&title_stack);
+        row.append(&cookie);
         row.append(&tags);
         row.append(&context);
         row.append(&schedule);
@@ -413,7 +427,11 @@ where
             .child_by_name("edit")
             .and_downcast::<gtk::Entry>()
             .expect("edit entry");
-        let tags = title_stack
+        let cookie = title_stack
+            .next_sibling()
+            .and_downcast::<gtk::Label>()
+            .expect("cookie");
+        let tags = cookie
             .next_sibling()
             .and_downcast::<gtk::Label>()
             .expect("tags");
@@ -449,6 +467,9 @@ where
             task.bind_property("tag-names-csv", &tags, "label")
                 .sync_create()
                 .build(),
+            task.bind_property("cookie-label", &cookie, "label")
+                .sync_create()
+                .build(),
             task.bind_property("context-label", &context, "label")
                 .sync_create()
                 .build(),
@@ -474,6 +495,7 @@ where
         deadline.set_visible(!task.deadline_label().is_empty());
         tags.set_visible(!task.tag_names_csv().is_empty());
         context.set_visible(!task.context_label().is_empty());
+        cookie.set_visible(!task.cookie_label().is_empty());
 
         let tags_for_notify = tags.clone();
         let tags_handler = task.connect_tag_names_csv_notify(move |t| {
@@ -482,6 +504,10 @@ where
         let context_for_notify = context.clone();
         let context_handler = task.connect_context_label_notify(move |t| {
             context_for_notify.set_visible(!t.context_label().is_empty());
+        });
+        let cookie_for_notify = cookie.clone();
+        let cookie_handler = task.connect_cookie_label_notify(move |t| {
+            cookie_for_notify.set_visible(!t.cookie_label().is_empty());
         });
 
         // Always start a freshly-bound row in display mode so a
@@ -657,6 +683,7 @@ where
             row.set_data("atrium-queued-handler", queued_handler);
             row.set_data("atrium-tags-handler", tags_handler);
             row.set_data("atrium-context-handler", context_handler);
+            row.set_data("atrium-cookie-handler", cookie_handler);
             row.set_data("atrium-area-color-handler", area_color_handler);
             row.set_data("atrium-row-state-handler", state_handler);
             row.set_data("atrium-repeating-handler", repeating_handler);
@@ -861,6 +888,12 @@ where
             }
             if let (Some(task), Some(handler)) = (
                 task_obj.clone(),
+                row.steal_data::<glib::SignalHandlerId>("atrium-cookie-handler"),
+            ) {
+                task.disconnect(handler);
+            }
+            if let (Some(task), Some(handler)) = (
+                task_obj.clone(),
                 row.steal_data::<glib::SignalHandlerId>("atrium-area-color-handler"),
             ) {
                 task.disconnect(handler);
@@ -945,16 +978,19 @@ where
 /// The caller is the only thing that knows whether the active list
 /// is a sequential project view, so this is a parameter rather
 /// than a global.
-pub fn replace_store_with_tags_seq<F, G>(
+#[allow(clippy::too_many_arguments)]
+pub fn replace_store_with_tags_seq<F, G, H>(
     store: &gio::ListStore,
     tasks: &[Task],
     tag_pills: &TagPillMap,
     sequential: bool,
     context_for: F,
     area_color_for: G,
+    cookie_for: H,
 ) where
     F: Fn(&Task) -> String,
     G: Fn(&Task) -> String,
+    H: Fn(&Task) -> String,
 {
     store.remove_all();
     let queued = compute_queued_state(tasks, sequential);
@@ -966,6 +1002,7 @@ pub fn replace_store_with_tags_seq<F, G>(
             let obj = AtriumTask::from_task_with_tags(t, &pills);
             obj.set_context_label(context_for(t));
             obj.set_area_color(area_color_for(t));
+            obj.set_cookie_label(cookie_for(t));
             obj.set_queued(*q);
             obj.upcast()
         })
@@ -1017,7 +1054,7 @@ pub fn compute_queued_state(tasks: &[Task], sequential: bool) -> Vec<bool> {
 // trades a clippy warning for an indirection that doesn't make the
 // call site clearer.
 #[allow(clippy::too_many_arguments)]
-pub fn apply_changes_seq<F, G>(
+pub fn apply_changes_seq<F, G, H>(
     store: &gio::ListStore,
     changes: &TaskChanges,
     active: ActiveList,
@@ -1026,9 +1063,11 @@ pub fn apply_changes_seq<F, G>(
     sequential: bool,
     context_for: F,
     area_color_for: G,
+    cookie_for: H,
 ) where
     F: Fn(&Task) -> String,
     G: Fn(&Task) -> String,
+    H: Fn(&Task) -> String,
 {
     // Created — append rows that belong here.
     for task in &changes.created {
@@ -1037,6 +1076,7 @@ pub fn apply_changes_seq<F, G>(
             let obj = AtriumTask::from_task_with_tags(task, &pills);
             obj.set_context_label(context_for(task));
             obj.set_area_color(area_color_for(task));
+            obj.set_cookie_label(cookie_for(task));
             store.append(&obj);
         }
     }
@@ -1060,6 +1100,9 @@ pub fn apply_changes_seq<F, G>(
                     // the context chip; a project move can change
                     // which area the row paints.
                     obj.set_area_color(area_color_for(task));
+                    // v0.15.0 — cookie can flip when a child task is
+                    // toggled (the parent's cookie counts shift).
+                    obj.set_cookie_label(cookie_for(task));
                 }
             }
             (Some(i), false) => {
@@ -1070,6 +1113,7 @@ pub fn apply_changes_seq<F, G>(
                 let obj = AtriumTask::from_task_with_tags(task, &pills);
                 obj.set_context_label(context_for(task));
                 obj.set_area_color(area_color_for(task));
+                obj.set_cookie_label(cookie_for(task));
                 store.append(&obj);
             }
             (None, false) => {}

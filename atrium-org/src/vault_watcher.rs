@@ -317,6 +317,17 @@ impl VaultWatcher {
         let db_by_uuid: HashMap<String, &Task> =
             db_tasks.iter().map(|t| (t.uuid.clone(), t)).collect();
 
+        // v0.16.0 — read the configured TODO sequence (if any).
+        // Cheap (small file, buffered I/O) and reading per-event
+        // means a sidecar edit takes effect immediately without
+        // restart. Single-sequence-per-vault is the typical case;
+        // multi-sequence support would need a way to pick which
+        // sequence applies to which file (e.g., per-file
+        // `#+TODO:` line — defer until a real user asks).
+        let sequence = crate::sidecar::read_sidecar(&self.root)
+            .ok()
+            .and_then(|s| s.todo_sequences.into_iter().next());
+
         // Flatten the parsed headline tree into a list of
         // (uuid, parent_uuid, depth, OrgTask). Headlines without
         // `:ID:` get a freshly-minted UUIDv4 here so the create
@@ -325,6 +336,23 @@ impl VaultWatcher {
         // rewrite the file with the now-stable :ID: property.
         let flat = flatten_with_uuids(&parsed.headlines);
         let parsed_uuids: HashSet<String> = flat.iter().map(|p| p.uuid.clone()).collect();
+
+        // v0.16.0 — surface UnknownKeyword for any headline whose
+        // keyword falls outside the configured sequence's sets.
+        // Done before the create/update loop so the GUI sees the
+        // notice even if the subsequent worker calls fail.
+        if let Some(tx) = &self.events_tx {
+            for parsed_task in &flat {
+                if !keyword_is_known(parsed_task.org.keyword.as_ref(), sequence.as_ref())
+                    && let Some(OrgKeyword::Custom(name)) = parsed_task.org.keyword.as_ref()
+                {
+                    let _ = tx.send(VaultEvent::UnknownKeyword {
+                        source: path.to_path_buf(),
+                        keyword: name.clone(),
+                    });
+                }
+            }
+        }
 
         // Deletes: DB tasks not in parsed.
         for task in &db_tasks {
@@ -346,13 +374,17 @@ impl VaultWatcher {
                 None => {
                     let new = self
                         .handle
-                        .create_task(parsed_task.to_new_task(project_id, parent_id))
+                        .create_task(parsed_task.to_new_task(
+                            project_id,
+                            parent_id,
+                            sequence.as_ref(),
+                        ))
                         .await?;
                     new.id
                 }
                 Some(existing) => {
                     let existing_tags = db_tag_names.get(&existing.id).cloned().unwrap_or_default();
-                    if let Some(update) = parsed_task.diff_from(existing) {
+                    if let Some(update) = parsed_task.diff_from(existing, sequence.as_ref()) {
                         self.handle.update_task(update).await?;
                     }
                     if !same_tag_set(&parsed_task.org.tags, &existing_tags) {
@@ -533,13 +565,17 @@ fn flatten_one<'a>(task: &'a OrgTask, parent_uuid: Option<String>, out: &mut Vec
 }
 
 impl<'a> ParsedTask<'a> {
-    fn to_new_task(&self, project_id: i64, parent_id: Option<i64>) -> NewTask {
+    fn to_new_task(
+        &self,
+        project_id: i64,
+        parent_id: Option<i64>,
+        sequence: Option<&crate::sidecar::TodoSequenceEntry>,
+    ) -> NewTask {
         let scheduled_for = self.org.scheduled.map(ScheduledFor::Date);
-        let completed_at = match self.org.keyword {
-            Some(OrgKeyword::Done) | Some(OrgKeyword::Cancelled) => {
-                self.org.closed.or_else(|| Some(chrono::Utc::now()))
-            }
-            _ => None,
+        let completed_at = if keyword_is_done(self.org.keyword.as_ref(), sequence) {
+            self.org.closed.or_else(|| Some(chrono::Utc::now()))
+        } else {
+            None
         };
         // `:RRULE:` in the properties drawer is canonical per spec
         // §7.3.3 rule 3. The cookie is best-fit projection only;
@@ -553,9 +589,14 @@ impl<'a> ParsedTask<'a> {
             scheduled_for,
             deadline: self.org.deadline,
             completed_at,
-            orig_keyword: org_keyword_to_orig(self.org.keyword.as_ref()),
+            orig_keyword: org_keyword_to_orig(self.org.keyword.as_ref(), sequence),
             repeat_rule,
             note: self.org.body.clone(),
+            // v0.14.0 — round-trip the DEADLINE warning suffix
+            // (`-Nd` / `--Nd`) into the per-task override column on
+            // the create path so external Emacs adds of new
+            // headlines with a warning don't lose it on first sync.
+            deadline_warn_days: self.org.deadline_warning.map(i64::from),
             ..Default::default()
         }
     }
@@ -563,7 +604,11 @@ impl<'a> ParsedTask<'a> {
     /// Returns `Some(TaskUpdate)` if any field in the parsed task
     /// disagrees with `existing`. Returns `None` when no field
     /// differs (saves a worker round-trip).
-    fn diff_from(&self, existing: &Task) -> Option<TaskUpdate> {
+    fn diff_from(
+        &self,
+        existing: &Task,
+        sequence: Option<&crate::sidecar::TodoSequenceEntry>,
+    ) -> Option<TaskUpdate> {
         let mut update = TaskUpdate::new(existing.id);
         let mut dirty = false;
 
@@ -583,12 +628,15 @@ impl<'a> ParsedTask<'a> {
             dirty = true;
         }
 
-        // Completion: TODO/DONE/CANCELLED → completed_at. Diff the
-        // scalar (Option<DateTime<Utc>>) so we don't round-trip on
-        // identical values.
-        let parsed_completed = match self.org.keyword {
-            Some(OrgKeyword::Done) | Some(OrgKeyword::Cancelled) => self.org.closed,
-            _ => None,
+        // Completion: keyword → completed_at. v0.16.0 — when a
+        // sequence is configured, *any* keyword in the done set
+        // marks the task complete (not just the canonical
+        // Done|Cancelled). Diff the scalar so we don't round-trip
+        // on identical values.
+        let parsed_completed = if keyword_is_done(self.org.keyword.as_ref(), sequence) {
+            self.org.closed
+        } else {
+            None
         };
         if parsed_completed != existing.completed_at {
             update = update.completed_at(parsed_completed);
@@ -597,10 +645,11 @@ impl<'a> ParsedTask<'a> {
 
         // Custom keyword (WAITING / IN-PROGRESS / etc.). Spec
         // §7.3.3 rule 1 — the original keyword survives the
-        // round-trip via `task.orig_keyword`. The watcher used
-        // to drop OrgKeyword::Custom on its create path entirely
-        // and never sync it on existing rows; v0.10.2 fixes both.
-        let parsed_orig = org_keyword_to_orig(self.org.keyword.as_ref());
+        // round-trip via `task.orig_keyword`. v0.16.0 — when a
+        // sequence is configured, ALL non-canonical keywords (open
+        // workflow + done states) stash to orig_keyword so the
+        // writer can recover the exact label on emit.
+        let parsed_orig = org_keyword_to_orig(self.org.keyword.as_ref(), sequence);
         if parsed_orig != existing.orig_keyword {
             update = update.orig_keyword(parsed_orig);
             dirty = true;
@@ -616,6 +665,15 @@ impl<'a> ParsedTask<'a> {
             dirty = true;
         }
 
+        // v0.14.0 — DEADLINE warning suffix. External Emacs edits
+        // that add / change / remove the `-Nd` cookie suffix flow
+        // back into the per-task override column.
+        let parsed_warn = self.org.deadline_warning.map(i64::from);
+        if parsed_warn != existing.deadline_warn_days {
+            update = update.deadline_warn_days_value(parsed_warn);
+            dirty = true;
+        }
+
         if dirty { Some(update) } else { None }
     }
 }
@@ -627,12 +685,78 @@ impl<'a> ParsedTask<'a> {
 /// (Atrium's domain only knows two completion states; the
 /// orig_keyword column carries the original label). Plain TODO /
 /// DONE map to `None` — the column's default.
-fn org_keyword_to_orig(keyword: Option<&OrgKeyword>) -> Option<String> {
-    match keyword {
-        Some(OrgKeyword::Custom(name)) => Some(name.clone()),
-        Some(OrgKeyword::Cancelled) => Some("CANCELLED".to_string()),
-        _ => None,
+///
+/// v0.16.0 — when `sequence` is provided, ANY non-canonical
+/// keyword in the configured workflow OR done sets also stashes
+/// to orig_keyword. That's how the writer recovers `NEXT` /
+/// `WAITING` / etc. on emit instead of collapsing them to TODO.
+fn org_keyword_to_orig(
+    keyword: Option<&OrgKeyword>,
+    sequence: Option<&crate::sidecar::TodoSequenceEntry>,
+) -> Option<String> {
+    let name = match keyword {
+        Some(OrgKeyword::Custom(name)) => return Some(name.clone()),
+        Some(OrgKeyword::Cancelled) => return Some("CANCELLED".to_string()),
+        Some(OrgKeyword::Todo) => "TODO",
+        Some(OrgKeyword::Done) => "DONE",
+        None => return None,
+    };
+    // For canonical TODO/DONE: only stash when a sequence is
+    // configured AND the canonical keyword isn't also in the
+    // sequence. (If the user's workflow set is `["TODO", "NEXT"]`
+    // and they typed `TODO`, that's the canonical default — no
+    // need to stash.)
+    if let Some(seq) = sequence
+        && !seq.workflow.iter().any(|w| w == name)
+        && !seq.done.iter().any(|d| d == name)
+    {
+        return Some(name.to_string());
     }
+    None
+}
+
+/// v0.16.0 — true when `keyword` should map Atrium's task to a
+/// completed state (`completed_at` set). Canonical Done|Cancelled
+/// always count; with a sequence configured, any keyword in the
+/// done set also counts. None / Todo / Custom (workflow keyword)
+/// stay open.
+fn keyword_is_done(
+    keyword: Option<&OrgKeyword>,
+    sequence: Option<&crate::sidecar::TodoSequenceEntry>,
+) -> bool {
+    match keyword {
+        Some(OrgKeyword::Done) | Some(OrgKeyword::Cancelled) => true,
+        Some(OrgKeyword::Custom(name)) => sequence
+            .map(|s| s.done.iter().any(|d| d == name))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// v0.16.0 — true when `keyword` is configured in either side of
+/// the sequence (workflow open or done set). Canonical TODO/DONE/
+/// CANCELLED always count as known. None counts as known
+/// (project sub-headings have no keyword and aren't tasks).
+/// Returns true when no sequence is configured (no validation to
+/// run; every keyword is "known" in that mode).
+fn keyword_is_known(
+    keyword: Option<&OrgKeyword>,
+    sequence: Option<&crate::sidecar::TodoSequenceEntry>,
+) -> bool {
+    let Some(seq) = sequence else {
+        return true;
+    };
+    let name = match keyword {
+        Some(OrgKeyword::Todo) => "TODO",
+        Some(OrgKeyword::Done) => "DONE",
+        Some(OrgKeyword::Cancelled) => "CANCELLED",
+        Some(OrgKeyword::Custom(name)) => name.as_str(),
+        None => return true,
+    };
+    if matches!(name, "TODO" | "DONE" | "CANCELLED") {
+        return true;
+    }
+    seq.workflow.iter().any(|w| w == name) || seq.done.iter().any(|d| d == name)
 }
 
 /// Spawn a vault watcher task on the current tokio runtime. The
@@ -720,5 +844,115 @@ fn collect_rrule_divergences_one(task: &OrgTask, out: &mut Vec<RruleDivergence>)
     }
     for child in &task.children {
         collect_rrule_divergences_one(child, out);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sidecar::TodoSequenceEntry;
+
+    fn sample_sequence() -> TodoSequenceEntry {
+        TodoSequenceEntry {
+            name: "default".into(),
+            workflow: vec!["TODO".into(), "NEXT".into(), "WAITING".into()],
+            done: vec!["DONE".into(), "CANCELLED".into(), "ARCHIVED".into()],
+        }
+    }
+
+    #[test]
+    fn keyword_is_done_with_no_sequence_uses_canonical_set() {
+        assert!(keyword_is_done(Some(&OrgKeyword::Done), None));
+        assert!(keyword_is_done(Some(&OrgKeyword::Cancelled), None));
+        assert!(!keyword_is_done(Some(&OrgKeyword::Todo), None));
+        assert!(!keyword_is_done(
+            Some(&OrgKeyword::Custom("WAITING".into())),
+            None
+        ));
+        assert!(!keyword_is_done(None, None));
+    }
+
+    #[test]
+    fn keyword_is_done_with_sequence_includes_done_set() {
+        let seq = sample_sequence();
+        let s = Some(&seq);
+        // Custom keyword that's in the done set counts as done.
+        assert!(keyword_is_done(
+            Some(&OrgKeyword::Custom("ARCHIVED".into())),
+            s
+        ));
+        // Custom workflow keyword stays open.
+        assert!(!keyword_is_done(
+            Some(&OrgKeyword::Custom("NEXT".into())),
+            s
+        ));
+        // Canonical Done|Cancelled still count.
+        assert!(keyword_is_done(Some(&OrgKeyword::Done), s));
+        assert!(keyword_is_done(Some(&OrgKeyword::Cancelled), s));
+    }
+
+    #[test]
+    fn keyword_is_known_with_no_sequence_accepts_everything() {
+        // No sequence means "no validation"; every keyword is
+        // known. Used to short-circuit the UnknownKeyword event.
+        assert!(keyword_is_known(
+            Some(&OrgKeyword::Custom("RANDOM".into())),
+            None
+        ));
+        assert!(keyword_is_known(Some(&OrgKeyword::Todo), None));
+        assert!(keyword_is_known(None, None));
+    }
+
+    #[test]
+    fn keyword_is_known_validates_against_sequence_sets() {
+        let seq = sample_sequence();
+        let s = Some(&seq);
+        // In workflow set.
+        assert!(keyword_is_known(
+            Some(&OrgKeyword::Custom("NEXT".into())),
+            s
+        ));
+        // In done set.
+        assert!(keyword_is_known(
+            Some(&OrgKeyword::Custom("ARCHIVED".into())),
+            s
+        ));
+        // Canonical TODO/DONE/CANCELLED always known.
+        assert!(keyword_is_known(Some(&OrgKeyword::Todo), s));
+        assert!(keyword_is_known(Some(&OrgKeyword::Done), s));
+        assert!(keyword_is_known(Some(&OrgKeyword::Cancelled), s));
+        // Out of set.
+        assert!(!keyword_is_known(
+            Some(&OrgKeyword::Custom("RANDOM".into())),
+            s
+        ));
+    }
+
+    #[test]
+    fn org_keyword_to_orig_stashes_workflow_keyword_under_sequence() {
+        let seq = sample_sequence();
+        // Custom keyword in the sequence stashes verbatim.
+        assert_eq!(
+            org_keyword_to_orig(Some(&OrgKeyword::Custom("NEXT".into())), Some(&seq)),
+            Some("NEXT".into())
+        );
+    }
+
+    #[test]
+    fn org_keyword_to_orig_no_sequence_preserves_existing_behaviour() {
+        // Custom keyword always stashes (unchanged from v0.10.2).
+        assert_eq!(
+            org_keyword_to_orig(Some(&OrgKeyword::Custom("WAITING".into())), None),
+            Some("WAITING".into())
+        );
+        // CANCELLED always stashes "CANCELLED" — the writer
+        // recovers it on emit.
+        assert_eq!(
+            org_keyword_to_orig(Some(&OrgKeyword::Cancelled), None),
+            Some("CANCELLED".into())
+        );
+        // Plain TODO/DONE map to None (column default).
+        assert_eq!(org_keyword_to_orig(Some(&OrgKeyword::Todo), None), None);
+        assert_eq!(org_keyword_to_orig(Some(&OrgKeyword::Done), None), None);
     }
 }

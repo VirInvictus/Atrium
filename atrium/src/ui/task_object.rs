@@ -75,6 +75,17 @@ mod imp {
         /// title for repeating tasks (v0.6.14, Patch D polish).
         #[property(get, set)]
         pub repeating: Cell<bool>,
+        /// v0.15.0 — Phase 18.5 Tier-1 statistics cookie text for
+        /// tasks that have subtasks. Empty string when the task has
+        /// no children (the row hides the label). Format is the same
+        /// `[N/M]` shape the writer emits to the vault file; the
+        /// window populates this before binding via the
+        /// `count_done_total_per_parent` helper. Both modes — Karl
+        /// Voit calls cookies essential, and Things-style "5 of 12"
+        /// is the same idea projected into the row instead of the
+        /// sidebar.
+        #[property(get, set)]
+        pub cookie_label: RefCell<String>,
     }
 
     #[glib::object_subclass]

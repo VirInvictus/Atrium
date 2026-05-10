@@ -141,6 +141,9 @@ OmniFocus superset. Every Builder column lives in v0.1 schema; only some are exp
 | `completed_at` | TEXT NULL | ISO datetime; NULL = not done |
 | `repeat_rule` | TEXT NULL | RFC 5545 RRULE; impl Phase 15 (v0.2.0) |
 | `repeat_mode` | TEXT NULL | Org repeater cookie — `BASIC` / `CUMULATIVE` / `NEXT`; NULL falls back to default (CUMULATIVE). Phase 15 (v0.2.0) — column added via `0003_repeat_mode.sql` |
+| `last_reviewed_at` | TEXT NULL | Task-level Mark Reviewed timestamp; Phase 13 (v0.7.4) — column added via `0006_task_last_reviewed_at.sql` |
+| `orig_keyword` | TEXT NULL | Phase 16 round-trip anchor for non-canonical Org keywords (`WAITING`, `BLOCKED`, etc.); v0.7.12 — column added via `0007_task_orig_keyword.sql` |
+| `deadline_warn_days` | INTEGER NULL | Per-task override on `TODAY_DEADLINE_WINDOW_DAYS`; round-trips to / from the Org `-Nd` warning suffix on the DEADLINE cookie. Phase 18.5 Tier-1 (v0.14.0) — column added via `0008_task_deadline_warn_days.sql` |
 | `created_at` | TEXT NOT NULL | ISO datetime |
 | `modified_at` | TEXT NOT NULL | ISO datetime, trigger-maintained |
 | `position` | REAL NOT NULL | for ordering within parent |
@@ -170,7 +173,7 @@ OmniFocus superset. Every Builder column lives in v0.1 schema; only some are exp
 Things-style lists are SELECTs, not stored rows:
 
 - **Inbox:** `task WHERE project_id IS NULL AND completed_at IS NULL`
-- **Today:** `task WHERE completed_at IS NULL AND (scheduled_for ≤ today OR deadline ≤ today + N) AND (defer_until IS NULL OR defer_until ≤ today)`, where `N = TODAY_DEADLINE_WINDOW_DAYS` (default `7`). The deadline window is the Things-3 "deadlines approaching" heads-up — a future-deadlined task surfaces in Today before it's actually due, so the user isn't blindsided. The window is a single constant in v0.1; turning it into a per-user GSettings key is a Phase 8d preferences task.
+- **Today:** `task WHERE completed_at IS NULL AND (scheduled_for ≤ today OR deadline ≤ today + COALESCE(deadline_warn_days, N)) AND (defer_until IS NULL OR defer_until ≤ today)`, where `N = TODAY_DEADLINE_WINDOW_DAYS` (default `7`). The deadline window is the Things-3 "deadlines approaching" heads-up — a future-deadlined task surfaces in Today before it's actually due, so the user isn't blindsided. The window started as a single global constant in v0.1; v0.14.0 (Phase 18.5 Tier-1) added the per-task `deadline_warn_days` override so a sensitive task can surface earlier than the global default. The Org round-trip is the `-Nd` warning suffix on the DEADLINE cookie (`DEADLINE: <2026-04-15 Wed -7d>`); both `-` and `--` prefixes parse to the same column value, and the writer canonicalises onto `-` since Atrium has no global-default-override concept. Turning the global default itself into a GSettings key remains a Phase 8d / 19.5 preferences task.
 - **Anytime:** `task WHERE completed_at IS NULL AND scheduled_for IS NULL AND (defer_until IS NULL OR defer_until ≤ today)`
 - **Someday:** `task WHERE completed_at IS NULL AND scheduled_for = '__someday__'` (sentinel)
 - **Upcoming:** `task WHERE completed_at IS NULL AND scheduled_for > today`
@@ -499,6 +502,10 @@ Each `.org` file is one project. The file's `#+TITLE:` line carries the project 
 | Status (open / done / cancelled) | TODO / DONE / CANCELLED keyword |
 | `scheduled_for` | `SCHEDULED:` cookie |
 | `deadline` | `DEADLINE:` cookie |
+| `deadline_warn_days` | `-Nd` warning suffix on the DEADLINE cookie (`-` and `--` both parse; emit canonicalises onto `-`) |
+| Statistics cookie on parent | `[done/total]` or `[N%]` between title and tags; recomputed at emit from DB state, source shape (counter vs percent) preserved across round-trip. Counts immediate child TODOs + body checkboxes (mirrors `org-checkbox-hierarchical-statistics`). v0.15.0 — Phase 18.5 Tier-1. |
+| Body inline checkbox | `- [ ]` / `- [X]` / `- [-]` lines in the note body. Verbatim round-trip; the Inspector renders interactive toggles that rewrite the body string in place. v0.15.0 — Phase 18.5 Tier-2. |
+| Custom TODO sequence | `#+TODO: STATE1 STATE2 \| DONE1 DONE2` preamble per project file, sourced from the vault sidecar's `[[todo_sequences]]` slot. The watcher maps sequence-configured done keywords to Atrium's DONE state (preserving the source label via `task.orig_keyword`); workflow keywords stay open with the same preservation. Out-of-set keywords surface a `VaultEvent::UnknownKeyword` toast and stash via the existing Custom path. v0.16.0 — Phase 18.5 Tier-1. |
 | `completed_at` | `CLOSED:` cookie |
 | `defer_until` | `:DEFER_UNTIL:` property |
 | `estimated_minutes` | `Effort` property (Org-standard) |
