@@ -26,9 +26,7 @@ The first time-based notification surface. Per-task `reminder_at` UTC timestamps
 
 ### Tests + ship gate
 
-8 new tests across the workspace (read.rs `next_pending_reminder` ordering + filter, worker.rs reminder set/clear, link parser additions, preferences smoke). Workspace passes 854 tests; fmt + clippy clean. Schema version 12.
-
-VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo + CLAUDE.md status block bumped to 0.20.0.
+3 new tests: `next_pending_reminder_returns_soonest_open_task` and `next_pending_reminder_returns_none_when_all_past_or_completed` (`atrium-core/src/db/read.rs`) cover the dispatcher's lookup, plus `update_task_sets_and_clears_reminder_at` in `worker_tests.rs` for the column round-trip. The notification fire path itself isn't unit-tested — it touches `gio::Application::send_notification`, which a unit test can't observe. Workspace passes 854 tests; fmt + clippy clean. Schema version 12.
 
 ## v0.19.0 (2026-05-10) — Phase 18.5 Tier-2 close-out: Org links + scheduled time
 
@@ -54,9 +52,7 @@ The Todoist mapper's `DroppedTimeOfDay` lossy entry is finally closed.
 
 ### Tests + ship gate
 
-10 new link-parser tests + 3 SCHEDULED time round-trip tests + 1 worker scheduled_time set/clear test + 2 calendar/forecast time-rendering smokes. Workspace passes 818 tests; fmt + clippy clean. Schema version 11.
-
-VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo + CLAUDE.md status block bumped to 0.19.0.
+10 new link-parser tests in `atrium-core::links` + SCHEDULED time round-trip in the Org parser/emitter + 1 worker `scheduled_time` set/clear test + smokes for the Calendar / Forecast time prefix render. Schema version 11.
 
 ## v0.18.0 (2026-05-10) — Phase 18.5 Tier-1: Quick Entry templates
 
@@ -74,9 +70,7 @@ The fifth and final Phase 18.5 Tier-1 item lands. **All five Phase 18.5 Tier-1 i
 
 **CLI.** `atrium-cli template list` (TSV / JSON / human formats with project resolution). `atrium-cli template add NAME --shortcut LETTER --project NAME --prefix TEXT --tag TAG` (project resolves via case-insensitive substring match against `project.title`; multi-match errors out with the candidate list). `atrium-cli template edit NAME --rename NEW --shortcut LETTER|none --project NAME|none --prefix TEXT --tag TAG`. `atrium-cli template remove NAME` (case-insensitive lookup).
 
-5 new tests in `worker_tests`: round-trip create, multi-char shortcut rejected, non-alphanumeric shortcut rejected, delete returns NotFound on second attempt, update changes fields. Workspace passes 818 tests; fmt + clippy clean. Schema version 10.
-
-VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo + CLAUDE.md status block bumped to 0.18.0.
+5 new tests in `worker_tests`: round-trip create, multi-char shortcut rejected, non-alphanumeric shortcut rejected, delete returns NotFound on second attempt, update changes fields. Schema version 10.
 
 ## v0.17.0 (2026-05-10) — Phase 18.5 Tier-1: CLOCK time tracking
 
@@ -98,9 +92,7 @@ The flagship Phase 18.5 feature. One of the top two reasons real users stay on O
 
 **Open-by-design limitation.** Org timestamps emit + parse in UTC. Mirrors the long-standing CLOSED-cookie behavior (since v0.7.x). Users in non-UTC timezones see UTC clock times when they open the file in Emacs — accurate but unfamiliar. The Inspector pane displays in `chrono::Local` so the GUI feels right; only the file representation is UTC. Switching the on-disk representation to local time means asymmetric parse-emit (parse-as-local + emit-as-local) and risks broken round-trip across timezone changes; deferred.
 
-12 new tests across worker (clock_in opens, auto-close-on-different-task, clock_out idempotent on no-open-clock, clock_in-then-out records duration), Org parser (4 LOGBOOK shapes including malformed-line preservation), and emitter (closed roundtrip, in-progress suppression, mixed-state emit). Workspace passes 818 tests; fmt + clippy clean. Schema version 9.
-
-VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo + CLAUDE.md status block bumped to 0.17.0.
+12 new tests across worker (clock_in opens, auto-close-on-different-task, clock_out idempotent on no-open-clock, clock_in-then-out records duration), Org parser (4 LOGBOOK shapes including malformed-line preservation), and emitter (closed roundtrip, in-progress suppression, mixed-state emit). Schema version 9.
 
 ## v0.16.0 (2026-05-10) — Phase 18.5 Tier-1: custom TODO sequences
 
@@ -118,9 +110,7 @@ The most-cited Org feature in the v0.6.19 research pass — Bernt Hansen's NEXT-
 
 **Architecture choice flagged for follow-up.** The watcher reads the sidecar on every diff event. That's cheap (small file, buffered I/O) and means a sidecar edit takes effect immediately without restart, but if profiling ever shows it as a bottleneck the writer's existing `last_sidecar` cache pattern can mirror to the watcher.
 
-15 new tests across the sidecar (round-trip with single + multi sequences, missing-section degrades cleanly, string-array parse with embedded escapes), the watcher (keyword_is_done + keyword_is_known + org_keyword_to_orig under varied sequence configurations), and the writer (#+TODO: emit gated on sequence presence). Workspace passes 818 tests; fmt + clippy clean. Schema unchanged at version 8.
-
-VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo + CLAUDE.md status block bumped to 0.16.0.
+15 new tests across the sidecar (round-trip with single + multi sequences, missing-section degrades cleanly, string-array parse with embedded escapes), the watcher (keyword_is_done + keyword_is_known + org_keyword_to_orig under varied sequence configurations), and the writer (#+TODO: emit gated on sequence presence). Schema unchanged at version 8.
 
 ## v0.15.0 (2026-05-10) — Phase 18.5: statistics cookies + body inline checkboxes
 
@@ -140,9 +130,7 @@ Two Phase 18.5 features land bundled because they reinforce each other: Karl Voi
 - **Cookie display in the sidebar projects.** Sidebar projects already carry numeric badges from `count_open_per_project`; v0.15.0 doesn't touch them. The vault file gets the cookie projection, and the per-task row shows the cookie. Switching the sidebar badges to the cookie shape would be visual cleanup, not a feature.
 - **Recursive cookie counting.** Org's `org-hierarchical-todo-statistics` defaults to non-recursive (immediate children only); we follow. A custom Atrium recursive variant could come if real users ask.
 
-11 new tests in atrium-core's `checkbox` module + 6 cookie-shape tests in the Org parser + 4 emit roundtrip tests + 5 cookie-projection tests in the writer + the GUI hooks (no GTK unit tests this release; the visible behaviour is exercised through the regression smoke). Workspace passes 803 tests; fmt + clippy clean. Schema unchanged at version 8.
-
-VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo + CLAUDE.md status block bumped to 0.15.0.
+14 unit tests in atrium-core's new `checkbox` module + cookie-shape tests in the Org parser + emit roundtrip tests + cookie-projection tests in the writer. No GTK unit tests this release; the visible behaviour is exercised through the regression smoke. Schema unchanged at version 8.
 
 ## v0.14.0 (2026-05-10) — Phase 18.5 Tier-1: DEADLINE warning windows
 
@@ -163,8 +151,6 @@ First Phase 18.5 item lands. Org-mode's per-deadline `-Nd` / `--Nd` warning suff
 **Tests.** Six new parser tests cover `-7d`, `--7d` normalisation, repeater + warning in either order, `w`/`m`/`y` unit folding, and SCHEDULED-side verbatim round-trip. Three new emit tests cover plain warning round-trip, repeater + warning canonicalisation order, and `--7d → -7d` normalisation. Four new read-layer tests cover per-task override winning over the global default, override below the default still being honoured, `warn=0` semantics (deadline-or-past only), and badge-vs-list parity. One worker test covers set/clear via `TaskUpdate`. One end-to-end watcher integration test covers external add → DB sync → writer round-trip → external flip → DB sync → external clear → DB clear.
 
 11 new tests across parser, emitter, read layer, worker, and end-to-end watcher scenarios; full ship gate (`scripts/regression.sh`) passes. Schema version 8.
-
-VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo bumped to 0.14.0.
 
 ## v0.13.5 (2026-05-09) — Vault: seed registers writes in RecentWrites
 

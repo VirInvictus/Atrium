@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/GNOME-50%2B-4a86cf" alt="GNOME 50+">
   <img src="https://img.shields.io/badge/Simple%20Mode-shipping-2ea44f" alt="Simple Mode: shipping">
   <img src="https://img.shields.io/badge/Builder%20Mode-shipping-2ea44f" alt="Builder Mode: shipping">
-  <img src="https://img.shields.io/badge/version-0.13.0-blueviolet" alt="version 0.13.0">
+  <img src="https://img.shields.io/badge/version-0.20.0-blueviolet" alt="version 0.20.0">
 </p>
 
 ---
@@ -21,7 +21,7 @@ Atrium is the first GNOME-native productivity app that synthesises four traditio
 
 Two surfaces over one store. **Simple Mode** for *what am I doing right now* — Things calm, six lists, no defer dates, no review queue. **Builder Mode** for the days the system needs to do the work — Forecast, Calendar, Review, Perspectives, repeating tasks, sequential projects, the always-visible Inspector pane, full Org-mode bidirectional mirror. Same schema, same rows; mode is a UI-layer flip that never touches the database. The OmniFocus superset is the schema on day one — Simple Mode hides Builder columns, it doesn't lack them.
 
-**Current release: v0.13.0.** Simple Mode, Builder Mode, Calibre-powered search, the kanban renderer, two-way Org-mode sync, Calendar Month View, Todoist CSV import, and the inline-syntax engine (with tab-completion popover) all ship today. Full release narrative in [`patchnotes.md`](patchnotes.md); plan in [`roadmap.md`](roadmap.md).
+**Current release: v0.20.0.** Simple Mode, Builder Mode, Calibre-powered search, the kanban renderer, two-way Org-mode sync, Calendar Month View, Todoist CSV import, and the inline-syntax engine (with tab-completion popover) shipped through v0.13.0. **Phase 18.5** added the Org-mode power features for Builder Mode across v0.14.0 → v0.19.0 — per-task DEADLINE warning windows, statistics cookies + body inline checkboxes, custom TODO sequences (`#+TODO: TODO NEXT WAITING | DONE`), CLOCK time tracking with `:LOGBOOK:` round-trip, Quick Entry templates (`org-capture`-style), ID-based links between tasks (`[[id:UUID][label]]`), and scheduled time-of-day. **Phase 19.5** opened at v0.20.0 with the first app-level preferences dialog (`AdwPreferencesDialog`, `Ctrl+Comma`) and system-notification reminders (per-task `reminder_at` → `gio::Notification`). Full release narrative in [`patchnotes.md`](patchnotes.md); plan in [`roadmap.md`](roadmap.md).
 
 **Author's Note:** I'm a college student in my late thirties with no professional industry experience yet — Atrium is one in a string of native Linux desktop apps I'm building to learn the craft and assemble a portfolio. I came from Things 3 and OmniFocus on macOS / iOS, and Linux has nothing in their lane that isn't an Electron wrapper or a CalDAV form over a webview. Atrium is the answer I wanted to exist. I work on Fedora 44 on a ThinkPad T14s AMD Gen 6; that's the environment it'll be tested against. I welcome contributions but can only honestly support my own setup.
 
@@ -86,7 +86,7 @@ A direct Things 3 analogue for GNOME:
 | **Tags** | Multi-tag, orthogonal to areas/projects, with their own pages — inline `#tag` edit syntax. Six-swatch picker in the editor, coloured dot in the sidebar, coloured `#pill` on every task row. |
 | **Areas** | Same six-swatch palette tags use. Coloured area paints a 3 px row-left stripe on every task row whose project lives under it — cross-list views (Today, Forecast) show at a glance which area a task came from. |
 | **Dates** | Distinct *When* (scheduled-for) and *Deadline* — the Things 3 detail most clones get wrong. Plus `defer_until` available in Builder Mode. |
-| **Quick Entry** | `Ctrl+Alt+Space` → small modal → drops to Inbox without stealing focus; supports `#tag` / `@today` / `@tomorrow` / `@someday` / `@yyyy-mm-dd` / `@<weekday>` / `@deadline 2026-04-15` / `!1`-`!3` priority inline syntax with tab-completion. |
+| **Quick Entry** | `Ctrl+Alt+Space` → small modal → drops to Inbox without stealing focus; supports `#tag` / `@today` / `@tomorrow` / `@someday` / `@yyyy-mm-dd` / `@<weekday>` / `@deadline 2026-04-15` / `!1`-`!3` priority inline syntax with tab-completion. **Templates** (v0.18.0): pre-fill the entry from a saved shape (target project, prefix text, default tags); pick from a header bar above the entry, or trigger inline via `:LETTER ` (`org-capture`-style — typing `:c ` activates the template bound to `c`). |
 | **Search** | `Ctrl+F` opens an FTS5-backed bar with the **Calibre-powered expression grammar**. Boolean (`AND` / `OR` / `NOT`, parens), comparison + range on date and numeric fields (`due:>today`, `due:2026-05-01..2026-05-31`), date keywords (`today`, `thisweek`, `5daysago`, `Ndaysout`), state predicates (`is:open`, `is:overdue`, `is:repeating`, `is:today`, `is:inbox`, `is:upcoming`, `is:anytime`, `is:someday`), match modifiers (`tag:work` substring, `tag:=work` exact, `tag:~mystery` regex, `tag:?wrok` fuzzy, `tag:true` existence), `sort:KEY` / `sort:-KEY` modifier with primary→secondary composition, `↑` / `↓` history, `?` operator-reference popover. Full operator reference in [`spec.md`](spec.md) §4.3. |
 | **Area › Project context chip** | Each task row shows its parent project (and area, when set) on cross-list views. |
 | **Find-as-you-type sidebar** | `Ctrl+L` filters area / project / tag rows live. |
@@ -97,6 +97,8 @@ A direct Things 3 analogue for GNOME:
 | **Accessibility** | Bundled Atkinson Hyperlegible toggle; AT-SPI labels on every interactive widget; libadwaita variables (no hard-coded colors) — see [`docs/accessibility.md`](docs/accessibility.md). |
 | **Storage** | One SQLite file at `$XDG_DATA_HOME/atrium/atrium.db`; single-writer worker thread; WAL mode; UI never blocks on I/O. |
 | **Local-first** | No network, no telemetry, no accounts, no CalDAV. Optional Org-mode vault projection ships today. |
+| **Reminders** | Per-task `reminder_at` timestamp fires a `gio::Notification` when the wall clock passes it AND the task is open. Master toggle in Preferences gates the dispatcher; the notification opens the task's inspector on click. (v0.20.0) |
+| **Preferences** | `Ctrl+Comma` opens `AdwPreferencesDialog` — General (default mode, theme override, high-legibility font, vault path), Capture (Quick Entry shortcut), Notifications (master switch). All keys write straight through to GSettings. (v0.20.0) |
 | **Debug harness** | `atrium --debug` opens *Debug → Memory Watch* for live VmRSS / VmHWM / VmData against the §8 perf budget; fixture generators (1K / 10K / 50K / 100K) for stress-testing. |
 
 ## Builder Mode (shipping)
@@ -111,8 +113,13 @@ Same schema. Same data. Adds:
 | **Calendar Month View** | Paper-calendar grid (7×N) sibling to Forecast and Agenda. Day cells show count badge + up to 3 inline task titles + "+N more" overflow popover; today highlighted; out-of-month days muted. Prev / Today / Next / month picker nav; `Ctrl+Shift+M` opens; Page Up / Page Down step months. Drag-to-reschedule; single-click peek; double-click drill into `scheduled:YYYY-MM-DD`. Below 600 px the grid collapses to a vertical week strip. |
 | **Review** | Two-section canonical page — *Projects to review* (the stale-project queue) and *This week* (the open-task weekly walk). Per-row *Mark Reviewed* on both halves; the weekly walk gates on `task.last_reviewed_at` with a 7-day exclusion. |
 | **Perspectives** | Saved filter expressions as first-class sidebar entries; *Save Search as Perspective…* in the primary menu. Perspectives with `renderer = "board"` render as a kanban with drag-drop column moves. The full editor dialog (name + filter + renderer + columns) lives via the `+` affordance trailing the *Perspectives* sidebar header. |
-| **Inspector pane** | Always-visible right-side `AdwOverlaySplitView` exposing every Builder field; autosaves on focus-out / Enter. |
+| **Inspector pane** | Always-visible right-side `AdwOverlaySplitView` exposing every Builder field; autosaves on focus-out / Enter. v0.14.0 → v0.20.0 added: per-task DEADLINE warning window (`-Nd` SpinRow), scheduled time-of-day (HH:MM row), reminder timestamp, ID-link picker for body text, workflow-keyword combo (when a custom TODO sequence is configured), and the CLOCK time-tracking Time group (Start / Stop, Total HH:MM, per-session log). |
 | **Repeating tasks** | RFC 5545 RRULE-driven via the `rrule` crate; respects all three Org repeater modes — `+1w` (Basic), `++1w` (Cumulative — the default), `.+1w` (Next-from-completion). Spawns the next instance on completion with shifted dates and carried tags. |
+| **CLOCK time tracking** | Actual-time tracking distinct from `estimated_minutes` (intent). Start/Stop on the Inspector pane; auto-closes any other running entry (mirrors Emacs's global clock). Round-trips to Org's `:LOGBOOK:` drawer — Emacs users see the same data. CLI: `atrium-cli clock in/out/log/status`. (v0.17.0) |
+| **Statistics cookies + body checkboxes** | Org's `[done/total]` and `[N%]` cookies recognised on headlines and computed fresh from DB state on every vault flush — stale cookies self-heal. Body checkboxes (`- [ ]`, `- [X]`, `- [-]`) parse alongside child-task counts and fold into the same cookie. (v0.15.0) |
+| **Custom TODO sequences** | Per-vault `#+TODO: TODO NEXT WAITING \| DONE CANCELLED` declarations round-trip end-to-end. Workflow keywords stash on `task.orig_keyword`; the Inspector exposes a keyword combo when a sequence is configured. CLI: `atrium-cli vault sequences set --workflow ... --done ...`. (v0.16.0) |
+| **DEADLINE warning windows** | Per-task `-Nd` override on the global 7-day Today heads-up. Org's `<2026-04-15 Wed -7d>` syntax round-trips. (v0.14.0) |
+| **ID links between tasks** | `[[id:UUID][label]]` in note bodies render as clickable spans; click navigates to the linked task. Inspector picker for inserting links via search-as-you-type. (v0.19.0) |
 | **Project › Area breadcrumb** | Header bar shows `Area › Project` when viewing a project under an area. |
 
 Mode flips are pure UI re-renders. The schema is the superset; Builder Mode just exposes the columns Simple Mode keeps hidden. Verified by an integration test that snapshots schema + rows before and after a switch (`tests/mode_flip_snapshot.rs`).
@@ -126,15 +133,18 @@ Mode flips are pure UI re-renders. The schema is the superset; Builder Mode just
 | `atrium-cli search EXPR` | Run a search expression (full grammar, sort modifiers honoured) and print matches. |
 | `atrium-cli list NAME` | Print a canonical list. NAME ∈ task lists (`inbox`, `today`, `upcoming`, `anytime`, `someday`, `logbook`, `all`) or metadata lists (`areas`, `projects`, `tags`, `perspectives`). |
 | `atrium-cli info ID` | Full details of a single task. |
-| `atrium-cli add TITLE [FLAGS]` | Create a task. Flags: `--note`, `--project NAME`, `--tag NAME` (repeatable), `--scheduled DATE`, `--due DATE`, `--defer DATE`, `--estimated MIN`. |
+| `atrium-cli add TITLE [FLAGS]` | Create a task. Flags: `--note`, `--project NAME`, `--tag NAME` (repeatable), `--scheduled DATE`, `--due DATE`, `--defer DATE`, `--estimated MIN`, `--deadline-warn N` (alias `--warn`; per-task DEADLINE warning window, v0.14.0), `--time HH:MM` (scheduled time-of-day; pairs with `--scheduled`, v0.19.0), `--reminder "YYYY-MM-DD HH:MM"` (system-notification reminder, v0.20.0). |
 | `atrium-cli capture LINE` | Quick-Entry-style one-shot. Parses `#tag` / `@today` / `@<weekday>` / `@deadline yyyy-mm-dd` / `!1`-`!3` syntax via the same parser the GUI uses. |
 | `atrium-cli edit ID [FLAGS]` | Diff-based modify. Same flag vocabulary as `add`; pass `none` to clear a field. `--tag X` / `--remove-tag X` / `--clear-tags` for tag editing. |
 | `atrium-cli complete ID` | Toggle completion. Aliases: `done`, `toggle`. |
 | `atrium-cli delete ID` | Delete a task. Prints the row before deletion so the action is auditable in pipelines. Alias: `rm`. |
+| `atrium-cli clock <in\|out\|log\|status>` | CLOCK time tracking. `in <id> [--note TEXT]` opens an entry (auto-closing any other); `out <id>` closes the open entry; `log <id>` prints all entries for a task with totals; `status` shows the currently-running entry across the DB. (v0.17.0) |
+| `atrium-cli template <list\|add\|edit\|remove>` | Quick Entry templates — pre-filled capture recipes surfaced in the modal as a picker bar and via inline `:LETTER ` activation. `add NAME --shortcut LETTER --project NAME --prefix TEXT --tag TAG`. (v0.18.0) |
+| `atrium-cli vault sequences <list\|set\|clear> --vault PATH` | Custom TODO sequences (workflow keywords). `set --workflow TODO,NEXT,WAITING --done DONE,CANCELLED` writes the sequence to the vault sidecar; the writer projects it as `#+TODO:`. (v0.16.0) |
 | `atrium-cli kanban NAME` | Render the saved Perspective NAME as kanban columns. |
 | `atrium-cli perspective <create\|edit\|delete>` | Perspective write side from the shell. |
 | `atrium-cli import org PATH [--dry-run]` | Org importer — single `.org` file or vault directory; `<vault>/<area>/<project>.org` maps subdirectories onto Atrium areas. |
-| `atrium-cli import todoist PATH --into PROJECT_NAME [--dry-run]` | Todoist CSV importer. Sections become headings, INDENT chains map to `parent_id`, `@labels` become tags, PRIORITY 1-3 emits `priority-N`, `DATE` natural-language → RRULE + `scheduled_for`. Lossy fields (time-of-day, timezone, duration, deadline) surface in the per-row report. |
+| `atrium-cli import todoist PATH --into PROJECT_NAME [--dry-run]` | Todoist CSV importer. Sections become headings, INDENT chains map to `parent_id`, `@labels` become tags, PRIORITY 1-3 emits `priority-N`, `DATE` natural-language → RRULE + `scheduled_for`. Lossy fields (timezone, duration, deadline) surface in the per-row report. |
 | `atrium-cli export org PATH` | Vault writer — emits `<vault>/<Area>/<Project>.org` per spec §7.3, atomic per file, post-write integrity check. |
 | `atrium-cli export json PATH` | Lossless versioned snapshot — areas / projects / headings / tasks / tags / task_tags / perspectives in one JSON file. |
 
@@ -158,7 +168,7 @@ atrium-cli complete 42
 
 ## Imports and exports (toward 1.0)
 
-Direct importers ship for the apps Linux users *actually* migrate from. Things 3 was retired (macOS export-only; vanishingly small GNOME audience); Org and Todoist are first-class.
+Direct importers ship for the apps Linux users *actually* migrate from. Things 3 (v0.6.19), TaskPaper, and OmniFocus (both v0.20.0) were dropped from the import roadmap — all three are macOS-only source apps; the realistic Linux + Org user audience effectively can't supply input files. Atrium's *schema* remains the OmniFocus superset by spec commitment regardless. Org and Todoist are first-class.
 
 - **Org-mode** (two-way `.org` interop, with UUID round-trip via `:ID:`) — **shipping**. One-shot import + DB → vault writer + lossless JSON snapshot + `inotify`-driven vault → DB sync, all auto-debounced. Atrium's primary covenant; the agenda-parity test pins Atrium's Agenda canonical page against stock `org-agenda` over the same vault.
 - **Todoist** (CSV via the official export tool) — **shipping**. `atrium-cli import todoist PATH --into PROJECT_NAME [--dry-run]`. Sections → headings, INDENT chains → subtasks, `@labels` → tags, PRIORITY 1-3 → `priority-N` tag, deterministic v5 UUIDs for re-import stability.
@@ -166,7 +176,7 @@ Direct importers ship for the apps Linux users *actually* migrate from. Things 3
 - **Taskwarrior** (`task export` JSON) — Phase 19.
 - **todo.txt** (plain text) — Phase 19.
 
-VTODO export is one-way — Atrium does not become a CalDAV client. The plan is to reach the Linux task ecosystem through two interop covenants — Org-mode (primary) and VTODO (cross-app baseline) — rather than per-app importer sprawl. TaskPaper and OmniFocus (both macOS-only source apps) were dropped from Phase 19 at v0.20.0 — the realistic Linux + Org user audience the rest of the import surface targets effectively can't supply input files. Atrium's *schema* remains the OmniFocus superset (a spec commitment, unaffected by dropping the importer).
+VTODO export is one-way — Atrium does not become a CalDAV client. The plan is to reach the Linux task ecosystem through two interop covenants — Org-mode (primary) and VTODO (cross-app baseline) — rather than per-app importer sprawl.
 
 ### See the Org-mode conversion in action
 
@@ -185,7 +195,7 @@ The full reference for what's preserved + what isn't lives at [`docs/org-roundtr
 
 ## Status
 
-Atrium is at **v0.13.0** on the road to v1.0. Phases land in [`roadmap.md`](roadmap.md), broken into 20 numbered phases plus four sub-phases (12.5, 15.5, 15.75, 19.5):
+Atrium is at **v0.20.0** on the road to v1.0. Phases land in [`roadmap.md`](roadmap.md), broken into 20 numbered phases plus four sub-phases (12.5, 15.5, 15.75, 19.5):
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -208,7 +218,7 @@ Atrium is at **v0.13.0** on the road to v1.0. Phases land in [`roadmap.md`](road
 
 ## Architecture (in one paragraph)
 
-Six workspace crates: **`atrium-core`** is the headless data layer (domain types, single-writer SQLite worker, paths, errors, repeat-rule wrapper, atomic-write helper + lossless JSON snapshot, `VaultDirtyNotifier` trait + `VaultConfig` for the projection hook). **`atrium-search`** is the Calibre-style search expression language (lex / parse / ast / eval; depends on `atrium-core` for `Task` and `ScheduledFor`). **`atrium-org`** is the Org-mode projection (parser, emitter, importer, `VaultWriter` + `VaultWatcher` tasks; provides `OrgVaultNotifier` impl). **`atrium-inline`** is the inline-syntax parser shared by every capture surface (`#tag` / `@today` / `@<weekday>` / `@deadline` / `!N` plus the tab-completion model). **`atrium-cli`** is the headless CLI (depends on core, search, org, inline). **`atrium`** is the GTK4 binary (depends on all five). The data layer uses SQLite in WAL mode with the schema modeled as the OmniFocus superset; a dedicated `tokio` worker task owns the writable connection while the UI reads through a separate read-only connection pool. Updates arrive as `TaskChanges` and `LibraryChanges` deltas via a `glib::MainContext` channel, never as full reloads. Mode (Simple / Builder) is a per-app GSettings flag — flipping it never touches the DB. An optional Org vault (configured via the `vault-path` GSettings key) projects task state to `.org` files for editing in Emacs / Doom / any Org tool: the `VaultWriter` task receives `ProjectDirty` notifications from every Task / Project / Tag write, debounces ~100 ms, and rewrites the affected project's `.org` file via the atomic-write helper with a post-write integrity check. The `VaultWatcher` task uses `notify` / inotify to flow external edits back into the DB by `:ID:` diff. SQLite stays canonical; the vault is downstream. A `--debug` CLI flag opens an in-app debug surface for stress fixtures and live memory watch. See [`spec.md`](spec.md) §3 for the full architecture and §4 for the schema.
+Six workspace crates: **`atrium-core`** is the headless data layer (domain types, single-writer SQLite worker, paths, errors, repeat-rule wrapper, atomic-write helper + lossless JSON snapshot, `VaultDirtyNotifier` trait + `VaultConfig` for the projection hook). **`atrium-search`** is the Calibre-style search expression language (lex / parse / ast / eval; depends on `atrium-core` for `Task` and `ScheduledFor`). **`atrium-org`** is the Org-mode projection (parser, emitter, importer, `VaultWriter` + `VaultWatcher` tasks; provides `OrgVaultNotifier` impl). **`atrium-inline`** is the inline-syntax parser shared by every capture surface (`#tag` / `@today` / `@<weekday>` / `@deadline` / `!N` plus the tab-completion model). **`atrium-cli`** is the headless CLI (depends on core, search, org, inline). **`atrium`** is the GTK4 binary (depends on all five). The data layer uses SQLite in WAL mode with the schema modeled as the OmniFocus superset; a dedicated `tokio` worker task owns the writable connection while the UI reads through a separate read-only connection pool. Updates arrive as `TaskChanges` and `LibraryChanges` deltas via a `glib::MainContext` channel, never as full reloads. Mode (Simple / Builder) is a per-app GSettings flag — flipping it never touches the DB. An optional Org vault (configured via the `vault-path` GSettings key) projects task state to `.org` files for editing in Emacs / Doom / any Org tool: the `VaultWriter` task receives `ProjectDirty` notifications from every Task / Project / Tag write, debounces ~100 ms, and rewrites the affected project's `.org` file via the atomic-write helper with a post-write integrity check. The `VaultWatcher` task uses `notify` / inotify to flow external edits back into the DB by `:ID:` diff. SQLite stays canonical; the vault is downstream. v0.20.0 added a single-task reminder service on the GLib MainContext that polls `next_pending_reminder` and fires `gio::Notification` per task at the scheduled moment, gated by the `notifications-enabled` GSettings key (sibling to `vault-path` and `theme`). A `--debug` CLI flag opens an in-app debug surface for stress fixtures and live memory watch. See [`spec.md`](spec.md) §3 for the full architecture and §4 for the schema.
 
 ## Stack
 
@@ -270,7 +280,7 @@ flatpak run io.github.virinvictus.atrium
 ## Testing and debugging
 
 ```bash
-# Full workspace test suite — 817 tests at v0.13.0.
+# Full workspace test suite — 854 tests at v0.20.0.
 cargo test --workspace
 
 # Single test (any crate).
