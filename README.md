@@ -162,12 +162,11 @@ Direct importers ship for the apps Linux users *actually* migrate from. Things 3
 
 - **Org-mode** (two-way `.org` interop, with UUID round-trip via `:ID:`) — **shipping**. One-shot import + DB → vault writer + lossless JSON snapshot + `inotify`-driven vault → DB sync, all auto-debounced. Atrium's primary covenant; the agenda-parity test pins Atrium's Agenda canonical page against stock `org-agenda` over the same vault.
 - **Todoist** (CSV via the official export tool) — **shipping**. `atrium-cli import todoist PATH --into PROJECT_NAME [--dry-run]`. Sections → headings, INDENT chains → subtasks, `@labels` → tags, PRIORITY 1-3 → `priority-N` tag, deterministic v5 UUIDs for re-import stability.
-- **VTODO / RFC 5545** (`.ics`) — covers Endeavour, Errands, Apple Reminders, Nextcloud Tasks, Planify — Phase 19.
+- **VTODO / RFC 5545** (`.ics`) — covers Endeavour, Errands, Nextcloud Tasks, Planify — Phase 19.
 - **Taskwarrior** (`task export` JSON) — Phase 19.
-- **todo.txt** and **TaskPaper** (plain text) — Phase 19.
-- **OmniFocus** (`.ofocus` bundle, macOS-export-only) — Phase 19 long-tail; small audience but the GTD-lineage migration path stays open.
+- **todo.txt** (plain text) — Phase 19.
 
-VTODO export is one-way — Atrium does not become a CalDAV client. The plan is to reach the Linux task ecosystem through two interop covenants — Org-mode (primary) and VTODO (cross-app baseline) — rather than per-app importer sprawl.
+VTODO export is one-way — Atrium does not become a CalDAV client. The plan is to reach the Linux task ecosystem through two interop covenants — Org-mode (primary) and VTODO (cross-app baseline) — rather than per-app importer sprawl. TaskPaper and OmniFocus (both macOS-only source apps) were dropped from Phase 19 at v0.20.0 — the realistic Linux + Org user audience the rest of the import surface targets effectively can't supply input files. Atrium's *schema* remains the OmniFocus superset (a spec commitment, unaffected by dropping the importer).
 
 ### See the Org-mode conversion in action
 
@@ -199,9 +198,9 @@ Atrium is at **v0.13.0** on the road to v1.0. Phases land in [`roadmap.md`](road
 | 12.5 | Calendar Month View | shipped (v0.11.0) |
 | 18 | Todoist CSV import | shipped (v0.12.0) |
 | atrium-inline arc | Inline-syntax in rename + tab-completion popover + crate extraction | shipped (v0.13.0) |
-| 18.5 | Org-mode power features (custom TODO sequences, CLOCK, statistics cookies, capture templates, ID-link round-trip) | next |
-| 19 | VTODO / Taskwarrior / todo.txt / TaskPaper / OmniFocus long-tail imports + VTODO export | planned |
-| 19.5 | Productivity essentials (notifications, subtasks UI, EDS calendar overlay, AdwPreferencesWindow, dependencies, drag-drop capture, templates, onboarding, backup) | planned |
+| 18.5 | Org-mode power features (DEADLINE warnings, statistics cookies, custom TODO sequences, CLOCK, capture templates, ID links, scheduled time-of-day) | shipped (v0.14.0–v0.19.0) |
+| 19 | VTODO / Taskwarrior / todo.txt imports + VTODO export | planned |
+| 19.5 | Productivity essentials — preferences dialog + system-notification reminders | partial (v0.20.0); subtasks UI / EDS overlay / dependencies / drag-drop / templates / onboarding / backup planned |
 | 20 | l10n, accessibility round 2, capture daemon (`atriumd`), Flathub | planned (→ v1.0) |
 | Beyond 1.0 | `atrium-tui` (full headless TUI) | planned (→ v2.0) |
 

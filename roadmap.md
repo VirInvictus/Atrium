@@ -232,17 +232,20 @@ Two additive migrations across the Tier-1 set: `task_clock_entry` table (CLOCK),
 - **Custom agenda commands.** Atrium's Perspectives are this feature under a different name — saved filter expressions surfaced as sidebar entries.
 - **Refile (`C-c C-w`).** Already shipped under a different name — Atrium's "move to project" UI + drag-and-drop project picker covers what `org-refile` does. The Emacs UX shape (completion picker on a multi-file scope) is keyboard-first; Atrium's affordance is mouse-and-keyboard but the data operation is identical.
 
-## Phase 19: Plain-text + CalDAV imports + OmniFocus long-tail
-*Round out the import surface for users coming from formats Atrium doesn't speak natively yet. One pass per source, sharing parser scaffolding. VTODO export ships here too. OmniFocus moves here from its own phase — `.ofocus` is macOS-only, so the audience is small (same logic that retired the Things 3 phase at v0.6.19), but the OF half of Atrium's GTD lineage is worth keeping a path open for.*
+## Phase 19: Plain-text + CalDAV imports
+*Round out the import surface for users coming from formats Atrium doesn't speak natively yet. One pass per source, sharing parser scaffolding. VTODO export ships here too. Scope is Linux + Org-mode-adjacent sources; macOS-only formats (TaskPaper, OmniFocus's `.ofocus` bundle) are out — the realistic audience for a Linux-native todo app doesn't have those files lying around. Atrium's schema remains the OmniFocus superset by spec commitment regardless; the importer was a Mac-to-Linux migration aid that didn't earn its weight against the more common Linux importers.*
 
-- [ ] **VTODO (RFC 5545) import:** `.ics` parser; cover the standard properties; covers Endeavour, Errands, Apple Reminders, Nextcloud Tasks, Planify (CalDAV-side).
+- [ ] **VTODO (RFC 5545) import:** `.ics` parser; cover the standard properties; covers Endeavour, Errands, Nextcloud Tasks, Planify (CalDAV-side).
 - [ ] **VTODO export:** one-way `.ics` for hand-off to CalDAV apps. *Atrium does not become a CalDAV client.*
 - [ ] **Taskwarrior:** `task export` JSON; UDA fields → tags or notes per user choice.
 - [ ] **todo.txt:** plain text with `(A)` priority, `+project`, `@context`, `due:` extension.
-- [ ] **TaskPaper:** plain text headlines, `@tags`, `@done` metadata.
-- [ ] **OmniFocus:** `.ofocus` bundle XML; archive structure, transaction folding. Folders → areas, Projects → projects with `sequential` flag, Actions → tasks, Contexts/Tags → tags, Defer → `defer_until`, Due → `deadline`, Estimated → `estimated_minutes`, Repeat → `repeat_rule`. Perspective definitions imported as Atrium Perspectives where the filter language allows. Test fixture: sanitised sample `.ofocus` bundle in `tests/fixtures/omnifocus/`.
 - [ ] **Unified import dialog:** picks source, runs parser in worker, shows pre-import report, commits in batch (Phase 2 coalescer earns its keep).
 - [ ] **Dependency checks:** evaluate `ical` / `rustical` crates for VTODO; flag for sign-off if added.
+
+### Cut from Phase 19 scope
+
+- **TaskPaper.** macOS-only source app (Hog Bay Software). The format is portable plain text but the only realistic audience is Mac → Linux migrants — too narrow for a Linux-first roadmap.
+- **OmniFocus (`.ofocus` bundle).** macOS / iOS only. Same logic that retired the Things 3 importer at v0.6.19. Atrium's schema remains the OmniFocus superset by spec commitment (§4); that's a *schema* decision and unaffected by dropping the *importer*. If a Mac → Linux migration story matters again later, OmniFocus users can export to OPML / VTODO and route through those.
 
 ## Phase 19.5: Productivity essentials (post-research gap-fill, v0.6.19)
 *The gap analysis Brandon commissioned at v0.6.19 found nine items that competing native-Linux todo apps + Things 3 / OmniFocus / Todoist all expose, that Atrium doesn't yet. Most are pre-1.0 blockers — a productivity app without time-based reminders is hard to defend as "1.0 quality." Sources credited per item below; the analysis is in v0.6.19's patchnote.*

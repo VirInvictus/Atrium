@@ -467,17 +467,15 @@ Imports are best-effort: each source has a documented mapping table; lossy field
 
 ### 7.1 Import sources
 
-v0.6.19 retired the Things 3 import phase — `.things` JSON requires a macOS export step the typical Linux user doesn't have access to ("how many people using GNOME are gonna be Things 3 users?"). OmniFocus's `.ofocus` bundle has the same access problem; it survives in the long-tail Phase 19 batch rather than its own phase. Org-mode and Todoist promote to first-class slots — Org-mode because it's the plain-text covenant Atrium was built around, Todoist because it's the cross-platform productivity app a Linux user is most likely actually leaving behind.
+v0.6.19 retired the Things 3 import phase — `.things` JSON requires a macOS export step the typical Linux user doesn't have access to ("how many people using GNOME are gonna be Things 3 users?"). v0.20.0 retired TaskPaper and OmniFocus (`.ofocus` bundle) for the same reason: both are macOS-only source apps, so the Linux + Org user audience the rest of the import surface targets effectively can't supply input files. Atrium's schema remains the OmniFocus superset (§4) by spec commitment regardless — that's a *schema* decision and unaffected by dropping the *importer*. Org-mode and Todoist promote to first-class slots — Org-mode because it's the plain-text covenant Atrium was built around, Todoist because it's the cross-platform productivity app a Linux user is most likely actually leaving behind.
 
 | Source | Format | Phase | Notes |
 |---|---|---|---|
 | **Org-mode** | `.org` plain text | 16 | First-class. Two-way mirror at Phase 17. TODO/DONE keywords, SCHEDULED/DEADLINE/CLOSED, headline tags, properties drawer. Stock `org-agenda` reads Atrium's vault directly. |
 | **Todoist** | CSV via Todoist's official export tool | 18 (shipped v0.12.0) | Per-project CSV export. `section` → heading; INDENT chain → `parent_id`; inline `@label` → tag; PRIORITY 1-3 → `priority-N` tag; `DATE` natural-language → RRULE + `scheduled_for`. v5 UUIDs from `(project_name, title)` give re-import stability. Lossy fields (time-of-day, timezone, duration, deadline) surface in the per-row import report. |
-| **VTODO** (RFC 5545) | `.ics` | 19 | Covers Endeavour, Errands, Apple Reminders, Nextcloud Tasks, Planify (CalDAV-side) |
+| **VTODO** (RFC 5545) | `.ics` | 19 | Covers Endeavour, Errands, Nextcloud Tasks, Planify (CalDAV-side) |
 | **Taskwarrior** | `task export` JSON | 19 | Well-documented; UDA fields → tags or notes per user choice |
 | **todo.txt** | plain text | 19 | `(A)` priority, `+project`, `@context`, `due:` |
-| **TaskPaper** | plain text | 19 | Headlines + `@tags`, `@done` |
-| **OmniFocus** | `.ofocus` bundle XML | 19 | macOS-export only; small Linux audience but kept open for the GTD-lineage migrant |
 
 ### 7.2 Export targets
 
@@ -572,7 +570,8 @@ Apps Atrium will share users with, sorted by likely import demand:
 | **Getting Things GNOME (GTG)** | GTK / Python | XML files | not yet — XML format research deferred post-1.0 |
 | **Taskwarrior** | TUI / C++ | JSON-on-disk | direct (Phase 19) |
 | **Things 3** | macOS-only native | proprietary | not pursued — `.things` JSON requires macOS to extract; the GNOME-using-Things-3-user audience is too narrow (retired at v0.6.19) |
-| **OmniFocus** | macOS-only native | `.ofocus` bundle | direct (Phase 19, long-tail) |
+| **OmniFocus** | macOS-only native | `.ofocus` bundle | not pursued — same Mac-only access problem as Things 3; importer dropped at v0.20.0. Atrium's schema remains the OmniFocus superset by spec commitment (§4) — that's an architectural anchor, not an importer promise |
+| **TaskPaper** | macOS-only native | plain text | not pursued — Mac-only source app; portable plain text but the realistic audience is Mac → Linux migrants. Dropped at v0.20.0 for the same reason as OmniFocus |
 | **Todoist** | proprietary cloud | CSV/JSON export | direct (Phase 18 — first-class) |
 | **Vikunja** | self-hosted web | API | not yet — out of scope for v1.0 |
 | **Super Productivity** | Electron | JSON export | not yet — assess in v1.1 |
