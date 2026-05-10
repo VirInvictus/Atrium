@@ -622,8 +622,15 @@ where
         card.append(&empty);
     } else {
         for task in &cell.tasks {
+            // v0.19.0 — Phase 18.5 Tier-2: prefix with HH:MM
+            // when present so the calendar's narrow-week-strip
+            // surfaces the time inline.
+            let label = match task.scheduled_time {
+                Some(t) => format!("{}  {}", t.format("%H:%M"), task.title),
+                None => task.title.clone(),
+            };
             let row = gtk::Label::builder()
-                .label(&task.title)
+                .label(&label)
                 .ellipsize(gtk::pango::EllipsizeMode::End)
                 .halign(gtk::Align::Start)
                 .css_classes(["caption"])
@@ -740,8 +747,13 @@ where
     // day to reschedule (handler attaches at the cell level
     // below).
     for task in cell.tasks.iter().take(INLINE_PER_CELL) {
+        // v0.19.0 — Phase 18.5 Tier-2 time-of-day prefix.
+        let label = match task.scheduled_time {
+            Some(t) => format!("{}  {}", t.format("%H:%M"), task.title),
+            None => task.title.clone(),
+        };
         let row = gtk::Label::builder()
-            .label(&task.title)
+            .label(&label)
             .ellipsize(gtk::pango::EllipsizeMode::End)
             .halign(gtk::Align::Start)
             .css_classes(["caption"])
@@ -856,8 +868,14 @@ where
     } else {
         for task in tasks {
             let id = task.id;
+            // v0.19.0 — Phase 18.5 Tier-2 time-of-day prefix
+            // in the day-peek popover.
+            let label = match task.scheduled_time {
+                Some(t) => format!("{}  {}", t.format("%H:%M"), task.title),
+                None => task.title.clone(),
+            };
             let btn = gtk::Button::builder()
-                .label(&task.title)
+                .label(&label)
                 .css_classes(["flat"])
                 .halign(gtk::Align::Start)
                 .build();
@@ -932,8 +950,12 @@ where
         .build();
     for task in tasks {
         let id = task.id;
+        let label = match task.scheduled_time {
+            Some(t) => format!("{}  {}", t.format("%H:%M"), task.title),
+            None => task.title.clone(),
+        };
         let btn = gtk::Button::builder()
-            .label(&task.title)
+            .label(&label)
             .css_classes(["flat"])
             .halign(gtk::Align::Start)
             .build();

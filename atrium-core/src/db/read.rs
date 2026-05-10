@@ -6,22 +6,63 @@
 
 use std::collections::HashMap;
 
-use chrono::NaiveDate;
-use rusqlite::{Connection, Row, params};
+use chrono::{DateTime, NaiveDate, Utc};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 
-use crate::domain::{Area, Perspective, Project, ScheduledFor, Tag, Task};
+use crate::domain::{
+    Area, Perspective, Project, QuickEntryTemplate, ScheduledFor, Tag, Task, TaskClockEntry,
+};
 use crate::error::DbError;
 
 const TASK_COLUMNS: &str = "id, uuid, title, note, project_id, parent_id, \
     scheduled_for, deadline, defer_until, estimated_minutes, completed_at, \
     repeat_rule, repeat_mode, last_reviewed_at, orig_keyword, deadline_warn_days, \
-    position, created_at, modified_at";
+    scheduled_time, reminder_at, position, created_at, modified_at";
 
 /// Fetch a single task by primary key.
 pub fn task_by_id(conn: &Connection, id: i64) -> Result<Option<Task>, DbError> {
     let sql = format!("SELECT {TASK_COLUMNS} FROM task WHERE id = ?1");
     let mut stmt = conn.prepare_cached(&sql)?;
     let mut rows = stmt.query_map(params![id], task_from_row)?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+/// v0.20.0 — Phase 19.5 reminder service queue. Returns the
+/// soonest open task whose `reminder_at` is strictly after
+/// `after`. The reminder service uses this to set its sleep
+/// timer; re-queries on every TaskChanges so a freshly-set
+/// reminder takes effect without a service restart. Returns
+/// `(task_id, reminder_at)` or `None` when no pending reminder
+/// exists.
+pub fn next_pending_reminder(
+    conn: &Connection,
+    after: DateTime<Utc>,
+) -> Result<Option<(i64, DateTime<Utc>)>, DbError> {
+    let after_str = after.format("%Y-%m-%dT%H:%M:%fZ").to_string();
+    let row = conn
+        .query_row(
+            "SELECT id, reminder_at FROM task \
+             WHERE reminder_at IS NOT NULL \
+               AND completed_at IS NULL \
+               AND reminder_at > ?1 \
+             ORDER BY reminder_at ASC LIMIT 1",
+            params![after_str],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, DateTime<Utc>>(1)?)),
+        )
+        .optional()?;
+    Ok(row)
+}
+
+/// v0.19.0 — Phase 18.5 Tier-2 Org-link target resolution.
+/// Returns the rowid of the task whose `uuid` matches; `None`
+/// for stale UUIDs (link points to a deleted task) so the
+/// caller can no-op silently rather than treat it as an error.
+pub fn task_id_for_uuid(conn: &Connection, uuid: &str) -> Result<Option<i64>, DbError> {
+    let mut stmt = conn.prepare_cached("SELECT id FROM task WHERE uuid = ?1")?;
+    let mut rows = stmt.query_map(params![uuid], |r| r.get::<_, i64>(0))?;
     match rows.next() {
         Some(row) => Ok(Some(row?)),
         None => Ok(None),
@@ -1012,6 +1053,179 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         last_reviewed_at: row.get("last_reviewed_at")?,
         orig_keyword: row.get("orig_keyword")?,
         deadline_warn_days: row.get("deadline_warn_days")?,
+        scheduled_time: row
+            .get::<_, Option<String>>("scheduled_time")?
+            .and_then(|s| chrono::NaiveTime::parse_from_str(&s, "%H:%M").ok()),
+        reminder_at: row.get("reminder_at")?,
+        position: row.get("position")?,
+        created_at: row.get("created_at")?,
+        modified_at: row.get("modified_at")?,
+    })
+}
+
+// ── Clock entries (Phase 18.5 Tier-1, v0.17.0) ──────────────────
+
+const CLOCK_COLUMNS: &str = "id, task_id, started_at, ended_at, note";
+
+/// Fetch a single clock entry by id.
+pub fn clock_entry_by_id(conn: &Connection, id: i64) -> Result<Option<TaskClockEntry>, DbError> {
+    let sql = format!("SELECT {CLOCK_COLUMNS} FROM task_clock_entry WHERE id = ?1");
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let mut rows = stmt.query_map(params![id], clock_entry_from_row)?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+/// Resolve the task_id of a clock entry without loading the
+/// full row. Used by the worker's delete path so it can look
+/// up which task to refresh + notify after the row is gone.
+pub fn clock_entry_task_id(conn: &Connection, id: i64) -> Result<Option<i64>, DbError> {
+    let mut stmt = conn.prepare_cached("SELECT task_id FROM task_clock_entry WHERE id = ?1")?;
+    let mut rows = stmt.query_map(params![id], |r| r.get::<_, i64>(0))?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+/// All clock entries on a task, newest-first by started_at
+/// (Inspector log convention; Emacs's `org-clock` also lists
+/// recent on top).
+pub fn list_clock_entries(conn: &Connection, task_id: i64) -> Result<Vec<TaskClockEntry>, DbError> {
+    let sql = format!(
+        "SELECT {CLOCK_COLUMNS} FROM task_clock_entry \
+         WHERE task_id = ?1 ORDER BY started_at DESC, id DESC"
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map(params![task_id], clock_entry_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+/// Sum of closed-entry durations for a task, in whole minutes.
+/// In-progress entries (ended_at IS NULL) are skipped — the
+/// "right" answer for them depends on the moment you ask, and
+/// the inspector renders the running clock separately. Returns
+/// `0` for tasks with no entries (Inspector renders "0:00" the
+/// same way it would render an empty log).
+pub fn total_clock_minutes(conn: &Connection, task_id: i64) -> Result<i64, DbError> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT COALESCE(SUM( (julianday(ended_at) - julianday(started_at)) * 24 * 60 ), 0) \
+         FROM task_clock_entry WHERE task_id = ?1 AND ended_at IS NOT NULL",
+    )?;
+    // SQLite returns the SUM as REAL; round to whole minutes.
+    let total: f64 = stmt.query_row(params![task_id], |r| r.get(0))?;
+    Ok(total.max(0.0).round() as i64)
+}
+
+/// All clock entries belonging to tasks in a project, grouped
+/// by task_id. Newest-first within each group. Used by the Org
+/// writer to stamp `:LOGBOOK:` drawers in one query rather than
+/// per-task. Tasks with no entries are absent from the map.
+pub fn clock_entries_per_project(
+    conn: &Connection,
+    project_id: i64,
+) -> Result<HashMap<i64, Vec<TaskClockEntry>>, DbError> {
+    // Qualify every CLOCK_COLUMNS field with `e.` so the JOIN
+    // doesn't make `id` ambiguous against `task.id`.
+    let qualified = CLOCK_COLUMNS
+        .split(", ")
+        .map(|c| format!("e.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT {qualified} FROM task_clock_entry e \
+         JOIN task t ON e.task_id = t.id \
+         WHERE t.project_id = ?1 \
+         ORDER BY e.task_id, e.started_at DESC, e.id DESC"
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map(params![project_id], clock_entry_from_row)?;
+    let mut out: HashMap<i64, Vec<TaskClockEntry>> = HashMap::new();
+    for row in rows {
+        let entry = row?;
+        out.entry(entry.task_id).or_default().push(entry);
+    }
+    Ok(out)
+}
+
+/// Identify the currently-running clock (at most one row per
+/// the single-active-clock invariant). Returns `(task_id,
+/// started_at)` for the running entry, or `None` when no clock
+/// is active.
+pub fn active_clock(conn: &Connection) -> Result<Option<(i64, DateTime<Utc>)>, DbError> {
+    let row = conn
+        .query_row(
+            "SELECT task_id, started_at FROM task_clock_entry WHERE ended_at IS NULL LIMIT 1",
+            [],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, DateTime<Utc>>(1)?)),
+        )
+        .optional()?;
+    Ok(row)
+}
+
+fn clock_entry_from_row(row: &Row<'_>) -> rusqlite::Result<TaskClockEntry> {
+    Ok(TaskClockEntry {
+        id: row.get("id")?,
+        task_id: row.get("task_id")?,
+        started_at: row.get("started_at")?,
+        ended_at: row.get("ended_at")?,
+        note: row.get("note")?,
+    })
+}
+
+// ── Quick Entry templates (Phase 18.5 Tier-1, v0.18.0) ──────────
+
+const QUICK_ENTRY_TEMPLATE_COLUMNS: &str = "id, name, shortcut_key, target_project_id, prefix, default_tags, position, \
+     created_at, modified_at";
+
+/// Fetch a single template by id.
+pub fn quick_entry_template_by_id(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<QuickEntryTemplate>, DbError> {
+    let sql =
+        format!("SELECT {QUICK_ENTRY_TEMPLATE_COLUMNS} FROM quick_entry_template WHERE id = ?1");
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let mut rows = stmt.query_map(params![id], quick_entry_template_from_row)?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+/// All templates ordered by `position` (display order in the
+/// Quick Entry modal's picker bar). Empty when no templates are
+/// configured — modal renders the standard Quick Entry shape
+/// in that case.
+pub fn list_quick_entry_templates(conn: &Connection) -> Result<Vec<QuickEntryTemplate>, DbError> {
+    let sql = format!(
+        "SELECT {QUICK_ENTRY_TEMPLATE_COLUMNS} FROM quick_entry_template \
+         ORDER BY position, id"
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map([], quick_entry_template_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn quick_entry_template_from_row(row: &Row<'_>) -> rusqlite::Result<QuickEntryTemplate> {
+    let tags_json: String = row.get("default_tags")?;
+    // Tolerant decode: malformed JSON falls back to empty Vec
+    // rather than failing the read. The worker writes valid JSON
+    // (it's the only writer), so a malformed value here means
+    // hand-edit damage; degrade to "no tags" rather than poison
+    // the whole query.
+    let default_tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+    Ok(QuickEntryTemplate {
+        id: row.get("id")?,
+        name: row.get("name")?,
+        shortcut_key: row.get("shortcut_key")?,
+        target_project_id: row.get("target_project_id")?,
+        prefix: row.get("prefix")?,
+        default_tags,
         position: row.get("position")?,
         created_at: row.get("created_at")?,
         modified_at: row.get("modified_at")?,
@@ -1061,6 +1275,21 @@ mod tests {
              (uuid, title, deadline, deadline_warn_days, position) \
              VALUES (?, ?, ?, ?, ?)",
             params![uuid, title, deadline, warn, 1.0],
+        )
+        .unwrap();
+    }
+
+    fn insert_task_with_reminder(
+        conn: &Connection,
+        uuid: &str,
+        title: &str,
+        reminder_at: Option<&str>,
+        completed_at: Option<&str>,
+    ) {
+        conn.execute(
+            "INSERT INTO task (uuid, title, reminder_at, completed_at, position) \
+             VALUES (?, ?, ?, ?, ?)",
+            params![uuid, title, reminder_at, completed_at, 1.0],
         )
         .unwrap();
     }
@@ -1269,6 +1498,53 @@ mod tests {
         let listed = list_today(&conn, today()).unwrap().len() as i64;
         assert_eq!(counts.today, listed);
         assert_eq!(counts.today, 1);
+    }
+
+    // v0.20.0 — Phase 19.5 next_pending_reminder ordering.
+    #[test]
+    fn next_pending_reminder_returns_soonest_open_task() {
+        let conn = fresh_conn();
+        // Reminder timestamps: A two hours from "now", B 30
+        // mins, C one hour but completed, D in the past.
+        insert_task_with_reminder(&conn, "a", "A", Some("2030-01-01T12:00:00Z"), None);
+        insert_task_with_reminder(&conn, "b", "B", Some("2030-01-01T10:30:00Z"), None);
+        insert_task_with_reminder(
+            &conn,
+            "c",
+            "C",
+            Some("2030-01-01T11:00:00Z"),
+            Some("2030-01-01T09:00:00Z"),
+        );
+        insert_task_with_reminder(&conn, "d", "D", Some("2020-01-01T00:00:00Z"), None);
+        // Cutoff: 2030-01-01 10:00 — D is in the past relative
+        // to it (skipped); B (10:30) is the soonest.
+        let cutoff: DateTime<Utc> = "2030-01-01T10:00:00Z".parse().unwrap();
+        let result = next_pending_reminder(&conn, cutoff).unwrap();
+        let (task_id, when) = result.expect("expected B as next reminder");
+        let title: String = conn
+            .query_row(
+                "SELECT title FROM task WHERE id = ?1",
+                params![task_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(title, "B");
+        assert_eq!(when.format("%H:%M").to_string(), "10:30");
+    }
+
+    #[test]
+    fn next_pending_reminder_returns_none_when_all_past_or_completed() {
+        let conn = fresh_conn();
+        insert_task_with_reminder(
+            &conn,
+            "done",
+            "Done",
+            Some("2030-01-01T10:30:00Z"),
+            Some("2030-01-01T09:00:00Z"),
+        );
+        insert_task_with_reminder(&conn, "past", "Past", Some("2020-01-01T00:00:00Z"), None);
+        let cutoff: DateTime<Utc> = "2030-01-01T10:00:00Z".parse().unwrap();
+        assert!(next_pending_reminder(&conn, cutoff).unwrap().is_none());
     }
 
     #[test]

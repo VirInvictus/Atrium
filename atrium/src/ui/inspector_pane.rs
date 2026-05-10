@@ -29,14 +29,16 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use adw::prelude::*;
+use atrium_core::db::read_pool::ReadPool;
 use atrium_core::{
-    Project, RepeatMode, RepeatRule, ScheduledFor, Task, TaskUpdate, WorkerHandle,
-    parse_body_checkboxes, toggle_body_checkbox,
+    Project, RepeatMode, RepeatRule, ScheduledFor, Task, TaskClockEntry, TaskUpdate, WorkerHandle,
+    parse_body_checkboxes, parse_body_links, toggle_body_checkbox,
 };
-use chrono::NaiveDate;
+use chrono::{NaiveDate, TimeZone};
 use gtk::gio;
 use gtk::glib;
 use gtk::glib::clone;
+use gtk::pango;
 use tracing::error;
 
 use crate::ui::inspector::{format_deadline_label, format_defer_label, format_schedule_label};
@@ -57,6 +59,18 @@ pub struct InspectorPane {
     current_title_row: RefCell<Option<adw::EntryRow>>,
     worker: WorkerHandle,
     on_edit_tags: Rc<dyn Fn(i64)>,
+    /// v0.19.0 — Phase 18.5 Tier-2 Org-link navigation. The
+    /// click handler on the notes TextView resolves a clicked
+    /// `[[id:UUID][label]]` span to its UUID and invokes this
+    /// callback. The window wires it to the existing
+    /// `open_inspector_for(task_id)` after a uuid → id lookup;
+    /// the callback receives the UUID rather than the resolved
+    /// id so the inspector pane stays read-pool-agnostic.
+    on_navigate_uuid: Rc<dyn Fn(String)>,
+    /// v0.19.0 — Phase 18.5 Tier-2 Link… picker source. Lazily
+    /// resolves the read pool when the picker popover opens.
+    /// Returning `None` disables the picker.
+    pool_source: Rc<dyn Fn() -> Option<ReadPool>>,
 }
 
 impl InspectorPane {
@@ -64,9 +78,17 @@ impl InspectorPane {
     /// in window.ui). `on_edit_tags` is invoked when the user hits
     /// the "Edit Tags…" button — same hand-off as the dialog
     /// Inspector.
-    pub fn install<F>(host: &adw::Bin, worker: WorkerHandle, on_edit_tags: F) -> Rc<Self>
+    pub fn install<F, N, P>(
+        host: &adw::Bin,
+        worker: WorkerHandle,
+        on_edit_tags: F,
+        on_navigate_uuid: N,
+        pool_source: P,
+    ) -> Rc<Self>
     where
         F: Fn(i64) + 'static,
+        N: Fn(String) + 'static,
+        P: Fn() -> Option<ReadPool> + 'static,
     {
         let stack = gtk::Stack::builder()
             .transition_type(gtk::StackTransitionType::Crossfade)
@@ -107,20 +129,38 @@ impl InspectorPane {
             current_title_row: RefCell::new(None),
             worker,
             on_edit_tags: Rc::new(on_edit_tags),
+            on_navigate_uuid: Rc::new(on_navigate_uuid),
+            pool_source: Rc::new(pool_source),
         })
     }
 
     /// Show the per-task editor for `task`. `projects` populates the
-    /// project dropdown; `tag_count` populates the Tags row subtitle.
-    /// Always rebuilds the body — recycled forms across task switches
-    /// are cheap and avoid stale-closure bugs.
-    pub fn set_task(&self, task: Task, projects: Vec<Project>, tag_count: usize) {
+    /// project dropdown; `tag_count` populates the Tags row subtitle;
+    /// `clock_entries` (v0.17.0) populates the Time group's
+    /// running-state, total, and per-session log. Always rebuilds
+    /// the body — recycled forms across task switches are cheap
+    /// and avoid stale-closure bugs.
+    pub fn set_task(
+        &self,
+        task: Task,
+        projects: Vec<Project>,
+        tag_count: usize,
+        clock_entries: Vec<TaskClockEntry>,
+    ) {
         *self.current_task_id.borrow_mut() = Some(task.id);
         let edit_tags = self.on_edit_tags.clone();
-        let (body, title_row) =
-            build_editor(self.worker.clone(), task, projects, tag_count, move |id| {
-                edit_tags(id)
-            });
+        let navigate = self.on_navigate_uuid.clone();
+        let pool_source = self.pool_source.clone();
+        let (body, title_row) = build_editor(
+            self.worker.clone(),
+            task,
+            projects,
+            tag_count,
+            clock_entries,
+            move |id| edit_tags(id),
+            move |uuid| navigate(uuid),
+            move || pool_source(),
+        );
         self.editor_host.set_child(Some(&body));
         *self.current_title_row.borrow_mut() = Some(title_row);
         self.stack.set_visible_child_name("editor");
@@ -168,18 +208,30 @@ impl InspectorPane {
 /// Returns `(body, title_row)` so the caller can stash the title
 /// row for `InspectorPane::focus_title()` (`Ctrl+I` and the
 /// double-click / right-click activate paths in Builder Mode).
-fn build_editor<F>(
+// 8 parameters is past clippy's default threshold but each
+// one is genuinely independent state the inspector body needs;
+// bundling them into a struct trades a clippy warning for an
+// indirection that doesn't help readers.
+#[allow(clippy::too_many_arguments)]
+fn build_editor<F, N, P>(
     worker: WorkerHandle,
     task: Task,
     projects: Vec<Project>,
     tag_count: usize,
+    clock_entries: Vec<TaskClockEntry>,
     on_edit_tags: F,
+    on_navigate_uuid: N,
+    pool_source: P,
 ) -> (gtk::Widget, adw::EntryRow)
 where
     F: Fn(i64) + 'static,
+    N: Fn(String) + 'static,
+    P: Fn() -> Option<ReadPool> + 'static,
 {
     let task_id = task.id;
     let on_edit_tags = Rc::new(on_edit_tags);
+    let on_navigate_uuid = Rc::new(on_navigate_uuid);
+    let pool_source = Rc::new(pool_source);
 
     // ── Title ────────────────────────────────────────────────────
     let title_row = adw::EntryRow::builder()
@@ -268,9 +320,63 @@ where
     let schedule_state: Rc<RefCell<Option<ScheduledFor>>> =
         Rc::new(RefCell::new(task.scheduled_for));
     let original_schedule = task.scheduled_for;
+
+    // v0.19.0 — Phase 18.5 Tier-2 time-of-day on schedule. The
+    // entry sits below the schedule picker and is only visible
+    // when scheduled_for is a Date (Someday + None can't carry
+    // a meaningful time). Entry text is `HH:MM`; commit on
+    // focus-leave parses + dispatches the worker update.
+    let time_entry = gtk::Entry::builder()
+        .placeholder_text("HH:MM")
+        .max_length(5)
+        .width_chars(6)
+        .build();
+    if let Some(t) = task.scheduled_time {
+        time_entry.set_text(&t.format("%H:%M").to_string());
+    }
+    let time_row = adw::ActionRow::builder()
+        .title("Time")
+        .activatable_widget(&time_entry)
+        .build();
+    time_row.add_suffix(&time_entry);
+    let scheduled_is_date = matches!(task.scheduled_for, Some(ScheduledFor::Date(_)));
+    time_row.set_visible(scheduled_is_date);
+
+    let original_time = task.scheduled_time;
+    {
+        let worker = worker.clone();
+        let entry = time_entry.clone();
+        let focus = gtk::EventControllerFocus::new();
+        focus.connect_leave(move |_| {
+            let raw = entry.text().to_string();
+            let parsed = parse_time_input(&raw);
+            if parsed == original_time {
+                return;
+            }
+            let worker = worker.clone();
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker
+                    .update_task(TaskUpdate::new(task_id).scheduled_time_value(parsed))
+                    .await
+                {
+                    error!(
+                        ?e,
+                        task_id, "inspector pane: scheduled time autosave failed"
+                    );
+                }
+            });
+        });
+        time_entry.add_controller(focus);
+    }
+
+    let time_row_for_schedule = time_row.clone();
     let schedule_button = build_schedule_button(&schedule_state, {
         let worker = worker.clone();
         move |new| {
+            // Toggle the time row's visibility in lockstep with
+            // the schedule. Someday or None can't carry a time.
+            let is_date = matches!(new, Some(ScheduledFor::Date(_)));
+            time_row_for_schedule.set_visible(is_date);
             if new == original_schedule {
                 return;
             }
@@ -387,10 +493,45 @@ where
     // into a new "Classify" cluster — both fields answer the
     // question "where does this task live?" so the eye groups them
     // naturally.
+    // v0.20.0 — Phase 19.5 reminder picker. Independent of
+    // scheduled_for / deadline (a reminder fires on a task
+    // regardless of those). EntryRow accepts `YYYY-MM-DD HH:MM`
+    // text; commits on focus-leave. Empty clears.
+    let reminder_row = adw::EntryRow::builder().title("Reminder").build();
+    if let Some(when) = task.reminder_at {
+        let local = when.with_timezone(&chrono::Local);
+        reminder_row.set_text(&local.format("%Y-%m-%d %H:%M").to_string());
+    }
+    let original_reminder = task.reminder_at;
+    {
+        let worker = worker.clone();
+        let entry = reminder_row.clone();
+        let focus = gtk::EventControllerFocus::new();
+        focus.connect_leave(move |_| {
+            let raw = entry.text().to_string();
+            let parsed = parse_reminder_input(&raw);
+            if parsed == original_reminder {
+                return;
+            }
+            let worker = worker.clone();
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker
+                    .update_task(TaskUpdate::new(task_id).reminder_at_value(parsed))
+                    .await
+                {
+                    error!(?e, task_id, "inspector pane: reminder autosave failed");
+                }
+            });
+        });
+        reminder_row.add_controller(focus);
+    }
+
     let dates_group = adw::PreferencesGroup::new();
     dates_group.add(&schedule_row);
+    dates_group.add(&time_row);
     dates_group.add(&deadline_row);
     dates_group.add(&warn_row);
+    dates_group.add(&reminder_row);
 
     // ── Classify cluster: Project + Tags ─────────────────────────
     let tag_count_text = format_tag_count(tag_count);
@@ -463,6 +604,23 @@ where
     let notes_group = adw::PreferencesGroup::builder().title("Notes").build();
     notes_group.add(&notes_scroll);
 
+    // v0.19.0 — Phase 18.5 Tier-2 Link… picker. Lives as the
+    // notes_group's header suffix so it sits next to the "Notes"
+    // title without competing with the body. Click opens a
+    // popover with a search field + filtered task list; picking
+    // a task inserts `[[id:UUID][title]]` at the cursor.
+    let link_button = gtk::Button::builder()
+        .icon_name("insert-link-symbolic")
+        .tooltip_text("Link to another task…")
+        .css_classes(["flat"])
+        .build();
+    let link_popover = build_task_link_popover(&notes_buffer, pool_source.clone(), task_id);
+    link_popover.set_parent(&link_button);
+    link_button.connect_clicked(move |_| {
+        link_popover.popup();
+    });
+    notes_group.set_header_suffix(Some(&link_button));
+
     let notes_initial = task.note.clone();
     let notes_focus = gtk::EventControllerFocus::new();
     notes_focus.connect_leave({
@@ -489,6 +647,97 @@ where
         }
     });
     notes_view.add_controller(notes_focus);
+
+    // ── v0.19.0 — Phase 18.5 Tier-2 Org-link rendering. The
+    // notes_buffer carries `[[id:UUID][label]]` constructs that
+    // we want to render as clickable spans. Strategy:
+    //
+    // 1. Register a single `link` text tag with a foreground
+    //    accent + underline. Apply it to every link range
+    //    parsed from the current body text.
+    // 2. Re-apply on every buffer change so live edits keep
+    //    links highlighted (cheap — body parsing is linear and
+    //    typical notes are short).
+    // 3. A click gesture on the textview walks to the iter at
+    //    the click position and looks up the buffer's
+    //    char-offset against the parsed link ranges. If a
+    //    match exists, invoke `on_navigate_uuid` with the
+    //    target UUID.
+    let link_tag = notes_buffer
+        .create_tag(Some("link"), &[("underline", &pango::Underline::Single)])
+        .expect("link tag created exactly once per buffer");
+    link_tag.set_foreground(Some("@accent_color"));
+
+    let apply_link_tags = {
+        let buffer = notes_buffer.clone();
+        let tag = link_tag.clone();
+        Rc::new(move || {
+            let body = buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .to_string();
+            // Clear existing link-tag spans before re-applying.
+            // Bodies are short; this is fine.
+            buffer.remove_tag(&tag, &buffer.start_iter(), &buffer.end_iter());
+            for link in parse_body_links(&body) {
+                // The `BodyLink.range` is a byte range; convert
+                // to char offsets for `iter_at_offset`. Bytes →
+                // chars: count chars in the byte slice up to
+                // `range.start` and `range.end`. ASCII bodies
+                // (the common case) have byte == char, so this
+                // is a no-cost walk for them.
+                let start_char = body[..link.range.start].chars().count() as i32;
+                let end_char = body[..link.range.end].chars().count() as i32;
+                let start_iter = buffer.iter_at_offset(start_char);
+                let end_iter = buffer.iter_at_offset(end_char);
+                buffer.apply_tag(&tag, &start_iter, &end_iter);
+            }
+        })
+    };
+
+    // Initial application + re-apply on every buffer change.
+    apply_link_tags();
+    {
+        let apply = apply_link_tags.clone();
+        notes_buffer.connect_changed(move |_| apply());
+    }
+
+    // Click gesture on the textview. `gtk::GestureClick` fires
+    // for single-click + double-click; we trigger on single
+    // primary release at the link iter.
+    let click_gesture = gtk::GestureClick::builder().button(1).build();
+    let view_for_click = notes_view.clone();
+    let buffer_for_click = notes_buffer.clone();
+    let navigate_for_click = on_navigate_uuid.clone();
+    click_gesture.connect_released(move |_, _, x, y| {
+        // Convert widget coords → buffer coords → iter.
+        let (bx, by) =
+            view_for_click.window_to_buffer_coords(gtk::TextWindowType::Widget, x as i32, y as i32);
+        let Some(iter) = view_for_click.iter_at_location(bx, by) else {
+            return;
+        };
+        // Resolve the link by walking the parsed list against
+        // the click's char-offset. Re-parses on every click —
+        // cheap, and avoids cache-invalidation bugs.
+        let body = buffer_for_click
+            .text(
+                &buffer_for_click.start_iter(),
+                &buffer_for_click.end_iter(),
+                false,
+            )
+            .to_string();
+        let click_char = iter.offset() as usize;
+        for link in parse_body_links(&body) {
+            // BodyLink.range is byte-indexed; the iter offset
+            // is char-indexed. Convert and compare.
+            let start_char = body[..link.range.start].chars().count();
+            let end_char = body[..link.range.end].chars().count();
+            if click_char >= start_char && click_char < end_char {
+                navigate_for_click(link.target_uuid);
+                return;
+            }
+        }
+    });
+    notes_view.add_controller(click_gesture);
 
     // ── v0.15.0 — Body checkboxes (Phase 18.5 Tier-2) ────────────
     // Subtasks group lives above the Notes textview and reflects
@@ -670,6 +919,16 @@ where
     // continuation of the main list. Padding + a subtle left
     // border distinguishes it; the page itself stays the standard
     // AdwPreferencesPage so library theming flows through.
+    // ── v0.17.0 — Phase 18.5 Tier-1 CLOCK time tracking. The
+    // Time group sits between Notes and Builder fields: actual
+    // time spent (clock entries) reads naturally next to
+    // estimated_minutes (intent) on the Builder side. Hidden
+    // for tasks with no entries yet, *unless* the user can
+    // start one — which is always — so we render the Start
+    // button regardless and lazily reveal the log + total when
+    // entries exist.
+    let time_group = build_time_group(&worker, task_id, &clock_entries);
+
     let page = adw::PreferencesPage::new();
     page.add_css_class("atrium-inspector-pane");
     page.add(&title_group);
@@ -677,6 +936,7 @@ where
     page.add(&classify_group);
     page.add(&subtasks_group);
     page.add(&notes_group);
+    page.add(&time_group);
     page.add(&builder_group);
 
     (page.upcast(), title_row)
@@ -795,6 +1055,305 @@ fn build_keyword_picker(
 /// failures from the worker land as a tracing::error (the entry
 /// is restored to whatever the worker last accepted on the next
 /// `set_task` call so the user isn't stranded with bad text).
+/// v0.19.0 — Phase 18.5 Tier-2 time-of-day input parser.
+/// Accepts `HH:MM` (24-hour) or empty string (clear).
+/// Tolerant: leading/trailing whitespace stripped; single-digit
+/// hours accepted (`9:00`); minutes must be two digits. Returns
+/// `None` for empty input or unparseable text — the worker
+/// treats `None` as "clear the column."
+fn parse_time_input(raw: &str) -> Option<chrono::NaiveTime> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut parts = trimmed.splitn(2, ':');
+    let h: u32 = parts.next()?.parse().ok()?;
+    let m: u32 = parts.next()?.parse().ok()?;
+    chrono::NaiveTime::from_hms_opt(h, m, 0)
+}
+
+/// v0.20.0 — Phase 19.5 reminder input parser. Accepts
+/// `YYYY-MM-DD HH:MM` (treated as local time, converted to
+/// UTC for storage) or empty (clear). Returns `None` for
+/// empty / unparseable input — the worker treats `None` as
+/// "clear the column."
+fn parse_reminder_input(raw: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let naive = chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M").ok()?;
+    let local = chrono::Local.from_local_datetime(&naive).single()?;
+    Some(local.with_timezone(&chrono::Utc))
+}
+
+/// v0.19.0 — Phase 18.5 Tier-2 Link… picker popover. Builds a
+/// search-field + scrolled list combo. Each row in the list is
+/// an `adw::ActionRow` with the task's title; clicking inserts
+/// `[[id:UUID][title]]` into `buffer` at the cursor and dismisses
+/// the popover.
+///
+/// Filter strategy: the popover loads every task once via the
+/// pool when it opens (typical DBs have thousands at most; the
+/// load is cheap), then filters in-memory by case-insensitive
+/// substring against the title as the user types. Avoids the
+/// FTS5 expression-grammar complexity for v0.19.0; if real users
+/// hit performance ceilings we can swap in `bm25_for_terms` here.
+///
+/// `current_task_id` is excluded from the result list — linking
+/// a task to itself isn't useful.
+fn build_task_link_popover(
+    buffer: &gtk::TextBuffer,
+    pool_source: Rc<dyn Fn() -> Option<ReadPool>>,
+    current_task_id: i64,
+) -> gtk::Popover {
+    let popover = gtk::Popover::builder()
+        .position(gtk::PositionType::Bottom)
+        .has_arrow(true)
+        .build();
+    popover.add_css_class("atrium-link-picker");
+
+    let body = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .width_request(360)
+        .height_request(320)
+        .build();
+
+    let search = gtk::SearchEntry::builder()
+        .placeholder_text("Search tasks…")
+        .build();
+    body.append(&search);
+
+    let list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .build();
+    list.add_css_class("boxed-list");
+    let list_scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .child(&list)
+        .build();
+    body.append(&list_scroll);
+
+    popover.set_child(Some(&body));
+
+    // Cached task list — populated on every popover-show so a
+    // recently-created task surfaces. Held inside an Rc<RefCell>
+    // so the search-changed handler can re-filter without
+    // re-querying the DB on every keystroke.
+    let cached_tasks: Rc<RefCell<Vec<Task>>> = Rc::new(RefCell::new(Vec::new()));
+    let pool_source_for_show = pool_source.clone();
+    let cached_for_show = cached_tasks.clone();
+    let list_for_show = list.clone();
+    let buffer_for_show = buffer.clone();
+    let popover_for_show = popover.clone();
+    popover.connect_show(move |_| {
+        let Some(pool) = pool_source_for_show() else {
+            // No pool available — render an empty-state row
+            // and bail.
+            while let Some(child) = list_for_show.first_child() {
+                list_for_show.remove(&child);
+            }
+            let row = adw::ActionRow::builder()
+                .title("(database unavailable)")
+                .build();
+            list_for_show.append(&row);
+            return;
+        };
+        let tasks = pool
+            .with(atrium_core::db::read::list_all_tasks)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|t| t.id != current_task_id)
+            .collect::<Vec<_>>();
+        *cached_for_show.borrow_mut() = tasks.clone();
+        populate_link_picker_rows(&list_for_show, &tasks, &buffer_for_show, &popover_for_show);
+    });
+
+    let search_for_changed = search.clone();
+    let cached_for_search = cached_tasks.clone();
+    let list_for_search = list.clone();
+    let buffer_for_search = buffer.clone();
+    let popover_for_search = popover.clone();
+    search.connect_search_changed(move |_| {
+        let needle = search_for_changed.text().to_string().to_ascii_lowercase();
+        let cached = cached_for_search.borrow();
+        let filtered: Vec<Task> = if needle.is_empty() {
+            cached.clone()
+        } else {
+            cached
+                .iter()
+                .filter(|t| t.title.to_ascii_lowercase().contains(&needle))
+                .cloned()
+                .collect()
+        };
+        populate_link_picker_rows(
+            &list_for_search,
+            &filtered,
+            &buffer_for_search,
+            &popover_for_search,
+        );
+    });
+
+    popover
+}
+
+/// Replace the link-picker list's children with one ActionRow
+/// per task. Click handler inserts the link at the buffer's
+/// cursor and dismisses the popover.
+fn populate_link_picker_rows(
+    list: &gtk::ListBox,
+    tasks: &[Task],
+    buffer: &gtk::TextBuffer,
+    popover: &gtk::Popover,
+) {
+    while let Some(child) = list.first_child() {
+        list.remove(&child);
+    }
+    if tasks.is_empty() {
+        let row = adw::ActionRow::builder()
+            .title("(no matching tasks)")
+            .build();
+        list.append(&row);
+        return;
+    }
+    for task in tasks.iter().take(50) {
+        let row = adw::ActionRow::builder().title(&task.title).build();
+        let uuid = task.uuid.clone();
+        let title = task.title.clone();
+        let buffer = buffer.clone();
+        let popover = popover.clone();
+        let click = gtk::GestureClick::new();
+        click.connect_released(move |_, _, _, _| {
+            let link_text = format!("[[id:{uuid}][{title}]]");
+            // Insert at the cursor's position.
+            let mut iter = buffer.iter_at_mark(&buffer.get_insert());
+            buffer.insert(&mut iter, &link_text);
+            popover.popdown();
+        });
+        row.add_controller(click);
+        row.set_activatable(true);
+        list.append(&row);
+    }
+    // Cap at 50 rows for the picker — typing a couple of letters
+    // narrows things; the full list is rarely useful in a popover.
+}
+
+/// v0.17.0 — Phase 18.5 Tier-1 CLOCK time tracking Time group.
+/// Renders three things:
+///
+/// 1. Start/Stop button (label flips based on whether this task
+///    has an open clock).
+/// 2. "Total" row — sum of closed-entry minutes formatted
+///    HH:MM, hidden when zero so an empty group doesn't look
+///    accusatory.
+/// 3. Per-session log — one ActionRow per closed entry showing
+///    the duration + start time. Open entries surface as a
+///    "Running since HH:MM" row. Hidden when there are no
+///    entries.
+///
+/// Builder-only (caller controls visibility — Simple Mode
+/// dialog doesn't include this group at all). Auto-refreshes
+/// because `set_task` re-runs on every TaskChanges that touches
+/// this task; clock_in/clock_out emit the right TaskChanges via
+/// the worker's `emit_task_refresh` helper.
+fn build_time_group(
+    worker: &WorkerHandle,
+    task_id: i64,
+    entries: &[TaskClockEntry],
+) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder().title("Time").build();
+
+    let running = entries.iter().any(|e| e.is_running());
+    let action_row = adw::ActionRow::builder()
+        .title(if running {
+            "Currently running"
+        } else {
+            "Track time on this task"
+        })
+        .build();
+    let toggle_button = gtk::Button::builder()
+        .label(if running { "Stop" } else { "Start" })
+        .valign(gtk::Align::Center)
+        .build();
+    if running {
+        toggle_button.add_css_class("destructive-action");
+    } else {
+        toggle_button.add_css_class("suggested-action");
+    }
+    {
+        let worker = worker.clone();
+        toggle_button.connect_clicked(move |_| {
+            let worker = worker.clone();
+            glib::MainContext::default().spawn_local(async move {
+                let result = if running {
+                    worker.clock_out(task_id).await.map(|_| ())
+                } else {
+                    worker.clock_in(task_id, String::new()).await.map(|_| ())
+                };
+                if let Err(e) = result {
+                    error!(?e, task_id, "inspector pane: clock toggle failed");
+                }
+                // The worker's emit_task_refresh fires a
+                // TaskChanges with this task in `updated`, which
+                // triggers the window's refresh path → set_task
+                // re-runs → this group rebuilds with the new
+                // running state. No manual UI poke needed here.
+            });
+        });
+    }
+    action_row.add_suffix(&toggle_button);
+    group.add(&action_row);
+
+    // Total row + log only when entries exist. A first-time
+    // user clocking in should see Stop + nothing else; once
+    // they've stopped, the closed entry surfaces in the log
+    // and the total appears.
+    let total_minutes: i64 = entries
+        .iter()
+        .filter_map(TaskClockEntry::duration_minutes)
+        .sum();
+    if total_minutes > 0 {
+        let hours = total_minutes / 60;
+        let mins = total_minutes % 60;
+        let total_row = adw::ActionRow::builder()
+            .title("Total")
+            .subtitle(format!("{hours}:{mins:02}"))
+            .build();
+        group.add(&total_row);
+    }
+
+    for entry in entries {
+        let row = adw::ActionRow::builder().build();
+        let started_local = entry.started_at.with_timezone(&chrono::Local);
+        let started_label = started_local.format("%a %b %-d, %H:%M").to_string();
+        match entry.duration_minutes() {
+            Some(d) => {
+                let h = d / 60;
+                let m = d % 60;
+                row.set_title(&format!("{h}:{m:02}"));
+                row.set_subtitle(&started_label);
+            }
+            None => {
+                // Open entry — surface "Running since…".
+                row.set_title("Running");
+                row.set_subtitle(&format!("started {started_label}"));
+                row.add_css_class("atrium-clock-running");
+            }
+        }
+        if !entry.note.is_empty() {
+            // Append the note in the subtitle so the user can
+            // see what the session was for.
+            let combined = format!("{} — {}", row.subtitle().unwrap_or_default(), entry.note);
+            row.set_subtitle(&combined);
+        }
+        group.add(&row);
+    }
+
+    group
+}
+
 fn install_repeat_editor(group: &adw::PreferencesGroup, worker: &WorkerHandle, task: &Task) {
     let task_id = task.id;
     let initial_preset = preset_from_rule(task.repeat_rule.as_deref());

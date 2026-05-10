@@ -11,8 +11,9 @@
 use tokio::sync::oneshot;
 
 use crate::domain::{
-    Area, AreaUpdate, Heading, NewArea, NewPerspective, NewProject, NewTag, NewTask, Perspective,
-    PerspectiveUpdate, Project, ProjectUpdate, Tag, TagUpdate, Task, TaskUpdate,
+    Area, AreaUpdate, Heading, NewArea, NewClockEntry, NewPerspective, NewProject,
+    NewQuickEntryTemplate, NewTag, NewTask, Perspective, PerspectiveUpdate, Project, ProjectUpdate,
+    QuickEntryTemplate, QuickEntryTemplateUpdate, Tag, TagUpdate, Task, TaskClockEntry, TaskUpdate,
 };
 use crate::error::DbError;
 
@@ -158,6 +159,67 @@ pub enum Command {
         id: i64,
         responder: oneshot::Sender<Result<(), DbError>>,
     },
+
+    // ── Clock entries (Phase 18.5 Tier-1, v0.17.0) ─────────────
+    /// Open a fresh clock entry on `task_id`. Single-active-clock
+    /// invariant: any other open entry across the whole table
+    /// gets closed first (its `ended_at` set to `now()`) so this
+    /// one becomes the only running clock. Mirrors Emacs's global
+    /// clock; matches what every Org user expects when they
+    /// `org-clock-in` on a different headline.
+    ClockIn {
+        entry: NewClockEntry,
+        responder: oneshot::Sender<Result<TaskClockEntry, DbError>>,
+    },
+    /// Close the open clock entry on `task_id` (if any). Soft
+    /// no-op when the task has no running clock — returns
+    /// `Ok(None)`. Returns `Ok(Some(entry))` for the just-closed
+    /// row.
+    ClockOut {
+        task_id: i64,
+        responder: oneshot::Sender<Result<Option<TaskClockEntry>, DbError>>,
+    },
+    /// Delete a single clock entry by id. Used by the Inspector
+    /// log's "remove this session" affordance and by the Org
+    /// watcher when an external Emacs edit drops a CLOCK line.
+    DeleteClockEntry {
+        id: i64,
+        responder: oneshot::Sender<Result<(), DbError>>,
+    },
+    /// v0.17.0 — importer + watcher entry point. Inserts a clock
+    /// entry with caller-provided timestamps (in contrast to
+    /// `ClockIn`, which stamps `now()`). Doesn't enforce
+    /// single-active-clock — the importer trusts the source
+    /// vault file's shape; if it carries two open entries
+    /// they'll both land. Used by the Org importer when ingesting
+    /// existing :LOGBOOK: drawers and by the watcher when
+    /// external Emacs adds a CLOCK line to a known task.
+    ImportClockEntry {
+        task_id: i64,
+        started_at: chrono::DateTime<chrono::Utc>,
+        ended_at: Option<chrono::DateTime<chrono::Utc>>,
+        note: String,
+        responder: oneshot::Sender<Result<TaskClockEntry, DbError>>,
+    },
+
+    // ── Quick Entry templates (Phase 18.5 Tier-1, v0.18.0) ────
+    /// Create a fresh template. Validates `shortcut_key` is at
+    /// most one ASCII alphanumeric character (constraint can't
+    /// be expressed cleanly in SQL); name + shortcut uniqueness
+    /// is enforced at the DB layer and surfaces as
+    /// `DbError::Sqlite` (UNIQUE violation) on collision.
+    CreateQuickEntryTemplate {
+        template: NewQuickEntryTemplate,
+        responder: oneshot::Sender<Result<QuickEntryTemplate, DbError>>,
+    },
+    UpdateQuickEntryTemplate {
+        update: QuickEntryTemplateUpdate,
+        responder: oneshot::Sender<Result<QuickEntryTemplate, DbError>>,
+    },
+    DeleteQuickEntryTemplate {
+        id: i64,
+        responder: oneshot::Sender<Result<(), DbError>>,
+    },
 }
 
 impl Command {
@@ -187,6 +249,13 @@ impl Command {
             Self::CreatePerspective { .. } => "CreatePerspective",
             Self::UpdatePerspective { .. } => "UpdatePerspective",
             Self::DeletePerspective { .. } => "DeletePerspective",
+            Self::ClockIn { .. } => "ClockIn",
+            Self::ClockOut { .. } => "ClockOut",
+            Self::DeleteClockEntry { .. } => "DeleteClockEntry",
+            Self::ImportClockEntry { .. } => "ImportClockEntry",
+            Self::CreateQuickEntryTemplate { .. } => "CreateQuickEntryTemplate",
+            Self::UpdateQuickEntryTemplate { .. } => "UpdateQuickEntryTemplate",
+            Self::DeleteQuickEntryTemplate { .. } => "DeleteQuickEntryTemplate",
         }
     }
 }

@@ -232,6 +232,226 @@ async fn update_task_sets_and_clears_estimated_minutes() {
     assert_eq!(cleared.estimated_minutes, None);
 }
 
+// v0.17.0 — Phase 18.5 Tier-1 CLOCK time tracking. Single-
+// active-clock invariant + clock_out idempotency + delete-cascade.
+#[tokio::test]
+async fn clock_in_creates_open_entry() {
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let task = handle.create_task(NewTask::inbox("work")).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    let entry = handle.clock_in(task.id, String::new()).await.unwrap();
+    assert_eq!(entry.task_id, task.id);
+    assert!(entry.is_running());
+    assert!(entry.note.is_empty());
+}
+
+#[tokio::test]
+async fn clock_in_on_different_task_auto_closes_previous() {
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let task_a = handle.create_task(NewTask::inbox("a")).await.unwrap();
+    let task_b = handle.create_task(NewTask::inbox("b")).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+
+    let _opened_a = handle.clock_in(task_a.id, String::new()).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+
+    // Now clock in on B. The single-active-clock invariant
+    // closes A's running entry before opening B's.
+    let opened_b = handle.clock_in(task_b.id, String::new()).await.unwrap();
+    assert!(opened_b.is_running());
+    let _ = changes_rx.recv().await.unwrap();
+
+    // A's old entry was auto-closed; clock_out on A is now a
+    // no-op (returns None).
+    let nothing = handle.clock_out(task_a.id).await.unwrap();
+    assert!(
+        nothing.is_none(),
+        "task A's clock should already be closed by the auto-close"
+    );
+}
+
+#[tokio::test]
+async fn clock_out_is_idempotent_on_no_open_clock() {
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let task = handle.create_task(NewTask::inbox("t")).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    let result = handle.clock_out(task.id).await.unwrap();
+    assert!(result.is_none());
+}
+
+#[tokio::test]
+async fn clock_in_then_out_records_duration() {
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let task = handle.create_task(NewTask::inbox("t")).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    handle.clock_in(task.id, String::new()).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    let closed = handle.clock_out(task.id).await.unwrap().unwrap();
+    assert!(closed.ended_at.is_some());
+    // Duration is at least 0 (the test runs in microseconds; the
+    // i64 minutes math floors to 0).
+    assert!(closed.duration_minutes().unwrap() >= 0);
+}
+
+// v0.20.0 — Phase 19.5 reminder_at set/clear + next_pending_reminder ordering.
+#[tokio::test]
+async fn update_task_sets_and_clears_reminder_at() {
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let task = handle.create_task(NewTask::inbox("ping me")).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+
+    let when = chrono::Utc::now() + chrono::Duration::hours(1);
+    let with_reminder = handle
+        .update_task(TaskUpdate::new(task.id).reminder_at_value(Some(when)))
+        .await
+        .unwrap();
+    assert_eq!(with_reminder.reminder_at, Some(when));
+    let _ = changes_rx.recv().await.unwrap();
+
+    let cleared = handle
+        .update_task(TaskUpdate::new(task.id).reminder_at_value(None))
+        .await
+        .unwrap();
+    assert_eq!(cleared.reminder_at, None);
+}
+
+// Detailed next_pending_reminder ordering coverage lives in
+// read.rs's test module (it can construct a Connection with
+// canned inserts directly).
+
+// v0.19.0 — Phase 18.5 Tier-2 scheduled_time set/clear.
+#[tokio::test]
+async fn update_task_sets_and_clears_scheduled_time() {
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let task = handle.create_task(NewTask::inbox("standup")).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+
+    let t = chrono::NaiveTime::from_hms_opt(9, 30, 0).unwrap();
+    let with_time = handle
+        .update_task(TaskUpdate::new(task.id).scheduled_time_value(Some(t)))
+        .await
+        .unwrap();
+    assert_eq!(with_time.scheduled_time, Some(t));
+    let _ = changes_rx.recv().await.unwrap();
+
+    let cleared = handle
+        .update_task(TaskUpdate::new(task.id).scheduled_time_value(None))
+        .await
+        .unwrap();
+    assert_eq!(cleared.scheduled_time, None);
+}
+
+// v0.18.0 — Phase 18.5 Tier-1 Quick Entry templates.
+#[tokio::test]
+async fn create_quick_entry_template_round_trips() {
+    use crate::NewQuickEntryTemplate;
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let template = handle
+        .create_quick_entry_template(NewQuickEntryTemplate {
+            name: "Capture".into(),
+            shortcut_key: Some("c".into()),
+            target_project_id: None,
+            prefix: "[capture] ".into(),
+            default_tags: vec!["work".into(), "focus".into()],
+        })
+        .await
+        .unwrap();
+    assert_eq!(template.name, "Capture");
+    assert_eq!(template.shortcut_key.as_deref(), Some("c"));
+    assert_eq!(template.prefix, "[capture] ");
+    assert_eq!(
+        template.default_tags,
+        vec!["work".to_string(), "focus".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn create_quick_entry_template_rejects_multi_char_shortcut() {
+    use crate::NewQuickEntryTemplate;
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let err = handle
+        .create_quick_entry_template(NewQuickEntryTemplate {
+            name: "Bad".into(),
+            shortcut_key: Some("xy".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+    // Surfaces as DbError::Domain via the InvalidShortcutKey variant.
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("shortcut_key"),
+        "expected shortcut_key error; got: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn create_quick_entry_template_rejects_non_alnum_shortcut() {
+    use crate::NewQuickEntryTemplate;
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let err = handle
+        .create_quick_entry_template(NewQuickEntryTemplate {
+            name: "Bad".into(),
+            shortcut_key: Some("!".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+    let msg = format!("{err}");
+    assert!(msg.contains("shortcut_key"), "got: {msg}");
+}
+
+#[tokio::test]
+async fn delete_quick_entry_template_removes_row() {
+    use crate::NewQuickEntryTemplate;
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let template = handle
+        .create_quick_entry_template(NewQuickEntryTemplate {
+            name: "Tmp".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    handle
+        .delete_quick_entry_template(template.id)
+        .await
+        .unwrap();
+    let err = handle
+        .delete_quick_entry_template(template.id)
+        .await
+        .unwrap_err();
+    // Already deleted → NotFound.
+    assert!(matches!(err, crate::DbError::NotFound), "got: {err:?}");
+}
+
+#[tokio::test]
+async fn update_quick_entry_template_changes_fields() {
+    use crate::{NewQuickEntryTemplate, QuickEntryTemplateUpdate};
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let template = handle
+        .create_quick_entry_template(NewQuickEntryTemplate {
+            name: "Original".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let updated = handle
+        .update_quick_entry_template(
+            QuickEntryTemplateUpdate::new(template.id)
+                .name("Renamed")
+                .shortcut_key(Some("r".into()))
+                .prefix("[r] ")
+                .default_tags(vec!["a".into(), "b".into()]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated.name, "Renamed");
+    assert_eq!(updated.shortcut_key.as_deref(), Some("r"));
+    assert_eq!(updated.prefix, "[r] ");
+    assert_eq!(updated.default_tags, vec!["a".to_string(), "b".to_string()]);
+}
+
 #[tokio::test]
 async fn update_task_sets_and_clears_deadline_warn_days() {
     // v0.14.0 — Phase 18.5 Tier-1: per-task DEADLINE warning

@@ -79,6 +79,14 @@ pub enum DomainError {
     /// sidebar entry.
     #[error("perspective filter expression is empty")]
     EmptyFilterExpr,
+
+    /// v0.18.0 — Phase 18.5 Tier-1. A Quick Entry template's
+    /// `shortcut_key` must be a single ASCII alphanumeric
+    /// character (or NULL = no shortcut). The constraint can't
+    /// be expressed cleanly in SQL without a check trigger; the
+    /// worker enforces.
+    #[error("shortcut_key must be a single ASCII alphanumeric character, got {got:?}")]
+    InvalidShortcutKey { got: String },
 }
 
 #[derive(Debug, Error)]

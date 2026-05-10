@@ -113,7 +113,14 @@ pub fn write_project_to_vault(
     let headings = atrium_core::db::read::list_headings_in_project(conn, project_id)?;
     let tag_names = atrium_core::db::read::tag_names_per_task(conn)?;
 
-    let mut tree = build_project_tree(&tasks, &headings, &tag_names);
+    // v0.17.0 — Phase 18.5 Tier-1 CLOCK time tracking. Pre-load
+    // clock entries per task in one query; `task_to_org` reads
+    // from this map when building each headline. Tasks without
+    // entries pay nothing (the lookup misses; OrgTask keeps its
+    // empty default Vec).
+    let clock_by_task = atrium_core::db::read::clock_entries_per_project(conn, project_id)?;
+
+    let mut tree = build_project_tree(&tasks, &headings, &tag_names, &clock_by_task);
     // v0.15.0 — stamp statistics cookies on every parent.
     for node in &mut tree {
         stamp_statistics_cookies(node);
@@ -238,6 +245,7 @@ fn build_project_tree(
     tasks: &[Task],
     headings: &[Heading],
     tag_names: &HashMap<i64, Vec<String>>,
+    clock_by_task: &HashMap<i64, Vec<atrium_core::TaskClockEntry>>,
 ) -> Vec<OrgTask> {
     let by_id: HashMap<i64, &Task> = tasks.iter().map(|t| (t.id, t)).collect();
     let mut consumed: Vec<bool> = vec![false; tasks.len()];
@@ -289,7 +297,8 @@ fn build_project_tree(
             }
             Item::Task(ti) => {
                 let depth = if current_heading_idx.is_some() { 2 } else { 1 };
-                let node = build_task_subtree(ti, tasks, tag_names, depth, &mut consumed);
+                let node =
+                    build_task_subtree(ti, tasks, tag_names, clock_by_task, depth, &mut consumed);
                 match current_heading_idx {
                     Some(hi) => top[hi].children.push(node),
                     None => top.push(node),
@@ -303,7 +312,7 @@ fn build_project_tree(
     // level so we never silently drop a row on writeback.
     for i in 0..tasks.len() {
         if !consumed[i] {
-            let node = build_task_subtree(i, tasks, tag_names, 1, &mut consumed);
+            let node = build_task_subtree(i, tasks, tag_names, clock_by_task, 1, &mut consumed);
             top.push(node);
         }
     }
@@ -317,11 +326,12 @@ fn build_task_subtree(
     idx: usize,
     tasks: &[Task],
     tag_names: &HashMap<i64, Vec<String>>,
+    clock_by_task: &HashMap<i64, Vec<atrium_core::TaskClockEntry>>,
     depth: usize,
     consumed: &mut [bool],
 ) -> OrgTask {
     consumed[idx] = true;
-    let mut node = task_to_org(&tasks[idx], depth, tag_names);
+    let mut node = task_to_org(&tasks[idx], depth, tag_names, clock_by_task);
     let parent_id = tasks[idx].id;
 
     // Children sorted by position so the emitted file matches
@@ -340,7 +350,7 @@ fn build_task_subtree(
         if consumed[j] {
             continue;
         }
-        let child = build_task_subtree(j, tasks, tag_names, depth + 1, consumed);
+        let child = build_task_subtree(j, tasks, tag_names, clock_by_task, depth + 1, consumed);
         node.children.push(child);
     }
     node
@@ -421,6 +431,7 @@ fn heading_to_org(heading: &Heading) -> OrgTask {
         title: heading.title.clone(),
         tags: Vec::new(),
         scheduled: None,
+        scheduled_time: None,
         scheduled_repeater: None,
         scheduled_warning: None,
         deadline: None,
@@ -429,6 +440,10 @@ fn heading_to_org(heading: &Heading) -> OrgTask {
         // v0.15.0 — sub-headings get cookies set later by the
         // emit-time projection from DB state, not here.
         statistics_cookie: None,
+        // v0.17.0 — sub-headings don't carry clock entries (entries
+        // attach to TODO headlines, not section dividers).
+        clock_entries: Vec::new(),
+        logbook_unknown_lines: Vec::new(),
         closed: None,
         properties,
         body: String::new(),
@@ -516,7 +531,12 @@ fn inactive_timestamp(when: chrono::DateTime<chrono::Utc>) -> String {
     }
 }
 
-fn task_to_org(task: &Task, depth: usize, tag_names: &HashMap<i64, Vec<String>>) -> OrgTask {
+fn task_to_org(
+    task: &Task,
+    depth: usize,
+    tag_names: &HashMap<i64, Vec<String>>,
+    clock_by_task: &HashMap<i64, Vec<atrium_core::TaskClockEntry>>,
+) -> OrgTask {
     // when the importer stashed a non-canonical Org
     // keyword (WAITING, BLOCKED, IN-PROGRESS, etc.) we restore
     // it on emit. The completed_at column still drives whether
@@ -557,6 +577,11 @@ fn task_to_org(task: &Task, depth: usize, tag_names: &HashMap<i64, Vec<String>>)
         title: task.title.clone(),
         tags,
         scheduled,
+        // v0.19.0 — Phase 18.5 Tier-2 time-of-day on schedule.
+        // Only meaningful when `scheduled_for` is a Date; the
+        // `scheduled` local was already None for Someday/None,
+        // so threading the column directly is safe.
+        scheduled_time: task.scheduled_time,
         scheduled_repeater: scheduled_repeater_from_task(task, scheduled),
         scheduled_warning: None,
         deadline: task.deadline,
@@ -577,6 +602,24 @@ fn task_to_org(task: &Task, depth: usize, tag_names: &HashMap<i64, Vec<String>>)
         // recomputes counters for parents after the children are
         // attached, since this scope can't see the children yet.
         statistics_cookie: None,
+        // v0.17.0 — Phase 18.5 Tier-1 CLOCK time tracking.
+        // Map DB clock entries to the OrgTask shape. The
+        // emitter suppresses in-progress entries on its own;
+        // we pass them all through here.
+        clock_entries: clock_by_task
+            .get(&task.id)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|e| super::parse::OrgClockEntry {
+                        started: e.started_at,
+                        ended: e.ended_at,
+                        note: e.note.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        logbook_unknown_lines: Vec::new(),
         closed: task.completed_at,
         properties,
         body: task.note.clone(),

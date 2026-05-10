@@ -88,6 +88,12 @@ pub struct LossyEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LossyKind {
     UnparseableRecurrence,
+    /// v0.19.0 — Phase 18.5 Tier-2 closed this. Time-of-day on
+    /// the Todoist `DATE` field now flows into `task.scheduled_time`
+    /// (added at v0.19.0). The variant is retained for source
+    /// compatibility — older serialized lossy reports would
+    /// reference it — but the importer no longer emits it.
+    #[allow(dead_code)]
     DroppedTimeOfDay,
     DroppedTimezone,
     DroppedDuration,
@@ -257,12 +263,13 @@ fn apply_recurrence(
                 task.repeat_rule = Some(rrule);
             }
             task.scheduled_for = Some(ScheduledFor::Date(parse.scheduled_date));
-            if parse.time.is_some() {
-                summary.lossy.push(LossyEntry {
-                    kind: LossyKind::DroppedTimeOfDay,
-                    task_title: Some(title.to_string()),
-                    raw: date_str.to_string(),
-                });
+            // v0.19.0 — Phase 18.5 Tier-2 closes the
+            // DroppedTimeOfDay lossy. The recurrence parser
+            // already extracts the time portion from `at HH:MM`
+            // / `at Npm` phrases; we just thread it through to
+            // the new column.
+            if let Some(t) = parse.time {
+                task.scheduled_time = Some(t);
             }
         }
         None => summary.lossy.push(LossyEntry {

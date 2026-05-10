@@ -30,6 +30,19 @@ use crate::error::DbError;
 /// Tier-1) adds `task.deadline_warn_days` so a per-task warning
 /// suffix on the Org DEADLINE cookie (`-Nd` / `--Nd`) can override
 /// the global TODAY_DEADLINE_WINDOW_DAYS for that task only.
+/// Version 9 (v0.17.0, Phase 18.5 Tier-1) adds the
+/// `task_clock_entry` side table for actual-time tracking —
+/// distinct from `task.estimated_minutes` (intent). Round-trips
+/// through Org's `:LOGBOOK:` drawer. Version 10 (v0.18.0,
+/// Phase 18.5 Tier-1) adds the `quick_entry_template` table so
+/// the Quick Entry modal can carry multiple templates (the
+/// most-cited Org feature in the Worg survey). Version 11
+/// (v0.19.0, Phase 18.5 Tier-2) adds `task.scheduled_time` —
+/// `HH:MM` companion to the existing date-only `scheduled_for`,
+/// closing the Todoist mapper's `DroppedTimeOfDay` lossy entry.
+/// Version 12 (v0.20.0, Phase 19.5) adds `task.reminder_at` for
+/// time-based notifications; the reminder service polls
+/// `next_pending_reminder` and fires `gio::Notification`.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
@@ -39,6 +52,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (6, include_str!("0006_task_last_reviewed_at.sql")),
     (7, include_str!("0007_task_orig_keyword.sql")),
     (8, include_str!("0008_task_deadline_warn_days.sql")),
+    (9, include_str!("0009_task_clock_entry.sql")),
+    (10, include_str!("0010_quick_entry_template.sql")),
+    (11, include_str!("0011_task_scheduled_time.sql")),
+    (12, include_str!("0012_task_reminder_at.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

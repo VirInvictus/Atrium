@@ -1,0 +1,37 @@
+-- 0011_task_scheduled_time.sql — v0.19.0
+--
+-- Phase 18.5 Tier-2 — time-of-day on `scheduled_for`. The
+-- existing column is date-only (`YYYY-MM-DD` or the Someday
+-- sentinel); this adds an optional companion time field. The
+-- two pieces stay separate at the schema level because:
+--
+--   (a) Someday + None scheduled never have a meaningful time.
+--   (b) Most tasks don't need a time; making the schedule
+--       column itself "date or datetime" would force a string
+--       format change that breaks v0.18.x compatibility.
+--   (c) ISO date strings sort cleanly under SQLite's TEXT
+--       collation; smearing time into them would either force
+--       julianday math or break that sort.
+--
+-- One new column on `task`:
+--
+--   scheduled_time   TEXT NULL
+--                    `HH:MM` format (24-hour). NULL means
+--                    "date-only" (matches Atrium's pre-v0.19
+--                    behaviour). Only meaningful when
+--                    `scheduled_for` is also set to an ISO date
+--                    (not the Someday sentinel and not NULL);
+--                    the invariant is documented but not
+--                    enforced by a CHECK constraint — the
+--                    Inspector hides the time picker when
+--                    scheduled isn't a Date, so the wrong
+--                    combination shouldn't happen via the GUI.
+--
+-- Closes the Todoist mapper's `DroppedTimeOfDay` lossy entry —
+-- v0.19.0 populates this column from the recognised time
+-- portion of Todoist's `DATE` field.
+--
+-- Backwards-compatible additive change. v0.18.x binaries
+-- reading a v0.19.0 DB ignore the column. user_version 10 → 11.
+
+ALTER TABLE task ADD COLUMN scheduled_time TEXT NULL;

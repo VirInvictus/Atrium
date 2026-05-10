@@ -46,7 +46,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 
 /// TODO-cycle keyword on a headline. Spec §7.3.2 maps
 /// open / done / cancelled to TODO / DONE / CANCELLED. Custom
@@ -87,6 +87,31 @@ pub struct OrgRepeater {
     pub unit: char,
 }
 
+/// v0.17.0 — Phase 18.5 Tier-1 CLOCK line inside a `:LOGBOOK:`
+/// drawer. Org's shape:
+///
+/// ```text
+/// CLOCK: [2026-05-15 Mon 09:00]--[2026-05-15 Mon 11:30] =>  2:30
+/// CLOCK: [2026-05-15 Mon 09:00]
+/// ```
+///
+/// The first form is a closed entry (started + ended +
+/// duration). The second form is a running clock — Org omits
+/// the end half until the user clocks out. Atrium mirrors:
+/// `ended` is `None` for running entries.
+///
+/// The `note` field captures any free-form text after the
+/// duration (Org lets users append a session note); preserved
+/// verbatim across the round-trip even though Atrium's GUI
+/// doesn't surface it yet (the writer threads `task_clock_entry.note`
+/// here on emit).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrgClockEntry {
+    pub started: DateTime<Utc>,
+    pub ended: Option<DateTime<Utc>>,
+    pub note: String,
+}
+
 /// v0.15.0 — Phase 18.5 Tier-1 statistics cookie on a parent
 /// headline. Two shapes per Org spec: `[done/total]` and `[N%]`.
 /// The variant is preserved verbatim across a round-trip so the
@@ -125,6 +150,12 @@ pub struct OrgTask {
     pub tags: Vec<String>,
     /// `SCHEDULED:` cookie date.
     pub scheduled: Option<NaiveDate>,
+    /// v0.19.0 — Phase 18.5 Tier-2 time-of-day on the SCHEDULED
+    /// cookie. Only populated when the cookie carries the time
+    /// portion (`<2026-05-15 Wed 14:00>`); plain `<2026-05-15 Wed>`
+    /// stays `None`. Round-trips through the existing emitter +
+    /// importer plumbing.
+    pub scheduled_time: Option<NaiveTime>,
     /// Repeater suffix on the SCHEDULED cookie.
     pub scheduled_repeater: Option<OrgRepeater>,
     /// Warning suffix on the SCHEDULED cookie (`-Nd` / `--Nd`).
@@ -152,6 +183,17 @@ pub struct OrgTask {
     /// round-trip; Atrium recomputes the values from DB state on
     /// every emit so a stale cookie self-heals on the next flush.
     pub statistics_cookie: Option<StatisticsCookie>,
+    /// v0.17.0 — Phase 18.5 Tier-1 CLOCK time tracking. Entries
+    /// captured from the headline's `:LOGBOOK:` drawer, in
+    /// source order (Org convention is newest-first; the parser
+    /// just preserves what the file says). The writer recomputes
+    /// from DB state on every emit, so a stale logbook self-heals.
+    pub clock_entries: Vec<OrgClockEntry>,
+    /// Lines inside `:LOGBOOK:` we couldn't parse as `CLOCK:`
+    /// entries — preserved verbatim so the round-trip never
+    /// drops user content (state-change log lines, custom
+    /// drawer entries, etc.).
+    pub logbook_unknown_lines: Vec<String>,
     /// `CLOSED:` cookie timestamp. Preserves the time-of-day if
     /// present; defaults to noon UTC if Org gave us only a date.
     pub closed: Option<DateTime<Utc>>,
@@ -190,12 +232,15 @@ impl OrgTask {
             title,
             tags: Vec::new(),
             scheduled: None,
+            scheduled_time: None,
             scheduled_repeater: None,
             scheduled_warning: None,
             deadline: None,
             deadline_repeater: None,
             deadline_warning: None,
             statistics_cookie: None,
+            clock_entries: Vec::new(),
+            logbook_unknown_lines: Vec::new(),
             closed: None,
             properties: HashMap::new(),
             body: String::new(),
@@ -250,6 +295,11 @@ pub fn parse_org_text_with_meta(text: &str) -> OrgFile {
     let mut flat: Vec<OrgTask> = Vec::new();
     let mut current: Option<OrgTask> = None;
     let mut in_properties = false;
+    // v0.17.0 — Phase 18.5 Tier-1 :LOGBOOK: drawer state. Sibling
+    // to `in_properties`. Only ever attaches to the current
+    // headline (file-level :LOGBOOK: blocks aren't a thing in
+    // Atrium's domain model).
+    let mut in_logbook = false;
     /// Where a `:PROPERTIES:` block belongs while the parser is
     /// inside one.
     enum PropsTarget {
@@ -271,6 +321,34 @@ pub fn parse_org_text_with_meta(text: &str) -> OrgFile {
             task.statistics_cookie = cookie;
             current = Some(task);
             in_properties = false;
+            in_logbook = false;
+            continue;
+        }
+
+        // :LOGBOOK: drawer state machine — always attaches to
+        // the current headline. Out-of-headline LOGBOOK blocks
+        // get treated as file-preamble noise and dropped.
+        if in_logbook {
+            if raw_line.trim_end().eq_ignore_ascii_case(":END:") {
+                in_logbook = false;
+                continue;
+            }
+            if let Some(task) = current.as_mut() {
+                if let Some(entry) = parse_clock_line(raw_line) {
+                    task.clock_entries.push(entry);
+                } else {
+                    task.logbook_unknown_lines.push(raw_line.to_string());
+                }
+            }
+            continue;
+        }
+
+        if raw_line.trim_end().eq_ignore_ascii_case(":LOGBOOK:") {
+            // Without a current headline this is preamble noise;
+            // skip the drawer entirely (both header and body)
+            // by entering the state — :END: closes it without
+            // attaching anywhere.
+            in_logbook = true;
             continue;
         }
 
@@ -640,6 +718,107 @@ fn parse_tag_chunk(chunk: &str) -> Option<Vec<String>> {
     Some(parts)
 }
 
+/// v0.17.0 — Phase 18.5 Tier-1. Parse a `CLOCK: ...` line
+/// inside a `:LOGBOOK:` drawer. Org's two shapes:
+///
+/// ```text
+/// CLOCK: [2026-05-15 Mon 09:00]--[2026-05-15 Mon 11:30] =>  2:30   note
+/// CLOCK: [2026-05-15 Mon 09:00]
+/// ```
+///
+/// The duration suffix (`=> H:MM`) is informational — Atrium
+/// recomputes from started/ended on emit and ignores it on
+/// parse. Anything after the duration on the same line is
+/// captured as the entry's `note` (Org allows trailing
+/// per-session text). Returns `None` for lines that don't match
+/// the CLOCK shape so the caller can stash to logbook_unknown_lines.
+fn parse_clock_line(line: &str) -> Option<OrgClockEntry> {
+    let trimmed = line.trim_start();
+    let rest = trimmed.strip_prefix("CLOCK:")?.trim_start();
+    // Pull out the first inactive timestamp `[...]`.
+    let start_open = rest.find('[')?;
+    let start_close = rest[start_open..].find(']')? + start_open;
+    let start_inner = &rest[start_open + 1..start_close];
+    let started = parse_inactive_inner(start_inner)?;
+
+    let after_start = &rest[start_close + 1..];
+    // Open clock — no trailing `--[...]`. Treat anything after
+    // the start as note text (Org files generated by
+    // `org-clock-in` don't put anything there, but a hand-edit
+    // might).
+    let Some(dash_pos) = after_start.find("--[") else {
+        let note = after_start.trim().to_string();
+        return Some(OrgClockEntry {
+            started,
+            ended: None,
+            note,
+        });
+    };
+
+    let end_open = dash_pos + 2; // skip the --
+    let end_inner_start = end_open + 1; // skip the [
+    let end_close = after_start[end_inner_start..].find(']')? + end_inner_start;
+    let end_inner = &after_start[end_inner_start..end_close];
+    let ended = parse_inactive_inner(end_inner)?;
+
+    // Anything after the closing ] (and the duration arrow + value)
+    // is note text. We split on whitespace + drop the `=>` and
+    // the `H:MM` token before joining the rest.
+    let trailing = &after_start[end_close + 1..];
+    let mut tokens = trailing.split_whitespace().peekable();
+    if tokens.peek().is_some_and(|&t| t == "=>") {
+        tokens.next();
+        // Skip the duration token if it parses as H:MM (or H:MM:SS).
+        if tokens.peek().is_some_and(|t| is_hms_token(t)) {
+            tokens.next();
+        }
+    }
+    let note = tokens.collect::<Vec<_>>().join(" ");
+
+    Some(OrgClockEntry {
+        started,
+        ended: Some(ended),
+        note,
+    })
+}
+
+/// Parse the inner contents of an inactive Org timestamp
+/// (without the surrounding `[...]`). Mirrors the existing
+/// `parse_inactive_timestamp` helper but operates on the
+/// already-extracted inner string. Falls back to noon UTC when
+/// the timestamp is date-only (matches the CLOSED cookie convention).
+fn parse_inactive_inner(inner: &str) -> Option<DateTime<Utc>> {
+    let (date, _repeater, _warning) = parse_timestamp_inner(inner)?;
+    let parts: Vec<&str> = inner.split_whitespace().collect();
+    let time = parts.iter().find_map(|p| {
+        let mut split = p.split(':');
+        let h: u32 = split.next()?.parse().ok()?;
+        let m: u32 = split.next()?.parse().ok()?;
+        if split.next().is_some() {
+            return None;
+        }
+        chrono::NaiveTime::from_hms_opt(h, m, 0)
+    });
+    let dt = match time {
+        Some(t) => date.and_time(t),
+        None => date.and_hms_opt(12, 0, 0)?,
+    };
+    Some(dt.and_utc())
+}
+
+/// Heuristic — does the token look like `H:MM` or `H:MM:SS`?
+/// Used by the CLOCK-line parser to skip Org's duration token
+/// while preserving any trailing note text.
+fn is_hms_token(token: &str) -> bool {
+    let parts: Vec<&str> = token.split(':').collect();
+    if parts.len() != 2 && parts.len() != 3 {
+        return false;
+    }
+    parts
+        .iter()
+        .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
 /// Match `:KEY: value` lines inside a `:PROPERTIES:` drawer.
 fn parse_property_line(line: &str) -> Option<(String, String)> {
     let trimmed = line.trim_start();
@@ -665,18 +844,24 @@ fn extract_cookies(line: &str, task: &mut OrgTask) -> bool {
     let mut found_any = false;
 
     if let Some(rest) = line.find("SCHEDULED:")
-        && let Some((date, repeater, warning)) =
+        && let Some((date, time, repeater, warning)) =
             parse_active_timestamp(&line[rest + "SCHEDULED:".len()..])
     {
         task.scheduled = Some(date);
+        task.scheduled_time = time;
         task.scheduled_repeater = repeater;
         task.scheduled_warning = warning;
         found_any = true;
     }
     if let Some(rest) = line.find("DEADLINE:")
-        && let Some((date, repeater, warning)) =
+        && let Some((date, _time, repeater, warning)) =
             parse_active_timestamp(&line[rest + "DEADLINE:".len()..])
     {
+        // DEADLINE time-of-day isn't surfaced today (atrium has
+        // no `deadline_time` column; the GUI's Deadline picker
+        // is date-only). The parser silently drops it; explicit
+        // round-trip would need a sibling column. Defer until
+        // a real user asks.
         task.deadline = Some(date);
         task.deadline_repeater = repeater;
         task.deadline_warning = warning;
@@ -693,15 +878,44 @@ fn extract_cookies(line: &str, task: &mut OrgTask) -> bool {
 }
 
 /// Parse an active timestamp `<YYYY-MM-DD ...>` returning the
-/// date and any trailing repeater (`+1w`, `++1w`, `.+1w`) and
-/// warning suffix (`-Nd`, `--Nd`). Per Org docs, repeater and
-/// warning may appear in either order — both are recognised
-/// independently of position.
-fn parse_active_timestamp(text: &str) -> Option<(NaiveDate, Option<OrgRepeater>, Option<u32>)> {
+/// date, any time-of-day, repeater, and warning suffix. Per Org
+/// docs, repeater and warning may appear in either order — both
+/// are recognised independently of position. Time-of-day (the
+/// `HH:MM` token after the day name) is captured separately and
+/// surfaces on `OrgTask.scheduled_time` (v0.19.0 — Phase 18.5
+/// Tier-2 close-out).
+#[allow(clippy::type_complexity)]
+fn parse_active_timestamp(
+    text: &str,
+) -> Option<(
+    NaiveDate,
+    Option<NaiveTime>,
+    Option<OrgRepeater>,
+    Option<u32>,
+)> {
     let start = text.find('<')?;
     let end = text[start..].find('>')? + start;
     let inner = &text[start + 1..end];
-    parse_timestamp_inner(inner)
+    let (date, repeater, warning) = parse_timestamp_inner(inner)?;
+    let time = parse_time_token(inner);
+    Some((date, time, repeater, warning))
+}
+
+/// Scan an active-timestamp inner string for a `HH:MM` token.
+/// Org's day-name token (`Mon`, `Tue`, …) sits between the date
+/// and the time; both the time and any repeater / warning suffix
+/// follow. We just look for the first whitespace-separated token
+/// that parses as `H:MM` with valid 0-23 / 0-59 ranges.
+fn parse_time_token(inner: &str) -> Option<NaiveTime> {
+    inner.split_whitespace().find_map(|tok| {
+        let mut split = tok.split(':');
+        let h: u32 = split.next()?.parse().ok()?;
+        let m: u32 = split.next()?.parse().ok()?;
+        if split.next().is_some() {
+            return None; // tokens like H:MM:SS aren't Org's shape
+        }
+        NaiveTime::from_hms_opt(h, m, 0)
+    })
 }
 
 /// Parse an inactive timestamp `[YYYY-MM-DD ...]` returning a
@@ -1047,6 +1261,127 @@ DEADLINE: <2026-12-01 Tue -30d +1y>
                 "unit fold for {line}"
             );
         }
+    }
+
+    // v0.17.0 — Phase 18.5 Tier-1 :LOGBOOK: + CLOCK lines.
+    #[test]
+    fn parses_logbook_with_closed_clock_entry() {
+        let input = "\
+* TODO Plan
+:LOGBOOK:
+CLOCK: [2026-05-15 Fri 09:00]--[2026-05-15 Fri 11:30] =>  2:30
+:END:
+";
+        let tasks = parse_org_text(input);
+        let t = &tasks[0];
+        assert_eq!(t.clock_entries.len(), 1);
+        let e = &t.clock_entries[0];
+        assert_eq!(
+            e.started.format("%Y-%m-%d %H:%M").to_string(),
+            "2026-05-15 09:00"
+        );
+        assert_eq!(
+            e.ended.unwrap().format("%Y-%m-%d %H:%M").to_string(),
+            "2026-05-15 11:30"
+        );
+        assert!(e.note.is_empty());
+    }
+
+    #[test]
+    fn parses_logbook_with_running_clock_entry() {
+        let input = "\
+* TODO Plan
+:LOGBOOK:
+CLOCK: [2026-05-15 Fri 09:00]
+:END:
+";
+        let tasks = parse_org_text(input);
+        let e = &tasks[0].clock_entries[0];
+        assert_eq!(e.ended, None);
+    }
+
+    #[test]
+    fn parses_logbook_with_clock_note() {
+        let input = "\
+* TODO Plan
+:LOGBOOK:
+CLOCK: [2026-05-15 Fri 09:00]--[2026-05-15 Fri 09:45] =>  0:45 quick fix for the auth bug
+:END:
+";
+        let e = &parse_org_text(input)[0].clock_entries[0];
+        assert_eq!(e.note, "quick fix for the auth bug");
+    }
+
+    #[test]
+    fn parses_logbook_with_multiple_entries() {
+        let input = "\
+* TODO Plan
+:LOGBOOK:
+CLOCK: [2026-05-15 Fri 14:00]--[2026-05-15 Fri 14:45] =>  0:45
+CLOCK: [2026-05-15 Fri 09:00]--[2026-05-15 Fri 11:30] =>  2:30
+:END:
+";
+        let entries = &parse_org_text(input)[0].clock_entries;
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn malformed_logbook_line_lands_in_unknown_lines() {
+        // A custom drawer entry the user added by hand inside
+        // :LOGBOOK: — preserved verbatim so a round-trip never
+        // drops it.
+        let input = "\
+* TODO Plan
+:LOGBOOK:
+CLOCK: [2026-05-15 Fri 09:00]--[2026-05-15 Fri 09:45] =>  0:45
+- State \"DONE\" from \"TODO\" [2026-05-15 Fri 11:00]
+:END:
+";
+        let task = &parse_org_text(input)[0];
+        assert_eq!(task.clock_entries.len(), 1);
+        assert_eq!(task.logbook_unknown_lines.len(), 1);
+        assert!(task.logbook_unknown_lines[0].contains("State \"DONE\""));
+    }
+
+    // v0.19.0 — Phase 18.5 Tier-2 SCHEDULED time-of-day round-trip.
+    #[test]
+    fn parses_scheduled_with_time_of_day() {
+        let input = "\
+* TODO Standup
+SCHEDULED: <2026-05-15 Fri 09:00>
+";
+        let tasks = parse_org_text(input);
+        let t = &tasks[0];
+        assert_eq!(t.scheduled, Some(d(2026, 5, 15)));
+        assert_eq!(
+            t.scheduled_time,
+            Some(chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap())
+        );
+    }
+
+    #[test]
+    fn parses_scheduled_with_time_and_repeater() {
+        let input = "\
+* TODO Daily standup
+SCHEDULED: <2026-05-15 Fri 09:00 +1d>
+";
+        let t = &parse_org_text(input)[0];
+        assert_eq!(
+            t.scheduled_time,
+            Some(chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap())
+        );
+        let rep = t.scheduled_repeater.as_ref().unwrap();
+        assert_eq!(rep.mode, "+");
+        assert_eq!(rep.interval, 1);
+        assert_eq!(rep.unit, 'd');
+    }
+
+    #[test]
+    fn parses_scheduled_without_time_keeps_none() {
+        let input = "* TODO Plain\nSCHEDULED: <2026-05-15 Fri>\n";
+        let t = &parse_org_text(input)[0];
+        assert_eq!(t.scheduled, Some(d(2026, 5, 15)));
+        assert_eq!(t.scheduled_time, None);
     }
 
     #[test]

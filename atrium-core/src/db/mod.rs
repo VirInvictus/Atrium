@@ -110,7 +110,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 8);
+        assert_eq!(v, 12);
     }
 
     #[test]
@@ -122,7 +122,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 8);
+        assert_eq!(v, 12);
     }
 
     #[test]
@@ -148,8 +148,12 @@ mod tests {
                 "heading",
                 "perspective",
                 "project",
+                // v0.18.0 — Phase 18.5 Tier-1 Quick Entry templates.
+                "quick_entry_template",
                 "tag",
                 "task",
+                // v0.17.0 — Phase 18.5 Tier-1 CLOCK time tracking.
+                "task_clock_entry",
                 "task_tag"
             ]
         );
@@ -364,7 +368,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 8);
+        assert_eq!(v, 12);
         drop(conn);
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_file(tmp.with_extension("db-shm"));

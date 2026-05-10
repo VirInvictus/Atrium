@@ -90,6 +90,98 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.20.0" date="2026-05-10">
+      <description>
+        <p>Phase 19.5 foundations land: a real preferences dialog
+           and the first system-notification surface. The two pair
+           naturally — preferences exposes the toggle that gates
+           the new reminder service.</p>
+        <p>Preferences (`AdwPreferencesDialog`, libadwaita 1.6+):
+           three pages — General (default mode, theme override,
+           high-legibility font, vault path with folder picker),
+           Capture (Quick Entry shortcut), Notifications (master
+           on/off). All keys write straight through to GSettings;
+           the dialog is a thin presentation layer over the live
+           settings backend. Wired to `app.preferences`
+           (`Ctrl+Comma`) and the primary menu's "Preferences…"
+           entry.</p>
+        <p>Reminder service: migration `0012_task_reminder_at.sql`
+           adds `task.reminder_at` (`user_version` 11 → 12) plus a
+           partial index on open future reminders. A single tokio
+           task on the GLib MainContext polls the next pending
+           reminder, sleeps until it fires, and emits a
+           `gio::Notification` with the task title. Notifications
+           open the inspector via the new `app.show-task::ID`
+           parameterised action. The TaskChanges bridge wakes
+           the service after every batch via `tokio::sync::Notify`
+           so freshly-set reminders take effect without a timer
+           wait. CLI: `--reminder "YYYY-MM-DD HH:MM"` flag on
+           `add` (parsed as local time).</p>
+      </description>
+    </release>
+    <release version="0.19.0" date="2026-05-10">
+      <description>
+        <p>Phase 18.5 closes with both Tier-2 items: ID-based
+           inter-task links and time-of-day on the schedule.
+           All seven Phase 18.5 features now shipped across
+           v0.14.0 → v0.19.0.</p>
+        <p>Org links: `[[id:UUID][label]]` in note bodies render
+           as clickable spans (Inspector body editor); click
+           navigates to the linked task. Builder Mode pane
+           gets a "Link…" picker for inserting links via
+           search-as-you-type. Zero schema impact (UUIDs
+           round-tripped already).</p>
+        <p>Scheduled time: migration `0011_task_scheduled_time.sql`
+           adds `task.scheduled_time` (`user_version` 10 → 11).
+           Inspector pane gains a Time row visible only when
+           scheduled is a Date. Forecast and Calendar Month
+           View prefix scheduled rows with the time when
+           present. Org parser/emitter round-trip the time
+           through SCHEDULED active timestamps. Closes the
+           Todoist mapper's `DroppedTimeOfDay` lossy entry.
+           CLI: `--time HH:MM` flag.</p>
+      </description>
+    </release>
+    <release version="0.18.0" date="2026-05-10">
+      <description>
+        <p>Phase 18.5 Tier-1 Quick Entry templates — the fifth and
+           final Tier-1 item. All five Phase 18.5 Tier-1 features
+           (deadline warning windows, statistics cookies, body
+           checkboxes, custom TODO sequences, CLOCK time tracking,
+           and now Quick Entry templates) are now shipped.</p>
+        <p>Migration `0010_quick_entry_template.sql` adds the
+           `quick_entry_template` table (`user_version` 9 → 10).
+           The Quick Entry modal grows a picker bar above the
+           entry — each configured template renders as a
+           ToggleButton; clicking pre-fills the entry with the
+           template's prefix and stashes its project + tags for
+           commit. The Emacs-convention `:c ` shortcut trigger
+           also activates templates mid-typing. CLI:
+           `atrium-cli template list/add/edit/remove`.</p>
+      </description>
+    </release>
+    <release version="0.17.0" date="2026-05-10">
+      <description>
+        <p>Phase 18.5 Tier-1 CLOCK time tracking — the flagship
+           Phase 18.5 feature. Records actual time spent on a
+           task across multiple work sessions (distinct from
+           `estimated_minutes` which is intent), with full
+           round-trip to Org's `:LOGBOOK:` drawer so Emacs users
+           see the same data.</p>
+        <p>Migration `0009_task_clock_entry.sql` adds the
+           `task_clock_entry` side table (`user_version` 8 → 9).
+           Worker enforces single-active-clock — clocking in on
+           task B auto-closes any other running clock first
+           (mirrors Emacs's global clock). Builder Mode Inspector
+           pane gains a Time group with Start/Stop, total, and
+           per-session log. CLI: `atrium-cli clock in/out/log`
+           plus a bare `clock` for active-clock status. Org
+           parser/emitter learn the `:LOGBOOK:` drawer; the
+           writer suppresses in-progress entries to avoid file
+           churn while a clock runs. The watcher syncs external
+           Emacs clock-line edits back into the DB.</p>
+      </description>
+    </release>
     <release version="0.16.0" date="2026-05-10">
       <description>
         <p>Phase 18.5 Tier-1 custom TODO sequences land. The

@@ -395,9 +395,80 @@ impl VaultWatcher {
                 }
             };
             uuid_to_task_id.insert(parsed_task.uuid.clone(), new_id);
+
+            // v0.17.0 — Phase 18.5 Tier-1 CLOCK time tracking.
+            // Sync clock entries between parsed file + DB. Match
+            // by `started_at` (sub-second precision means starts
+            // are unique per task in practice). Inserts fire via
+            // `import_clock_entry`; deletes via `delete_clock_entry`.
+            // Skipped on freshly-created tasks because there's
+            // nothing to diff yet — the parsed entries flow in
+            // unconditionally.
+            self.sync_clock_entries(new_id, &parsed_task.org.clock_entries)
+                .await?;
         }
 
         Ok(Some(project_id))
+    }
+
+    /// v0.17.0 — diff parsed CLOCK lines against DB clock entries
+    /// for `task_id`. Match by `started_at`; inserts new ones,
+    /// deletes ones the file no longer has. Updates (changed
+    /// ended_at on an existing start) are handled as
+    /// delete-and-insert to keep the matching logic simple.
+    async fn sync_clock_entries(
+        &self,
+        task_id: i64,
+        parsed_entries: &[crate::org::OrgClockEntry],
+    ) -> Result<(), DbError> {
+        let db_entries = self
+            .pool
+            .with(|conn| atrium_core::db::read::list_clock_entries(conn, task_id))?;
+        // Build a map of DB entries keyed by started_at.
+        let mut db_by_start: std::collections::HashMap<
+            chrono::DateTime<chrono::Utc>,
+            &atrium_core::TaskClockEntry,
+        > = db_entries.iter().map(|e| (e.started_at, e)).collect();
+        // Insert any parsed entry not present in DB; if the
+        // ended_at differs, delete-and-reinsert so the new value
+        // lands.
+        for parsed in parsed_entries {
+            match db_by_start.remove(&parsed.started) {
+                Some(existing)
+                    if existing.ended_at == parsed.ended && existing.note == parsed.note =>
+                {
+                    // Identical — nothing to do.
+                }
+                Some(existing) => {
+                    // Same start, different end / note. Refresh.
+                    self.handle.delete_clock_entry(existing.id).await?;
+                    self.handle
+                        .import_clock_entry(
+                            task_id,
+                            parsed.started,
+                            parsed.ended,
+                            parsed.note.clone(),
+                        )
+                        .await?;
+                }
+                None => {
+                    self.handle
+                        .import_clock_entry(
+                            task_id,
+                            parsed.started,
+                            parsed.ended,
+                            parsed.note.clone(),
+                        )
+                        .await?;
+                }
+            }
+        }
+        // Anything left in db_by_start is a DB-only entry —
+        // the file dropped it; mirror by deleting from DB.
+        for (_, entry) in db_by_start {
+            self.handle.delete_clock_entry(entry.id).await?;
+        }
+        Ok(())
     }
 
     async fn resolve_or_create_project(
@@ -597,6 +668,8 @@ impl<'a> ParsedTask<'a> {
             // the create path so external Emacs adds of new
             // headlines with a warning don't lose it on first sync.
             deadline_warn_days: self.org.deadline_warning.map(i64::from),
+            // v0.19.0 — Phase 18.5 Tier-2 time-of-day on schedule.
+            scheduled_time: self.org.scheduled_time,
             ..Default::default()
         }
     }
@@ -671,6 +744,14 @@ impl<'a> ParsedTask<'a> {
         let parsed_warn = self.org.deadline_warning.map(i64::from);
         if parsed_warn != existing.deadline_warn_days {
             update = update.deadline_warn_days_value(parsed_warn);
+            dirty = true;
+        }
+
+        // v0.19.0 — Phase 18.5 Tier-2 SCHEDULED time-of-day.
+        // External Emacs edits that add / change / remove the
+        // `HH:MM` portion flow back into the new column.
+        if self.org.scheduled_time != existing.scheduled_time {
+            update = update.scheduled_time_value(self.org.scheduled_time);
             dirty = true;
         }
 

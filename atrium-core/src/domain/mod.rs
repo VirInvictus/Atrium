@@ -52,6 +52,19 @@ pub struct Task {
     /// `deadline` is also set. Round-trips to Org as the `-Nd`
     /// warning suffix on the DEADLINE cookie.
     pub deadline_warn_days: Option<i64>,
+    /// v0.19.0 — Phase 18.5 Tier-2 time-of-day on the schedule.
+    /// `HH:MM` (24-hour). Only meaningful when `scheduled_for`
+    /// is a `ScheduledFor::Date(_)`; ignored when scheduled is
+    /// Someday or None. Round-trips to Org as the time portion
+    /// of the SCHEDULED active timestamp (`<2026-05-15 Wed 14:00>`).
+    pub scheduled_time: Option<chrono::NaiveTime>,
+    /// v0.20.0 — Phase 19.5 system notifications. Optional
+    /// wall-clock time for a reminder. The reminder service
+    /// fires `gio::Notification` when the wall clock passes
+    /// this AND the task is still open. Independent of
+    /// `scheduled_for` / `deadline` — a reminder can fire on
+    /// any task. NULL means "no reminder set."
+    pub reminder_at: Option<DateTime<Utc>>,
     pub position: f64,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
@@ -108,6 +121,16 @@ pub struct NewTask {
     /// source vault file's DEADLINE cookie. None falls through
     /// to NULL.
     pub deadline_warn_days: Option<i64>,
+    /// v0.19.0 — Phase 18.5 Tier-2 time-of-day on schedule.
+    /// Importer threads the time portion of an Org SCHEDULED
+    /// active timestamp here; Todoist mapper threads recognised
+    /// time portions of `DATE` field strings.
+    pub scheduled_time: Option<chrono::NaiveTime>,
+    /// v0.20.0 — Phase 19.5 reminder timestamp on create.
+    /// CLI's `--reminder` flag populates this; the GUI's
+    /// Inspector picker writes through `TaskUpdate` after the
+    /// initial create, so this stays None for in-app captures.
+    pub reminder_at: Option<DateTime<Utc>>,
 }
 
 impl NewTask {
@@ -176,6 +199,17 @@ pub struct TaskUpdate {
     /// external Emacs edit changes the `-Nd` suffix on the
     /// DEADLINE cookie.
     pub deadline_warn_days: Option<Option<i64>>,
+    /// v0.19.0 — Phase 18.5 Tier-2 time-of-day on schedule.
+    /// `Some(None)` clears (back to date-only); `Some(Some(t))`
+    /// sets. The vault watcher writes through this when an
+    /// external Emacs edit changes the time portion of a
+    /// SCHEDULED active timestamp.
+    pub scheduled_time: Option<Option<chrono::NaiveTime>>,
+    /// v0.20.0 — Phase 19.5 reminder timestamp. `Some(None)`
+    /// clears; `Some(Some(when))` sets. Inspector reminder
+    /// picker writes through this; CLI `--reminder` on edit
+    /// does the same.
+    pub reminder_at: Option<Option<DateTime<Utc>>>,
 }
 
 impl TaskUpdate {
@@ -284,6 +318,22 @@ impl TaskUpdate {
         self
     }
 
+    /// v0.19.0 — set or clear the time-of-day on schedule.
+    /// `None` clears (back to date-only); `Some(t)` sets. Only
+    /// meaningful when `scheduled_for` is a Date.
+    pub fn scheduled_time_value(mut self, value: Option<chrono::NaiveTime>) -> Self {
+        self.scheduled_time = Some(value);
+        self
+    }
+
+    /// v0.20.0 — set or clear the reminder timestamp. `None`
+    /// clears; `Some(when)` sets. Independent of any scheduled
+    /// state.
+    pub fn reminder_at_value(mut self, value: Option<DateTime<Utc>>) -> Self {
+        self.reminder_at = Some(value);
+        self
+    }
+
     /// `true` when no field will change. The worker treats no-op
     /// updates as a read of the current row.
     pub fn is_noop(&self) -> bool {
@@ -300,6 +350,8 @@ impl TaskUpdate {
             && self.completed_at.is_none()
             && self.orig_keyword.is_none()
             && self.deadline_warn_days.is_none()
+            && self.scheduled_time.is_none()
+            && self.reminder_at.is_none()
     }
 }
 
@@ -672,5 +724,167 @@ impl PerspectiveUpdate {
             && self.position.is_none()
             && self.renderer.is_none()
             && self.renderer_config.is_none()
+    }
+}
+
+// ── Clock entries (Phase 18.5 Tier-1, v0.17.0) ──────────────────
+
+/// One row of `task_clock_entry`. Records a single work session
+/// against `task_id`. `ended_at = None` means the clock is still
+/// running (an "open" entry); the worker enforces the
+/// single-active-clock invariant — at most one row across the
+/// table has `ended_at IS NULL` at any time.
+///
+/// Round-trips to / from Org's `:LOGBOOK:` drawer with `CLOCK:`
+/// lines so Emacs users see the same data. The writer suppresses
+/// emission for in-progress entries to avoid file churn while
+/// the clock runs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TaskClockEntry {
+    pub id: i64,
+    pub task_id: i64,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: Option<DateTime<Utc>>,
+    /// Free-form per-session note. Org's CLOCK lines support
+    /// trailing text after the duration; we preserve it
+    /// verbatim across round-trips.
+    pub note: String,
+}
+
+impl TaskClockEntry {
+    /// `true` when the entry is still running (clock-out hasn't
+    /// happened yet).
+    pub fn is_running(&self) -> bool {
+        self.ended_at.is_none()
+    }
+
+    /// Duration of a closed entry. Returns `None` for an open
+    /// entry (the duration depends on the moment you ask).
+    /// Negative durations clamp to zero — should never happen
+    /// in practice, but the worker doesn't enforce ordering.
+    pub fn duration_minutes(&self) -> Option<i64> {
+        let end = self.ended_at?;
+        let delta = end.signed_duration_since(self.started_at);
+        Some(delta.num_minutes().max(0))
+    }
+}
+
+/// Input for opening a fresh clock entry on a task. The worker
+/// stamps `started_at = now()` itself; only the optional note
+/// is caller-provided. `ended_at` is always NULL on insert (the
+/// entry is open by definition); `clock_out` later sets it.
+#[derive(Debug, Clone, Default)]
+pub struct NewClockEntry {
+    pub task_id: i64,
+    pub note: String,
+}
+
+// ── Quick Entry templates (Phase 18.5 Tier-1, v0.18.0) ──────────
+
+/// One row of `quick_entry_template`. A pre-filled capture
+/// recipe — name, optional shortcut letter, target project,
+/// title prefix, default tag set. Quick Entry's modal renders
+/// each template as a selectable button; selecting one
+/// pre-fills the entry with `prefix` + the configured tags
+/// before the user types.
+///
+/// Closes the gap between Atrium's single Quick Entry shape
+/// and the Org-capture-template multiplicity power users
+/// build workflows around (cmdln.org-2024 ships 24; every
+/// "how I org" post sets up 5+).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuickEntryTemplate {
+    pub id: i64,
+    pub name: String,
+    /// Single ASCII alphanumeric character or `None`. The
+    /// modal's keypress handler matches typed letters against
+    /// this column to surface the picker shortcut.
+    pub shortcut_key: Option<String>,
+    /// Where new captures route. `None` means Inbox (the
+    /// default Quick Entry behaviour).
+    pub target_project_id: Option<i64>,
+    /// Text prepended to the entry's title before the inline
+    /// parser runs.
+    pub prefix: String,
+    /// Tag names attached to every capture from this template,
+    /// in addition to any inline `#tag` syntax. Stored as a
+    /// JSON array string at the DB layer; the worker
+    /// serializes / deserializes around the boundary.
+    pub default_tags: Vec<String>,
+    pub position: f64,
+    pub created_at: DateTime<Utc>,
+    pub modified_at: DateTime<Utc>,
+}
+
+/// Input for creating a fresh template. Position is computed
+/// by the worker (last-in-list).
+#[derive(Debug, Clone, Default)]
+pub struct NewQuickEntryTemplate {
+    pub name: String,
+    pub shortcut_key: Option<String>,
+    pub target_project_id: Option<i64>,
+    pub prefix: String,
+    pub default_tags: Vec<String>,
+}
+
+/// Partial update for an existing template. `None` = leave the
+/// field alone; for nullable fields, `Some(None)` clears,
+/// `Some(Some(v))` sets.
+#[derive(Debug, Clone, Default)]
+pub struct QuickEntryTemplateUpdate {
+    pub id: i64,
+    pub name: Option<String>,
+    pub shortcut_key: Option<Option<String>>,
+    pub target_project_id: Option<Option<i64>>,
+    pub prefix: Option<String>,
+    pub default_tags: Option<Vec<String>>,
+    pub position: Option<f64>,
+}
+
+impl QuickEntryTemplateUpdate {
+    pub fn new(id: i64) -> Self {
+        Self {
+            id,
+            ..Default::default()
+        }
+    }
+
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn shortcut_key(mut self, value: Option<String>) -> Self {
+        self.shortcut_key = Some(value);
+        self
+    }
+
+    pub fn target_project_id(mut self, value: Option<i64>) -> Self {
+        self.target_project_id = Some(value);
+        self
+    }
+
+    pub fn prefix(mut self, value: impl Into<String>) -> Self {
+        self.prefix = Some(value.into());
+        self
+    }
+
+    pub fn default_tags(mut self, value: Vec<String>) -> Self {
+        self.default_tags = Some(value);
+        self
+    }
+
+    pub fn position(mut self, value: f64) -> Self {
+        self.position = Some(value);
+        self
+    }
+
+    pub fn is_noop(&self) -> bool {
+        self.name.is_none()
+            && self.shortcut_key.is_none()
+            && self.target_project_id.is_none()
+            && self.prefix.is_none()
+            && self.default_tags.is_none()
+            && self.position.is_none()
     }
 }

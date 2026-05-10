@@ -28,12 +28,13 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use atrium_core::{
-    Project, ScheduledFor, Task, TaskUpdate, WorkerHandle, parse_body_checkboxes,
+    Project, ScheduledFor, Task, TaskUpdate, WorkerHandle, parse_body_checkboxes, parse_body_links,
     toggle_body_checkbox,
 };
 use chrono::NaiveDate;
 use gtk::glib;
 use gtk::glib::clone;
+use gtk::pango;
 use tracing::error;
 
 /// Open the inspector for `task`. Loads of `all_projects` happen
@@ -41,15 +42,17 @@ use tracing::error;
 /// read-pool concerns. `on_edit_tags` is invoked when the user
 /// hits the "Edit Tags…" button — the caller routes that to the
 /// existing tag editor with the right pre-loaded state.
-pub fn open<F>(
+pub fn open<F, N>(
     parent: &impl IsA<gtk::Widget>,
     worker: WorkerHandle,
     task: Task,
     all_projects: Vec<Project>,
     current_tag_count: usize,
     on_edit_tags: F,
+    on_navigate_uuid: N,
 ) where
     F: Fn(i64) + 'static,
+    N: Fn(String) + 'static,
 {
     let dialog = adw::Dialog::builder()
         .title("Edit Task")
@@ -241,6 +244,71 @@ pub fn open<F>(
     notes_buffer.connect_changed(move |_| {
         rebuild_for_changed();
     });
+
+    // ── v0.19.0 — Phase 18.5 Tier-2 Org-link rendering.
+    // Same shape as inspector_pane.rs's link wiring (see there
+    // for the full rationale): tag link spans, click resolves
+    // to UUID, navigation callback handles the rest. Simple
+    // Mode dialog dismisses on link-click navigation since the
+    // dialog is modal — opening another inspector for the
+    // linked task is the right semantic.
+    let on_navigate_uuid = Rc::new(on_navigate_uuid);
+    let link_tag = notes_buffer
+        .create_tag(Some("link"), &[("underline", &pango::Underline::Single)])
+        .expect("link tag created exactly once per buffer");
+    link_tag.set_foreground(Some("@accent_color"));
+    let apply_link_tags = {
+        let buffer = notes_buffer.clone();
+        let tag = link_tag.clone();
+        Rc::new(move || {
+            let body = buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .to_string();
+            buffer.remove_tag(&tag, &buffer.start_iter(), &buffer.end_iter());
+            for link in parse_body_links(&body) {
+                let start_char = body[..link.range.start].chars().count() as i32;
+                let end_char = body[..link.range.end].chars().count() as i32;
+                let start_iter = buffer.iter_at_offset(start_char);
+                let end_iter = buffer.iter_at_offset(end_char);
+                buffer.apply_tag(&tag, &start_iter, &end_iter);
+            }
+        })
+    };
+    apply_link_tags();
+    {
+        let apply = apply_link_tags.clone();
+        notes_buffer.connect_changed(move |_| apply());
+    }
+    let click_gesture = gtk::GestureClick::builder().button(1).build();
+    let view_for_click = notes_view.clone();
+    let buffer_for_click = notes_buffer.clone();
+    let navigate_for_click = on_navigate_uuid.clone();
+    let dialog_for_click = dialog.clone();
+    click_gesture.connect_released(move |_, _, x, y| {
+        let (bx, by) =
+            view_for_click.window_to_buffer_coords(gtk::TextWindowType::Widget, x as i32, y as i32);
+        let Some(iter) = view_for_click.iter_at_location(bx, by) else {
+            return;
+        };
+        let body = buffer_for_click
+            .text(
+                &buffer_for_click.start_iter(),
+                &buffer_for_click.end_iter(),
+                false,
+            )
+            .to_string();
+        let click_char = iter.offset() as usize;
+        for link in parse_body_links(&body) {
+            let start_char = body[..link.range.start].chars().count();
+            let end_char = body[..link.range.end].chars().count();
+            if click_char >= start_char && click_char < end_char {
+                navigate_for_click(link.target_uuid);
+                dialog_for_click.close();
+                return;
+            }
+        }
+    });
+    notes_view.add_controller(click_gesture);
 
     // ── PreferencesPage container holds the four groups; gives
     //    automatic padding, scrolling, and the Adwaita background.

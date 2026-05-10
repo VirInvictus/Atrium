@@ -241,6 +241,13 @@ mod imp {
         /// `WorkerHandle`); from then on the window calls
         /// `set_task` / `clear` on it as the selection moves.
         pub inspector_pane: RefCell<Option<Rc<crate::ui::inspector_pane::InspectorPane>>>,
+        /// v0.20.0 — Phase 19.5 reminder service handle. `None`
+        /// until `attach_reminder_service` runs at boot (the
+        /// service needs the read pool, which `attach_data_layer`
+        /// supplies). The bridge_task_changes path calls
+        /// `wake_reminder_service` after every batch so a fresh
+        /// reminder takes effect immediately.
+        pub reminder_service: RefCell<Option<crate::reminders::ReminderService>>,
         /// v0.1.6 — synchronous mode tracker. `apply_mode` is the
         /// single writer; everything that needs to know "are we
         /// in Builder right now" reads from this Cell rather than
@@ -1161,6 +1168,21 @@ impl AtriumWindow {
 
     /// Push the worker handle / read pool into the window after the
     /// data layer boots.
+    /// v0.20.0 — Phase 19.5. Stash the reminder service handle
+    /// so the TaskChanges bridge can wake it on every batch.
+    pub fn attach_reminder_service(&self, service: crate::reminders::ReminderService) {
+        *self.imp().reminder_service.borrow_mut() = Some(service);
+    }
+
+    /// v0.20.0 — Phase 19.5. Wake the reminder service so it
+    /// re-queries `next_pending_reminder`. No-op when the
+    /// service hasn't been attached yet (early-boot races).
+    pub fn wake_reminder_service(&self) {
+        if let Some(svc) = self.imp().reminder_service.borrow().as_ref() {
+            svc.wake();
+        }
+    }
+
     pub fn attach_data_layer(&self, worker: WorkerHandle, read_pool: ReadPool) {
         let _ = self.imp().worker.set(worker.clone());
         let _ = self.imp().read_pool.set(read_pool.clone());
@@ -1215,6 +1237,8 @@ impl AtriumWindow {
     /// existing tag-editor open path.
     fn install_inspector_pane(&self, worker: WorkerHandle) {
         let win_weak = self.downgrade();
+        let win_weak_for_navigate = self.downgrade();
+        let win_weak_for_pool = self.downgrade();
         let pane = crate::ui::inspector_pane::InspectorPane::install(
             &self.imp().inspector_pane_host,
             worker,
@@ -1222,6 +1246,33 @@ impl AtriumWindow {
                 if let Some(win) = win_weak.upgrade() {
                     win.open_tag_editor_for(task_id);
                 }
+            },
+            move |uuid| {
+                // v0.19.0 — Phase 18.5 Tier-2 Org link click.
+                // Resolve UUID → task id via the read pool; if
+                // it lands, route to open_inspector_for so the
+                // inspector swaps to the linked task. Stale
+                // links (UUID points to a deleted task) silently
+                // no-op — the user's click was a navigation
+                // attempt, not a state mutation.
+                let Some(win) = win_weak_for_navigate.upgrade() else {
+                    return;
+                };
+                let Some(pool) = win.read_pool() else {
+                    return;
+                };
+                let task_id = pool
+                    .with(|conn| atrium_core::db::read::task_id_for_uuid(conn, &uuid))
+                    .ok()
+                    .flatten();
+                if let Some(id) = task_id {
+                    win.open_inspector_for(id);
+                }
+            },
+            move || {
+                // v0.19.0 — Link… picker source. Lazy-resolves
+                // the read pool on every popover-show.
+                win_weak_for_pool.upgrade().and_then(|win| win.read_pool())
             },
         );
         *self.imp().inspector_pane.borrow_mut() = Some(pane);
@@ -2680,6 +2731,12 @@ impl AtriumWindow {
                             // a sensitive deadline keeps its early
                             // surfacing across the delete/undo cycle.
                             deadline_warn_days: task.deadline_warn_days,
+                            // Preserve the time-of-day on schedule
+                            // across the undo cycle.
+                            scheduled_time: task.scheduled_time,
+                            // Preserve any pending reminder so undo
+                            // restores the full task state.
+                            reminder_at: task.reminder_at,
                         };
                         match worker.create_task(new).await {
                             Ok(restored) => {
@@ -2875,6 +2932,13 @@ impl AtriumWindow {
             .with(|conn| atrium_core::db::read::tag_ids_for_task(conn, task_id))
             .unwrap_or_default()
             .len();
+        // v0.17.0 — pre-load clock entries for the Inspector
+        // Time group. Newest-first by started_at; the inspector
+        // computes the running state + total + log directly from
+        // this Vec.
+        let clock_entries = pool
+            .with(|conn| atrium_core::db::read::list_clock_entries(conn, task_id))
+            .unwrap_or_default();
 
         // Builder Mode — route through the side pane. Repopulate
         // if the pane isn't already showing this task (e.g., the
@@ -2885,7 +2949,7 @@ impl AtriumWindow {
         let builder = self.imp().current_mode_is_builder.get();
         if builder && let Some(pane) = self.imp().inspector_pane.borrow().clone() {
             if pane.current_task_id() != Some(task_id) {
-                pane.set_task(task, projects, tag_count);
+                pane.set_task(task, projects, tag_count, clock_entries);
             }
             pane.focus_title();
             return;
@@ -2899,7 +2963,35 @@ impl AtriumWindow {
                 win.open_tag_editor_for(id);
             }
         };
-        crate::ui::inspector::open(self, worker, task, projects, tag_count, on_edit_tags);
+        let win_weak_for_navigate = self.downgrade();
+        let on_navigate_uuid = move |uuid: String| {
+            // v0.19.0 — Phase 18.5 Tier-2 Org-link click in Simple
+            // Mode. The dialog closes itself before this fires;
+            // we just resolve UUID → id and re-open the inspector
+            // for the linked task.
+            let Some(win) = win_weak_for_navigate.upgrade() else {
+                return;
+            };
+            let Some(pool) = win.read_pool() else {
+                return;
+            };
+            let task_id = pool
+                .with(|conn| atrium_core::db::read::task_id_for_uuid(conn, &uuid))
+                .ok()
+                .flatten();
+            if let Some(id) = task_id {
+                win.open_inspector_for(id);
+            }
+        };
+        crate::ui::inspector::open(
+            self,
+            worker,
+            task,
+            projects,
+            tag_count,
+            on_edit_tags,
+            on_navigate_uuid,
+        );
     }
 
     /// `Ctrl+I` shortcut entry point — operates on the focused /
@@ -3540,8 +3632,11 @@ impl AtriumWindow {
             .with(|c| atrium_core::db::read::tag_ids_for_task(c, id))
             .unwrap_or_default()
             .len();
+        let clock_entries = pool
+            .with(|c| atrium_core::db::read::list_clock_entries(c, id))
+            .unwrap_or_default();
         debug!(id, "refresh_inspector_pane: set_task");
-        pane.set_task(task, projects, tag_count);
+        pane.set_task(task, projects, tag_count, clock_entries);
     }
 
     /// Open the per-task tag editor for `task_id` (Phase 7g).
@@ -4648,6 +4743,11 @@ pub(crate) fn build_primary_menu(include_debug: bool) -> gio::Menu {
     }
 
     let about_section = gio::Menu::new();
+    // v0.20.0 — Phase 19.5 preferences entry. Above the
+    // shortcuts/about line so it reads as part of the "primary"
+    // app actions; standard GNOME convention puts Preferences
+    // before About.
+    about_section.append(Some("Preferences…"), Some("app.preferences"));
     about_section.append(Some("Keyboard Shortcuts"), Some("app.show-shortcuts"));
     about_section.append(Some("About Atrium"), Some("app.about"));
     about_section.append(Some("Quit"), Some("app.quit"));

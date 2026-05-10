@@ -357,8 +357,21 @@ where
     reason.add_css_class(entry.reason.css());
     row.append(&reason);
 
+    // v0.19.0 — Phase 18.5 Tier-2 time-of-day on schedule.
+    // When the task carries a scheduled_time AND the row is
+    // surfacing for the Scheduled reason (not Deadline /
+    // DeferEnds — those don't carry a time-of-day), render it
+    // inline as a small dim prefix so the user can see the
+    // ordering within a day. Time on the Deadline reason is
+    // suppressed (we don't model deadline_time).
+    let title_text = match (entry.task.scheduled_time, entry.reason) {
+        (Some(t), Reason::Scheduled) => {
+            format!("{}  {}", t.format("%H:%M"), entry.task.title)
+        }
+        _ => entry.task.title.clone(),
+    };
     let title = gtk::Label::builder()
-        .label(&entry.task.title)
+        .label(&title_text)
         .halign(gtk::Align::Start)
         .hexpand(true)
         .ellipsize(pango::EllipsizeMode::End)

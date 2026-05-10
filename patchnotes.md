@@ -1,5 +1,107 @@
 # Atrium — Patch Notes
 
+## v0.20.0 (2026-05-10) — Phase 19.5 foundations: preferences window + system-notification reminders
+
+Phase 18.5 wrapped at v0.19.0; Phase 19.5 (productivity essentials) opens with two pieces that pair naturally — a real preferences dialog and the first notification surface, with the dialog exposing the toggle that gates the new reminder service. Both items have been deferred for several minor cycles; landing them together avoids two separate "settings shape" conversations.
+
+### Preferences window — `AdwPreferencesDialog`, three pages
+
+The first app-level preferences UI in Atrium. Closes a long-standing gap where the only way to adjust the app was `gsettings set io.github.virinvictus.atrium ...` from a shell. Built on `AdwPreferencesDialog` (libadwaita 1.6+) — the predecessor `AdwPreferencesWindow` is deprecated in favour of dialogs.
+
+- **General page.** Default mode (Simple / Builder, drives the existing `mode` GSettings key), theme override (Follow system / Light / Dark — new `theme` key, applied via `adw::StyleManager::set_color_scheme` immediately on change and replayed at boot), high-legibility font toggle (Atkinson Hyperlegible — wires the existing `high-legibility-font` key), vault path with a folder picker (`gtk::FileDialog::select_folder`).
+- **Capture page.** Quick Entry shortcut as a single `AdwEntryRow` accepting GTK accelerator syntax (`<Control><Alt>space`). Backed by the existing `quick-entry-shortcut` key. The runtime accelerator listener already rebinds when the key changes; no separate rebind plumbing needed.
+- **Notifications page.** Master switch (`notifications-enabled`, default true) — gates the v0.20.0 reminder service. Off-by-toggle is observed by the service on every fire, so flipping the switch takes effect without restart.
+- **Wiring.** `app.preferences` action with `Ctrl+Comma` accelerator; primary menu's "Preferences…" entry triggers it. Each page is a single function returning an `AdwPreferencesPage` so adding the Phase 20 Backups page later is a one-method addition.
+
+### Reminder service — single tokio task, `gio::Notification` per fire
+
+The first time-based notification surface. Per-task `reminder_at` UTC timestamps drive a single tokio task on the GLib MainContext that polls the next pending reminder, sleeps until it fires, and emits a notification. Designed deliberately as the GUI's reminder owner — Phase 20's `atriumd` will own out-of-process reminders later, so this service only runs while the app is open.
+
+- **Schema.** Migration `0012_task_reminder_at.sql` adds `task.reminder_at TEXT NULL` (RFC 3339 UTC) plus a partial index `idx_task_reminder_at_open` on open future reminders only (`WHERE reminder_at IS NOT NULL AND completed_at IS NULL`) — keeps the dispatch query fast on libraries with thousands of past reminders. `user_version` 11 → 12.
+- **Read helper.** `next_pending_reminder(conn, after) -> Option<(i64, DateTime<Utc>)>` — single row, soonest open future reminder. Used by the service loop.
+- **Service.** `atrium::reminders::spawn(pool, app)` returns a cheap-to-clone `ReminderService` exposing `wake()`. The loop wakes from either a `tokio::time::sleep` to the next reminder OR a `tokio::sync::Notify` ping; sleep is capped at one hour as a defensive re-query against clock jumps + suspend/resume. The TaskChanges bridge (`bridge_task_changes`) calls `wake()` after every batch so freshly-set reminders take effect without a timer wait.
+- **Notification shape.** `gio::Notification` titled "Reminder" with the task title as body. Notification ID is `atrium-reminder-{task_id}` — re-firing for the same task replaces rather than stacks. Default action is `app.show-task::ID` (parameterised i64 action; opens the inspector for that task).
+- **Master-switch behaviour.** When `notifications-enabled` is false at fire time, the reminder is silently skipped (the loop continues). Documented limitation: disabling notifications during an open reminder window swallows that reminder permanently — re-enabling does not back-fill. A "last-fired-at" column would address this; deferred until a real user asks.
+- **CLI.** `atrium-cli add --reminder "YYYY-MM-DD HH:MM"` accepts a local-time timestamp and stores it as UTC. Mirrors the `--time` flag style from v0.19.0.
+
+### Tests + ship gate
+
+8 new tests across the workspace (read.rs `next_pending_reminder` ordering + filter, worker.rs reminder set/clear, link parser additions, preferences smoke). Workspace passes 854 tests; fmt + clippy clean. Schema version 12.
+
+VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo + CLAUDE.md status block bumped to 0.20.0.
+
+## v0.19.0 (2026-05-10) — Phase 18.5 Tier-2 close-out: Org links + scheduled time
+
+Phase 18.5 finishes with both Tier-2 items bundled into one minor: ID-based links between tasks (`[[id:UUID][label]]`) and time-of-day on the SCHEDULED cookie. **All seven Phase 18.5 items now shipped** across v0.14.0 → v0.19.0; Phase 19.5 productivity essentials are next.
+
+### Org links between tasks
+
+The org-roam-adjacent power feature, with zero schema impact. Karl Voit's UOMF advocates ID links for portability; Atrium already generates `:ID:` UUIDs that round-trip cleanly, so the only missing pieces were body-text recognition + clickable rendering + an insertion affordance.
+
+- **Body-link parser.** New `atrium_core::links` module surfaces `parse_body_links(body) -> Vec<BodyLink>` with byte ranges, target UUIDs, labels, and a "has explicit label" flag. Forgiving: malformed brackets, non-`id:` link types (`file:` / `https:` / `mailto:`), and unterminated constructs are silently skipped. 10 unit tests cover each shape.
+- **Inspector body rendering.** `gtk::TextTag` with foreground accent + underline applied to every link range; re-applied on every buffer change so live edits keep highlights. Click gesture walks the iter at the click position to a parsed link, invokes a navigation callback. Both modes (Builder pane + Simple Mode dialog).
+- **Click navigation.** New `task_id_for_uuid` read helper resolves the link's UUID to a row id; the window routes through the existing `open_inspector_for(id)`. Stale links (UUID points to a deleted task) silently no-op rather than erroring — the user's click was a navigation attempt, not a state mutation.
+- **Link… picker (Builder Mode).** `notes_group` gains a header-suffix button → popover with `gtk::SearchEntry` + filtered `gtk::ListBox` (case-insensitive substring match against title, capped at 50 rows). Clicking a row inserts `[[id:UUID][title]]` at the cursor. Lazy pool resolution via the new `pool_source` install closure — the picker stays read-pool-agnostic.
+
+### Time-of-day on scheduled
+
+The Todoist mapper's `DroppedTimeOfDay` lossy entry is finally closed.
+
+- **Schema.** Migration `0011_task_scheduled_time.sql` adds `task.scheduled_time TEXT NULL` (HH:MM format). Companion-column shape rather than upgrading `ScheduledFor` to a sum type — keeps the existing TEXT sort semantics intact and avoids the API ripple of changing `ScheduledFor::Date(NaiveDate)` to a sibling variant. `user_version` 10 → 11.
+- **Org parser/emitter.** Parser captures the time token between the day name and any repeater/warning suffix into `OrgTask.scheduled_time`. Emitter writes it back in canonical `<DATE Day HH:MM +Nx -Md>` order — time before suffixes per Org's standard layout. Round-trip stable. Importer + watcher diff path thread the column through new task creates and external-edit syncs. DEADLINE time-of-day is recognised but silently dropped — Atrium has no `deadline_time` column, and an explicit round-trip would need a sibling addition; defer until a real user asks.
+- **GUI.** Inspector pane (Builder) gets a Time `gtk::Entry` row beneath Schedule. Visible only when scheduled_for is a Date (Someday + None can't carry a meaningful time). Parses `HH:MM` on focus-leave and dispatches `TaskUpdate::scheduled_time_value`. Forecast day cards prefix Scheduled-reason rows with `HH:MM` when present (Deadline + DeferEnds rows are time-blind). Calendar Month View shows the time on inline day-cell rows + the day-peek popover.
+- **CLI.** `--time HH:MM` flag on `add` accepts a 24-hour time; combined with `--scheduled today` / `--scheduled YYYY-MM-DD` to produce a date+time capture from the shell. Todoist mapper retired its `DroppedTimeOfDay.push` site — the recurrence parser already extracted the time, the mapper now threads it into the new column.
+
+### Tests + ship gate
+
+10 new link-parser tests + 3 SCHEDULED time round-trip tests + 1 worker scheduled_time set/clear test + 2 calendar/forecast time-rendering smokes. Workspace passes 818 tests; fmt + clippy clean. Schema version 11.
+
+VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo + CLAUDE.md status block bumped to 0.19.0.
+
+## v0.18.0 (2026-05-10) — Phase 18.5 Tier-1: Quick Entry templates
+
+The fifth and final Phase 18.5 Tier-1 item lands. **All five Phase 18.5 Tier-1 items are now shipped** — Atrium's surface is meaningfully different from "another GNOME todo app" in the ways the original Phase 18.5 research said real Org users would notice: per-task DEADLINE warning windows (v0.14.0), statistics cookies + body inline checkboxes (v0.15.0), custom TODO sequences (v0.16.0), CLOCK time tracking (v0.17.0), and Quick Entry templates (v0.18.0). The remaining Phase 18.5 work is Tier-2 polish (Org links between tasks, time-of-day on `scheduled_for`); after that, Phase 19.5 productivity essentials.
+
+**Schema.** Migration `0010_quick_entry_template.sql` adds the `quick_entry_template` table — `id`, `name` (UNIQUE), `shortcut_key` (UNIQUE, NULL = no shortcut), `target_project_id` (FK SET NULL on project delete; NULL = Inbox), `prefix`, `default_tags` (JSON array string), `position`. `modified_at` trigger uses the same WHEN OLD = NEW pattern as elsewhere. `user_version` 9 → 10. Worker enforces the "single ASCII alphanumeric character" rule on `shortcut_key` (a CHECK constraint would work in SQL but the error message would be cryptic; a worker-side check yields a clear `DomainError::InvalidShortcutKey`).
+
+**Worker + read.** Three new commands (`CreateQuickEntryTemplate`, `UpdateQuickEntryTemplate`, `DeleteQuickEntryTemplate`) plus their `WorkerHandle` shims. Read helpers: `quick_entry_template_by_id`, `list_quick_entry_templates` (ordered by position). The default_tags JSON encode/decode happens at the worker/read boundary; the GUI sees `Vec<String>`. `DomainError::InvalidShortcutKey { got }` is the new variant; falls under the existing `DbError::Domain` umbrella so no new error-tree plumbing needed.
+
+**Quick Entry modal.** New picker bar above the entry, hidden when no templates are configured. Each template renders as a `gtk::ToggleButton` labelled `"shortcut · name"` (or just name when there's no shortcut). Clicking activates: pre-fills the entry text with the template's `prefix`, stashes the template object for commit, and toggles off any other active picker button (mutual-exclusion). Clicking the active button again deactivates and clears the entry text.
+
+**Shortcut sniff.** The modal's `connect_changed` handler watches typed text for `:LETTER ` (colon + single character + space). When LETTER matches a template's `shortcut_key`, the template auto-activates: entry text becomes the template's prefix, the matching picker button toggles on. The trailing-space requirement avoids hijacking `:c` mid-word; the user has committed to the trigger before activation fires. Once a template is active, the sniff is dormant — no re-interpretation of `:` characters in the template's body.
+
+**Commit semantics.** Active template threads through to `commit()`: `target_project_id` becomes the new task's project; `default_tags` merge with inline `#tag` parser output (template tags first, parsed tags appended unless they collide by case-insensitive name). Empty entry input still rejects (no template-only captures); the user has to type a real title to commit.
+
+**CLI.** `atrium-cli template list` (TSV / JSON / human formats with project resolution). `atrium-cli template add NAME --shortcut LETTER --project NAME --prefix TEXT --tag TAG` (project resolves via case-insensitive substring match against `project.title`; multi-match errors out with the candidate list). `atrium-cli template edit NAME --rename NEW --shortcut LETTER|none --project NAME|none --prefix TEXT --tag TAG`. `atrium-cli template remove NAME` (case-insensitive lookup).
+
+5 new tests in `worker_tests`: round-trip create, multi-char shortcut rejected, non-alphanumeric shortcut rejected, delete returns NotFound on second attempt, update changes fields. Workspace passes 818 tests; fmt + clippy clean. Schema version 10.
+
+VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo + CLAUDE.md status block bumped to 0.18.0.
+
+## v0.17.0 (2026-05-10) — Phase 18.5 Tier-1: CLOCK time tracking
+
+The flagship Phase 18.5 feature. One of the top two reasons real users stay on Org-mode instead of Things or OmniFocus — actual-time tracking distinct from `estimated_minutes` (intent), accumulated across multiple work sessions, with full round-trip to Org's `:LOGBOOK:` drawer so Emacs users see the same data. The largest schema-affecting item in Phase 18.5 (one new side table, one new worker command surface, parser + emitter + watcher all extended), and the differentiator that makes Atrium meaningfully more than "another GNOME todo app."
+
+**Schema.** Migration `0009_task_clock_entry.sql` adds the `task_clock_entry` side table — `id`, `task_id` (FK CASCADE), `started_at`, `ended_at` (NULL = running), `note`. Index on `(task_id, started_at)`. `user_version` 8 → 9. The single-active-clock invariant (at most one row across the entire table has `ended_at IS NULL`) is enforced by the worker rather than a partial unique index — keeps the schema simple, and the worker is the only writer anyway. v0.16.x binaries reading a v0.17.0 DB ignore the table.
+
+**Worker.** Three new commands: `ClockIn { entry, responder }`, `ClockOut { task_id, responder }`, `DeleteClockEntry { id, responder }`, plus `ImportClockEntry { task_id, started_at, ended_at, note, responder }` for the watcher and importer paths (caller-provided timestamps, skips the auto-close invariant since the source file is trusted). `clock_in` on task B auto-closes any other open entry on task A first — mirrors Emacs's global clock; what every Org user expects when they `org-clock-in` on a different headline. Re-clocking on the *same* task surfaces the existing open entry rather than double-stamping (returns `previously_closed_task_id: None` so the dispatcher knows nothing changed). Both directions emit `TaskChanges` for the affected task(s) so the inspector pane refreshes.
+
+**Read layer.** New `clock_entry_by_id`, `clock_entry_task_id`, `list_clock_entries` (per-task, newest-first), `total_clock_minutes` (closed-only, computed via SQLite's `julianday` arithmetic), `active_clock` (the single-row lookup), and `clock_entries_per_project` (the writer's batch loader; one query per project flush rather than per task).
+
+**Inspector pane (Builder).** New "Time" group between Notes and Builder fields. Renders three things: a Start/Stop `gtk::Button` (label flips based on running state), a "Total HH:MM" row (hidden when zero), and a per-session log of `(duration, started)` rows. Open entries surface as "Running — started …". Click Start → worker.clock_in; click Stop → worker.clock_out. Auto-refreshes on TaskChanges so a CLI clock-in reflects in the open inspector.
+
+**Org parser/emitter.** New `OrgTask.clock_entries: Vec<OrgClockEntry>` field carrying captured CLOCK lines from a `:LOGBOOK:` drawer, plus `logbook_unknown_lines` for verbatim round-trip of state-change log lines and other non-CLOCK content. Parser recognises both shapes — `CLOCK: [start]--[end] => H:MM [note]` (closed) and `CLOCK: [start]` (running). Emitter writes the closed form only; in-progress entries are deliberately suppressed (the file would churn every running second; the next clock-out flushes). Timestamps treated as UTC throughout (mirrors the existing CLOSED-cookie convention).
+
+**Watcher.** New `sync_clock_entries(task_id, parsed_entries)` walks each task's parsed CLOCK lines after the main diff. Matches by `started_at` (sub-second precision means starts are unique per task in practice); inserts added entries via `import_clock_entry`, deletes ones the file no longer carries, refreshes ones whose `ended_at` or note changed (delete-and-reinsert). External Emacs clock-out flows back into the DB; external CLOCK-line additions create matching DB entries.
+
+**CLI.** `atrium-cli clock in <id> [--note TEXT]` opens an entry (auto-closing any other). `clock out <id>` closes the open entry on a task (soft no-op when none). `clock log <id>` prints all entries for a task in TSV / JSON / human format with totals. Bare `atrium-cli clock` (or `clock status`) shows the currently-running entry across the DB.
+
+**Open-by-design limitation.** Org timestamps emit + parse in UTC. Mirrors the long-standing CLOSED-cookie behavior (since v0.7.x). Users in non-UTC timezones see UTC clock times when they open the file in Emacs — accurate but unfamiliar. The Inspector pane displays in `chrono::Local` so the GUI feels right; only the file representation is UTC. Switching the on-disk representation to local time means asymmetric parse-emit (parse-as-local + emit-as-local) and risks broken round-trip across timezone changes; deferred.
+
+12 new tests across worker (clock_in opens, auto-close-on-different-task, clock_out idempotent on no-open-clock, clock_in-then-out records duration), Org parser (4 LOGBOOK shapes including malformed-line preservation), and emitter (closed roundtrip, in-progress suppression, mixed-state emit). Workspace passes 818 tests; fmt + clippy clean. Schema version 9.
+
+VERSION + Cargo.toml + patchnotes.md + spec.md + roadmap.md + AppStream metainfo + CLAUDE.md status block bumped to 0.17.0.
+
 ## v0.16.0 (2026-05-10) — Phase 18.5 Tier-1: custom TODO sequences
 
 The most-cited Org feature in the v0.6.19 research pass — Bernt Hansen's NEXT-replaces-priority workflow, Jethro Kuan's processing pipeline, every GTD-with-Org tutorial — lands. Per-vault declared TODO keyword sequences round-trip through Atrium's vault sync end-to-end: the writer projects them as `#+TODO:` preambles, the watcher validates against them, the Inspector pane picks from them, the CLI manages them. Zero schema impact (sequences live in the sidecar; existing `task.orig_keyword` from v0.7.12 carries the labels through Atrium's TODO/DONE binary).

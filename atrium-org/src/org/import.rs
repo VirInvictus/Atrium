@@ -475,6 +475,15 @@ fn import_task<'a>(
             // Both prefix shapes parse to the same `u32` days; the
             // emitter normalises onto `-`.
             deadline_warn_days: org.deadline_warning.map(i64::from),
+            // v0.19.0 — Phase 18.5 Tier-2 time-of-day on
+            // schedule. Parser captures the time portion of the
+            // SCHEDULED active timestamp into `org.scheduled_time`;
+            // thread it into the new task's column.
+            scheduled_time: org.scheduled_time,
+            // v0.20.0 — Phase 19.5 reminders. Org-mode has no
+            // standard reminder cookie; importer leaves this
+            // None and users set reminders in Atrium.
+            reminder_at: None,
         };
         let created = handle.create_task(new).await?;
         summary.tasks_created += 1;
@@ -498,6 +507,17 @@ fn import_task<'a>(
         // we need the worker to fill in `now()`.
         if is_done && completed_at_for_insert.is_none() {
             handle.toggle_complete(created.id).await?;
+        }
+
+        // v0.17.0 — Phase 18.5 Tier-1 CLOCK time tracking. Thread
+        // every parsed :LOGBOOK: entry into task_clock_entry via
+        // the worker's import path (caller-provided timestamps,
+        // skips the single-active-clock invariant since the source
+        // file is trusted).
+        for entry in &org.clock_entries {
+            handle
+                .import_clock_entry(created.id, entry.started, entry.ended, entry.note.clone())
+                .await?;
         }
 
         for child in &org.children {

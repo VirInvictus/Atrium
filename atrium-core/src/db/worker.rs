@@ -13,7 +13,7 @@
 
 use std::time::Duration;
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{Instrument, info, info_span, trace};
 use uuid::Uuid;
@@ -25,8 +25,9 @@ use crate::db::command::Command;
 use crate::db::read;
 use crate::db::vault_hook::{VaultConfig, VaultDirtyNotifier};
 use crate::domain::{
-    Area, AreaUpdate, Heading, NewArea, NewHeading, NewPerspective, NewProject, NewTag, NewTask,
-    Perspective, PerspectiveUpdate, Project, ProjectUpdate, Tag, TagUpdate, Task, TaskUpdate,
+    Area, AreaUpdate, Heading, NewArea, NewClockEntry, NewHeading, NewPerspective, NewProject,
+    NewQuickEntryTemplate, NewTag, NewTask, Perspective, PerspectiveUpdate, Project, ProjectUpdate,
+    QuickEntryTemplate, QuickEntryTemplateUpdate, Tag, TagUpdate, Task, TaskClockEntry, TaskUpdate,
 };
 use crate::error::DbError;
 
@@ -293,6 +294,107 @@ impl WorkerHandle {
             .map_err(|_| DbError::WorkerClosed)?;
         rx.await.map_err(|_| DbError::WorkerClosed)?
     }
+
+    // ── Clock entries (Phase 18.5 Tier-1, v0.17.0) ─────────────
+
+    /// Open a fresh clock entry on `task_id` (with optional note).
+    /// Single-active-clock — any other open entry across the
+    /// table closes first.
+    pub async fn clock_in(&self, task_id: i64, note: String) -> Result<TaskClockEntry, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::ClockIn {
+                entry: NewClockEntry { task_id, note },
+                responder,
+            })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
+    /// Close the running entry on `task_id`. `Ok(None)` when the
+    /// task had no open clock (soft no-op — scripts don't need to
+    /// check first).
+    pub async fn clock_out(&self, task_id: i64) -> Result<Option<TaskClockEntry>, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::ClockOut { task_id, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
+    /// Delete a single clock entry by id.
+    pub async fn delete_clock_entry(&self, id: i64) -> Result<(), DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::DeleteClockEntry { id, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
+    /// v0.17.0 — importer + watcher entry point. Inserts a clock
+    /// entry with caller-provided timestamps. Used when ingesting
+    /// existing CLOCK lines from a vault file.
+    pub async fn import_clock_entry(
+        &self,
+        task_id: i64,
+        started_at: chrono::DateTime<chrono::Utc>,
+        ended_at: Option<chrono::DateTime<chrono::Utc>>,
+        note: String,
+    ) -> Result<TaskClockEntry, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::ImportClockEntry {
+                task_id,
+                started_at,
+                ended_at,
+                note,
+                responder,
+            })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
+    // ── Quick Entry templates (Phase 18.5 Tier-1, v0.18.0) ────
+
+    pub async fn create_quick_entry_template(
+        &self,
+        template: NewQuickEntryTemplate,
+    ) -> Result<QuickEntryTemplate, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::CreateQuickEntryTemplate {
+                template,
+                responder,
+            })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
+    pub async fn update_quick_entry_template(
+        &self,
+        update: QuickEntryTemplateUpdate,
+    ) -> Result<QuickEntryTemplate, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::UpdateQuickEntryTemplate { update, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
+    pub async fn delete_quick_entry_template(&self, id: i64) -> Result<(), DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::DeleteQuickEntryTemplate { id, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
 }
 
 /// Spawn the worker on the current `tokio` runtime.
@@ -384,6 +486,35 @@ impl Worker {
     fn notify_project_dirty(&self, project_id: i64) {
         if let Some(n) = &self.vault_notifier {
             n.notify_project_dirty(project_id);
+        }
+    }
+
+    /// v0.17.0 — clock changes happen against a `task_id` but
+    /// the vault projection is per-project, so resolve the
+    /// task's project before notifying. Tasks without a project
+    /// (Inbox) have nothing to flush; the notification is a
+    /// no-op for them. Skips the notify entirely when the task
+    /// lookup fails (the task was deleted in a race) — the
+    /// vault is already in the right state by definition.
+    fn notify_task_dirty(&self, task_id: i64) {
+        if let Ok(Some(task)) = read::task_by_id(&self.conn, task_id)
+            && let Some(project_id) = task.project_id
+        {
+            self.notify_project_dirty(project_id);
+        }
+    }
+
+    /// v0.17.0 — emit a TaskChanges with the affected task in
+    /// the `updated` vec. Used by clock_in / clock_out / delete
+    /// clock entry — the task itself didn't change columns, but
+    /// the inspector pane re-binds on TaskChanges so this is
+    /// the right surface for "the task's display shape moved."
+    fn emit_task_refresh(&self, task_id: i64) {
+        if let Ok(Some(task)) = read::task_by_id(&self.conn, task_id) {
+            let _ = self.changes_tx.send(TaskChanges {
+                updated: vec![task],
+                ..Default::default()
+            });
         }
     }
 }
@@ -755,6 +886,91 @@ impl Worker {
                 }
                 let _ = responder.send(result);
             }
+
+            // ── Clock entries (Phase 18.5 Tier-1, v0.17.0) ─────
+            Command::ClockIn { entry, responder } => {
+                let task_id = entry.task_id;
+                let result = self.clock_in(entry);
+                if let Ok(opened) = &result {
+                    // The task's clock state changed but no column
+                    // on `task` itself moved — surface a refresh
+                    // by re-emitting the touched task (and any
+                    // task auto-closed by the single-active-clock
+                    // invariant) in TaskChanges. Inspector pane
+                    // re-binds on this; the writer's notify-dirty
+                    // pushes the LOGBOOK projection to the vault.
+                    self.emit_task_refresh(task_id);
+                    if let Some(closed_id) = opened.previously_closed_task_id
+                        && closed_id != task_id
+                    {
+                        self.emit_task_refresh(closed_id);
+                        self.notify_task_dirty(closed_id);
+                    }
+                    self.notify_task_dirty(task_id);
+                }
+                let _ = responder.send(result.map(|opened| opened.entry));
+            }
+            Command::ClockOut { task_id, responder } => {
+                let result = self.clock_out(task_id);
+                if let Ok(Some(_)) = &result {
+                    self.emit_task_refresh(task_id);
+                    self.notify_task_dirty(task_id);
+                }
+                let _ = responder.send(result);
+            }
+            Command::DeleteClockEntry { id, responder } => {
+                // Look up the task before delete so we know which
+                // task to refresh + re-emit. If the lookup itself
+                // errors we still proceed with the delete; the
+                // refresh/notify just gets skipped.
+                let task_id = read::clock_entry_task_id(&self.conn, id).ok().flatten();
+                let result = self.delete_clock_entry(id);
+                if result.is_ok()
+                    && let Some(tid) = task_id
+                {
+                    self.emit_task_refresh(tid);
+                    self.notify_task_dirty(tid);
+                }
+                let _ = responder.send(result);
+            }
+            Command::ImportClockEntry {
+                task_id,
+                started_at,
+                ended_at,
+                note,
+                responder,
+            } => {
+                let result = self.import_clock_entry(task_id, started_at, ended_at, note);
+                if result.is_ok() {
+                    self.emit_task_refresh(task_id);
+                    // Don't notify_task_dirty — the import path
+                    // is the watcher, which is reading from the
+                    // file we'd notify about. Triggering a flush
+                    // would cause the writer to overwrite the
+                    // user's file with the freshly-ingested
+                    // entries, which is fine in steady state but
+                    // wasteful. The next non-import write naturally
+                    // flushes.
+                }
+                let _ = responder.send(result);
+            }
+
+            // ── Quick Entry templates (Phase 18.5 Tier-1, v0.18.0)
+            Command::CreateQuickEntryTemplate {
+                template,
+                responder,
+            } => {
+                let result = self.create_quick_entry_template(template);
+                let _ = responder.send(result);
+            }
+            Command::UpdateQuickEntryTemplate { update, responder } => {
+                let result = self.update_quick_entry_template(update);
+                let _ = responder.send(result);
+            }
+            Command::DeleteQuickEntryTemplate { id, responder } => {
+                let result = self.delete_quick_entry_template(id);
+                let _ = responder.send(result);
+            }
         }
     }
 
@@ -799,12 +1015,13 @@ impl Worker {
         // pass `None` (Default::default()) so the value is NULL.
         // completed_at appended so the Org importer
         // can preserve the source CLOSED cookie.
+        let scheduled_time_str = new.scheduled_time.map(|t| t.format("%H:%M").to_string());
         self.conn.execute(
             "INSERT INTO task \
              (uuid, title, note, project_id, parent_id, scheduled_for, deadline, \
               defer_until, estimated_minutes, repeat_rule, repeat_mode, orig_keyword, \
-              completed_at, deadline_warn_days, position) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              completed_at, deadline_warn_days, scheduled_time, reminder_at, position) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 uuid,
                 new.title,
@@ -820,6 +1037,8 @@ impl Worker {
                 new.orig_keyword,
                 new.completed_at,
                 new.deadline_warn_days,
+                scheduled_time_str,
+                new.reminder_at,
                 position,
             ],
         )?;
@@ -940,6 +1159,14 @@ impl Worker {
         if let Some(warn) = update.deadline_warn_days {
             sets.push("deadline_warn_days = ?");
             bound.push(Box::new(warn));
+        }
+        if let Some(time) = update.scheduled_time {
+            sets.push("scheduled_time = ?");
+            bound.push(Box::new(time.map(|t| t.format("%H:%M").to_string())));
+        }
+        if let Some(reminder) = update.reminder_at {
+            sets.push("reminder_at = ?");
+            bound.push(Box::new(reminder));
         }
         bound.push(Box::new(update.id));
 
@@ -1092,6 +1319,15 @@ impl Worker {
             // sensitivity of the deadline doesn't change just
             // because the previous instance closed.
             deadline_warn_days: completed.deadline_warn_days,
+            // Time-of-day carries forward — a daily 9 AM
+            // standup keeps the 9 AM on its respawn.
+            scheduled_time: completed.scheduled_time,
+            // Reminders are deliberately *not* carried forward —
+            // a "remind me at 3 PM" reminder fired on the
+            // previous instance; the respawn shouldn't re-fire
+            // it. Users can re-set the reminder if they want
+            // it to repeat alongside the task.
+            reminder_at: None,
         };
         let inserted = self.create_task(new_task)?;
 
@@ -1596,6 +1832,266 @@ impl Worker {
         }
         Ok(())
     }
+
+    // ── Clock entries (Phase 18.5 Tier-1, v0.17.0) ─────────────
+
+    /// Open a fresh clock entry on `entry.task_id`. Single-active-
+    /// clock invariant: any other open entry across the table
+    /// gets closed first (its `ended_at` set to `now()`). Returns
+    /// the freshly-inserted entry plus the id of any task that
+    /// had its previous open clock auto-closed (so the dispatcher
+    /// can refresh both inspector views and notify both vault
+    /// projections).
+    fn clock_in(&mut self, new: NewClockEntry) -> Result<ClockInResult, DbError> {
+        // Validate the task exists. The FK constraint would catch
+        // it on insert, but a clean DbError::NotFound up front
+        // gives the CLI a less cryptic error message than a
+        // FOREIGN KEY constraint failed.
+        if read::task_by_id(&self.conn, new.task_id)?.is_none() {
+            return Err(DbError::NotFound);
+        }
+
+        // Single-active-clock invariant: close any other open
+        // entry first. The "any other" wording matters — clocking
+        // in on the same task while it already has an open entry
+        // is the user re-affirming the clock; we don't double-stamp,
+        // we leave the existing open entry alone and reject the
+        // new clock-in (returning the existing entry would surprise
+        // the caller; returning an error is honest).
+        let existing_open: Option<(i64, i64)> = self
+            .conn
+            .query_row(
+                "SELECT id, task_id FROM task_clock_entry WHERE ended_at IS NULL LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+
+        let mut previously_closed_task_id: Option<i64> = None;
+        if let Some((existing_id, existing_task_id)) = existing_open {
+            if existing_task_id == new.task_id {
+                // Already clocked into this task — surface the
+                // existing entry so the caller doesn't double-
+                // stamp. Marked as not-newly-opened so the
+                // dispatcher can decide whether to notify (it
+                // doesn't need to; nothing changed).
+                let entry =
+                    read::clock_entry_by_id(&self.conn, existing_id)?.ok_or(DbError::NotFound)?;
+                return Ok(ClockInResult {
+                    entry,
+                    previously_closed_task_id: None,
+                });
+            }
+            // Auto-close the other task's clock first.
+            self.conn.execute(
+                "UPDATE task_clock_entry SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+                 WHERE id = ?1",
+                params![existing_id],
+            )?;
+            previously_closed_task_id = Some(existing_task_id);
+        }
+
+        // Insert the new open entry. started_at = now() via SQL
+        // so the worker doesn't need a chrono call here.
+        self.conn.execute(
+            "INSERT INTO task_clock_entry (task_id, started_at, ended_at, note) \
+             VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, ?2)",
+            params![new.task_id, new.note],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        let entry = read::clock_entry_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?;
+        Ok(ClockInResult {
+            entry,
+            previously_closed_task_id,
+        })
+    }
+
+    /// Close the open clock entry on `task_id`. Returns the
+    /// just-closed entry, or `Ok(None)` when the task had no
+    /// running clock (soft no-op so scripts don't have to check).
+    fn clock_out(&mut self, task_id: i64) -> Result<Option<TaskClockEntry>, DbError> {
+        // Find the open entry.
+        let open_id: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT id FROM task_clock_entry \
+                 WHERE task_id = ?1 AND ended_at IS NULL LIMIT 1",
+                params![task_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(id) = open_id else {
+            return Ok(None);
+        };
+        self.conn.execute(
+            "UPDATE task_clock_entry SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             WHERE id = ?1",
+            params![id],
+        )?;
+        let entry = read::clock_entry_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?;
+        Ok(Some(entry))
+    }
+
+    /// Delete a single clock entry by id. NotFound when the row
+    /// doesn't exist — caller usually treats that as a soft
+    /// success since the user's intent was "make this entry go
+    /// away."
+    fn delete_clock_entry(&mut self, id: i64) -> Result<(), DbError> {
+        let n = self
+            .conn
+            .execute("DELETE FROM task_clock_entry WHERE id = ?1", params![id])?;
+        if n == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Insert a clock entry with caller-provided timestamps.
+    /// Importer + watcher entry point; doesn't enforce
+    /// single-active-clock since the source file is trusted.
+    fn import_clock_entry(
+        &mut self,
+        task_id: i64,
+        started_at: chrono::DateTime<chrono::Utc>,
+        ended_at: Option<chrono::DateTime<chrono::Utc>>,
+        note: String,
+    ) -> Result<TaskClockEntry, DbError> {
+        if read::task_by_id(&self.conn, task_id)?.is_none() {
+            return Err(DbError::NotFound);
+        }
+        self.conn.execute(
+            "INSERT INTO task_clock_entry (task_id, started_at, ended_at, note) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![task_id, started_at, ended_at, note],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        read::clock_entry_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
+    }
+
+    // ── Quick Entry templates (Phase 18.5 Tier-1, v0.18.0) ─────
+
+    fn create_quick_entry_template(
+        &mut self,
+        new: NewQuickEntryTemplate,
+    ) -> Result<QuickEntryTemplate, DbError> {
+        validate_shortcut_key(new.shortcut_key.as_deref())?;
+        let position = self.next_quick_entry_template_position()?;
+        let tags_json = serde_json::to_string(&new.default_tags)
+            .map_err(|e| DbError::Sync(format!("default_tags JSON encode: {e}")))?;
+        self.conn.execute(
+            "INSERT INTO quick_entry_template \
+             (name, shortcut_key, target_project_id, prefix, default_tags, position) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+            params![
+                new.name,
+                new.shortcut_key,
+                new.target_project_id,
+                new.prefix,
+                tags_json,
+                position,
+            ],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        read::quick_entry_template_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
+    }
+
+    fn update_quick_entry_template(
+        &mut self,
+        update: QuickEntryTemplateUpdate,
+    ) -> Result<QuickEntryTemplate, DbError> {
+        if update.is_noop() {
+            return read::quick_entry_template_by_id(&self.conn, update.id)?
+                .ok_or(DbError::NotFound);
+        }
+        if let Some(Some(key)) = update.shortcut_key.as_ref() {
+            validate_shortcut_key(Some(key.as_str()))?;
+        }
+        let mut sets: Vec<&'static str> = Vec::new();
+        let mut bound: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        if let Some(name) = update.name {
+            sets.push("name = ?");
+            bound.push(Box::new(name));
+        }
+        if let Some(shortcut) = update.shortcut_key {
+            sets.push("shortcut_key = ?");
+            bound.push(Box::new(shortcut));
+        }
+        if let Some(target) = update.target_project_id {
+            sets.push("target_project_id = ?");
+            bound.push(Box::new(target));
+        }
+        if let Some(prefix) = update.prefix {
+            sets.push("prefix = ?");
+            bound.push(Box::new(prefix));
+        }
+        if let Some(tags) = update.default_tags {
+            let json = serde_json::to_string(&tags)
+                .map_err(|e| DbError::Sync(format!("default_tags JSON encode: {e}")))?;
+            sets.push("default_tags = ?");
+            bound.push(Box::new(json));
+        }
+        if let Some(position) = update.position {
+            sets.push("position = ?");
+            bound.push(Box::new(position));
+        }
+        bound.push(Box::new(update.id));
+        let sql = format!(
+            "UPDATE quick_entry_template SET {} WHERE id = ?",
+            sets.join(", ")
+        );
+        let params_refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
+        let n = self.conn.execute(&sql, &params_refs[..])?;
+        if n == 0 {
+            return Err(DbError::NotFound);
+        }
+        read::quick_entry_template_by_id(&self.conn, update.id)?.ok_or(DbError::NotFound)
+    }
+
+    fn delete_quick_entry_template(&mut self, id: i64) -> Result<(), DbError> {
+        let n = self.conn.execute(
+            "DELETE FROM quick_entry_template WHERE id = ?1",
+            params![id],
+        )?;
+        if n == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    }
+
+    fn next_quick_entry_template_position(&self) -> Result<f64, DbError> {
+        let max: Option<f64> =
+            self.conn
+                .query_row("SELECT MAX(position) FROM quick_entry_template", [], |r| {
+                    r.get(0)
+                })?;
+        Ok(max.unwrap_or(0.0) + 1.0)
+    }
+}
+
+/// v0.18.0 — Phase 18.5 Tier-1 shortcut-key validation. Quick
+/// Entry templates accept at most a single ASCII alphanumeric
+/// character (or NULL = no shortcut). The constraint can't be
+/// expressed cleanly in SQL without a check trigger we'd rather
+/// not maintain; the worker checks before insert / update.
+fn validate_shortcut_key(value: Option<&str>) -> Result<(), DbError> {
+    let Some(s) = value else { return Ok(()) };
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() != 1 || !chars[0].is_ascii_alphanumeric() {
+        return Err(DbError::Domain(
+            crate::error::DomainError::InvalidShortcutKey { got: s.to_string() },
+        ));
+    }
+    Ok(())
+}
+
+/// v0.17.0 — return shape from `Worker::clock_in`. Carries the
+/// freshly-opened entry plus, when the single-active-clock
+/// invariant auto-closed a different task's clock, that task's
+/// id (so the dispatcher can refresh both inspector views and
+/// notify both vault projections).
+struct ClockInResult {
+    entry: TaskClockEntry,
+    previously_closed_task_id: Option<i64>,
 }
 
 #[cfg(test)]

@@ -75,5 +75,28 @@
         CLI flag overrides for this session.
       </description>
     </key>
+
+    <key name="notifications-enabled" type="b">
+      <default>true</default>
+      <summary>System notifications master switch</summary>
+      <description>
+        When enabled, Atrium fires `gio::Notification` for
+        time-based reminders (`task.reminder_at`). When disabled,
+        the reminder service stays running but suppresses every
+        notification. Phase 19.5 (v0.20.0).
+      </description>
+    </key>
+
+    <key name="theme" type="s">
+      <default>"auto"</default>
+      <summary>Theme override</summary>
+      <description>
+        One of "auto" (follow system Adwaita), "light", or
+        "dark". v0.20.0 — Phase 19.5 preferences foundation.
+        The Adwaita style manager already auto-tracks system
+        scheme; this key exists for users who want to pin one
+        regardless of system setting.
+      </description>
+    </key>
   </schema>
 </schemalist>

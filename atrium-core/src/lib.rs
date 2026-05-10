@@ -11,6 +11,7 @@ pub mod checkbox;
 pub mod db;
 pub mod domain;
 pub mod error;
+pub mod links;
 pub mod paths;
 pub mod render;
 pub mod repeat;
@@ -29,11 +30,13 @@ pub use db::worker::{
     WorkerHandle, spawn as spawn_worker, spawn_with_vault as spawn_worker_with_vault,
 };
 pub use domain::{
-    Area, AreaUpdate, Heading, NewArea, NewHeading, NewPerspective, NewProject, NewTag, NewTask,
-    Perspective, PerspectiveUpdate, Project, ProjectUpdate, ScheduledFor, Tag, TagUpdate, Task,
-    TaskUpdate,
+    Area, AreaUpdate, Heading, NewArea, NewClockEntry, NewHeading, NewPerspective, NewProject,
+    NewQuickEntryTemplate, NewTag, NewTask, Perspective, PerspectiveUpdate, Project, ProjectUpdate,
+    QuickEntryTemplate, QuickEntryTemplateUpdate, ScheduledFor, Tag, TagUpdate, Task,
+    TaskClockEntry, TaskUpdate,
 };
 pub use error::{CoreError, DbError, DomainError};
+pub use links::{BodyLink, parse_body_links};
 pub use paths::{APP_ID, cache_dir, data_dir, db_path};
 pub use render::{
     BoardAxis, BoardConfig, Column, OTHER_COLUMN_LABEL, Renderer, RendererError, group_into_board,

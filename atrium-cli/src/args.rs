@@ -215,6 +215,18 @@ pub enum Subcommand {
         op: VaultSequencesOp,
         vault: String,
     },
+    /// v0.17.0 — `clock SUBCOMMAND [ID]` — Phase 18.5 Tier-1
+    /// CLOCK time tracking. `clock in <id> [--note TEXT]` opens
+    /// an entry. `clock out <id>` closes it. `clock log <id>`
+    /// prints the entries (TSV / JSON / human). Bare `clock`
+    /// shows the currently-running entry (single-active-clock
+    /// invariant — at most one entry across the table is open).
+    Clock(ClockSub),
+    /// v0.18.0 — `template SUBCOMMAND [...]` — Phase 18.5 Tier-1
+    /// Quick Entry templates. CRUD over the
+    /// `quick_entry_template` table; the GUI's modal renders
+    /// the configured templates as a picker bar above the entry.
+    Template(TemplateSub),
 }
 
 /// Supported import sources. v0.7.9 ships `Org` (single-file
@@ -268,6 +280,47 @@ pub enum VaultSequencesOp {
     },
     /// `vault sequences clear` — drop all configured sequences.
     Clear,
+}
+
+/// v0.17.0 — Phase 18.5 Tier-1 CLOCK time tracking sub-subcommand.
+/// `In` opens a clock; `Out` closes it; `Log` prints entries
+/// for a task; `Status` (the bare `clock` form) shows the
+/// currently-running entry across the whole DB.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClockSub {
+    Status,
+    In { task_id: i64, note: String },
+    Out { task_id: i64 },
+    Log { task_id: i64 },
+}
+
+/// v0.18.0 — Phase 18.5 Tier-1 Quick Entry templates sub-subcommand.
+/// `List` prints the configured templates. `Add` creates a
+/// fresh template (matched at create-time by the worker's
+/// uniqueness constraints on name + shortcut_key). `Edit`
+/// updates by name. `Remove` deletes by name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TemplateSub {
+    List,
+    Add(TemplateArgs),
+    Edit { name: String, args: TemplateArgs },
+    Remove { name: String },
+}
+
+/// Flags shared by `template add` and `template edit`. On
+/// `add`, `name` is required positional. On `edit`, the lookup
+/// `name` is the positional and the `rename` flag is the new
+/// name (if any). The other fields' `Option` semantics:
+/// `None` = leave alone; `Some("none")` clears (where
+/// applicable); `Some(value)` sets.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TemplateArgs {
+    pub name: Option<String>,
+    pub rename: Option<String>,
+    pub shortcut: Option<String>,
+    pub project: Option<String>,
+    pub prefix: Option<String>,
+    pub tags: Vec<String>,
 }
 
 /// Flags shared by `perspective create` and `perspective edit`. Each
@@ -380,6 +433,13 @@ pub struct AddArgs {
     /// through to the global default; `Some(n)` writes the
     /// override on create.
     pub deadline_warn: Option<i64>,
+    /// v0.19.0 — Phase 18.5 Tier-2 time-of-day on schedule.
+    /// `--time HH:MM` parses into this; only meaningful when
+    /// scheduled_for is also a Date.
+    pub scheduled_time: Option<chrono::NaiveTime>,
+    /// v0.20.0 — Phase 19.5 reminder timestamp.
+    /// `--reminder YYYY-MM-DD HH:MM` parses into this.
+    pub reminder_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl Default for Args {
@@ -519,6 +579,8 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
         "import" => parse_import(&raw[i..], &mut args)?,
         "export" => parse_export(&raw[i..], &mut args)?,
         "vault" => parse_vault(&raw[i..], &mut args)?,
+        "clock" => parse_clock(&raw[i..], &mut args)?,
+        "template" => parse_template(&raw[i..], &mut args)?,
         other => return Err(format!("unknown subcommand: {other}")),
     });
 
@@ -591,6 +653,29 @@ fn parse_add(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
                     return Err("--deadline-warn must be a non-negative integer".into());
                 }
                 add.deadline_warn = Some(n);
+                i += 1;
+            }
+            "--time" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--time requires a value (HH:MM)")?;
+                let t = chrono::NaiveTime::parse_from_str(v, "%H:%M")
+                    .map_err(|_| format!("--time must be HH:MM, got {v}"))?;
+                add.scheduled_time = Some(t);
+                i += 1;
+            }
+            "--reminder" => {
+                i += 1;
+                let v = rest
+                    .get(i)
+                    .ok_or("--reminder requires a value (YYYY-MM-DD HH:MM)")?;
+                use chrono::TimeZone;
+                let naive = chrono::NaiveDateTime::parse_from_str(v, "%Y-%m-%d %H:%M")
+                    .map_err(|_| format!("--reminder must be YYYY-MM-DD HH:MM, got {v}"))?;
+                let local = chrono::Local
+                    .from_local_datetime(&naive)
+                    .single()
+                    .ok_or("--reminder timestamp is ambiguous (DST gap)")?;
+                add.reminder_at = Some(local.with_timezone(&chrono::Utc));
                 i += 1;
             }
             // Global format flags can appear anywhere.
@@ -1221,6 +1306,191 @@ fn parse_vault_sequences(rest: &[String], args: &mut Args) -> Result<Subcommand,
     };
 
     Ok(Subcommand::VaultSequences { op, vault })
+}
+
+/// v0.17.0 — `clock SUBCOMMAND [ID] [--note TEXT]`. Bare `clock`
+/// (no SUBCOMMAND) is sugar for `clock status` — print the
+/// currently-running entry, or "(no clock running)" when none.
+fn parse_clock(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
+    let Some(sub) = rest.first() else {
+        // Bare `clock` → status.
+        return Ok(Subcommand::Clock(ClockSub::Status));
+    };
+    let body = &rest[1..];
+
+    let mut note = String::new();
+    let mut positional: Option<i64> = None;
+    let mut i = 0;
+    while i < body.len() {
+        let tok = body[i].as_str();
+        match tok {
+            "--note" => {
+                i += 1;
+                let v = body.get(i).ok_or("--note requires a value")?;
+                note = v.clone();
+                i += 1;
+            }
+            "--json" => {
+                args.format = Format::Json;
+                i += 1;
+            }
+            "--tsv" => {
+                args.format = Format::Tsv;
+                i += 1;
+            }
+            "--human" => {
+                args.format = Format::Human;
+                i += 1;
+            }
+            other if other.starts_with("--") => {
+                return Err(format!("unknown flag: {other}"));
+            }
+            // Positional task id.
+            _ => {
+                if positional.is_some() {
+                    return Err(format!("unexpected positional argument: {tok}"));
+                }
+                positional = Some(tok.parse().map_err(|_| format!("invalid task id: {tok}"))?);
+                i += 1;
+            }
+        }
+    }
+
+    let op = match sub.as_str() {
+        "status" => ClockSub::Status,
+        "in" | "start" => {
+            let task_id = positional.ok_or("clock in requires a task id")?;
+            ClockSub::In { task_id, note }
+        }
+        "out" | "stop" => {
+            let task_id = positional.ok_or("clock out requires a task id")?;
+            ClockSub::Out { task_id }
+        }
+        "log" => {
+            let task_id = positional.ok_or("clock log requires a task id")?;
+            ClockSub::Log { task_id }
+        }
+        other => return Err(format!("unknown clock sub-subcommand: {other}")),
+    };
+    Ok(Subcommand::Clock(op))
+}
+
+/// v0.18.0 — `template SUBCOMMAND ...`. Dispatches list / add
+/// / edit / remove; flag soup is parsed via `parse_template_flags`.
+fn parse_template(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
+    let sub = rest
+        .first()
+        .ok_or("template requires a sub-subcommand (list / add / edit / remove)")?;
+    match sub.as_str() {
+        "list" => {
+            apply_trailing_flags(&rest[1..], args)?;
+            Ok(Subcommand::Template(TemplateSub::List))
+        }
+        "add" => {
+            let body = &rest[1..];
+            let template_args = parse_template_flags(body, args)?;
+            let name = template_args
+                .name
+                .clone()
+                .ok_or("template add requires a name (positional)")?;
+            Ok(Subcommand::Template(TemplateSub::Add(TemplateArgs {
+                name: Some(name),
+                ..template_args
+            })))
+        }
+        "edit" => {
+            let body = &rest[1..];
+            let template_args = parse_template_flags(body, args)?;
+            let name = template_args
+                .name
+                .clone()
+                .ok_or("template edit requires a name (positional)")?;
+            Ok(Subcommand::Template(TemplateSub::Edit {
+                name,
+                args: TemplateArgs {
+                    name: None,
+                    ..template_args
+                },
+            }))
+        }
+        "remove" | "delete" => {
+            let body = &rest[1..];
+            let template_args = parse_template_flags(body, args)?;
+            let name = template_args
+                .name
+                .ok_or("template remove requires a name (positional)")?;
+            Ok(Subcommand::Template(TemplateSub::Remove { name }))
+        }
+        other => Err(format!("unknown template sub-subcommand: {other}")),
+    }
+}
+
+/// Parse the `template add` / `template edit` / `template remove`
+/// flag soup. Positional non-flag tokens become the template
+/// name (concatenated with spaces so multi-word names don't
+/// need quoting).
+fn parse_template_flags(rest: &[String], args: &mut Args) -> Result<TemplateArgs, String> {
+    let mut out = TemplateArgs::default();
+    let mut name_words: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while i < rest.len() {
+        let tok = rest[i].as_str();
+        match tok {
+            "--rename" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--rename requires a value")?;
+                out.rename = Some(v.clone());
+                i += 1;
+            }
+            "--shortcut" | "--key" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--shortcut requires a value")?;
+                out.shortcut = Some(v.clone());
+                i += 1;
+            }
+            "--project" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--project requires a value")?;
+                out.project = Some(v.clone());
+                i += 1;
+            }
+            "--prefix" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--prefix requires a value")?;
+                out.prefix = Some(v.clone());
+                i += 1;
+            }
+            "--tag" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--tag requires a value")?;
+                out.tags.push(v.clone());
+                i += 1;
+            }
+            "--json" => {
+                args.format = Format::Json;
+                i += 1;
+            }
+            "--tsv" => {
+                args.format = Format::Tsv;
+                i += 1;
+            }
+            "--human" => {
+                args.format = Format::Human;
+                i += 1;
+            }
+            other if other.starts_with("--") => {
+                return Err(format!("unknown flag: {other}"));
+            }
+            _ => {
+                name_words.push(tok);
+                i += 1;
+            }
+        }
+    }
+    if !name_words.is_empty() {
+        out.name = Some(name_words.join(" "));
+    }
+    Ok(out)
 }
 
 /// Split a `--workflow TODO,NEXT,WAITING` argument into individual

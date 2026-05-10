@@ -224,6 +224,51 @@ fn emit_task(task: &OrgTask, out: &mut String) {
         out.push_str(":END:\n");
     }
 
+    // v0.17.0 — Phase 18.5 Tier-1 :LOGBOOK: drawer. Emit only
+    // when the task has at least one closed entry or any
+    // logbook_unknown_lines we promised to round-trip verbatim.
+    // In-progress entries (ended IS None) are deliberately
+    // suppressed — the file would churn every clock-running
+    // second; the next clock_out flushes the now-closed entry.
+    let has_closed_entries = task.clock_entries.iter().any(|e| e.ended.is_some());
+    if has_closed_entries || !task.logbook_unknown_lines.is_empty() {
+        out.push_str(":LOGBOOK:\n");
+        for entry in &task.clock_entries {
+            let Some(ended) = entry.ended else {
+                continue; // skip in-progress
+            };
+            // Emit in UTC so the parse-emit round-trip is
+            // byte-stable. Mirrors the CLOSED-cookie convention
+            // — Atrium treats Org timestamps as UTC throughout
+            // the parser/emitter pair. Users in non-UTC zones
+            // see UTC clock times in the file (documented
+            // limitation; same as CLOSED has had since Phase 16).
+            let started_naive = entry.started.naive_utc();
+            let ended_naive = ended.naive_utc();
+            let duration = ended.signed_duration_since(entry.started);
+            let total_minutes = duration.num_minutes().max(0);
+            let h = total_minutes / 60;
+            let m = total_minutes % 60;
+            out.push_str(&format!(
+                "CLOCK: [{}]--[{}] =>  {}:{:02}",
+                started_naive.format("%Y-%m-%d %a %H:%M"),
+                ended_naive.format("%Y-%m-%d %a %H:%M"),
+                h,
+                m
+            ));
+            if !entry.note.is_empty() {
+                out.push(' ');
+                out.push_str(&entry.note);
+            }
+            out.push('\n');
+        }
+        for unknown in &task.logbook_unknown_lines {
+            out.push_str(unknown);
+            out.push('\n');
+        }
+        out.push_str(":END:\n");
+    }
+
     // Body. Already stored without the trailing newline (parser
     // strips it on read); we add one here to terminate.
     if !task.body.is_empty() {
@@ -257,13 +302,19 @@ fn render_cookies(task: &OrgTask) -> Vec<String> {
     if let Some(date) = task.scheduled {
         let stamp = render_active(
             date,
+            task.scheduled_time,
             task.scheduled_repeater.as_ref(),
             task.scheduled_warning,
         );
         chunks.push(format!("SCHEDULED: {stamp}"));
     }
     if let Some(date) = task.deadline {
-        let stamp = render_active(date, task.deadline_repeater.as_ref(), task.deadline_warning);
+        let stamp = render_active(
+            date,
+            None,
+            task.deadline_repeater.as_ref(),
+            task.deadline_warning,
+        );
         chunks.push(format!("DEADLINE: {stamp}"));
     }
     if let Some(closed) = task.closed {
@@ -290,6 +341,7 @@ fn render_cookies(task: &OrgTask) -> Vec<String> {
 
 fn render_active(
     date: chrono::NaiveDate,
+    time: Option<chrono::NaiveTime>,
     repeater: Option<&OrgRepeater>,
     warning_days: Option<u32>,
 ) -> String {
@@ -302,6 +354,14 @@ fn render_active(
     // no global-default-override concept that would distinguish
     // `-` from `--`.
     let mut suffix = String::new();
+    // v0.19.0 — Phase 18.5 Tier-2 time-of-day. When the
+    // SCHEDULED has a time, slot it after the day name and
+    // before the repeater/warning suffixes. Org's canonical
+    // ordering is `<DATE Day HH:MM +Nx -Md>`.
+    if let Some(t) = time {
+        suffix.push(' ');
+        suffix.push_str(&format!("{}", t.format("%H:%M")));
+    }
     if let Some(r) = repeater {
         suffix.push(' ');
         suffix.push_str(&format!("{}{}{}", r.mode, r.interval, r.unit));
@@ -448,12 +508,15 @@ SCHEDULED: <2026-05-15 Fri> DEADLINE: <2026-06-01 Mon>
             title: "Project".to_string(),
             tags: Vec::new(),
             scheduled: None,
+            scheduled_time: None,
             scheduled_repeater: None,
             scheduled_warning: None,
             deadline: None,
             deadline_repeater: None,
             deadline_warning: None,
             statistics_cookie: Some(StatisticsCookie::Counter { done: 2, total: 5 }),
+            clock_entries: Vec::new(),
+            logbook_unknown_lines: Vec::new(),
             closed: None,
             properties: HashMap::new(),
             body: String::new(),
@@ -480,6 +543,120 @@ SCHEDULED: <2026-05-15 Fri> DEADLINE: <2026-06-01 Mon>
         assert!(emitted.contains("[40%]"), "expected [40%] in:\n{emitted}");
         let second = super::super::parse::parse_org_text(&emitted);
         assert_eq!(first, second);
+    }
+
+    // v0.17.0 — Phase 18.5 Tier-1 :LOGBOOK: + CLOCK lines.
+    #[test]
+    fn roundtrip_logbook_with_closed_entry() {
+        let input = "\
+* TODO Plan
+:LOGBOOK:
+CLOCK: [2026-05-15 Fri 09:00]--[2026-05-15 Fri 11:30] =>  2:30
+:END:
+";
+        let first = super::super::parse::parse_org_text(input);
+        let emitted = emit_org_text(&first);
+        assert!(
+            emitted.contains(":LOGBOOK:"),
+            "expected :LOGBOOK: drawer in:\n{emitted}"
+        );
+        assert!(
+            emitted.contains("CLOCK:"),
+            "expected CLOCK line in:\n{emitted}"
+        );
+        let second = super::super::parse::parse_org_text(&emitted);
+        assert_eq!(first[0].clock_entries, second[0].clock_entries);
+    }
+
+    #[test]
+    fn emit_suppresses_in_progress_clock_entries() {
+        // A running clock (no ended_at) doesn't emit a CLOCK
+        // line. The :LOGBOOK: drawer itself is suppressed when
+        // there are no closed entries to write.
+        use super::super::parse::OrgClockEntry;
+        let started = chrono::DateTime::parse_from_rfc3339("2026-05-15T09:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let mut task = super::super::parse::OrgTask::default_test_node(1);
+        task.title = "Plan".to_string();
+        task.keyword = Some(super::super::parse::OrgKeyword::Todo);
+        task.clock_entries.push(OrgClockEntry {
+            started,
+            ended: None,
+            note: String::new(),
+        });
+        let emitted = emit_org_text(&[task]);
+        assert!(
+            !emitted.contains(":LOGBOOK:"),
+            "in-progress entry should suppress the whole drawer; got:\n{emitted}"
+        );
+        assert!(
+            !emitted.contains("CLOCK:"),
+            "in-progress entry should not emit a CLOCK line; got:\n{emitted}"
+        );
+    }
+
+    #[test]
+    fn emit_logbook_only_emits_closed_entries() {
+        use super::super::parse::OrgClockEntry;
+        let started_open = chrono::DateTime::parse_from_rfc3339("2026-05-16T08:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let started_closed = chrono::DateTime::parse_from_rfc3339("2026-05-15T09:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let ended_closed = chrono::DateTime::parse_from_rfc3339("2026-05-15T11:30:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let mut task = super::super::parse::OrgTask::default_test_node(1);
+        task.title = "Plan".to_string();
+        task.keyword = Some(super::super::parse::OrgKeyword::Todo);
+        task.clock_entries.push(OrgClockEntry {
+            started: started_closed,
+            ended: Some(ended_closed),
+            note: String::new(),
+        });
+        task.clock_entries.push(OrgClockEntry {
+            started: started_open,
+            ended: None,
+            note: String::new(),
+        });
+        let emitted = emit_org_text(&[task]);
+        // Drawer present (closed entry exists).
+        assert!(emitted.contains(":LOGBOOK:"));
+        // Exactly one CLOCK line — the open one was suppressed.
+        assert_eq!(
+            emitted.matches("CLOCK:").count(),
+            1,
+            "expected exactly one CLOCK line; got:\n{emitted}"
+        );
+    }
+
+    // v0.19.0 — Phase 18.5 Tier-2 SCHEDULED time-of-day emit.
+    #[test]
+    fn roundtrip_scheduled_with_time() {
+        let input = "* TODO Standup\nSCHEDULED: <2026-05-15 Fri 09:00>\n";
+        let first = super::super::parse::parse_org_text(input);
+        let emitted = emit_org_text(&first);
+        assert!(emitted.contains("09:00"), "expected 09:00 in:\n{emitted}");
+        let second = super::super::parse::parse_org_text(&emitted);
+        assert_eq!(first[0].scheduled_time, second[0].scheduled_time);
+    }
+
+    #[test]
+    fn roundtrip_scheduled_with_time_and_repeater() {
+        let input = "* TODO Daily\nSCHEDULED: <2026-05-15 Fri 09:00 +1d>\n";
+        let first = super::super::parse::parse_org_text(input);
+        let emitted = emit_org_text(&first);
+        // Both pieces present in the canonical order: time
+        // before repeater.
+        assert!(
+            emitted.contains("09:00 +1d"),
+            "expected `09:00 +1d` in:\n{emitted}"
+        );
+        let second = super::super::parse::parse_org_text(&emitted);
+        assert_eq!(first[0].scheduled_time, second[0].scheduled_time);
+        assert_eq!(first[0].scheduled_repeater, second[0].scheduled_repeater);
     }
 
     #[test]

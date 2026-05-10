@@ -19,6 +19,7 @@ pub mod inline_complete;
 pub mod inspector;
 pub mod inspector_pane;
 pub mod logbook;
+pub mod preferences;
 pub mod review;
 pub mod shortcuts;
 pub mod tag_editor;

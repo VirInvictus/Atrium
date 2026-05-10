@@ -144,6 +144,31 @@ OmniFocus superset. Every Builder column lives in v0.1 schema; only some are exp
 | `last_reviewed_at` | TEXT NULL | Task-level Mark Reviewed timestamp; Phase 13 (v0.7.4) — column added via `0006_task_last_reviewed_at.sql` |
 | `orig_keyword` | TEXT NULL | Phase 16 round-trip anchor for non-canonical Org keywords (`WAITING`, `BLOCKED`, etc.); v0.7.12 — column added via `0007_task_orig_keyword.sql` |
 | `deadline_warn_days` | INTEGER NULL | Per-task override on `TODAY_DEADLINE_WINDOW_DAYS`; round-trips to / from the Org `-Nd` warning suffix on the DEADLINE cookie. Phase 18.5 Tier-1 (v0.14.0) — column added via `0008_task_deadline_warn_days.sql` |
+| `scheduled_time` | TEXT NULL | `HH:MM` companion to `scheduled_for`; only meaningful when scheduled is a Date (Someday + None ignore the column). Round-trips to / from the time portion of the Org SCHEDULED active timestamp (`<2026-05-15 Wed 14:00>`). Phase 18.5 Tier-2 (v0.19.0) — column added via `0011_task_scheduled_time.sql`. |
+| `reminder_at` | TEXT NULL | RFC 3339 UTC timestamp; when present and `<= now()` and the task is open, the GUI's reminder service fires a `gio::Notification`. Companion partial index `idx_task_reminder_at_open` covers open future reminders only. Phase 19.5 (v0.20.0) — column added via `0012_task_reminder_at.sql`. |
+
+**`quick_entry_template`** (Phase 18.5 Tier-1, v0.18.0) — pre-filled capture recipes surfaced in the Quick Entry modal as a picker bar. Closes the gap between Atrium's single Quick Entry shape and Org-capture-template multiplicity.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | rowid |
+| `name` | TEXT NOT NULL UNIQUE | user-facing label, shown in the picker |
+| `shortcut_key` | TEXT NULL UNIQUE | single ASCII alphanumeric character; typing `:c ` in the modal activates the template (Emacs `org-capture` convention) |
+| `target_project_id` | INTEGER NULL FK → project ON DELETE SET NULL | where new captures route; NULL = Inbox |
+| `prefix` | TEXT NOT NULL DEFAULT '' | text prepended to the entry's title before parsing |
+| `default_tags` | TEXT NOT NULL DEFAULT '[]' | JSON array of tag names attached to every capture |
+| `position` | REAL NOT NULL | display order in the picker |
+| `created_at`, `modified_at` | | trigger-maintained, same `WHEN OLD = NEW` pattern as elsewhere |
+
+**`task_clock_entry`** (Phase 18.5 Tier-1, v0.17.0) — actual-time tracking, distinct from `task.estimated_minutes` (intent). Round-trips to / from Org's `:LOGBOOK:` drawer.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | rowid |
+| `task_id` | INTEGER NOT NULL FK → task ON DELETE CASCADE | entries die with their task |
+| `started_at` | TEXT NOT NULL | ISO datetime |
+| `ended_at` | TEXT NULL | NULL = clock still running. The single-active-clock invariant — at most one row across the entire table has NULL `ended_at` at any time — is enforced by the worker, not by a partial unique index (the constraint can't be expressed cleanly in SQL without a check trigger we'd rather not maintain) |
+| `note` | TEXT NOT NULL DEFAULT '' | per-session free-form text; matches Org's CLOCK trailing-text convention |
 | `created_at` | TEXT NOT NULL | ISO datetime |
 | `modified_at` | TEXT NOT NULL | ISO datetime, trigger-maintained |
 | `position` | REAL NOT NULL | for ordering within parent |
@@ -506,6 +531,9 @@ Each `.org` file is one project. The file's `#+TITLE:` line carries the project 
 | Statistics cookie on parent | `[done/total]` or `[N%]` between title and tags; recomputed at emit from DB state, source shape (counter vs percent) preserved across round-trip. Counts immediate child TODOs + body checkboxes (mirrors `org-checkbox-hierarchical-statistics`). v0.15.0 — Phase 18.5 Tier-1. |
 | Body inline checkbox | `- [ ]` / `- [X]` / `- [-]` lines in the note body. Verbatim round-trip; the Inspector renders interactive toggles that rewrite the body string in place. v0.15.0 — Phase 18.5 Tier-2. |
 | Custom TODO sequence | `#+TODO: STATE1 STATE2 \| DONE1 DONE2` preamble per project file, sourced from the vault sidecar's `[[todo_sequences]]` slot. The watcher maps sequence-configured done keywords to Atrium's DONE state (preserving the source label via `task.orig_keyword`); workflow keywords stay open with the same preservation. Out-of-set keywords surface a `VaultEvent::UnknownKeyword` toast and stash via the existing Custom path. v0.16.0 — Phase 18.5 Tier-1. |
+| `task_clock_entry` rows | `:LOGBOOK:` ... `:END:` drawer with `CLOCK: [start]--[end] => HH:MM` lines. Closed entries round-trip; in-progress entries are deliberately suppressed by the writer to avoid file churn while the clock runs (the next clock-out flushes). Timestamps treated as UTC (matches the existing CLOSED-cookie convention; users in non-UTC zones see UTC clock times in the file). Custom drawer lines that aren't CLOCK round-trip verbatim via `OrgTask.logbook_unknown_lines`. v0.17.0 — Phase 18.5 Tier-1. |
+| Inter-task link in body | `[[id:UUID]]` (label-less) or `[[id:UUID][label]]` (with display text). Bodies round-trip verbatim via the existing `OrgTask.body` field; the Inspector renders matching spans as clickable links that focus the linked task on click (stale UUIDs no-op silently). v0.19.0 — Phase 18.5 Tier-2. |
+| `scheduled_time` | Time portion of the Org SCHEDULED active timestamp (`<DATE Day HH:MM>`); when present, slotted between the day name and any repeater / warning suffix in canonical order. v0.19.0 — Phase 18.5 Tier-2. |
 | `completed_at` | `CLOSED:` cookie |
 | `defer_until` | `:DEFER_UNTIL:` property |
 | `estimated_minutes` | `Effort` property (Org-standard) |

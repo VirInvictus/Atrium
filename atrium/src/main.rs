@@ -11,6 +11,7 @@
 mod debug;
 mod error;
 mod quickentry;
+mod reminders;
 mod ui;
 
 use std::sync::OnceLock;
@@ -119,6 +120,14 @@ fn connect_startup(app: &adw::Application) {
         info!(font_files_present = installed, "typography ready");
         ui::typography::apply_bundled_stylesheet();
         ui::typography::register_icon_search_paths();
+        // v0.20.0 — Phase 19.5 boot-time theme apply. Reads
+        // the persisted `theme` GSetting and pushes it into the
+        // Adwaita StyleManager so the user's pinned scheme
+        // takes effect on every launch (not just after they
+        // re-open Preferences).
+        let settings = gio::Settings::new(atrium_core::APP_ID);
+        let theme = settings.string("theme");
+        ui::preferences::apply_theme(&theme);
     });
 }
 
@@ -134,7 +143,12 @@ fn connect_activate(app: &adw::Application, debug: bool) {
 
         match boot_data_layer() {
             Ok(booted) => {
-                win.attach_data_layer(booted.handle, booted.pool);
+                win.attach_data_layer(booted.handle, booted.pool.clone());
+                // v0.20.0 — Phase 19.5 reminder service. Spawn
+                // before `bridge_task_changes` so the bridge can
+                // wake the service on each batch.
+                let reminders = reminders::spawn(booted.pool, app.clone().upcast());
+                win.attach_reminder_service(reminders);
                 bridge_task_changes(booted.task_changes_rx, &win);
                 bridge_library_changes(booted.library_changes_rx, &win);
                 if let Some(rx) = booted.vault_events_rx {
@@ -414,6 +428,11 @@ fn bridge_task_changes(mut rx: mpsc::UnboundedReceiver<TaskChanges>, window: &At
                 "TaskChanges arrived on UI thread"
             );
             win.apply_task_changes(&changes);
+            // v0.20.0 — wake the reminder service so newly-set
+            // reminders take effect immediately. The service
+            // re-queries `next_pending_reminder` and adjusts
+            // its sleep timer.
+            win.wake_reminder_service();
         }
         tracing::info!("worker changes channel closed; UI bridge exiting");
     });
@@ -515,6 +534,7 @@ fn bridge_vault_events(
 fn install_actions(app: &adw::Application, debug: bool) {
     install_quit_action(app);
     install_about_action(app);
+    install_preferences_action(app);
     install_mode_action(app);
     install_new_task_action(app);
     install_new_area_action(app);
@@ -524,10 +544,57 @@ fn install_actions(app: &adw::Application, debug: bool) {
     install_search_action(app);
     install_show_list_action(app);
     install_show_shortcuts_action(app);
+    install_show_task_action(app);
     if debug {
         install_fixture_action(app);
         install_memory_watch_action(app);
     }
+}
+
+/// v0.20.0 — Phase 19.5 `app.show-task::ID` parameterised
+/// action. Wired by the reminder service: clicking a fired
+/// notification activates this with the target task's id.
+/// Routes through the existing `open_inspector_for(id)` path.
+fn install_show_task_action(app: &adw::Application) {
+    let action = gio::SimpleAction::new("show-task", Some(&i64::static_variant_type()));
+    action.connect_activate(clone!(
+        #[weak]
+        app,
+        move |_, param| {
+            let Some(task_id) = param.and_then(|p| p.get::<i64>()) else {
+                return;
+            };
+            // Bring the window to the front so the user sees
+            // the inspector after clicking the notification.
+            let Some(window) = app.active_window() else {
+                return;
+            };
+            window.present();
+            if let Some(win) = window.downcast_ref::<crate::ui::window::AtriumWindow>() {
+                win.open_inspector_for(task_id);
+            }
+        }
+    ));
+    app.add_action(&action);
+}
+
+/// v0.20.0 — Phase 19.5 `app.preferences` action. Opens the
+/// AdwPreferencesWindow anchored to the active window. Wired
+/// to the primary menu's "Preferences…" entry; also accel-bound
+/// in `install_keyboard_accels`.
+fn install_preferences_action(app: &adw::Application) {
+    let action = gio::SimpleAction::new("preferences", None);
+    action.connect_activate(clone!(
+        #[weak]
+        app,
+        move |_, _| {
+            let Some(window) = app.active_window() else {
+                return;
+            };
+            crate::ui::preferences::open(&window);
+        }
+    ));
+    app.add_action(&action);
 }
 
 fn install_memory_watch_action(app: &adw::Application) {
@@ -572,6 +639,9 @@ fn install_accels(app: &adw::Application) {
     app.set_accels_for_action("app.quit", &["<Primary>q"]);
     app.set_accels_for_action("app.new-task", &["<Primary>n"]);
     app.set_accels_for_action("app.show-shortcuts", &["<Primary>question", "F1"]);
+    // v0.20.0 — Phase 19.5 preferences accel. GNOME convention is
+    // <Primary>comma; Apple-on-macOS users will recognise it too.
+    app.set_accels_for_action("app.preferences", &["<Primary>comma"]);
     // Quick Entry — in-app accelerator. Phase 20 adds the OS-global
     // listener via `atriumd`; for now the shortcut only fires while
     // Atrium is the focused application.
