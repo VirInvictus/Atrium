@@ -57,7 +57,7 @@ Four forces converge here.
   <img src="docs/Screenshots/Upcoming%20View%20-%20Simple%20Mode.png" alt="Upcoming View — Simple Mode" width="820">
 </p>
 
-*Upcoming, Simple Mode — the next 30 days as a When-axis read.*
+*Upcoming, Simple Mode — the next 7 days as a When-axis read.*
 
 <p align="center">
   <img src="docs/Screenshots/Upcoming%20View%20-%20Builder%20Mode.png" alt="Upcoming View — Builder Mode" width="820">
