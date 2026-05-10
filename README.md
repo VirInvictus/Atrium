@@ -41,27 +41,41 @@ Four forces converge here.
 
 ## Screenshots
 
-<!-- TODO: capture screenshots against a populated demo library. Suggested set
-     for the README header (v0.8.0 reality):
+<p align="center">
+  <img src="docs/Screenshots/Today%20View%20-%20Simple%20Mode.png" alt="Today View — Simple Mode" width="820">
+</p>
 
-       1. Today view in Simple Mode — coloured #tag pills, Area › Project
-          chip on each row, per-area row-left accent stripe, state-aware
-          row treatment (overdue red / today amber / upcoming accent).
-       2. Builder Mode with the Inspector pane open — repeat-rule editor,
-          defer date, tag picker, check-off button.
-       3. Forecast view with day cards, Today indicator, and overdue block.
-       4. Agenda canonical page — Overdue / Today / Tomorrow / This Week /
-          Next Week sections.
-       5. A kanban Perspective (Slice D1) with three columns + drag-drop.
-       6. Review canonical page — *Projects to review* + *This week*.
-       7. Search bar with the operator popover open.
-       8. atrium-cli running in a terminal — list today, search, info,
-          import org, export json.
+*Today, Simple Mode — six canonical lists, coloured `#tag` pills, the Area › Project context chip on each row, the per-area row-left accent stripe.*
 
-     Drop the PNGs into `docs/screenshots/` and reference them from this section.
--->
+<p align="center">
+  <img src="docs/Screenshots/Today%20View%20-%20Builder%20Mode.png" alt="Today View — Builder Mode" width="820">
+</p>
 
-*Screenshots are a remaining Phase 8 / 9 carryover — see `roadmap.md`.*
+*Today, Builder Mode — same data, same row, with the always-visible Inspector pane exposing the Builder fields Simple Mode hides (defer dates, repeat rules, review intervals).*
+
+<p align="center">
+  <img src="docs/Screenshots/Upcoming%20View%20-%20Simple%20Mode.png" alt="Upcoming View — Simple Mode" width="820">
+</p>
+
+*Upcoming, Simple Mode — the next 30 days as a When-axis read.*
+
+<p align="center">
+  <img src="docs/Screenshots/Upcoming%20View%20-%20Builder%20Mode.png" alt="Upcoming View — Builder Mode" width="820">
+</p>
+
+*Upcoming, Builder Mode — defer-aware filtering, sequential-project dimming, Inspector pane open.*
+
+<p align="center">
+  <img src="docs/Screenshots/Project%20View.png" alt="Project View" width="820">
+</p>
+
+*Project page — area accent paints the row-left stripe; the breadcrumb in the header anchors `Area › Project`.*
+
+<p align="center">
+  <img src="docs/Screenshots/Logbook.png" alt="Logbook" width="820">
+</p>
+
+*Logbook — completed tasks grouped by day-band (v0.5.0).*
 
 ## Simple Mode (shipping)
 
