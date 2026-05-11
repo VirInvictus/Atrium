@@ -42,18 +42,21 @@ use chrono::{Local, NaiveDate};
 use rusqlite::{Connection, OpenFlags};
 
 mod args;
+mod clock;
 mod import;
 mod output;
+mod template;
 
 #[cfg(test)]
 mod tests;
 
 use args::{
     AddArgs, ClockSub, EditArgs, EditIcon, EditProject, ExportSource, Format, ImportSource,
-    PerspectiveArgs, PerspectiveSub, Subcommand, TargetSpec, TemplateArgs, TemplateSub,
-    VaultSequencesOp,
+    PerspectiveArgs, PerspectiveSub, Subcommand, TargetSpec, TemplateSub, VaultSequencesOp,
 };
+use clock::{run_clock_in, run_clock_log, run_clock_out, run_clock_status};
 use output::{Row, format_row, format_rows, format_task_detail};
+use template::{run_template_add, run_template_edit, run_template_list, run_template_remove};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -721,459 +724,6 @@ fn json_string(s: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-/// v0.17.0 — `atrium-cli clock` (no args / `clock status`) —
-/// print the currently-running clock entry across the DB.
-/// Single-active-clock invariant means at most one row will
-/// appear; output is "(no clock running)" when none.
-fn run_clock_status(conn: &Connection, format: Format) -> CliResult<()> {
-    let active = atrium_core::db::read::active_clock(conn).map_err(CliError::from)?;
-    let Some((task_id, started_at)) = active else {
-        if matches!(format, Format::Human | Format::Tsv) {
-            println!("(no clock running)");
-        } else {
-            println!("null");
-        }
-        return Ok(());
-    };
-    // Resolve the task title for human / TSV output.
-    let title = atrium_core::db::read::task_by_id(conn, task_id)
-        .map_err(CliError::from)?
-        .map(|t| t.title)
-        .unwrap_or_default();
-    match format {
-        Format::Human => {
-            let started_local = started_at.with_timezone(&chrono::Local);
-            println!(
-                "running: {title} (id {task_id}, since {})",
-                started_local.format("%Y-%m-%d %H:%M")
-            );
-        }
-        Format::Tsv => {
-            println!("task_id\ttitle\tstarted_at");
-            println!(
-                "{task_id}\t{title}\t{}",
-                started_at.format("%Y-%m-%dT%H:%M:%SZ")
-            );
-        }
-        Format::Json => {
-            println!(
-                "{{\"task_id\":{task_id},\"title\":\"{}\",\"started_at\":\"{}\"}}",
-                title.replace('\\', "\\\\").replace('"', "\\\""),
-                started_at.format("%Y-%m-%dT%H:%M:%SZ")
-            );
-        }
-    }
-    Ok(())
-}
-
-/// v0.17.0 — `atrium-cli clock log <task_id>` — print all clock
-/// entries for a task. Newest-first per `list_clock_entries`.
-fn run_clock_log(conn: &Connection, task_id: i64, format: Format) -> CliResult<()> {
-    let entries =
-        atrium_core::db::read::list_clock_entries(conn, task_id).map_err(CliError::from)?;
-    match format {
-        Format::Tsv => {
-            println!("id\ttask_id\tstarted_at\tended_at\tduration_minutes\tnote");
-            for e in &entries {
-                let ended = e
-                    .ended_at
-                    .map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-                    .unwrap_or_default();
-                let duration = e
-                    .duration_minutes()
-                    .map(|m| m.to_string())
-                    .unwrap_or_default();
-                println!(
-                    "{}\t{}\t{}\t{}\t{}\t{}",
-                    e.id,
-                    e.task_id,
-                    e.started_at.format("%Y-%m-%dT%H:%M:%SZ"),
-                    ended,
-                    duration,
-                    e.note.replace(['\t', '\n'], " ")
-                );
-            }
-        }
-        Format::Json => {
-            print!("[");
-            for (i, e) in entries.iter().enumerate() {
-                if i > 0 {
-                    print!(",");
-                }
-                let ended = match e.ended_at {
-                    Some(t) => format!("\"{}\"", t.format("%Y-%m-%dT%H:%M:%SZ")),
-                    None => "null".to_string(),
-                };
-                print!(
-                    "{{\"id\":{},\"task_id\":{},\"started_at\":\"{}\",\"ended_at\":{},\"note\":\"{}\"}}",
-                    e.id,
-                    e.task_id,
-                    e.started_at.format("%Y-%m-%dT%H:%M:%SZ"),
-                    ended,
-                    e.note.replace('\\', "\\\\").replace('"', "\\\"")
-                );
-            }
-            println!("]");
-        }
-        Format::Human => {
-            if entries.is_empty() {
-                println!("(no clock entries)");
-                return Ok(());
-            }
-            let total: i64 = entries
-                .iter()
-                .filter_map(atrium_core::TaskClockEntry::duration_minutes)
-                .sum();
-            let h = total / 60;
-            let m = total % 60;
-            println!("# total: {h}:{m:02}");
-            for e in &entries {
-                let started_local = e.started_at.with_timezone(&chrono::Local);
-                match e.duration_minutes() {
-                    Some(d) => {
-                        let h = d / 60;
-                        let m = d % 60;
-                        let note = if e.note.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" — {}", e.note)
-                        };
-                        println!(
-                            "  {h}:{m:02}  {}{note}",
-                            started_local.format("%a %b %-d %H:%M")
-                        );
-                    }
-                    None => {
-                        let note = if e.note.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" — {}", e.note)
-                        };
-                        println!(
-                            "  running  started {}{note}",
-                            started_local.format("%a %b %-d %H:%M")
-                        );
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-/// v0.17.0 — `atrium-cli clock in <task_id> [--note TEXT]`.
-/// Single-active-clock invariant — opens auto-close any other
-/// running clock first.
-fn run_clock_in(
-    runtime: &tokio::runtime::Runtime,
-    handle: &atrium_core::WorkerHandle,
-    task_id: i64,
-    note: String,
-    format: Format,
-) -> CliResult<()> {
-    let entry = runtime
-        .block_on(async { handle.clock_in(task_id, note).await })
-        .map_err(CliError::from)?;
-    match format {
-        Format::Human => {
-            let started_local = entry.started_at.with_timezone(&chrono::Local);
-            println!(
-                "clocked in on task {task_id} at {}",
-                started_local.format("%H:%M")
-            );
-        }
-        Format::Tsv | Format::Json => {
-            // Reuse log printer for one entry.
-            print_one_entry(&entry, format);
-        }
-    }
-    Ok(())
-}
-
-/// v0.17.0 — `atrium-cli clock out <task_id>`. Soft no-op when
-/// the task has no running clock.
-fn run_clock_out(
-    runtime: &tokio::runtime::Runtime,
-    handle: &atrium_core::WorkerHandle,
-    task_id: i64,
-    format: Format,
-) -> CliResult<()> {
-    let result = runtime
-        .block_on(async { handle.clock_out(task_id).await })
-        .map_err(CliError::from)?;
-    match (result, format) {
-        (None, Format::Human) => println!("(no clock was running on task {task_id})"),
-        (None, Format::Tsv | Format::Json) => println!(),
-        (Some(entry), Format::Human) => {
-            let mins = entry.duration_minutes().unwrap_or(0);
-            let h = mins / 60;
-            let m = mins % 60;
-            println!("clocked out task {task_id} after {h}:{m:02}");
-        }
-        (Some(entry), fmt) => print_one_entry(&entry, fmt),
-    }
-    Ok(())
-}
-
-fn print_one_entry(entry: &atrium_core::TaskClockEntry, format: Format) {
-    match format {
-        Format::Tsv => {
-            let ended = entry
-                .ended_at
-                .map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-                .unwrap_or_default();
-            let duration = entry
-                .duration_minutes()
-                .map(|m| m.to_string())
-                .unwrap_or_default();
-            println!("id\ttask_id\tstarted_at\tended_at\tduration_minutes\tnote");
-            println!(
-                "{}\t{}\t{}\t{}\t{}\t{}",
-                entry.id,
-                entry.task_id,
-                entry.started_at.format("%Y-%m-%dT%H:%M:%SZ"),
-                ended,
-                duration,
-                entry.note.replace(['\t', '\n'], " ")
-            );
-        }
-        Format::Json => {
-            let ended = match entry.ended_at {
-                Some(t) => format!("\"{}\"", t.format("%Y-%m-%dT%H:%M:%SZ")),
-                None => "null".to_string(),
-            };
-            println!(
-                "{{\"id\":{},\"task_id\":{},\"started_at\":\"{}\",\"ended_at\":{},\"note\":\"{}\"}}",
-                entry.id,
-                entry.task_id,
-                entry.started_at.format("%Y-%m-%dT%H:%M:%SZ"),
-                ended,
-                entry.note.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-        }
-        Format::Human => {
-            // The caller prints a friendlier line; this is the
-            // fallback for direct callers.
-            println!("{entry:?}");
-        }
-    }
-}
-
-/// v0.18.0 — Phase 18.5 Tier-1 `atrium-cli template list`.
-/// Reads the configured templates and prints them in TSV / JSON
-/// / human format. Empty result set surfaces as "(no templates
-/// configured)" in human; empty array / no rows in TSV/JSON.
-fn run_template_list(conn: &Connection, format: Format) -> CliResult<()> {
-    let templates =
-        atrium_core::db::read::list_quick_entry_templates(conn).map_err(CliError::from)?;
-    match format {
-        Format::Human => {
-            if templates.is_empty() {
-                println!("(no templates configured)");
-                return Ok(());
-            }
-            for t in &templates {
-                let shortcut = t
-                    .shortcut_key
-                    .as_deref()
-                    .map(|k| format!("[{k}] "))
-                    .unwrap_or_default();
-                println!("{shortcut}{}", t.name);
-                if !t.prefix.is_empty() {
-                    println!("  prefix: {}", t.prefix);
-                }
-                if let Some(pid) = t.target_project_id
-                    && let Ok(Some(p)) = atrium_core::db::read::project_by_id(conn, pid)
-                {
-                    println!("  project: {}", p.title);
-                }
-                if !t.default_tags.is_empty() {
-                    println!("  tags: {}", t.default_tags.join(" "));
-                }
-            }
-        }
-        Format::Tsv => {
-            println!("id\tname\tshortcut\tproject_id\tprefix\tdefault_tags");
-            for t in &templates {
-                println!(
-                    "{}\t{}\t{}\t{}\t{}\t{}",
-                    t.id,
-                    t.name,
-                    t.shortcut_key.as_deref().unwrap_or(""),
-                    t.target_project_id
-                        .map(|i| i.to_string())
-                        .unwrap_or_default(),
-                    t.prefix.replace(['\t', '\n'], " "),
-                    t.default_tags.join(",")
-                );
-            }
-        }
-        Format::Json => {
-            print!("[");
-            for (i, t) in templates.iter().enumerate() {
-                if i > 0 {
-                    print!(",");
-                }
-                let shortcut = match &t.shortcut_key {
-                    Some(k) => format!("\"{}\"", json_escape(k)),
-                    None => "null".to_string(),
-                };
-                let project = match t.target_project_id {
-                    Some(p) => p.to_string(),
-                    None => "null".to_string(),
-                };
-                let tags_json = t
-                    .default_tags
-                    .iter()
-                    .map(|tag| format!("\"{}\"", json_escape(tag)))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                print!(
-                    "{{\"id\":{},\"name\":\"{}\",\"shortcut\":{},\"target_project_id\":{},\"prefix\":\"{}\",\"default_tags\":[{}]}}",
-                    t.id,
-                    json_escape(&t.name),
-                    shortcut,
-                    project,
-                    json_escape(&t.prefix),
-                    tags_json
-                );
-            }
-            println!("]");
-        }
-    }
-    Ok(())
-}
-
-/// v0.18.0 — `template add NAME [...]`. Resolves project name
-/// to id via the standard prefix-match. Validates shortcut at
-/// parse time (worker also validates; we just want a clear
-/// error message before the worker round-trip).
-fn run_template_add(
-    runtime: &tokio::runtime::Runtime,
-    handle: &atrium_core::WorkerHandle,
-    conn: &Connection,
-    args: TemplateArgs,
-    format: Format,
-) -> CliResult<()> {
-    let name = args
-        .name
-        .ok_or_else(|| CliError::Args("name required".into()))?;
-    let target_project_id = match args.project.as_deref() {
-        Some(s) => Some(resolve_project_id(conn, s)?),
-        None => None,
-    };
-    let new = atrium_core::NewQuickEntryTemplate {
-        name,
-        shortcut_key: args.shortcut,
-        target_project_id,
-        prefix: args.prefix.unwrap_or_default(),
-        default_tags: args.tags,
-    };
-    let template = runtime
-        .block_on(async { handle.create_quick_entry_template(new).await })
-        .map_err(CliError::from)?;
-    if matches!(format, Format::Human) {
-        println!("created template: {}", template.name);
-    }
-    Ok(())
-}
-
-/// v0.18.0 — `template edit NAME [--rename NEW] [...]`. Looks
-/// the template up by case-insensitive name match; rejects on
-/// no-match (less surprising than silent no-op).
-fn run_template_edit(
-    runtime: &tokio::runtime::Runtime,
-    handle: &atrium_core::WorkerHandle,
-    conn: &Connection,
-    name: &str,
-    args: TemplateArgs,
-    format: Format,
-) -> CliResult<()> {
-    let target = find_template_by_name(conn, name)?;
-    let mut update = atrium_core::QuickEntryTemplateUpdate::new(target.id);
-    if let Some(rename) = args.rename {
-        update = update.name(rename);
-    }
-    if let Some(shortcut) = args.shortcut {
-        update = if shortcut.eq_ignore_ascii_case("none") {
-            update.shortcut_key(None)
-        } else {
-            update.shortcut_key(Some(shortcut))
-        };
-    }
-    if let Some(project) = args.project {
-        update = if project.eq_ignore_ascii_case("none") || project.eq_ignore_ascii_case("inbox") {
-            update.target_project_id(None)
-        } else {
-            let pid = resolve_project_id(conn, &project)?;
-            update.target_project_id(Some(pid))
-        };
-    }
-    if let Some(prefix) = args.prefix {
-        update = update.prefix(prefix);
-    }
-    if !args.tags.is_empty() {
-        update = update.default_tags(args.tags);
-    }
-    runtime
-        .block_on(async { handle.update_quick_entry_template(update).await })
-        .map_err(CliError::from)?;
-    if matches!(format, Format::Human) {
-        println!("updated template: {name}");
-    }
-    Ok(())
-}
-
-/// v0.18.0 — `template remove NAME`. Case-insensitive lookup.
-fn run_template_remove(
-    runtime: &tokio::runtime::Runtime,
-    handle: &atrium_core::WorkerHandle,
-    conn: &Connection,
-    name: &str,
-) -> CliResult<()> {
-    let target = find_template_by_name(conn, name)?;
-    runtime
-        .block_on(async { handle.delete_quick_entry_template(target.id).await })
-        .map_err(CliError::from)?;
-    println!("removed template: {name}");
-    Ok(())
-}
-
-fn find_template_by_name(
-    conn: &Connection,
-    name: &str,
-) -> CliResult<atrium_core::QuickEntryTemplate> {
-    let templates =
-        atrium_core::db::read::list_quick_entry_templates(conn).map_err(CliError::from)?;
-    templates
-        .into_iter()
-        .find(|t| t.name.eq_ignore_ascii_case(name))
-        .ok_or_else(|| CliError::Args(format!("no template matches name {name:?}")))
-}
-
-/// Resolve a project name (case-insensitive prefix match) to id.
-/// Returns the only match, or errors on zero or multiple matches.
-fn resolve_project_id(conn: &Connection, name: &str) -> CliResult<i64> {
-    let projects = atrium_core::db::read::list_projects(conn).map_err(CliError::from)?;
-    let needle = name.to_ascii_lowercase();
-    let matches: Vec<_> = projects
-        .iter()
-        .filter(|p| p.title.to_ascii_lowercase().contains(&needle))
-        .collect();
-    match matches.len() {
-        0 => Err(CliError::Args(format!("no project matches {name:?}"))),
-        1 => Ok(matches[0].id),
-        _ => Err(CliError::Args(format!(
-            "multiple projects match {name:?}: {}",
-            matches
-                .iter()
-                .map(|p| p.title.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ))),
-    }
-}
-
 /// v0.16.0 — Phase 18.5 Tier-1 `atrium-cli vault sequences …`.
 /// Manipulates the vault sidecar's `[[todo_sequences]]` slot
 /// directly via the sidecar helpers; no DB round-trip required.
@@ -1274,7 +824,7 @@ fn print_todo_sequences(sequences: &[atrium_org::sidecar::TodoSequenceEntry], fo
     }
 }
 
-fn json_escape(s: &str) -> String {
+pub(crate) fn json_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
@@ -2551,7 +2101,7 @@ impl ContextData {
 // ── error / result plumbing ────────────────────────────────────────
 
 #[derive(Debug)]
-enum CliError {
+pub(crate) enum CliError {
     Args(String),
     Search(String),
     Db(atrium_core::DbError),
@@ -2581,7 +2131,7 @@ impl std::fmt::Display for CliError {
     }
 }
 
-type CliResult<T> = Result<T, CliError>;
+pub(crate) type CliResult<T> = Result<T, CliError>;
 
 trait UnwrapOrExitCode {
     fn unwrap_or_exit_code(self) -> ExitCode;

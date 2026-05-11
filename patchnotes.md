@@ -20,6 +20,15 @@ The deeper pass added: `cargo clippy -W clippy::pedantic` (909 raw warnings, ~25
 - **Reminder service `Utc::now()` consolidation.** Loop iteration captures one `now` for the lookup + sleep-window calculation rather than calling `Utc::now()` three times. The post-sleep re-check still needs a fresh timestamp (the outer `now` is from before the sleep) — that one stays.
 - **Targeted clippy pedantic sweep.** Auto-fixed via `cargo clippy --fix`: 27 `format!("{}", x)` → `format!("{x}")` modernizations, 22 redundant closures (`|x| f(x)` → `f`), 18 `map().unwrap_or()` → `map_or()`, 8 `match`-as-`let-else` rewrites. Touched 24 files; no behaviour changes; clippy `-D warnings` still green.
 
+#### `atrium-cli/src/main.rs` partial split
+
+`atrium-cli/src/main.rs` (2604 lines, 76 functions). Pulled out the two most isolated subcommand surfaces:
+
+- `atrium-cli/src/clock.rs` (245 lines) — `clock status / log / in / out` + `print_one_entry`
+- `atrium-cli/src/template.rs` (217 lines) — `template list / add / edit / remove` + `find_template_by_name` + `resolve_project_id`
+
+`main.rs` is now 2155 lines (saved 449). `CliError`, `CliResult`, `json_escape` promoted to `pub(crate)` so sub-modules can use them. Dispatch sites in `main.rs` unchanged — sub-module exports re-imported by name via `use clock::*` / `use template::*` (explicit list). The remaining `perspective` / `export` / `import` orchestration stays in `main.rs` for now (later extraction passes can pull more out).
+
 #### `read.rs` partial split
 
 `atrium-core/src/db/read.rs` (2288 lines, second-largest in `atrium-core`). Converted to a `read/` directory with four sub-modules carved out:

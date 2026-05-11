@@ -725,7 +725,6 @@ pub(super) fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
     })
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
