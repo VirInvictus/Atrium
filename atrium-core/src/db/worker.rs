@@ -517,6 +517,114 @@ impl Worker {
             });
         }
     }
+
+    // ── Dispatch-side delta helpers (v0.21.0 maintenance) ────────
+    //
+    // The `handle()` dispatch loop used to inline a 5-7 line
+    // "send delta + maybe notify dirty" body per Command arm,
+    // repeated for every Create / Update / Delete across Task,
+    // Area, Project, Tag, Perspective. The repetition was
+    // mechanical — same shape, different field name. These
+    // helpers factor out the per-kind work so each dispatch arm
+    // is one logical line.
+
+    /// Send a `TaskChanges{created}` delta and notify the task's
+    /// project dirty (if any). The standard "created a new task"
+    /// post-write step.
+    fn emit_task_created(&self, task: &Task) {
+        let _ = self.changes_tx.send(TaskChanges {
+            created: vec![task.clone()],
+            ..Default::default()
+        });
+        if let Some(pid) = task.project_id {
+            self.notify_project_dirty(pid);
+        }
+    }
+
+    /// Send a `TaskChanges{updated}` delta and notify the task's
+    /// project dirty (if any). The standard "edited a task"
+    /// post-write step.
+    fn emit_task_updated(&self, task: &Task) {
+        let _ = self.changes_tx.send(TaskChanges {
+            updated: vec![task.clone()],
+            ..Default::default()
+        });
+        if let Some(pid) = task.project_id {
+            self.notify_project_dirty(pid);
+        }
+    }
+
+    fn emit_area_created(&self, area: &Area) {
+        let _ = self.library_tx.send(LibraryChanges {
+            areas_created: vec![area.clone()],
+            ..Default::default()
+        });
+    }
+
+    fn emit_area_updated(&self, area: &Area) {
+        let _ = self.library_tx.send(LibraryChanges {
+            areas_updated: vec![area.clone()],
+            ..Default::default()
+        });
+    }
+
+    fn emit_project_created(&self, project: &Project) {
+        let _ = self.library_tx.send(LibraryChanges {
+            projects_created: vec![project.clone()],
+            ..Default::default()
+        });
+        self.notify_project_dirty(project.id);
+    }
+
+    fn emit_project_updated(&self, project: &Project) {
+        let _ = self.library_tx.send(LibraryChanges {
+            projects_updated: vec![project.clone()],
+            ..Default::default()
+        });
+        self.notify_project_dirty(project.id);
+    }
+
+    fn emit_tag_created(&self, tag: &Tag) {
+        let _ = self.library_tx.send(LibraryChanges {
+            tags_created: vec![tag.clone()],
+            ..Default::default()
+        });
+    }
+
+    fn emit_tag_updated(&self, tag: &Tag) {
+        let _ = self.library_tx.send(LibraryChanges {
+            tags_updated: vec![tag.clone()],
+            ..Default::default()
+        });
+    }
+
+    fn emit_tag_deleted(&self, id: i64) {
+        let _ = self.library_tx.send(LibraryChanges {
+            tags_deleted: vec![id],
+            ..Default::default()
+        });
+    }
+
+    fn emit_perspective_created(&self, p: &Perspective) {
+        let _ = self.library_tx.send(LibraryChanges {
+            perspectives_created: vec![p.clone()],
+            ..Default::default()
+        });
+    }
+
+    fn emit_perspective_updated(&self, p: &Perspective) {
+        let _ = self.library_tx.send(LibraryChanges {
+            perspectives_updated: vec![p.clone()],
+            ..Default::default()
+        });
+    }
+
+    fn emit_perspective_deleted(&self, id: i64) {
+        let _ = self.library_tx.send(LibraryChanges {
+            perspectives_deleted: vec![id],
+            ..Default::default()
+        });
+    }
 }
 
 impl Worker {
@@ -534,27 +642,15 @@ impl Worker {
         match cmd {
             Command::CreateTask { task, responder } => {
                 let result = self.create_task(task);
-                if let Ok(ref task) = result {
-                    let _ = self.changes_tx.send(TaskChanges {
-                        created: vec![task.clone()],
-                        ..Default::default()
-                    });
-                    if let Some(pid) = task.project_id {
-                        self.notify_project_dirty(pid);
-                    }
+                if let Ok(ref t) = result {
+                    self.emit_task_created(t);
                 }
                 let _ = responder.send(result);
             }
             Command::UpdateTask { update, responder } => {
                 let result = self.update_task(update);
-                if let Ok(ref task) = result {
-                    let _ = self.changes_tx.send(TaskChanges {
-                        updated: vec![task.clone()],
-                        ..Default::default()
-                    });
-                    if let Some(pid) = task.project_id {
-                        self.notify_project_dirty(pid);
-                    }
+                if let Ok(ref t) = result {
+                    self.emit_task_updated(t);
                 }
                 let _ = responder.send(result);
             }
@@ -606,20 +702,14 @@ impl Worker {
             Command::CreateArea { area, responder } => {
                 let result = self.create_area(area);
                 if let Ok(ref a) = result {
-                    let _ = self.library_tx.send(LibraryChanges {
-                        areas_created: vec![a.clone()],
-                        ..Default::default()
-                    });
+                    self.emit_area_created(a);
                 }
                 let _ = responder.send(result);
             }
             Command::UpdateArea { update, responder } => {
                 let result = self.update_area(update);
                 if let Ok(ref a) = result {
-                    let _ = self.library_tx.send(LibraryChanges {
-                        areas_updated: vec![a.clone()],
-                        ..Default::default()
-                    });
+                    self.emit_area_updated(a);
                 }
                 let _ = responder.send(result);
             }
@@ -650,22 +740,14 @@ impl Worker {
             Command::CreateProject { project, responder } => {
                 let result = self.create_project(project);
                 if let Ok(ref p) = result {
-                    let _ = self.library_tx.send(LibraryChanges {
-                        projects_created: vec![p.clone()],
-                        ..Default::default()
-                    });
-                    self.notify_project_dirty(p.id);
+                    self.emit_project_created(p);
                 }
                 let _ = responder.send(result);
             }
             Command::UpdateProject { update, responder } => {
                 let result = self.update_project(update);
                 if let Ok(ref p) = result {
-                    self.notify_project_dirty(p.id);
-                    let _ = self.library_tx.send(LibraryChanges {
-                        projects_updated: vec![p.clone()],
-                        ..Default::default()
-                    });
+                    self.emit_project_updated(p);
                 }
                 let _ = responder.send(result);
             }
@@ -703,11 +785,7 @@ impl Worker {
             Command::MarkReviewed { id, responder } => {
                 let result = self.mark_reviewed(id);
                 if let Ok(p) = &result {
-                    let _ = self.library_tx.send(LibraryChanges {
-                        projects_updated: vec![p.clone()],
-                        ..Default::default()
-                    });
-                    self.notify_project_dirty(p.id);
+                    self.emit_project_updated(p);
                 }
                 let _ = responder.send(result);
             }
@@ -718,13 +796,7 @@ impl Worker {
                 // tasks reviewed in the last 7 days).
                 let result = self.mark_task_reviewed(id);
                 if let Ok(t) = &result {
-                    let _ = self.changes_tx.send(TaskChanges {
-                        updated: vec![t.clone()],
-                        ..Default::default()
-                    });
-                    if let Some(pid) = t.project_id {
-                        self.notify_project_dirty(pid);
-                    }
+                    self.emit_task_updated(t);
                 }
                 let _ = responder.send(result);
             }
@@ -753,20 +825,14 @@ impl Worker {
             Command::CreateTag { tag, responder } => {
                 let result = self.create_tag(tag);
                 if let Ok(ref t) = result {
-                    let _ = self.library_tx.send(LibraryChanges {
-                        tags_created: vec![t.clone()],
-                        ..Default::default()
-                    });
+                    self.emit_tag_created(t);
                 }
                 let _ = responder.send(result);
             }
             Command::UpdateTag { update, responder } => {
                 let result = self.update_tag(update);
                 if let Ok(ref t) = result {
-                    let _ = self.library_tx.send(LibraryChanges {
-                        tags_updated: vec![t.clone()],
-                        ..Default::default()
-                    });
+                    self.emit_tag_updated(t);
                 }
                 let _ = responder.send(result);
             }
@@ -778,10 +844,7 @@ impl Worker {
                 // observe a tag-set change separately.
                 let result = self.delete_tag(id);
                 if result.is_ok() {
-                    let _ = self.library_tx.send(LibraryChanges {
-                        tags_deleted: vec![id],
-                        ..Default::default()
-                    });
+                    self.emit_tag_deleted(id);
                 }
                 let _ = responder.send(result);
             }
@@ -798,13 +861,7 @@ impl Worker {
                     // we re-read tag_names via the per-list batch on
                     // refresh — but emit the delta so the active list
                     // does refresh.
-                    let _ = self.changes_tx.send(TaskChanges {
-                        updated: vec![task.clone()],
-                        ..Default::default()
-                    });
-                    if let Some(pid) = task.project_id {
-                        self.notify_project_dirty(pid);
-                    }
+                    self.emit_task_updated(task);
                 }
                 let _ = responder.send(result);
             }
@@ -813,10 +870,7 @@ impl Worker {
                 if let Ok(ref a) = result
                     && a.created_at == a.modified_at
                 {
-                    let _ = self.library_tx.send(LibraryChanges {
-                        areas_created: vec![a.clone()],
-                        ..Default::default()
-                    });
+                    self.emit_area_created(a);
                 }
                 let _ = responder.send(result);
             }
@@ -838,16 +892,13 @@ impl Worker {
             }
             Command::EnsureTag { name, responder } => {
                 let result = self.ensure_tag(&name);
-                if let Ok(ref t) = result {
+                if let Ok(ref t) = result
+                    && t.created_at == t.modified_at
+                {
                     // Only emit a creation delta if the tag was
-                    // actually new — the helper differentiates and we
-                    // mirror that here.
-                    if t.created_at == t.modified_at {
-                        let _ = self.library_tx.send(LibraryChanges {
-                            tags_created: vec![t.clone()],
-                            ..Default::default()
-                        });
-                    }
+                    // actually new — the helper differentiates and
+                    // we mirror that here.
+                    self.emit_tag_created(t);
                 }
                 let _ = responder.send(result);
             }
@@ -859,30 +910,21 @@ impl Worker {
             } => {
                 let result = self.create_perspective(perspective);
                 if let Ok(p) = &result {
-                    let _ = self.library_tx.send(LibraryChanges {
-                        perspectives_created: vec![p.clone()],
-                        ..Default::default()
-                    });
+                    self.emit_perspective_created(p);
                 }
                 let _ = responder.send(result);
             }
             Command::UpdatePerspective { update, responder } => {
                 let result = self.update_perspective(update);
                 if let Ok(p) = &result {
-                    let _ = self.library_tx.send(LibraryChanges {
-                        perspectives_updated: vec![p.clone()],
-                        ..Default::default()
-                    });
+                    self.emit_perspective_updated(p);
                 }
                 let _ = responder.send(result);
             }
             Command::DeletePerspective { id, responder } => {
                 let result = self.delete_perspective(id);
                 if result.is_ok() {
-                    let _ = self.library_tx.send(LibraryChanges {
-                        perspectives_deleted: vec![id],
-                        ..Default::default()
-                    });
+                    self.emit_perspective_deleted(id);
                 }
                 let _ = responder.send(result);
             }
