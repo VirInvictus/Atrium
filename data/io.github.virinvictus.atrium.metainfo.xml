@@ -90,6 +90,36 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.21.0" date="2026-05-10">
+      <description>
+        <p>Maintenance pass after the rapid v0.14.0 → v0.20.0
+           sequence — no behaviour changes, no spec changes.
+           Audited via clippy pedantic + unwrap census + long-
+           function census + test-coverage gap pass.</p>
+        <p>Bag of small wins: migration `0013_task_clock_entry_timestamps.sql`
+           closes an audit-trail gap (the only table that shipped
+           without `created_at` / `modified_at`); stale Org parser
+           docstring updated; Quick Entry shortcut sniff now
+           validates ASCII alphanum at the GUI layer; reminder
+           service consolidated `Utc::now()` calls; targeted
+           clippy auto-fixes across 24 files (format string
+           interpolation, redundant closures, `map_or`,
+           let-else rewrites). `user_version` 12 → 13.</p>
+        <p>Refactors: worker dispatch loop reduced via 12 helper
+           methods on `Worker` (`emit_*_created` / `_updated` /
+           `_deleted` per kind) — each Command arm now uniformly
+           5–7 lines. `atrium-core/src/db/read.rs` (2288 lines)
+           split into `read/{clock,counts,search,templates}.rs`
+           sub-modules + a slimmer `read/mod.rs` (1780 lines).
+           `atrium-cli/src/main.rs` (2604 lines) split with
+           `clock.rs` + `template.rs` extracted (saved 449 lines
+           in `main.rs`).</p>
+        <p>Test coverage: 34 new tests in `atrium-cli/src/args.rs`
+           covering v0.17.0+ subcommands (clock, template,
+           --deadline-warn). Workspace total now 888 tests
+           (was 854).</p>
+      </description>
+    </release>
     <release version="0.20.0" date="2026-05-10">
       <description>
         <p>Phase 19.5 foundations land: a real preferences dialog

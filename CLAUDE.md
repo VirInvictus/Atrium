@@ -4,7 +4,7 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.19.0** (May 2026). **Schema version: 11.** **All workspace tests green; `bash scripts/regression.sh` ships clean.** **Phase 18.5 is now complete** — all five Tier-1 items + both Tier-2 items shipped across v0.14.0 → v0.19.0. Phase 19.5 productivity essentials (AdwPreferencesWindow, system notifications, EDS calendar overlay, etc.) are next.
+**Current release: v0.21.0** (May 2026). **Schema version: 13.** **888 tests across the workspace, all green.** Phase 18.5 wrapped at v0.19.0; Phase 19.5 (productivity essentials) opened at v0.20.0 with the preferences dialog + system-notification reminders. v0.21.0 was a maintenance pass — no behaviour changes; refactors, helper-method extraction, partial splits of `read.rs` and `cli/main.rs`, test coverage gap fill. Inspector pane and `window.rs` splits deferred to v0.22.0.
 
 Five workspace crates: `atrium-core` (data layer), `atrium-search` (Calibre-style search expression language), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary.
 
