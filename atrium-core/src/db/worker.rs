@@ -1171,7 +1171,8 @@ impl Worker {
         bound.push(Box::new(update.id));
 
         let sql = format!("UPDATE task SET {} WHERE id = ?", sets.join(", "));
-        let params_refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            bound.iter().map(std::convert::AsRef::as_ref).collect();
         let n = self.conn.execute(&sql, &params_refs[..])?;
         if n == 0 {
             return Err(DbError::NotFound);
@@ -1262,10 +1263,10 @@ impl Worker {
             return Ok(None);
         };
 
-        let completed_on = completed
-            .completed_at
-            .map(|dt| dt.with_timezone(&Local).date_naive())
-            .unwrap_or_else(|| Local::now().date_naive());
+        let completed_on = completed.completed_at.map_or_else(
+            || Local::now().date_naive(),
+            |dt| dt.with_timezone(&Local).date_naive(),
+        );
 
         let Some(new_anchor) = rule.next_after(anchor, completed_on) else {
             // Rule exhausted (COUNT met, UNTIL passed). Leave the
@@ -1393,7 +1394,8 @@ impl Worker {
         }
         bound.push(Box::new(update.id));
         let sql = format!("UPDATE area SET {} WHERE id = ?", sets.join(", "));
-        let params_refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            bound.iter().map(std::convert::AsRef::as_ref).collect();
         let n = self.conn.execute(&sql, &params_refs[..])?;
         if n == 0 {
             return Err(DbError::NotFound);
@@ -1501,7 +1503,8 @@ impl Worker {
         }
         bound.push(Box::new(update.id));
         let sql = format!("UPDATE project SET {} WHERE id = ?", sets.join(", "));
-        let params_refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            bound.iter().map(std::convert::AsRef::as_ref).collect();
         let n = self.conn.execute(&sql, &params_refs[..])?;
         if n == 0 {
             return Err(DbError::NotFound);
@@ -1620,7 +1623,8 @@ impl Worker {
         }
         bound.push(Box::new(update.id));
         let sql = format!("UPDATE tag SET {} WHERE id = ?", sets.join(", "));
-        let params_refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            bound.iter().map(std::convert::AsRef::as_ref).collect();
         let n = self.conn.execute(&sql, &params_refs[..])?;
         if n == 0 {
             return Err(DbError::NotFound);
@@ -1815,7 +1819,8 @@ impl Worker {
         }
         bound.push(Box::new(update.id));
         let sql = format!("UPDATE perspective SET {} WHERE id = ?", sets.join(", "));
-        let params_refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            bound.iter().map(std::convert::AsRef::as_ref).collect();
         let n = self.conn.execute(&sql, &params_refs[..])?;
         if n == 0 {
             return Err(DbError::NotFound);
@@ -1893,9 +1898,13 @@ impl Worker {
 
         // Insert the new open entry. started_at = now() via SQL
         // so the worker doesn't need a chrono call here.
+        // created_at + modified_at stamped by the same now() value
+        // (migration 0013 made these explicit; the trigger keeps
+        // modified_at fresh on subsequent UPDATEs).
         self.conn.execute(
-            "INSERT INTO task_clock_entry (task_id, started_at, ended_at, note) \
-             VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, ?2)",
+            "INSERT INTO task_clock_entry (task_id, started_at, ended_at, note, created_at, modified_at) \
+             VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, ?2, \
+                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
             params![new.task_id, new.note],
         )?;
         let id = self.conn.last_insert_rowid();
@@ -1959,9 +1968,15 @@ impl Worker {
         if read::task_by_id(&self.conn, task_id)?.is_none() {
             return Err(DbError::NotFound);
         }
+        // Stamp created_at to now() (the row is being inserted now,
+        // regardless of when the source CLOCK line claims work began).
+        // modified_at = COALESCE(ended_at, started_at) mirrors the
+        // backfill in migration 0013 — for a closed entry the most
+        // recent edit was the close; for an open entry it was the
+        // open. Trigger keeps modified_at fresh on later UPDATEs.
         self.conn.execute(
-            "INSERT INTO task_clock_entry (task_id, started_at, ended_at, note) \
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO task_clock_entry (task_id, started_at, ended_at, note, created_at, modified_at) \
+             VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), COALESCE(?3, ?2))",
             params![task_id, started_at, ended_at, note],
         )?;
         let id = self.conn.last_insert_rowid();
@@ -2039,7 +2054,8 @@ impl Worker {
             "UPDATE quick_entry_template SET {} WHERE id = ?",
             sets.join(", ")
         );
-        let params_refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+            bound.iter().map(std::convert::AsRef::as_ref).collect();
         let n = self.conn.execute(&sql, &params_refs[..])?;
         if n == 0 {
             return Err(DbError::NotFound);

@@ -34,9 +34,11 @@
 //! - **Property drawer values are single-line.** Multi-line
 //!   `:KEY: ...` continuations aren't recognised. None of
 //!   Atrium's modeled properties need them.
-//! - **Active timestamps lose time-of-day.** `<2026-05-15 Fri 14:00>`
-//!   parses as the date `2026-05-15`. Atrium's `scheduled_for` is
-//!   date-only by design.
+//! - **Time-of-day is split off from the date.** `<2026-05-15 Fri 14:00>`
+//!   parses to `scheduled_for = 2026-05-15` (date) plus
+//!   `scheduled_time = 14:00` (separate column added in v0.19.0,
+//!   migration 0011). Time-of-day on DEADLINE is recognised but
+//!   silently dropped — Atrium has no `deadline_time` column yet.
 //! - **Headline layout is rigid.** Stars, keyword, title, tags,
 //!   in that order. Cookies-before-keyword and other unusual
 //!   shapes aren't pattern-matched.
@@ -708,8 +710,11 @@ fn parse_tag_chunk(chunk: &str) -> Option<Vec<String>> {
     if inner.is_empty() {
         return None;
     }
-    let parts: Vec<String> = inner.split(':').map(|s| s.to_string()).collect();
-    if parts.iter().any(|p| p.is_empty()) {
+    let parts: Vec<String> = inner
+        .split(':')
+        .map(std::string::ToString::to_string)
+        .collect();
+    if parts.iter().any(std::string::String::is_empty) {
         return None; // adjacent colons → not a valid tag block
     }
     if parts.iter().any(|p| p.contains(char::is_whitespace)) {

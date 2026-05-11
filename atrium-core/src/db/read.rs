@@ -778,7 +778,7 @@ pub fn list_tasks_matching(
     where_sql: &str,
     params: &[SqlBindValue],
 ) -> Result<Vec<Task>, DbError> {
-    let bound: Vec<rusqlite::types::Value> = params.iter().map(|p| p.to_rusqlite()).collect();
+    let bound: Vec<rusqlite::types::Value> = params.iter().map(SqlBindValue::to_rusqlite).collect();
     let task_cols = TASK_COLUMNS
         .split(", ")
         .map(|c| format!("t.{c}"))
@@ -1065,7 +1065,7 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
 
 // ── Clock entries (Phase 18.5 Tier-1, v0.17.0) ──────────────────
 
-const CLOCK_COLUMNS: &str = "id, task_id, started_at, ended_at, note";
+const CLOCK_COLUMNS: &str = "id, task_id, started_at, ended_at, note, created_at, modified_at";
 
 /// Fetch a single clock entry by id.
 pub fn clock_entry_by_id(conn: &Connection, id: i64) -> Result<Option<TaskClockEntry>, DbError> {
@@ -1173,6 +1173,8 @@ fn clock_entry_from_row(row: &Row<'_>) -> rusqlite::Result<TaskClockEntry> {
         started_at: row.get("started_at")?,
         ended_at: row.get("ended_at")?,
         note: row.get("note")?,
+        created_at: row.get("created_at")?,
+        modified_at: row.get("modified_at")?,
     })
 }
 

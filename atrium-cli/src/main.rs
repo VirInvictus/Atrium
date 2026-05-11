@@ -529,8 +529,7 @@ fn print_todoist_summary(
                 "  \"project_id\": {},\n",
                 summary
                     .project_id
-                    .map(|n| n.to_string())
-                    .unwrap_or_else(|| "null".to_string())
+                    .map_or_else(|| "null".to_string(), |n| n.to_string())
             ));
             s.push_str(&format!(
                 "  \"headings_created\": {},\n",
@@ -610,11 +609,11 @@ fn print_import_directory_summary(
         Format::Json => {
             let mut s = String::new();
             s.push_str("{\n");
-            s.push_str(&format!("  \"dry_run\": {},\n", dry_run));
-            s.push_str(&format!("  \"project_count\": {},\n", project_count));
-            s.push_str(&format!("  \"task_count\": {},\n", task_total));
-            s.push_str(&format!("  \"tag_count\": {},\n", tag_total));
-            s.push_str(&format!("  \"headings_skipped\": {},\n", heading_total));
+            s.push_str(&format!("  \"dry_run\": {dry_run},\n"));
+            s.push_str(&format!("  \"project_count\": {project_count},\n"));
+            s.push_str(&format!("  \"task_count\": {task_total},\n"));
+            s.push_str(&format!("  \"tag_count\": {tag_total},\n"));
+            s.push_str(&format!("  \"headings_skipped\": {heading_total},\n"));
             s.push_str("  \"projects\": [");
             for (i, sum) in summaries.iter().enumerate() {
                 if sum.project_title.is_none() {
@@ -659,7 +658,7 @@ fn print_import_summary(summary: &atrium_org::org::ImportSummary, dry_run: bool,
             // Render as a small JSON object so scripts can parse.
             let mut s = String::new();
             s.push_str("{\n");
-            s.push_str(&format!("  \"dry_run\": {},\n", dry_run));
+            s.push_str(&format!("  \"dry_run\": {dry_run},\n"));
             s.push_str(&format!(
                 "  \"project_title\": {},\n",
                 json_string_or_null(summary.project_title.as_deref())
@@ -668,8 +667,7 @@ fn print_import_summary(summary: &atrium_org::org::ImportSummary, dry_run: bool,
                 "  \"project_id\": {},\n",
                 summary
                     .project_id
-                    .map(|n| n.to_string())
-                    .unwrap_or_else(|| "null".to_string())
+                    .map_or_else(|| "null".to_string(), |n| n.to_string())
             ));
             s.push_str(&format!(
                 "  \"tasks_created\": {},\n",
@@ -822,7 +820,10 @@ fn run_clock_log(conn: &Connection, task_id: i64, format: Format) -> CliResult<(
                 println!("(no clock entries)");
                 return Ok(());
             }
-            let total: i64 = entries.iter().filter_map(|e| e.duration_minutes()).sum();
+            let total: i64 = entries
+                .iter()
+                .filter_map(atrium_core::TaskClockEntry::duration_minutes)
+                .sum();
             let h = total / 60;
             let m = total % 60;
             println!("# total: {h}:{m:02}");
@@ -953,7 +954,7 @@ fn print_one_entry(entry: &atrium_core::TaskClockEntry, format: Format) {
         Format::Human => {
             // The caller prints a friendlier line; this is the
             // fallback for direct callers.
-            println!("{:?}", entry);
+            println!("{entry:?}");
         }
     }
 }
@@ -1404,7 +1405,7 @@ fn print_json_export_summary(
         Format::Json => {
             let mut s = String::new();
             s.push_str("{\n");
-            s.push_str(&format!("  \"dry_run\": {},\n", dry_run));
+            s.push_str(&format!("  \"dry_run\": {dry_run},\n"));
             s.push_str(&format!(
                 "  \"path\": {},\n",
                 json_string(&path.to_string_lossy())
@@ -1448,7 +1449,7 @@ fn print_export_summary(
         Format::Json => {
             let mut s = String::new();
             s.push_str("{\n");
-            s.push_str(&format!("  \"dry_run\": {},\n", dry_run));
+            s.push_str(&format!("  \"dry_run\": {dry_run},\n"));
             s.push_str(&format!("  \"project_count\": {},\n", summaries.len()));
             s.push_str("  \"projects\": [\n");
             for (i, sum) in summaries.iter().enumerate() {

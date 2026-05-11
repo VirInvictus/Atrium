@@ -142,8 +142,7 @@ impl VaultWatcher {
                 Some(m) => self
                     .recent_writes
                     .read()
-                    .map(|rw| rw.is_self_write(&path, m))
-                    .unwrap_or(false),
+                    .is_ok_and(|rw| rw.is_self_write(&path, m)),
                 None => false,
             };
             if is_self {
@@ -497,7 +496,7 @@ impl VaultWatcher {
             .or_else(|| {
                 path.file_stem()
                     .and_then(|s| s.to_str())
-                    .map(|s| s.to_string())
+                    .map(std::string::ToString::to_string)
             })
             .unwrap_or_else(|| "Untitled".to_string());
 
@@ -807,9 +806,9 @@ fn keyword_is_done(
 ) -> bool {
     match keyword {
         Some(OrgKeyword::Done) | Some(OrgKeyword::Cancelled) => true,
-        Some(OrgKeyword::Custom(name)) => sequence
-            .map(|s| s.done.iter().any(|d| d == name))
-            .unwrap_or(false),
+        Some(OrgKeyword::Custom(name)) => {
+            sequence.is_some_and(|s| s.done.iter().any(|d| d == name))
+        }
         _ => false,
     }
 }

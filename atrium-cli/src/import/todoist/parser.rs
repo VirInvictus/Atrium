@@ -177,7 +177,7 @@ fn classify_row(line: usize, fields: Vec<String>) -> Result<TodoistRow, ParseErr
     }
 
     let row_type = fields[0].trim();
-    if fields.iter().all(|f| f.is_empty()) {
+    if fields.iter().all(std::string::String::is_empty) {
         return Ok(TodoistRow::Blank);
     }
 
@@ -318,7 +318,8 @@ fn split_csv_rows(text: &str) -> Result<Vec<Vec<String>>, ParseError> {
     }
 
     // Drop completely-empty trailing rows (file ended with \n).
-    while matches!(rows.last(), Some(r) if r.iter().all(|f| f.is_empty()) && r.len() <= 1) {
+    while matches!(rows.last(), Some(r) if r.iter().all(std::string::String::is_empty) && r.len() <= 1)
+    {
         rows.pop();
     }
 

@@ -316,17 +316,16 @@ fn task_title(i: usize) -> String {
     match i % 9 {
         0 => format!("Buy {}", supply_word(i)),
         1 => format!("Review PR #{}", i + 1000),
-        2 => format!("研究プロジェクト {}", i),
+        2 => format!("研究プロジェクト {i}"),
         3 => format!("Email João about Q{}", (i % 4) + 1),
         4 => format!(
             "Task with a deliberately long title to exercise wrapping behaviour and \
-             list-row layout when text exceeds a reasonable terminal column count #{}",
-            i
+             list-row layout when text exceeds a reasonable terminal column count #{i}"
         ),
         5 => format!("Reminder: {} #{}", reminder_action(i), i),
-        6 => format!("Файл переименовать {}", i),
-        7 => format!("[empty placeholder {}]", i),
-        _ => format!("Task #{}", i),
+        6 => format!("Файл переименовать {i}"),
+        7 => format!("[empty placeholder {i}]"),
+        _ => format!("Task #{i}"),
     }
 }
 
@@ -349,11 +348,11 @@ fn reminder_action(i: usize) -> &'static str {
 
 fn tag_name(i: usize) -> String {
     match i % 5 {
-        0 => format!("tag-{}", i),
-        1 => format!("работа-{}", i),
-        2 => format!("作業-{}", i),
-        3 => format!("urgent-{}", i),
-        _ => format!("home-{}", i),
+        0 => format!("tag-{i}"),
+        1 => format!("работа-{i}"),
+        2 => format!("作業-{i}"),
+        3 => format!("urgent-{i}"),
+        _ => format!("home-{i}"),
     }
 }
 

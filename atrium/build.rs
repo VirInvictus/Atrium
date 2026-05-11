@@ -62,10 +62,7 @@ fn compile_schemas(dir: &Path) {
         .arg(dir)
         .status()
         .unwrap_or_else(|e| {
-            panic!(
-                "could not run `glib-compile-schemas` (is glib-2.0 installed?): {}",
-                e
-            )
+            panic!("could not run `glib-compile-schemas` (is glib-2.0 installed?): {e}")
         });
     if !status.success() {
         panic!("glib-compile-schemas exited with {status}");

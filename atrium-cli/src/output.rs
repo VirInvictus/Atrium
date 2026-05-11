@@ -340,8 +340,7 @@ pub fn print_perspectives(perspectives: &[Perspective], format: Format) {
                     let icon = p
                         .icon
                         .as_deref()
-                        .map(|i| format!("[{i}]"))
-                        .unwrap_or_else(|| "[default]".into());
+                        .map_or_else(|| "[default]".into(), |i| format!("[{i}]"));
                     println!("{:>3}  {}  {}  ({})", p.id, p.name, icon, p.renderer);
                     if !p.filter_expr.is_empty() {
                         println!("       {}", p.filter_expr);

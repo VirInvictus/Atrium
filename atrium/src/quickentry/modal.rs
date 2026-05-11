@@ -220,6 +220,13 @@ pub fn open(
             let Some(trigger) = trigger_char else {
                 return;
             };
+            // The worker validates shortcut keys as single ASCII
+            // alphanumerics (`validate_shortcut_key` in worker.rs).
+            // Mirror that here so a stray `:🎉 ` or `:.` doesn't
+            // attempt template matching that could never succeed.
+            if !trigger.is_ascii_alphanumeric() {
+                return;
+            }
             // Require the user to have committed the trigger
             // with a trailing space (or end-of-text on a single
             // char). Without this, every `:` prefix attempts to

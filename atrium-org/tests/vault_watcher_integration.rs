@@ -603,7 +603,7 @@ async fn concurrent_atrium_and_external_edit_preserves_user_content_as_bak() {
     // content.
     let entries: Vec<_> = std::fs::read_dir(&scratch)
         .unwrap()
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
     let bak = entries

@@ -1,5 +1,25 @@
 # Atrium — Patch Notes
 
+## v0.21.0 (2026-05-10) — Maintenance pass: rapid-growth deferred work
+
+Seven minor releases shipped in one extended session (v0.14.0 → v0.20.0; +4972 LOC across 44 files in the bundled commit `67c7e7c`). v0.21.0 is the punctuation — a deliberate maintenance pass before any new feature work, sequenced by blast radius (small wins → focused refactors → structural splits → test coverage). No behaviour changes for the user; the audit findings are documented here so future-me has the receipts.
+
+### Audit shape
+
+Two-pass survey (delegated `Explore` agent first, then a deeper hand-pass after the agent's report turned out to under-rate the structural debt — the agent never opened `atrium/src/ui/window.rs`, the largest file in the repo at 6105 lines).
+
+The deeper pass added: `cargo clippy -W clippy::pedantic` (909 raw warnings, ~250 actually actionable after stripping doc-style noise + must-use suggestions); `unwrap()` / `expect()` audit on production-only code (~38 occurrences, almost all defensive GTK template downcasts in `ui/task_list.rs`); long-function census via clippy `too_many_lines` (5 functions exceed 100 lines, `worker.rs::handle()` at 366 the standout); and a test-coverage gap pass (notably `atrium-cli/src/args.rs` at 1561 lines with zero tests).
+
+### What landed in v0.21.0
+
+#### Bag of small wins
+
+- **Migration 0013 — `task_clock_entry` timestamps.** v0.17.0's CLOCK table shipped without `created_at` / `modified_at` (every other table in the schema has them). Added as nullable columns with a backfill (`created_at = started_at`; `modified_at = COALESCE(ended_at, started_at)`) plus the standard `WHEN OLD = NEW` trigger. Worker INSERT paths stamp them explicitly; readers populate from the row. `user_version` 12 → 13.
+- **Stale Org parser docstring.** `atrium-org/src/org/parse.rs:37` claimed "active timestamps lose time-of-day" — wrong since v0.19.0's `task.scheduled_time`. Updated to reflect the post-v0.19.0 reality (date and time-of-day split into separate columns).
+- **Quick Entry shortcut sniff validation.** The modal's `:LETTER ` sniff now rejects non-ASCII-alphanumeric trigger characters at the GUI layer, mirroring `validate_shortcut_key` in the worker. Prevents a `:🎉 ` from attempting template matching that could never succeed.
+- **Reminder service `Utc::now()` consolidation.** Loop iteration captures one `now` for the lookup + sleep-window calculation rather than calling `Utc::now()` three times. The post-sleep re-check still needs a fresh timestamp (the outer `now` is from before the sleep) — that one stays.
+- **Targeted clippy pedantic sweep.** Auto-fixed via `cargo clippy --fix`: 27 `format!("{}", x)` → `format!("{x}")` modernizations, 22 redundant closures (`|x| f(x)` → `f`), 18 `map().unwrap_or()` → `map_or()`, 8 `match`-as-`let-else` rewrites. Touched 24 files; no behaviour changes; clippy `-D warnings` still green.
+
 ## v0.20.0 (2026-05-10) — Phase 19.5 foundations: preferences window + system-notification reminders
 
 Phase 18.5 wrapped at v0.19.0; Phase 19.5 (productivity essentials) opens with two pieces that pair naturally — a real preferences dialog and the first notification surface, with the dialog exposing the toggle that gates the new reminder service. Both items have been deferred for several minor cycles; landing them together avoids two separate "settings shape" conversations.

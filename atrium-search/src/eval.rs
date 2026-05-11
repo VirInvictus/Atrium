@@ -81,8 +81,7 @@ impl<'a> EvalContext<'a> {
         let cache = self.regex_cache.borrow();
         cache[pattern]
             .as_ref()
-            .map(|r| r.is_match(haystack))
-            .unwrap_or(false)
+            .is_some_and(|r| r.is_match(haystack))
     }
 }
 

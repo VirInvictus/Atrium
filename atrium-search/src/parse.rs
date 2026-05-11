@@ -175,7 +175,7 @@ impl Parser {
                 }
             }
             Some(Token::Bareword(_)) | Some(Token::QuotedString(_)) => self.parse_term(),
-            Some(other) => Err(ParseError::Syntax(format!("unexpected token {:?}", other))),
+            Some(other) => Err(ParseError::Syntax(format!("unexpected token {other:?}"))),
         }
     }
 

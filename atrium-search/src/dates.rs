@@ -84,9 +84,7 @@ pub fn month_bounds(today: NaiveDate, offset_months: i32) -> (NaiveDate, NaiveDa
     let lo = NaiveDate::from_ymd_opt(y, m, 1).unwrap_or(today);
     let hi_month = if m == 12 { 1 } else { m + 1 };
     let hi_year = if m == 12 { y + 1 } else { y };
-    let hi = NaiveDate::from_ymd_opt(hi_year, hi_month, 1)
-        .map(|d| d - Duration::days(1))
-        .unwrap_or(today);
+    let hi = NaiveDate::from_ymd_opt(hi_year, hi_month, 1).map_or(today, |d| d - Duration::days(1));
     (lo, hi)
 }
 

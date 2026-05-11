@@ -13,7 +13,7 @@ use crate::args::{
 use crate::output::{Row, format_row, format_rows, format_rows_human, row_to_json, rows_to_json};
 
 fn s(args: &[&str]) -> Vec<String> {
-    args.iter().map(|s| s.to_string()).collect()
+    args.iter().map(std::string::ToString::to_string).collect()
 }
 
 // ── Argv parsing ────────────────────────────────────────────────

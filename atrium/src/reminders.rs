@@ -71,15 +71,17 @@ pub fn spawn(pool: ReadPool, app: gio::Application) -> ReminderService {
 async fn run(pool: ReadPool, app: gio::Application, notify: Arc<Notify>) {
     let settings = gio::Settings::new(APP_ID);
     loop {
-        // Look up the next pending reminder.
+        // Single timestamp per loop iteration — the dispatcher's
+        // notion of "now" is consistent across the lookup, the
+        // sleep-window calculation, and the post-sleep re-check.
+        let now = Utc::now();
         let next = pool
-            .with(|conn| atrium_core::db::read::next_pending_reminder(conn, Utc::now()))
+            .with(|conn| atrium_core::db::read::next_pending_reminder(conn, now))
             .ok()
             .flatten();
 
         match next {
             Some((task_id, when)) => {
-                let now = Utc::now();
                 let delta = when.signed_duration_since(now);
                 let sleep_for = if delta.num_seconds() <= 0 {
                     // Already past — fire immediately rather
@@ -100,14 +102,14 @@ async fn run(pool: ReadPool, app: gio::Application, notify: Arc<Notify>) {
                 );
                 tokio::select! {
                     _ = tokio::time::sleep(sleep_for) => {
-                        // Re-check current time vs `when` —
-                        // the wake-up may be early (notify
-                        // raced) or the user may have moved
-                        // the reminder forward while sleeping.
-                        // Fire only if we're at or past the
-                        // reminder time AND the master toggle
-                        // is on AND the task still exists +
-                        // is open.
+                        // Re-check current time vs `when` — wake-up
+                        // can be early (notify raced) or the user
+                        // may have moved the reminder forward while
+                        // sleeping. Fire only if we're at/past the
+                        // reminder time AND the master toggle is on
+                        // AND the task still exists + is open. We
+                        // need a fresh `Utc::now()` here because the
+                        // outer-loop `now` is from before the sleep.
                         let now_again = Utc::now();
                         if now_again < when {
                             continue;

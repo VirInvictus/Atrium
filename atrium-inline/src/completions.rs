@@ -76,10 +76,7 @@ pub const PRIORITY_LEVELS: &[&str] = &["1", "2", "3"];
 pub fn context_at(text: &str, cursor: usize) -> CompletionContext {
     let cursor = cursor.min(text.len());
     let prefix = &text[..cursor];
-    let token_start = prefix
-        .rfind(char::is_whitespace)
-        .map(|i| i + 1)
-        .unwrap_or(0);
+    let token_start = prefix.rfind(char::is_whitespace).map_or(0, |i| i + 1);
     let token = &prefix[token_start..];
 
     if let Some(rest) = token.strip_prefix('#') {
@@ -128,10 +125,7 @@ where
 pub fn replace_token(text: &str, cursor: usize, chosen: &str) -> (String, usize) {
     let cursor = cursor.min(text.len());
     let prefix = &text[..cursor];
-    let token_start = prefix
-        .rfind(char::is_whitespace)
-        .map(|i| i + 1)
-        .unwrap_or(0);
+    let token_start = prefix.rfind(char::is_whitespace).map_or(0, |i| i + 1);
     let token = &prefix[token_start..];
     if !matches!(token.chars().next(), Some('#') | Some('@') | Some('!')) {
         return (text.to_string(), cursor);

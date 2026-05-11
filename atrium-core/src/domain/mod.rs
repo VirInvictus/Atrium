@@ -749,6 +749,16 @@ pub struct TaskClockEntry {
     /// trailing text after the duration; we preserve it
     /// verbatim across round-trips.
     pub note: String,
+    /// When the row was inserted into Atrium's DB. Distinct from
+    /// `started_at`, which is the wall-clock moment work began
+    /// (set by the worker / supplied by the import path). For
+    /// rows that pre-date migration 0013 (v0.21.0), backfilled
+    /// to `started_at`.
+    pub created_at: DateTime<Utc>,
+    /// Bumped by the `clock_entry_modified_at` trigger on every
+    /// UPDATE. Backfilled to `ended_at` when set, else
+    /// `started_at` for rows that pre-date migration 0013.
+    pub modified_at: DateTime<Utc>,
 }
 
 impl TaskClockEntry {

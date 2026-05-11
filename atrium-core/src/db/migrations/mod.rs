@@ -43,6 +43,10 @@ use crate::error::DbError;
 /// Version 12 (v0.20.0, Phase 19.5) adds `task.reminder_at` for
 /// time-based notifications; the reminder service polls
 /// `next_pending_reminder` and fires `gio::Notification`.
+/// Version 13 (v0.21.0, maintenance) adds `created_at` / `modified_at`
+/// to `task_clock_entry` — the only table that shipped without them
+/// (see 0009). Closes an audit-trail gap surfaced by the v0.21.0
+/// maintenance audit.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
@@ -56,6 +60,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (10, include_str!("0010_quick_entry_template.sql")),
     (11, include_str!("0011_task_scheduled_time.sql")),
     (12, include_str!("0012_task_reminder_at.sql")),
+    (13, include_str!("0013_task_clock_entry_timestamps.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

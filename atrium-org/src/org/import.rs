@@ -135,16 +135,14 @@ pub async fn import_org_file_with_area(
         .unwrap_or_else(|| {
             path.file_stem()
                 .and_then(|os| os.to_str())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "Imported".to_string())
+                .map_or_else(|| "Imported".to_string(), std::string::ToString::to_string)
         });
 
     let project_uuid = file.file_properties.get("ID").cloned();
     let project_sequential = file
         .file_properties
         .get("SEQUENTIAL")
-        .map(|v| matches!(v.as_str(), "t" | "T" | "true" | "TRUE" | "1"))
-        .unwrap_or(false);
+        .is_some_and(|v| matches!(v.as_str(), "t" | "T" | "true" | "TRUE" | "1"));
     let project_review_interval = file
         .file_properties
         .get("REVIEW_INTERVAL")

@@ -326,8 +326,7 @@ impl VaultWriter {
         let is_self = self
             .recent_writes
             .read()
-            .map(|rw| rw.is_self_write(dest, mtime))
-            .unwrap_or(false);
+            .is_ok_and(|rw| rw.is_self_write(dest, mtime));
         if is_self {
             return None;
         }
@@ -600,7 +599,7 @@ mod tests {
         // The user's edit must survive in a .atrium.bak.* sibling.
         let entries: Vec<_> = std::fs::read_dir(&scratch)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
         let bak = entries
@@ -670,7 +669,7 @@ mod tests {
 
         let entries: Vec<_> = std::fs::read_dir(&scratch)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
         assert!(
