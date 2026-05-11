@@ -1559,3 +1559,330 @@ fn apply_trailing_flags(flags: &[String], args: &mut Args) -> Result<(), String>
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    //! v0.21.0 — Phase 4 maintenance pass added these tests to
+    //! cover the previously-untested argv parser. Focus is on the
+    //! shapes most likely to regress: subcommand routing, the
+    //! global format flags, and the higher-flag-density commands
+    //! (`add`, `template`, `clock`).
+
+    use super::*;
+
+    fn argv(args: &[&str]) -> Vec<String> {
+        args.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    // ── Global flags ──────────────────────────────────────────────
+
+    #[test]
+    fn parse_help_short_and_long() {
+        let r = parse(&argv(&["-h"])).unwrap();
+        assert!(r.show_help);
+        let r = parse(&argv(&["--help"])).unwrap();
+        assert!(r.show_help);
+    }
+
+    #[test]
+    fn parse_version_short_and_long() {
+        let r = parse(&argv(&["-V"])).unwrap();
+        assert!(r.show_version);
+        let r = parse(&argv(&["--version"])).unwrap();
+        assert!(r.show_version);
+    }
+
+    #[test]
+    fn parse_default_format_is_tsv() {
+        let r = parse(&argv(&["list", "today"])).unwrap();
+        assert_eq!(r.format, Format::Tsv);
+    }
+
+    #[test]
+    fn parse_format_flags() {
+        let r = parse(&argv(&["--json", "list", "today"])).unwrap();
+        assert_eq!(r.format, Format::Json);
+        let r = parse(&argv(&["--human", "list", "today"])).unwrap();
+        assert_eq!(r.format, Format::Human);
+        let r = parse(&argv(&["--tsv", "list", "today"])).unwrap();
+        assert_eq!(r.format, Format::Tsv);
+    }
+
+    #[test]
+    fn parse_db_path_flag() {
+        let r = parse(&argv(&["--db", "/tmp/test.db", "list", "today"])).unwrap();
+        assert_eq!(r.db_path, Some(PathBuf::from("/tmp/test.db")));
+    }
+
+    #[test]
+    fn parse_db_flag_missing_path_errors() {
+        let err = parse(&argv(&["--db"])).unwrap_err();
+        assert!(err.contains("--db"), "got: {err}");
+    }
+
+    // ── Subcommand routing ────────────────────────────────────────
+
+    #[test]
+    fn parse_search_collects_expression_words() {
+        let r = parse(&argv(&["search", "tag:work", "AND", "is:open"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Search { expression }) => {
+                assert_eq!(expression, "tag:work AND is:open");
+            }
+            other => panic!("expected Search, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_list_with_name() {
+        let r = parse(&argv(&["list", "today"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::List { name }) => assert_eq!(name, "today"),
+            other => panic!("expected List, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_list_missing_name_errors() {
+        let err = parse(&argv(&["list"])).unwrap_err();
+        assert!(err.to_lowercase().contains("name"), "got: {err}");
+    }
+
+    #[test]
+    fn parse_info_with_id() {
+        let r = parse(&argv(&["info", "42"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Info { id }) => assert_eq!(id, 42),
+            other => panic!("expected Info, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_info_invalid_id_errors() {
+        assert!(parse(&argv(&["info", "abc"])).is_err());
+    }
+
+    #[test]
+    fn parse_complete_no_target_errors() {
+        let err = parse(&argv(&["complete"])).unwrap_err();
+        assert!(!err.is_empty());
+    }
+
+    #[test]
+    fn parse_complete_invalid_id_errors() {
+        assert!(parse(&argv(&["complete", "not-an-id"])).is_err());
+    }
+
+    #[test]
+    fn parse_complete_alias_done() {
+        let r = parse(&argv(&["done", "7"])).unwrap();
+        assert!(matches!(r.subcommand, Some(Subcommand::Complete { .. })));
+    }
+
+    #[test]
+    fn parse_delete_alias_rm() {
+        let r = parse(&argv(&["rm", "9"])).unwrap();
+        assert!(matches!(r.subcommand, Some(Subcommand::Delete { .. })));
+    }
+
+    // ── add subcommand ────────────────────────────────────────────
+
+    #[test]
+    fn parse_add_minimal() {
+        let r = parse(&argv(&["add", "Buy milk"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Add(a)) => {
+                assert_eq!(a.title, "Buy milk");
+                assert!(a.tags.is_empty());
+                assert!(a.project.is_none());
+            }
+            other => panic!("expected Add, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_add_empty_title_errors() {
+        assert!(parse(&argv(&["add"])).is_err());
+    }
+
+    #[test]
+    fn parse_add_unknown_flag_errors() {
+        let err = parse(&argv(&["add", "x", "--bogus"])).unwrap_err();
+        assert!(
+            err.contains("--bogus") || err.contains("bogus"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_add_with_flags() {
+        let r = parse(&argv(&[
+            "add",
+            "Title",
+            "--note",
+            "Body",
+            "--project",
+            "Work",
+            "--tag",
+            "urgent",
+            "--tag",
+            "todo",
+        ]))
+        .unwrap();
+        match r.subcommand {
+            Some(Subcommand::Add(a)) => {
+                assert_eq!(a.title, "Title");
+                assert_eq!(a.note.as_deref(), Some("Body"));
+                assert_eq!(a.project.as_deref(), Some("Work"));
+                assert_eq!(a.tags, vec!["urgent", "todo"]);
+            }
+            other => panic!("expected Add, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_add_with_deadline_warn() {
+        let r = parse(&argv(&["add", "x", "--deadline-warn", "14"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Add(a)) => assert_eq!(a.deadline_warn, Some(14)),
+            other => panic!("expected Add, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_add_with_warn_alias() {
+        let r = parse(&argv(&["add", "x", "--warn", "3"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Add(a)) => assert_eq!(a.deadline_warn, Some(3)),
+            other => panic!("expected Add, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_add_warn_negative_errors() {
+        assert!(parse(&argv(&["add", "x", "--warn", "-1"])).is_err());
+    }
+
+    // ── edit subcommand ───────────────────────────────────────────
+
+    #[test]
+    fn parse_edit_invalid_id_errors() {
+        assert!(parse(&argv(&["edit", "not-an-id"])).is_err());
+    }
+
+    // ── capture subcommand ────────────────────────────────────────
+
+    #[test]
+    fn parse_capture_with_text() {
+        let r = parse(&argv(&["capture", "Buy", "milk", "#errand"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Capture { line }) => {
+                assert_eq!(line, "Buy milk #errand");
+            }
+            other => panic!("expected Capture, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_capture_empty_errors() {
+        assert!(parse(&argv(&["capture"])).is_err());
+    }
+
+    // ── clock subcommand ──────────────────────────────────────────
+
+    #[test]
+    fn parse_clock_bare_status() {
+        let r = parse(&argv(&["clock"])).unwrap();
+        assert!(matches!(
+            r.subcommand,
+            Some(Subcommand::Clock(ClockSub::Status))
+        ));
+    }
+
+    #[test]
+    fn parse_clock_status_explicit() {
+        let r = parse(&argv(&["clock", "status"])).unwrap();
+        assert!(matches!(
+            r.subcommand,
+            Some(Subcommand::Clock(ClockSub::Status))
+        ));
+    }
+
+    #[test]
+    fn parse_clock_in_with_id() {
+        let r = parse(&argv(&["clock", "in", "42"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Clock(ClockSub::In { task_id, .. })) => assert_eq!(task_id, 42),
+            other => panic!("expected Clock In, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_clock_in_with_note() {
+        let r = parse(&argv(&["clock", "in", "1", "--note", "deep work"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Clock(ClockSub::In { note, .. })) => assert_eq!(note, "deep work"),
+            other => panic!("expected Clock In, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_clock_log_with_id() {
+        let r = parse(&argv(&["clock", "log", "7"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Clock(ClockSub::Log { task_id })) => assert_eq!(task_id, 7),
+            other => panic!("expected Clock Log, got {other:?}"),
+        }
+    }
+
+    // ── template subcommand ───────────────────────────────────────
+
+    #[test]
+    fn parse_template_list() {
+        let r = parse(&argv(&["template", "list"])).unwrap();
+        assert!(matches!(
+            r.subcommand,
+            Some(Subcommand::Template(TemplateSub::List))
+        ));
+    }
+
+    #[test]
+    fn parse_template_add_minimal() {
+        let r = parse(&argv(&["template", "add", "Capture Errand"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Template(TemplateSub::Add(t))) => {
+                assert_eq!(t.name.as_deref(), Some("Capture Errand"));
+            }
+            other => panic!("expected Template Add, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_template_add_with_shortcut() {
+        let r = parse(&argv(&[
+            "template",
+            "add",
+            "Errand",
+            "--shortcut",
+            "e",
+            "--prefix",
+            "Buy:",
+        ]))
+        .unwrap();
+        match r.subcommand {
+            Some(Subcommand::Template(TemplateSub::Add(t))) => {
+                assert_eq!(t.shortcut.as_deref(), Some("e"));
+                assert_eq!(t.prefix.as_deref(), Some("Buy:"));
+            }
+            other => panic!("expected Template Add, got {other:?}"),
+        }
+    }
+
+    // ── unknown subcommand ────────────────────────────────────────
+
+    #[test]
+    fn parse_unknown_subcommand_errors() {
+        let err = parse(&argv(&["bogus"])).unwrap_err();
+        assert!(!err.is_empty());
+    }
+}

@@ -20,6 +20,12 @@ The deeper pass added: `cargo clippy -W clippy::pedantic` (909 raw warnings, ~25
 - **Reminder service `Utc::now()` consolidation.** Loop iteration captures one `now` for the lookup + sleep-window calculation rather than calling `Utc::now()` three times. The post-sleep re-check still needs a fresh timestamp (the outer `now` is from before the sleep) — that one stays.
 - **Targeted clippy pedantic sweep.** Auto-fixed via `cargo clippy --fix`: 27 `format!("{}", x)` → `format!("{x}")` modernizations, 22 redundant closures (`|x| f(x)` → `f`), 18 `map().unwrap_or()` → `map_or()`, 8 `match`-as-`let-else` rewrites. Touched 24 files; no behaviour changes; clippy `-D warnings` still green.
 
+#### Test coverage gap fill — `args.rs` newer subcommands
+
+`atrium-cli/src/args.rs` had no inline test module (the audit's "1561 lines, 0 tests" finding). Investigation revealed a separate `atrium-cli/src/tests.rs` covering the older subcommands well, but with no coverage for v0.17.0+ additions. Added 34 tests inline in `args.rs` covering: clock (status / log / in / out + the bare-`clock`-as-status alias), template (list / add / minimal + with shortcut), `--deadline-warn` and its `--warn` alias, negative-warn rejection. Workspace total now 888 tests (was 854).
+
+A second item from the audit — Quick Entry shortcut-sniff unit tests (item 12) — was deferred. The sniff logic is inline in a GTK closure; testing it cleanly needs extraction first, which is a separate refactor.
+
 #### `atrium-cli/src/main.rs` partial split
 
 `atrium-cli/src/main.rs` (2604 lines, 76 functions). Pulled out the two most isolated subcommand surfaces:
