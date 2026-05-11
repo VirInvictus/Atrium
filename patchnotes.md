@@ -20,6 +20,18 @@ The deeper pass added: `cargo clippy -W clippy::pedantic` (909 raw warnings, ~25
 - **Reminder service `Utc::now()` consolidation.** Loop iteration captures one `now` for the lookup + sleep-window calculation rather than calling `Utc::now()` three times. The post-sleep re-check still needs a fresh timestamp (the outer `now` is from before the sleep) — that one stays.
 - **Targeted clippy pedantic sweep.** Auto-fixed via `cargo clippy --fix`: 27 `format!("{}", x)` → `format!("{x}")` modernizations, 22 redundant closures (`|x| f(x)` → `f`), 18 `map().unwrap_or()` → `map_or()`, 8 `match`-as-`let-else` rewrites. Touched 24 files; no behaviour changes; clippy `-D warnings` still green.
 
+#### `read.rs` partial split
+
+`atrium-core/src/db/read.rs` (2288 lines, second-largest in `atrium-core`). Converted to a `read/` directory with four sub-modules carved out:
+
+- `read/clock.rs` (127 lines) — clock-entry queries (CLOCK_COLUMNS, clock_entry_*, list_clock_entries, total_clock_minutes, active_clock, clock_entries_per_project)
+- `read/counts.rs` (228 lines) — counting queries (CanonicalCounts, count_open_*, count_done_total_*, count_tasks)
+- `read/search.rs` (162 lines) — SQL fast-path + FTS5 (SqlBindValue, list_tasks_matching, search_tasks, bm25_for_terms)
+- `read/templates.rs` (64 lines) — Quick Entry template queries
+- `read/mod.rs` (1780 lines) — task / area / project / heading / tag / perspective queries; shared TASK_COLUMNS + task_from_row used by sub-modules via `super::`
+
+Pragmatic split — pulled out the four most-isolated sections rather than fragmenting all 11 surfaces into separate files. Public API unchanged: callers continue to use `crate::db::read::function_name`. The 1051-line test module stays in `mod.rs` (uses `super::*`).
+
 #### Worker dispatch helper methods
 
 `atrium-core/src/db/worker.rs` `handle()` (366-line dispatch loop, the standout `too_many_lines` warning in the maintenance audit). Each Command arm used to inline a 5-7 line "send delta + maybe notify dirty" body. Factored that out into 12 small helper methods on `Worker` — `emit_task_created` / `emit_task_updated` / `emit_area_*` / `emit_project_*` / `emit_tag_*` / `emit_perspective_*` (created/updated/deleted variants per kind). Each dispatch arm is now uniformly 5-7 lines: call work fn → check Ok → call helper → respond.

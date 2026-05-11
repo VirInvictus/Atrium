@@ -3,18 +3,38 @@
 //! `Connection` so they compose with both the worker's writable
 //! connection (during command processing) and the `ReadPool`'s
 //! read-only connections (during UI list refreshes).
+//!
+//! Split into per-surface sub-modules in v0.21.0 (maintenance pass)
+//! after the file grew past 2200 lines. The shared task row helper
+//! and column constant live in this file (`mod.rs`) so every
+//! sub-module can reach them via `super::`.
+
+mod clock;
+mod counts;
+mod search;
+mod templates;
+
+pub use clock::{
+    active_clock, clock_entries_per_project, clock_entry_by_id, clock_entry_task_id,
+    list_clock_entries, total_clock_minutes,
+};
+pub use counts::{
+    CanonicalCounts, count_done_total_per_parent, count_done_total_per_project,
+    count_open_canonical, count_open_per_area, count_open_per_project, count_open_per_tag,
+    count_tasks,
+};
+pub use search::{SqlBindValue, bm25_for_terms, list_tasks_matching, search_tasks};
+pub use templates::{list_quick_entry_templates, quick_entry_template_by_id};
 
 use std::collections::HashMap;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
-use crate::domain::{
-    Area, Perspective, Project, QuickEntryTemplate, ScheduledFor, Tag, Task, TaskClockEntry,
-};
+use crate::domain::{Area, Perspective, Project, ScheduledFor, Tag, Task};
 use crate::error::DbError;
 
-const TASK_COLUMNS: &str = "id, uuid, title, note, project_id, parent_id, \
+pub(super) const TASK_COLUMNS: &str = "id, uuid, title, note, project_id, parent_id, \
     scheduled_for, deadline, defer_until, estimated_minutes, completed_at, \
     repeat_rule, repeat_mode, last_reviewed_at, orig_keyword, deadline_warn_days, \
     scheduled_time, reminder_at, position, created_at, modified_at";
@@ -90,11 +110,6 @@ pub fn list_all_tasks(conn: &Connection) -> Result<Vec<Task>, DbError> {
     let rows = stmt.query_map([], task_from_row)?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
-}
-
-/// Total task count, including completed.
-pub fn count_tasks(conn: &Connection) -> Result<i64, DbError> {
-    Ok(conn.query_row("SELECT count(*) FROM task", [], |r| r.get(0))?)
 }
 
 /// Default heads-up window for upcoming deadlines surfaced in Today
@@ -348,195 +363,6 @@ pub fn list_areas(conn: &Connection) -> Result<Vec<Area>, DbError> {
         .map_err(Into::into)
 }
 
-/// Open-task counts for the six canonical Simple Mode lists. Phase 5c
-/// surfaces these as sidebar badges (hidden when zero).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CanonicalCounts {
-    pub inbox: i64,
-    pub today: i64,
-    pub upcoming: i64,
-    pub anytime: i64,
-    pub someday: i64,
-    pub logbook: i64,
-}
-
-/// Compute all six canonical-list counts in one batched call.
-pub fn count_open_canonical(
-    conn: &Connection,
-    today: NaiveDate,
-) -> Result<CanonicalCounts, DbError> {
-    let today_str = today.format("%Y-%m-%d").to_string();
-
-    let inbox: i64 = conn.query_row(
-        "SELECT count(*) FROM task WHERE project_id IS NULL AND completed_at IS NULL",
-        [],
-        |r| r.get(0),
-    )?;
-
-    // Mirror list_today's per-row deadline horizon (v0.14.0): each
-    // task's effective horizon is `today + COALESCE(deadline_warn_days,
-    // global_default)`. Sidebar badge must match list contents.
-    let today_count: i64 = conn.query_row(
-        "SELECT count(*) FROM task \
-         WHERE completed_at IS NULL \
-           AND ( \
-                 (scheduled_for IS NOT NULL \
-                    AND scheduled_for != '__someday__' \
-                    AND scheduled_for <= ?1) \
-                 OR (deadline IS NOT NULL \
-                     AND deadline <= date(?1, '+' || COALESCE(deadline_warn_days, ?2) || ' days')) \
-               ) \
-           AND (defer_until IS NULL OR defer_until <= ?1)",
-        params![today_str, TODAY_DEADLINE_WINDOW_DAYS],
-        |r| r.get(0),
-    )?;
-
-    let upcoming: i64 = conn.query_row(
-        "SELECT count(*) FROM task \
-         WHERE completed_at IS NULL \
-           AND scheduled_for IS NOT NULL \
-           AND scheduled_for != '__someday__' \
-           AND scheduled_for > ?1",
-        params![today_str],
-        |r| r.get(0),
-    )?;
-
-    let anytime: i64 = conn.query_row(
-        "SELECT count(*) FROM task \
-         WHERE completed_at IS NULL \
-           AND scheduled_for IS NULL \
-           AND (defer_until IS NULL OR defer_until <= ?1)",
-        params![today_str],
-        |r| r.get(0),
-    )?;
-
-    let someday: i64 = conn.query_row(
-        "SELECT count(*) FROM task \
-         WHERE completed_at IS NULL AND scheduled_for = '__someday__'",
-        [],
-        |r| r.get(0),
-    )?;
-
-    let logbook: i64 = conn.query_row(
-        "SELECT count(*) FROM task WHERE completed_at IS NOT NULL",
-        [],
-        |r| r.get(0),
-    )?;
-
-    Ok(CanonicalCounts {
-        inbox,
-        today: today_count,
-        upcoming,
-        anytime,
-        someday,
-        logbook,
-    })
-}
-
-/// Open-task count per project, keyed by project id.
-pub fn count_open_per_project(conn: &Connection) -> Result<HashMap<i64, i64>, DbError> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT project_id, count(*) FROM task \
-         WHERE project_id IS NOT NULL AND completed_at IS NULL \
-         GROUP BY project_id",
-    )?;
-    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?;
-    let mut out = HashMap::new();
-    for row in rows {
-        let (pid, c) = row?;
-        out.insert(pid, c);
-    }
-    Ok(out)
-}
-
-/// v0.15.0 — Phase 18.5 Tier-1 statistics-cookie projection.
-/// `(done, total)` per project, keyed by project id. Total
-/// counts every task in the project (including completed); done
-/// counts the subset with non-NULL `completed_at`. The
-/// projection feeds both the inline `[N/M]` cookie on the project
-/// sub-heading the writer emits and the future cookie display on
-/// the project sidebar entry. Projects that hold zero tasks are
-/// absent from the map (cookie isn't meaningful when there's
-/// nothing to count).
-pub fn count_done_total_per_project(
-    conn: &Connection,
-) -> Result<HashMap<i64, (u32, u32)>, DbError> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT project_id, \
-                SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END), \
-                count(*) \
-         FROM task \
-         WHERE project_id IS NOT NULL \
-         GROUP BY project_id",
-    )?;
-    let rows = stmt.query_map([], |r| {
-        Ok((
-            r.get::<_, i64>(0)?,
-            r.get::<_, i64>(1)?,
-            r.get::<_, i64>(2)?,
-        ))
-    })?;
-    let mut out = HashMap::new();
-    for row in rows {
-        let (pid, done, total) = row?;
-        // Counts can never realistically overflow u32 (4B tasks per
-        // project), but be defensive at the cast.
-        let done = u32::try_from(done).unwrap_or(u32::MAX);
-        let total = u32::try_from(total).unwrap_or(u32::MAX);
-        out.insert(pid, (done, total));
-    }
-    Ok(out)
-}
-
-/// v0.15.0 — `(done, total)` per parent task, keyed by parent
-/// task id. Counts immediate children (one level only — Org's
-/// statistics cookie convention is per-headline, not recursive,
-/// matching `org-hierarchical-todo-statistics` defaults). Parent
-/// tasks with zero children are absent from the map.
-pub fn count_done_total_per_parent(conn: &Connection) -> Result<HashMap<i64, (u32, u32)>, DbError> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT parent_id, \
-                SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END), \
-                count(*) \
-         FROM task \
-         WHERE parent_id IS NOT NULL \
-         GROUP BY parent_id",
-    )?;
-    let rows = stmt.query_map([], |r| {
-        Ok((
-            r.get::<_, i64>(0)?,
-            r.get::<_, i64>(1)?,
-            r.get::<_, i64>(2)?,
-        ))
-    })?;
-    let mut out = HashMap::new();
-    for row in rows {
-        let (pid, done, total) = row?;
-        let done = u32::try_from(done).unwrap_or(u32::MAX);
-        let total = u32::try_from(total).unwrap_or(u32::MAX);
-        out.insert(pid, (done, total));
-    }
-    Ok(out)
-}
-
-/// Open-task count per area (aggregated across the area's projects),
-/// keyed by area id.
-pub fn count_open_per_area(conn: &Connection) -> Result<HashMap<i64, i64>, DbError> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT p.area_id, count(*) FROM task t \
-         JOIN project p ON t.project_id = p.id \
-         WHERE p.area_id IS NOT NULL AND t.completed_at IS NULL \
-         GROUP BY p.area_id",
-    )?;
-    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?;
-    let mut out = HashMap::new();
-    for row in rows {
-        let (aid, c) = row?;
-        out.insert(aid, c);
-    }
-    Ok(out)
-}
-
 /// Single area by id.
 pub fn area_by_id(conn: &Connection, id: i64) -> Result<Option<Area>, DbError> {
     let sql = format!("SELECT {AREA_COLUMNS} FROM area WHERE id = ?1");
@@ -735,152 +561,6 @@ pub fn list_perspectives(conn: &Connection) -> Result<Vec<Perspective>, DbError>
         .map_err(Into::into)
 }
 
-/// Wire-level value for the SQL fast-path's bound parameters.
-/// Mirrors `atrium_search::SqlValue` so binaries don't have to
-/// know about `rusqlite::types::Value` directly. `From<atrium_search::SqlValue>`
-/// lives over in `atrium-search/src/sql_translate.rs`.
-#[derive(Debug, Clone, PartialEq)]
-pub enum SqlBindValue {
-    Text(String),
-    Int(i64),
-    /// Date bound as `YYYY-MM-DD` text — matches the column storage
-    /// shape (`scheduled_for`, `deadline`, `defer_until`, etc.).
-    Date(NaiveDate),
-}
-
-impl SqlBindValue {
-    fn to_rusqlite(&self) -> rusqlite::types::Value {
-        match self {
-            Self::Text(s) => rusqlite::types::Value::Text(s.clone()),
-            Self::Int(n) => rusqlite::types::Value::Integer(*n),
-            Self::Date(d) => rusqlite::types::Value::Text(d.format("%Y-%m-%d").to_string()),
-        }
-    }
-}
-
-/// Run a pre-built SQL `WHERE` fragment against the `task` table.
-/// Used by the SQL-translation evaluator (`atrium-search`) — the
-/// caller composes the fragment + bound params, this helper just
-/// executes it and decodes rows.
-///
-/// Each row is selected with the standard `TASK_COLUMNS` set so the
-/// resulting `Vec<Task>` is interchangeable with output from
-/// `list_all_tasks`. Ordering is `t.position` so the post-query
-/// in-memory rank/sort steps see a deterministic input.
-///
-/// `where_sql` is bound *literally* into the prepared statement —
-/// the caller is responsible for ensuring it came from
-/// `atrium_search::try_translate` (or an equally-trusted source)
-/// rather than user input. `params` are bound positionally and
-/// match the `?N` placeholders inside `where_sql`.
-pub fn list_tasks_matching(
-    conn: &Connection,
-    where_sql: &str,
-    params: &[SqlBindValue],
-) -> Result<Vec<Task>, DbError> {
-    let bound: Vec<rusqlite::types::Value> = params.iter().map(SqlBindValue::to_rusqlite).collect();
-    let task_cols = TASK_COLUMNS
-        .split(", ")
-        .map(|c| format!("t.{c}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let sql = format!("SELECT {task_cols} FROM task t WHERE {where_sql} ORDER BY t.position");
-    // Plain `prepare` rather than `prepare_cached` — the WHERE
-    // fragment varies per query, so caching would unboundedly grow
-    // the per-connection statement cache.
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(rusqlite::params_from_iter(bound), task_from_row)?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
-/// FTS5-backed search over `task.title` + `task.note`. Returns
-/// matches ranked by `bm25` (FTS5's default — closer to the top means
-/// stronger relevance). Phase 7a's "recency × relevance" requirement
-/// from spec §4.3 lands as a follow-up multiplier; this is the
-/// pure-relevance base.
-///
-/// `query` is wrapped in double quotes so user input is treated as a
-/// phrase search by default — we don't expose FTS5's `OR`/`NOT`
-/// operators yet (that's Phase 7c filter expressions). Internal
-/// double quotes in the user input are stripped to keep the wrapping
-/// well-formed.
-pub fn search_tasks(conn: &Connection, query: &str) -> Result<Vec<Task>, DbError> {
-    let cleaned: String = query.chars().filter(|c| *c != '"').collect();
-    if cleaned.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-    let phrase = format!("\"{}\"", cleaned.trim());
-
-    let task_cols = TASK_COLUMNS
-        .split(", ")
-        .map(|c| format!("t.{c}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let sql = format!(
-        "SELECT {task_cols} FROM task t \
-         JOIN task_fts ON task_fts.rowid = t.id \
-         WHERE task_fts MATCH ?1 \
-         ORDER BY rank",
-    );
-    let mut stmt = conn.prepare_cached(&sql)?;
-    let rows = stmt.query_map(params![phrase], task_from_row)?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
-/// FTS5 bm25 scores for the given bare-text terms. Returns one
-/// entry per task that matches *any* of the terms; absent rows are
-/// "no match" (the caller falls back to its in-memory rank).
-///
-/// The bm25 contract: more negative = more relevant. We forward the
-/// raw FTS5 score so the caller can apply its own blend (recency,
-/// per-column weighting, etc.) without us coupling a policy in.
-///
-/// Callers don't need this for *correctness* — the in-memory
-/// evaluator does substring on title + note and returns the same
-/// match set. This is the *ranking* path: when bare text is in the
-/// query and no `sort:` modifier was given, the call site can
-/// reorder its already-filtered results by these scores blended
-/// with recency. See `atrium_search::blend_relevance`.
-pub fn bm25_for_terms(conn: &Connection, terms: &[String]) -> Result<HashMap<i64, f64>, DbError> {
-    if terms.is_empty() {
-        return Ok(HashMap::new());
-    }
-    // Sanitise each term: drop double quotes (we wrap in our own
-    // quotes for phrase semantics), and reject any term that
-    // becomes empty after trimming. FTS5 is permissive about most
-    // ASCII but can choke on unbalanced quotes — quoting prevents
-    // the user's text from injecting MATCH operators.
-    let phrases: Vec<String> = terms
-        .iter()
-        .map(|t| {
-            let clean: String = t.chars().filter(|c| *c != '"').collect();
-            format!("\"{}\"", clean.trim())
-        })
-        .filter(|p| p.len() > 2) // 2 = the two quotes alone
-        .collect();
-    if phrases.is_empty() {
-        return Ok(HashMap::new());
-    }
-    // FTS5's MATCH glues phrases with implicit AND when separated
-    // by whitespace; we want OR so any term contributes. The
-    // explicit `OR` keyword does that.
-    let match_clause = phrases.join(" OR ");
-
-    let sql = "SELECT rowid, bm25(task_fts) \
-               FROM task_fts \
-               WHERE task_fts MATCH ?1";
-    let mut stmt = conn.prepare_cached(sql)?;
-    let rows = stmt.query_map(params![match_clause], |row| {
-        let id: i64 = row.get(0)?;
-        let score: f64 = row.get(1)?;
-        Ok((id, score))
-    })?;
-    rows.collect::<rusqlite::Result<HashMap<_, _>>>()
-        .map_err(Into::into)
-}
-
 /// Open tasks bearing the given tag, ordered by position. The tag
 /// page view (`ActiveList::Tag(id)`) calls this.
 pub fn list_tasks_with_tag(conn: &Connection, tag_id: i64) -> Result<Vec<Task>, DbError> {
@@ -959,24 +639,6 @@ pub fn tag_info_per_task(conn: &Connection) -> Result<TagInfoMap, DbError> {
     Ok(out)
 }
 
-/// Open-task counts per tag id. Sidebar Tags section consumes this
-/// for badge values.
-pub fn count_open_per_tag(conn: &Connection) -> Result<HashMap<i64, i64>, DbError> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT tt.tag_id, count(*) FROM task t \
-         JOIN task_tag tt ON tt.task_id = t.id \
-         WHERE t.completed_at IS NULL \
-         GROUP BY tt.tag_id",
-    )?;
-    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?;
-    let mut out = HashMap::new();
-    for row in rows {
-        let (tid, c) = row?;
-        out.insert(tid, c);
-    }
-    Ok(out)
-}
-
 fn tag_from_row(row: &Row<'_>) -> rusqlite::Result<Tag> {
     Ok(Tag {
         id: row.get("id")?,
@@ -1035,7 +697,7 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Project> {
     })
 }
 
-fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
+pub(super) fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
     Ok(Task {
         id: row.get("id")?,
         uuid: row.get("uuid")?,
@@ -1063,176 +725,6 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
     })
 }
 
-// ── Clock entries (Phase 18.5 Tier-1, v0.17.0) ──────────────────
-
-const CLOCK_COLUMNS: &str = "id, task_id, started_at, ended_at, note, created_at, modified_at";
-
-/// Fetch a single clock entry by id.
-pub fn clock_entry_by_id(conn: &Connection, id: i64) -> Result<Option<TaskClockEntry>, DbError> {
-    let sql = format!("SELECT {CLOCK_COLUMNS} FROM task_clock_entry WHERE id = ?1");
-    let mut stmt = conn.prepare_cached(&sql)?;
-    let mut rows = stmt.query_map(params![id], clock_entry_from_row)?;
-    match rows.next() {
-        Some(row) => Ok(Some(row?)),
-        None => Ok(None),
-    }
-}
-
-/// Resolve the task_id of a clock entry without loading the
-/// full row. Used by the worker's delete path so it can look
-/// up which task to refresh + notify after the row is gone.
-pub fn clock_entry_task_id(conn: &Connection, id: i64) -> Result<Option<i64>, DbError> {
-    let mut stmt = conn.prepare_cached("SELECT task_id FROM task_clock_entry WHERE id = ?1")?;
-    let mut rows = stmt.query_map(params![id], |r| r.get::<_, i64>(0))?;
-    match rows.next() {
-        Some(row) => Ok(Some(row?)),
-        None => Ok(None),
-    }
-}
-
-/// All clock entries on a task, newest-first by started_at
-/// (Inspector log convention; Emacs's `org-clock` also lists
-/// recent on top).
-pub fn list_clock_entries(conn: &Connection, task_id: i64) -> Result<Vec<TaskClockEntry>, DbError> {
-    let sql = format!(
-        "SELECT {CLOCK_COLUMNS} FROM task_clock_entry \
-         WHERE task_id = ?1 ORDER BY started_at DESC, id DESC"
-    );
-    let mut stmt = conn.prepare_cached(&sql)?;
-    let rows = stmt.query_map(params![task_id], clock_entry_from_row)?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
-/// Sum of closed-entry durations for a task, in whole minutes.
-/// In-progress entries (ended_at IS NULL) are skipped — the
-/// "right" answer for them depends on the moment you ask, and
-/// the inspector renders the running clock separately. Returns
-/// `0` for tasks with no entries (Inspector renders "0:00" the
-/// same way it would render an empty log).
-pub fn total_clock_minutes(conn: &Connection, task_id: i64) -> Result<i64, DbError> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT COALESCE(SUM( (julianday(ended_at) - julianday(started_at)) * 24 * 60 ), 0) \
-         FROM task_clock_entry WHERE task_id = ?1 AND ended_at IS NOT NULL",
-    )?;
-    // SQLite returns the SUM as REAL; round to whole minutes.
-    let total: f64 = stmt.query_row(params![task_id], |r| r.get(0))?;
-    Ok(total.max(0.0).round() as i64)
-}
-
-/// All clock entries belonging to tasks in a project, grouped
-/// by task_id. Newest-first within each group. Used by the Org
-/// writer to stamp `:LOGBOOK:` drawers in one query rather than
-/// per-task. Tasks with no entries are absent from the map.
-pub fn clock_entries_per_project(
-    conn: &Connection,
-    project_id: i64,
-) -> Result<HashMap<i64, Vec<TaskClockEntry>>, DbError> {
-    // Qualify every CLOCK_COLUMNS field with `e.` so the JOIN
-    // doesn't make `id` ambiguous against `task.id`.
-    let qualified = CLOCK_COLUMNS
-        .split(", ")
-        .map(|c| format!("e.{c}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let sql = format!(
-        "SELECT {qualified} FROM task_clock_entry e \
-         JOIN task t ON e.task_id = t.id \
-         WHERE t.project_id = ?1 \
-         ORDER BY e.task_id, e.started_at DESC, e.id DESC"
-    );
-    let mut stmt = conn.prepare_cached(&sql)?;
-    let rows = stmt.query_map(params![project_id], clock_entry_from_row)?;
-    let mut out: HashMap<i64, Vec<TaskClockEntry>> = HashMap::new();
-    for row in rows {
-        let entry = row?;
-        out.entry(entry.task_id).or_default().push(entry);
-    }
-    Ok(out)
-}
-
-/// Identify the currently-running clock (at most one row per
-/// the single-active-clock invariant). Returns `(task_id,
-/// started_at)` for the running entry, or `None` when no clock
-/// is active.
-pub fn active_clock(conn: &Connection) -> Result<Option<(i64, DateTime<Utc>)>, DbError> {
-    let row = conn
-        .query_row(
-            "SELECT task_id, started_at FROM task_clock_entry WHERE ended_at IS NULL LIMIT 1",
-            [],
-            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, DateTime<Utc>>(1)?)),
-        )
-        .optional()?;
-    Ok(row)
-}
-
-fn clock_entry_from_row(row: &Row<'_>) -> rusqlite::Result<TaskClockEntry> {
-    Ok(TaskClockEntry {
-        id: row.get("id")?,
-        task_id: row.get("task_id")?,
-        started_at: row.get("started_at")?,
-        ended_at: row.get("ended_at")?,
-        note: row.get("note")?,
-        created_at: row.get("created_at")?,
-        modified_at: row.get("modified_at")?,
-    })
-}
-
-// ── Quick Entry templates (Phase 18.5 Tier-1, v0.18.0) ──────────
-
-const QUICK_ENTRY_TEMPLATE_COLUMNS: &str = "id, name, shortcut_key, target_project_id, prefix, default_tags, position, \
-     created_at, modified_at";
-
-/// Fetch a single template by id.
-pub fn quick_entry_template_by_id(
-    conn: &Connection,
-    id: i64,
-) -> Result<Option<QuickEntryTemplate>, DbError> {
-    let sql =
-        format!("SELECT {QUICK_ENTRY_TEMPLATE_COLUMNS} FROM quick_entry_template WHERE id = ?1");
-    let mut stmt = conn.prepare_cached(&sql)?;
-    let mut rows = stmt.query_map(params![id], quick_entry_template_from_row)?;
-    match rows.next() {
-        Some(row) => Ok(Some(row?)),
-        None => Ok(None),
-    }
-}
-
-/// All templates ordered by `position` (display order in the
-/// Quick Entry modal's picker bar). Empty when no templates are
-/// configured — modal renders the standard Quick Entry shape
-/// in that case.
-pub fn list_quick_entry_templates(conn: &Connection) -> Result<Vec<QuickEntryTemplate>, DbError> {
-    let sql = format!(
-        "SELECT {QUICK_ENTRY_TEMPLATE_COLUMNS} FROM quick_entry_template \
-         ORDER BY position, id"
-    );
-    let mut stmt = conn.prepare_cached(&sql)?;
-    let rows = stmt.query_map([], quick_entry_template_from_row)?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
-fn quick_entry_template_from_row(row: &Row<'_>) -> rusqlite::Result<QuickEntryTemplate> {
-    let tags_json: String = row.get("default_tags")?;
-    // Tolerant decode: malformed JSON falls back to empty Vec
-    // rather than failing the read. The worker writes valid JSON
-    // (it's the only writer), so a malformed value here means
-    // hand-edit damage; degrade to "no tags" rather than poison
-    // the whole query.
-    let default_tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-    Ok(QuickEntryTemplate {
-        id: row.get("id")?,
-        name: row.get("name")?,
-        shortcut_key: row.get("shortcut_key")?,
-        target_project_id: row.get("target_project_id")?,
-        prefix: row.get("prefix")?,
-        default_tags,
-        position: row.get("position")?,
-        created_at: row.get("created_at")?,
-        modified_at: row.get("modified_at")?,
-    })
-}
 
 #[cfg(test)]
 mod tests {
