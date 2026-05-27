@@ -1,5 +1,12 @@
 # Atrium — Patch Notes
 
+## v0.22.1 (2026-05-27) — Metainfo capitalisation + post-v0.22.0 planning
+
+Documentation and metadata maintenance: no code, behaviour, or schema changes.
+
+- **Metainfo capitalisation.** Every `<release>` description's `<p>` blocks now open with a capitalised word, clearing the last `appstreamcli validate` infos. The 15 lowercase-leading paragraphs were mostly intentional proper nouns (`window.rs`, `atrium-org`, version strings); each got a short capitalised lead-in rather than mangling the noun. `appstreamcli validate` is now fully clean. These were info-level and never blocked Flathub, but the output is pristine now.
+- **Post-v0.22.0 roadmap planning.** Added a prioritised `Post-v0.22.0 priority order` section to `roadmap.md`: Tier 1 (subtasks UI exposure, Org custom-property-drawer passthrough), Tier 2 (VTODO import/export, task dependencies) with full per-item todo breakdowns, and Tier 3 / Tier 4 cross-referencing Phase 19.5 / Phase 20.
+
 ## v0.22.0 (2026-05-27) — Module-tree split of the two largest source files
 
 A structural maintenance release: no behaviour changes, no schema changes. The audit that drove the v0.21.x patches flagged `window.rs` (6105 lines) and `inspector_pane.rs` (1921 lines) as the repo's outstanding structural debt; both are now decomposed into module trees. 888 tests stay green throughout, with clippy `-D warnings` and rustfmt clean at every step.

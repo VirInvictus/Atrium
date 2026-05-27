@@ -90,12 +90,23 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.22.1" date="2026-05-27">
+      <description>
+        <p>Documentation and metadata maintenance. No code, behaviour,
+           or schema changes.</p>
+        <p>Cleared the remaining AppStream validation infos by giving
+           every release description a capitalised opening word, and
+           recorded the prioritised post-v0.22.0 plan (subtasks UI, Org
+           custom-property passthrough, VTODO interop, task
+           dependencies) in the roadmap.</p>
+      </description>
+    </release>
     <release version="0.22.0" date="2026-05-27">
       <description>
         <p>Maintenance release: structural refactor only, no behaviour
            or schema changes. The repository's two largest source files
            were split into module trees for reviewability.</p>
-        <p>window.rs (6105 lines, one 156-method impl plus helpers)
+        <p>The window.rs file (6105 lines, one 156-method impl plus helpers)
            became a window/ directory of ten focused modules (sidebar,
            shell, lists, tasks, views, search, actions, widgets, tests,
            and a 425-line mod.rs). inspector_pane.rs (1921 lines) became
@@ -385,7 +396,7 @@
            The popover lives with the title_entry widget, not
            with whichever task is currently bound, so no
            teardown bookkeeping is needed.</p>
-        <p>build_factory gained a fourth argument — a closure
+        <p>The build_factory factory gained a fourth argument — a closure
            that resolves the read pool lazily — so the factory
            can be built before attach_data_layer fires.
            Behaviour matches the other surfaces (Tab/Enter
@@ -413,7 +424,7 @@
            default for renderer ("list" when omitted) and
            backward-compat for pre-v0.13.1 placeholder sidecars
            (still parse cleanly).</p>
-        <p>build_from_db reads list_perspectives in stored
+        <p>The build_from_db path reads list_perspectives in stored
            position order so the sidebar ordering survives the
            round-trip. The hand-rolled minimal-TOML parser
            learned one new shape — array-of-tables — and stays
@@ -480,7 +491,7 @@
            regression guard fails loudly if a new full-name
            keyword lands in the parser without being added to
            the candidate list.</p>
-        <p>spec.md §6 (Quick Entry) updated to document the
+        <p>The spec.md §6 (Quick Entry) section was updated to document the
            v0.13 tokens and to surface the architectural
            commitment: the same parser, the same vocabulary,
            four surfaces (Quick Entry modal, bottom-of-list
@@ -787,7 +798,7 @@
     </release>
     <release version="0.9.0" date="2026-05-09">
       <description>
-        <p>atrium-org crate extraction. The Phase 16 Org
+        <p>The atrium-org crate extraction. The Phase 16 Org
            projection — parser, emitter, importer, vault writer
            task — moves out of atrium-core::sync into its own
            workspace crate, atrium-org. atrium-core stays Org-
@@ -838,7 +849,7 @@
            that surfaced + fixed two real importer gaps; GUI
            vault integration so the GTK binary auto-flushes
            every DB write.</p>
-        <p>v0.8.0 ships the maintenance pass per release
+        <p>Release v0.8.0 ships the maintenance pass per release
            discipline: worker.rs test split into worker_tests.rs
            (2622 → 1469 lines source + 1161 lines tests), dead-
            code prune in the Org writer's build_org_tree, and a
@@ -860,7 +871,7 @@
            spawn_worker_with_vault when the key is non-empty,
            so every DB write auto-flushes to the projected
            .org files in the configured vault.</p>
-        <p>boot_data_layer reads the key, builds a VaultConfig
+        <p>The boot_data_layer path reads the key, builds a VaultConfig
            if set (auto-creating the directory if missing), and
            passes it into atrium-core's worker spawn. Empty key
            falls through to DB-only mode. Misconfigured paths
@@ -1013,7 +1024,7 @@
            Emacs but lossy on constructs Atrium doesn't fully
            model; v0.7.11 adds a complementary lossless format
            per the roadmap requirement.</p>
-        <p>atrium-core::sync::json::Snapshot serializes every
+        <p>The atrium-core::sync::json::Snapshot type serializes every
            relevant table (areas, projects, headings, tasks,
            tags, task_tags, perspectives) into one JSON
            document with version + exported_at + atrium_version
@@ -1036,7 +1047,7 @@
            spec §7.3.2 field mapping in reverse, and emits via
            the v0.7.8 atomic-write helper. write_all_projects_
            to_vault walks list_projects.</p>
-        <p>atrium-cli gains `export org PATH [--dry-run]`. Dry-
+        <p>The atrium-cli binary gains `export org PATH [--dry-run]`. Dry-
            run reports what would be written without touching
            disk; JSON output for scripts. Round-trip
            verified end-to-end via a smoke test that imports a
@@ -1062,7 +1073,7 @@
            NewTask.uuid field), :RRULE: → repeat_rule, :EFFORT:
            → estimated_minutes, :DEFER_UNTIL: → defer_until,
            subtasks → parent_id.</p>
-        <p>atrium-cli gains `import org PATH [--dry-run]`. Dry-
+        <p>The atrium-cli binary gains `import org PATH [--dry-run]`. Dry-
            run walks the parse tree and tallies counts without
            touching the DB. JSON output for scripts.</p>
         <p>Limitations deferred to v0.7.10+: project sub-headings
@@ -1222,7 +1233,7 @@
            name and showed completely different content; and
            the upper-left corner still had the centered "Lists"
            header from libadwaita's default sidebar auto-title.</p>
-        <p>v0.7.2 fixes both. The canonical Review page now
+        <p>Release v0.7.2 fixes both. The canonical Review page now
            renders two sections — "Projects to review" (the
            Phase 13 review queue) and "This week" (the
            open-tasks-this-week filter formerly seeded as the
@@ -1251,7 +1262,7 @@
            default elevated headerbar bg, and the v0.7.0
            directional surface gradients (which painted only on
            the inner widgets, not on the headerbar above).</p>
-        <p>v0.7.1 retires the standalone headerbar gradient,
+        <p>Release v0.7.1 retires the standalone headerbar gradient,
            flattens the main-window headerbars to transparent
            so the surface flows behind them, and replaces the
            directional 160deg / -20deg gradients with a flat
@@ -1518,7 +1529,7 @@
     </release>
     <release version="0.6.8" date="2026-05-08">
       <description>
-        <p>v0.6.x cleanup pass — end-of-session maintenance.
+        <p>A v0.6.x cleanup pass — end-of-session maintenance.
            Eleven patches shipped since the v0.5.0 line and
            the contract docs lagged behind. spec.md, roadmap.md,
            and README.md now reflect what actually shipped:
@@ -1569,7 +1580,7 @@
     </release>
     <release version="0.6.5" date="2026-05-08">
       <description>
-        <p>atrium-cli perspective write side — closes the gap
+        <p>The atrium-cli perspective write side closes the gap
            that the only way to create or convert a saved
            perspective from the shell was via direct SQL.
            Three new sub-subcommands: <code>perspective create
@@ -1811,7 +1822,7 @@
            dates shifted, tags carried forward, and project / parent
            preserved. Backwards-compatible <code>0003_repeat_mode.sql</code>
            migration adds the mode column to <code>task</code>.</p>
-        <p>v0.2.0 also runs the sanctioned major-bump maintenance
+        <p>Release v0.2.0 also runs the sanctioned major-bump maintenance
            pass: dead Builder-stub helper removed, four duplicated
            dummy-task test helpers consolidated behind a new
            <code>atrium-core</code> <code>test-support</code> feature

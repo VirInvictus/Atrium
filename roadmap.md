@@ -1,6 +1,6 @@
 # Atrium — Roadmap
 
-What's done, what's next, what's deferred. Sequenced for a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. Current release: **v0.22.0**. Phase 19.5 foundations (preferences dialog + system-notification reminders) shipped at v0.20.0; v0.21.x and v0.22.0 were maintenance releases (documentation sync, a clippy-cleanup pass, a metainfo XML fix, and splitting the two largest source files, `window.rs` and `inspector_pane.rs`, into module trees). The inline-syntax parser (`#tag`, `@today`, etc.) was small in v0.1 and grew steadily through Phase 6c (Quick Entry) + Phase 18 (Todoist mapper); v0.13.0 unifies the vocabulary across every capture surface, expands it (`!N` priority + `@<weekday>`), lifts the parser into its own `atrium-inline` workspace crate (atrium-core stays inline-syntax-agnostic), and wires a tab-completion popover into the bottom-of-list entry and Quick Entry modal so the syntax becomes discoverable. Phase 18 (Todoist CSV import) shipped at v0.12.0. Phase 17 (vault → DB two-way sync) closed at v0.10.3; Phase 12.5 (Calendar Month View) closed at v0.11.0. Phase 18.5 (Org-mode power features) and Phase 19.5 (productivity essentials) are next.
+What's done, what's next, what's deferred. Sequenced for a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. Current release: **v0.22.1**. Phase 19.5 foundations (preferences dialog + system-notification reminders) shipped at v0.20.0; v0.21.x and v0.22.0 were maintenance releases (documentation sync, a clippy-cleanup pass, a metainfo XML fix, and splitting the two largest source files, `window.rs` and `inspector_pane.rs`, into module trees). The inline-syntax parser (`#tag`, `@today`, etc.) was small in v0.1 and grew steadily through Phase 6c (Quick Entry) + Phase 18 (Todoist mapper); v0.13.0 unifies the vocabulary across every capture surface, expands it (`!N` priority + `@<weekday>`), lifts the parser into its own `atrium-inline` workspace crate (atrium-core stays inline-syntax-agnostic), and wires a tab-completion popover into the bottom-of-list entry and Quick Entry modal so the syntax becomes discoverable. Phase 18 (Todoist CSV import) shipped at v0.12.0. Phase 17 (vault → DB two-way sync) closed at v0.10.3; Phase 12.5 (Calendar Month View) closed at v0.11.0. Phase 18.5 (Org-mode power features) and Phase 19.5 (productivity essentials) are next.
 
 ---
 
@@ -16,6 +16,71 @@ Twenty phases mapping the journey from empty repo to 1.0.
 Each phase ends with a `heaptrack` checkpoint against the §8 budget. Every phase that adds a third-party crate calls it out — *no third-party deps without prior sign-off*.
 
 The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO instrumentation, memory watch) lands as a skeleton in Phase 0 and grows alongside the features that need it: schema-aware fixtures in Phase 1, SQLite IO tracing in Phase 2, live RSS/heap surfacing in Phase 8. It is not a one-time deliverable.
+
+---
+
+## Post-v0.22.0 priority order
+
+v0.22.0 closed the maintenance backlog (the `window.rs` / `inspector_pane.rs` splits). The remaining pre-1.0 work is ranked here by value-to-effort rather than phase order. Tiers 1 and 2 carry detailed todos; Tiers 3 and 4 cross-reference their phase sections below.
+
+### Tier 1 (next up)
+
+**Subtasks UI exposure** *(Phase 19.5; no new deps; the most visible functional gap).* `parent_id` has shipped since `0001_initial.sql` and the Org importer already builds the tree; only the GUI renders flat.
+
+- [ ] `atrium-core`: `list_subtasks(conn, parent_id)` read helper; confirm `NewTask.parent_id` / `TaskUpdate.parent_id` write paths run end-to-end.
+- [ ] `atrium-cli`: `add --parent ID` and `edit --parent ID` flags; `info` shows children; optional `list --tree`.
+- [ ] Task list: render children indented (or behind a disclosure triangle), reusing `position` ordering within a parent.
+- [ ] Inspector (both modes): a "Subtasks" group above Notes with per-child completion checkboxes plus an "Add subtask" affordance (reuse the body-checkbox group layout).
+- [ ] Drag-to-reparent: extend the existing task drag-source / drop-target to set `parent_id` (dropping onto a task makes it a child).
+- [ ] Completion semantics: document whether a parent auto-completes children (recommend no cascade; surface `[done/total]` via the existing `count_done_total_per_parent`).
+- [ ] Tests: read-helper unit test, CLI `--parent` round-trip, worker reparent test, `parent_id` cycle guard.
+- [ ] Schema: none (already present).
+
+**Custom property-drawer passthrough** *(correctness; closes a documented Org round-trip data-loss).* `documented_limit_org_importer_drops_custom_property_keys` pins the gap: unmodeled `:PROPERTIES:` keys are dropped, which dents spec §7.3.3 rule 1.
+
+- [ ] Schema: migration `0014_task_extra_properties.sql` (or next free number) adds `task.extra_properties TEXT NULL` (JSON object of unmodeled key to value); `user_version` 13 to 14.
+- [ ] `atrium-org` parser: collect drawer keys outside the modeled set (ID / CREATED / MODIFIED / DEFER_UNTIL / Effort / RRULE / ORIG_KEYWORD) into the JSON blob instead of discarding.
+- [ ] `atrium-org` emitter: re-emit stashed keys verbatim, ordered after the modeled keys.
+- [ ] Worker / read: thread `extra_properties` through `NewTask` + `TaskUpdate` (JSON encode/decode at the boundary, like `default_tags`).
+- [ ] Watcher diff path: round-trip external edits to custom keys.
+- [ ] Tests: flip `documented_limit_org_importer_drops_custom_property_keys` from "documents the drop" to "round-trips"; add a multi-key fixture.
+- [ ] No UI (per the Phase 18.5 research note: lossless passthrough, not a surface).
+
+### Tier 2 (high value, bigger lift)
+
+**Phase 19: VTODO (RFC 5545) import + export** *(the GNOME / CalDAV bridge: Endeavour, Errands, Nextcloud Tasks, Planify).*
+
+- [ ] Dependency sign-off: weigh `ical` against a hand-rolled subset for the `.ics` shape Atrium needs; flag before adding (Phase 19 dependency-check item).
+- [ ] Importer (`atrium-cli import vtodo PATH [--into PROJECT] [--dry-run]`): SUMMARY to title, DESCRIPTION to note, DUE to deadline, DTSTART to `scheduled_for`, COMPLETED to `completed_at`, STATUS to open/done, PRIORITY to `priority-N` tag, CATEGORIES to tags, RRULE to `repeat_rule`, UID to `uuid` (round-trip anchor).
+- [ ] Lossy report: surface dropped VALARM / ATTENDEE / GEO (mirror the Todoist `LossyKind` shape).
+- [ ] Exporter (`atrium-cli export vtodo PATH`): one-way `.ics` dump, one VTODO per task; explicitly not a CalDAV client (spec §7.2).
+- [ ] Tests: `.ics` to DB to `.ics` round-trip fixture; a real Endeavour / Errands sample if obtainable.
+- [ ] Follow-on (same scaffolding): Taskwarrior `task export` JSON, todo.txt, and the unified import dialog (worker-run parse + pre-import report + batch commit).
+
+**Task dependencies (`blocked_by`)** *(Phase 19.5; Taskwarrior-parity; deepens the OmniFocus-superset story).*
+
+- [ ] Schema: migration `0015_task_dependency.sql` (or next free number): `task_dependency(task_id, blocks_task_id)` with FK CASCADE; `user_version` bump.
+- [ ] Worker: `add_dependency` / `remove_dependency` commands; reject cycles; CASCADE on task delete.
+- [ ] Read / eval: extend `is:available` so a task with any open prerequisite is unavailable; add an `is:blocked` predicate to `atrium-search` (plus SQL fast-path where expressible).
+- [ ] Row treatment: a "blocked" pill (reuse the queued / sequential CSS from Phase 11).
+- [ ] Inspector: a "Blocked by" group with a search-as-you-type prerequisite picker (like the Org-link picker).
+- [ ] `atrium-cli`: `depend ID --on ID` / `--remove`; surface in `info`.
+- [ ] Tests: cycle rejection, `is:available` / `is:blocked` eval + SQL parity, CASCADE.
+
+### Tier 3 (pre-1.0 polish; lives in Phase 19.5)
+
+See the Phase 19.5 section. Recommended order: first-run / onboarding, then backup-restore UI, then drag external files / URLs, then inline editing on row edit. All small to medium, no new deps, high perceived-quality payoff. EDS calendar overlay and task templates also sit in Phase 19.5 but rank lower (EDS needs a `libecal` / `zbus` sign-off; templates are nice-to-have).
+
+### Tier 4 (the 1.0 endgame; Phase 20)
+
+See the Phase 20 section: `atriumd` capture daemon (also closes the Phase 6c zero-launch carryover), localisation scaffolding, the `mdbook` docs site, AppStream screenshots, Flathub submission, the 50K-task perf regression suite, accessibility round 2. Hold until Tiers 1 to 3 make the app feature-complete.
+
+### Quick wins (grab anytime)
+
+- [x] Metainfo `appstreamcli` capitalisation infos cleared (v0.22.x maintenance).
+- [ ] README screenshots (Simple + Builder): needs a manual capture pass (Phase 9 / Phase 20 carryover).
+- [ ] Flatpak font verification under the sandbox: needs a `flatpak-builder` run (Phase 8 carryover).
+- [ ] Per-area review schedules: additive `area.default_review_interval_days` migration + `COALESCE(project.review_interval_days, area.default_review_interval_days)` in the review query + an area-editor SpinRow (Phase 13 deferred; small feature, earns a minor bump).
 
 ---
 
