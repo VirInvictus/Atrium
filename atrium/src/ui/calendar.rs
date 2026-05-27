@@ -224,11 +224,15 @@ fn focal_week_anchor(grid: &MonthGrid, today: NaiveDate) -> NaiveDate {
         let mon_offset = today.weekday().num_days_from_monday() as i64;
         today - Duration::days(mon_offset)
     } else {
-        grid.weeks.first().map(|w| w[0].date).unwrap_or_else(|| {
-            let first = NaiveDate::from_ymd_opt(grid.year, grid.month, 1).expect("year/month/1");
-            let off = first.weekday().num_days_from_monday() as i64;
-            first - Duration::days(off)
-        })
+        grid.weeks.first().map_or_else(
+            || {
+                let first =
+                    NaiveDate::from_ymd_opt(grid.year, grid.month, 1).expect("year/month/1");
+                let off = first.weekday().num_days_from_monday() as i64;
+                first - Duration::days(off)
+            },
+            |w| w[0].date,
+        )
     }
 }
 
@@ -548,8 +552,7 @@ where
         }
     }
     let viewed_month = NaiveDate::from_ymd_opt(anchor.year(), anchor.month(), 1)
-        .map(|d| (d.year(), d.month()))
-        .unwrap_or((anchor.year(), anchor.month()));
+        .map_or((anchor.year(), anchor.month()), |d| (d.year(), d.month()));
 
     for d in 0..7 {
         let date = anchor + Duration::days(d);

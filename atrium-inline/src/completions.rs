@@ -127,7 +127,7 @@ pub fn replace_token(text: &str, cursor: usize, chosen: &str) -> (String, usize)
     let prefix = &text[..cursor];
     let token_start = prefix.rfind(char::is_whitespace).map_or(0, |i| i + 1);
     let token = &prefix[token_start..];
-    if !matches!(token.chars().next(), Some('#') | Some('@') | Some('!')) {
+    if !matches!(token.chars().next(), Some('#' | '@' | '!')) {
         return (text.to_string(), cursor);
     }
     let marker = &token[..1];

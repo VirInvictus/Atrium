@@ -677,8 +677,7 @@ fn build_project_combo_row(projects: &[Project], current: Option<i64>) -> adw::C
         Some(id) => projects
             .iter()
             .position(|p| p.id == id)
-            .map(|i| (i + 1) as u32)
-            .unwrap_or(0),
+            .map_or(0, |i| (i + 1) as u32),
     };
     row.set_selected(pos);
     row

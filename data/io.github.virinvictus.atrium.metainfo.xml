@@ -90,6 +90,21 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.21.1" date="2026-05-27">
+      <description>
+        <p>Documentation and lint maintenance patch. No behaviour
+           changes, no schema changes.</p>
+        <p>Doc accuracy: the spec header was pinned at v0.12.0 and is
+           now current; the architecture section's crate count
+           corrected from four to six (adding `atrium-org` and
+           `atrium-inline`); stale internal source paths updated to
+           reflect the v0.4.2 / v0.9.0 / v0.13.0 crate extractions.</p>
+        <p>Lint: behaviour-preserving clippy fixes across ten files
+           (`map_or` / `is_some_and` / `is_none_or` rewrites,
+           unnested or-patterns). Workspace stays at 888 tests with
+           clippy `-D warnings` clean.</p>
+      </description>
+    </release>
     <release version="0.21.0" date="2026-05-10">
       <description>
         <p>Maintenance pass after the rapid v0.14.0 → v0.20.0

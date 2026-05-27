@@ -174,7 +174,7 @@ impl Parser {
                     _ => Err(ParseError::UnbalancedParens),
                 }
             }
-            Some(Token::Bareword(_)) | Some(Token::QuotedString(_)) => self.parse_term(),
+            Some(Token::Bareword(_) | Token::QuotedString(_)) => self.parse_term(),
             Some(other) => Err(ParseError::Syntax(format!("unexpected token {other:?}"))),
         }
     }
@@ -397,7 +397,7 @@ impl Parser {
     /// an empty string (the caller decides if that's an error).
     fn consume_value_token_text(&mut self) -> String {
         match self.bump() {
-            Some(Token::Bareword(s)) | Some(Token::QuotedString(s)) => s,
+            Some(Token::Bareword(s) | Token::QuotedString(s)) => s,
             _ => String::new(),
         }
     }

@@ -1,6 +1,6 @@
 # Atrium — Application Specification
 
-**Version:** 0.12.0 (Phases 0–18 shipped; Phase 18 shipped at v0.12.0 — Todoist CSV import via `atrium-cli import todoist PATH --into PROJECT_NAME [--dry-run]`. Three hand-rolled stdlib parsers compose the pipeline: CSV (BOM-tolerant, embedded-comma quoted-field parser), natural-language recurrence (loose phrasings → RFC 5545 RRULE), mapper (row stream → worker calls). Sections become heading rows; INDENT chains map to `parent_id`; inline `@labels` become Atrium tags; PRIORITY 1-3 emits `priority-N` tags (4 is Todoist's default and emits no tag). New `WorkerHandle::ensure_heading` API; the Org writer learned to emit project sub-headings as depth-1 keyword-less headlines and interleave them with top-level tasks by `position`. v5 UUID namespace (project_name + title) gives tasks deterministic IDs so re-imports keep `:ID:` round-trip stable. The home.csv "butter test" pins the full Todoist → DB → vault → re-parse loop. Phase 12.5 (Calendar Month View) shipped at v0.11.0; the third lens over Atrium's task data alongside Forecast (30-day strip) and Agenda (chronological bands); paper-calendar grid for users who think in calendar pages; Builder-only canonical page; full month nav + drag-to-reschedule + single-click peek-popover + double-click drill + narrow-window collapse to vertical week strip. Phase 17 (vault → DB two-way sync) closed at v0.10.3 — `rrule_cookie` helpers, writer emits both Org cookie + `:RRULE:`, watcher syncs `:RRULE:` and detects cookie-only divergence, agenda-parity acceptance test pins semantic parity with stock org-agenda. **Implementation note** on the self-write filter: a path-only TTL filter is too coarse — external edits within the TTL window get swallowed. mtime-based exact-tuple matching (`(path, mtime_just_written)`) is the working design; ext4 stores nanosecond mtime so two distinct writes never collide.)
+**Version:** 0.21.0 (Phases 0–18.5 complete plus Phase 19.5 foundations; schema version 13. Phase 18.5's Org-mode power features shipped across v0.14.0 → v0.19.0: DEADLINE warning windows, statistics cookies, body inline checkboxes, custom TODO sequences, CLOCK time tracking, Quick Entry templates, inter-task `[[id:UUID]]` links, and time-of-day on SCHEDULED. v0.20.0 opened Phase 19.5 with an `AdwPreferencesDialog` and system-notification reminders (`reminder_at`). v0.21.0 was a behaviour-neutral maintenance pass: helper-method extraction, partial `read.rs` / `cli/main.rs` splits, and test-coverage gap fill. The six-crate workspace, single-writer SQLite worker, two-way Org vault, and Calibre-style search grammar described below are all current. See `patchnotes.md` for the full arc.)
 **Target:** GNOME 50+, GTK4 ≥ 4.16, libadwaita ≥ 1.7
 **Language:** Rust (2024 Edition)
 **Build System:** Cargo / Meson wrapper for Flatpak packaging
@@ -74,12 +74,14 @@ GTK main thread ──direct read──▶ SQLite read-only connection pool (sep
 
 ### 3.3 Process Topology
 
-The workspace ships four crates as of v0.5.0:
+The workspace ships six crates as of v0.13.0:
 
 - **`atrium-core`** — headless data layer (domain types, SQLite worker, paths, repeat-rule wrapper). GUI-free; the foundation every other crate builds on.
 - **`atrium-search`** — Calibre-style search expression language (lex / parse / ast / eval). Extracted from atrium-core in v0.4.2 so the engine can be exercised, fuzzed, and reused independently.
+- **`atrium-org`**: Org-mode projection (parser, emitter, importer, vault writer + `inotify` watcher) plus the RRULE / Org-cookie helpers and the `.atrium/config.toml` sidecar. Extracted from `atrium-core::sync` at v0.9.0 so the data layer stays Org-agnostic behind the `VaultDirtyNotifier` trait.
+- **`atrium-inline`**: inline-syntax parser (`#tag` / `@date` / `@<weekday>` / `!N` priority) shared by Quick Entry, the bottom-of-list entry, inline rename, and the CLI `capture` subcommand. Extracted at v0.13.0; `atrium-core` stays inline-syntax-agnostic.
 - **`atrium-cli`** — headless binary that exposes the search engine and full task CRUD (search / list / info / add / capture / edit / complete / delete) from the shell. TSV by default for shell pipelines, `--json` for jq, `--human` for terminal viewing. Read commands open the database read-only as a process-level safety guarantee; write commands spin up the worker on a current-thread tokio runtime, send commands via WorkerHandle, and shut down cleanly.
-- **`atrium`** — the GTK4 binary. Depends on all three above.
+- **`atrium`** — the GTK4 binary. Depends on all five above.
 
 The architectural commitment: every non-GUI surface stays CLI-testable. The 2.0-era TUI (`atrium-tui`) is the same shape — another headless consumer of atrium-core + atrium-search. Phase 20 (v1.0) introduces an optional capture daemon (`atriumd`) running under user systemd that handles the global Quick Entry shortcut even when the main app is closed and IPCs the captured task in. Until that ships, Quick Entry works only when Atrium is running.
 
@@ -207,7 +209,7 @@ Things-style lists are SELECTs, not stored rows:
 
 ### 4.3 Search Expression Language
 
-Phase 15.5 (v0.4.0) replaced the v0.1 flat filter parser with a Calibre-shaped expression grammar in `atrium-core/src/search/`. The language is the contract for the search bar, saved Perspectives (which store filter expressions verbatim), and any future scripting / import surface that wants to express a task query.
+Phase 15.5 (v0.4.0) replaced the v0.1 flat filter parser with a Calibre-shaped expression grammar in what is now the `atrium-search` crate (extracted from `atrium-core` at v0.4.2). The language is the contract for the search bar, saved Perspectives (which store filter expressions verbatim), and any future scripting / import surface that wants to express a task query.
 
 #### 4.3.1 Grammar
 

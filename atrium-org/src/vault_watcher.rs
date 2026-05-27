@@ -805,7 +805,7 @@ fn keyword_is_done(
     sequence: Option<&crate::sidecar::TodoSequenceEntry>,
 ) -> bool {
     match keyword {
-        Some(OrgKeyword::Done) | Some(OrgKeyword::Cancelled) => true,
+        Some(OrgKeyword::Done | OrgKeyword::Cancelled) => true,
         Some(OrgKeyword::Custom(name)) => {
             sequence.is_some_and(|s| s.done.iter().any(|d| d == name))
         }

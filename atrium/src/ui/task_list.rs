@@ -803,14 +803,10 @@ where
             // Already-editing check: read the stack's current page
             // off the row Box (gesture.widget() is the row, where
             // we stash the stack on bind).
-            let already_editing = gesture
-                .widget()
-                .map(|w| unsafe {
-                    w.data::<gtk::Stack>("atrium-title-stack")
-                        .map(|p| p.as_ref().visible_child_name().as_deref() == Some("edit"))
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
+            let already_editing = gesture.widget().is_some_and(|w| unsafe {
+                w.data::<gtk::Stack>("atrium-title-stack")
+                    .is_some_and(|p| p.as_ref().visible_child_name().as_deref() == Some("edit"))
+            });
             tracing::debug!(
                 n_press,
                 is_double_click,

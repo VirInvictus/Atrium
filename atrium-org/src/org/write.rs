@@ -391,7 +391,7 @@ fn stamp_statistics_cookies(node: &mut OrgTask) {
     for child in &node.children {
         if matches!(
             child.keyword,
-            Some(super::parse::OrgKeyword::Done) | Some(super::parse::OrgKeyword::Cancelled)
+            Some(super::parse::OrgKeyword::Done | super::parse::OrgKeyword::Cancelled)
         ) {
             child_done = child_done.saturating_add(1);
         }

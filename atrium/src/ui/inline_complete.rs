@@ -123,7 +123,7 @@ impl State {
         if len == 0 {
             return;
         }
-        let current = self.list.selected_row().map(|r| r.index()).unwrap_or(0);
+        let current = self.list.selected_row().map_or(0, |r| r.index());
         let next = ((current + delta).rem_euclid(len)).max(0);
         if let Some(row) = self.list.row_at_index(next) {
             self.list.select_row(Some(&row));
@@ -302,8 +302,7 @@ fn accept_candidate(entry: &gtk::Entry, chosen: &str) {
 fn utf8_byte_offset(text: &str, char_pos: usize) -> usize {
     text.char_indices()
         .nth(char_pos)
-        .map(|(i, _)| i)
-        .unwrap_or(text.len())
+        .map_or(text.len(), |(i, _)| i)
 }
 
 /// Inverse — convert a byte offset back to a character count so

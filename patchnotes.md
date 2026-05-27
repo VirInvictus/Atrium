@@ -1,5 +1,28 @@
 # Atrium — Patch Notes
 
+## v0.21.1 (2026-05-27) — Documentation + lint maintenance patch
+
+A small follow-on to v0.21.0's maintenance pass, prompted by a full-codebase audit. No behaviour changes, no schema changes; the workspace stays at 888 tests with `cargo clippy --workspace --all-targets -- -D warnings` clean and `cargo fmt --all --check` clean.
+
+### Documentation drift fixed
+
+The audit found the spec header had not moved with the code since v0.12.0, plus a few stale internal references. All corrected against the v0.21.0 reality:
+
+- **`spec.md` header.** Version `0.12.0` → `0.21.0`; the phase-18 parenthetical replaced with an accurate summary of the v0.14.0 → v0.21.0 arc (Phase 18.5 power features, Phase 19.5 foundations, the v0.21.0 maintenance pass).
+- **`spec.md` §3.3.** "The workspace ships four crates as of v0.5.0" corrected to six as of v0.13.0; `atrium-org` and `atrium-inline` added to the topology; the `atrium` binary's "all three above" corrected to "all five above".
+- **`spec.md` §4.3.** The search grammar's home corrected from `atrium-core/src/search/` to the `atrium-search` crate (extracted at v0.4.2).
+- **`CLAUDE.md`.** "Five workspace crates" → "Six"; the build block's test-count example refreshed (`817 at v0.13.0` → `888 at v0.21.0`); the codebase-map migration line corrected (`0007` / `user_version 7` → `0013` / `user_version 13`).
+
+`roadmap.md`'s shipped-phase bullets that name the pre-extraction `atrium-core/src/sync/org/` paths were left intact deliberately: they describe where the code lived at v0.7.x, and the v0.9.0 extraction bullet already records the move.
+
+### Clippy cleanup
+
+Ten files received behaviour-preserving, machine-applicable clippy fixes (the residue after v0.21.0's pedantic sweep): five `unnested_or_patterns` rewrites (`Some(A) | Some(B)` → `Some(A | B)`) in the library crates, and roughly nine `map_unwrap_or` rewrites in the GTK binary (`map().unwrap_or()` → `map_or()`, with two collapsing to `is_some_and()` / `is_none_or()`). Implementation note recorded for future passes: `clippy --fix` with `redundant_closure_for_method_calls` is broken against our `adw` / `gtk` crate aliases (it emits the real `libadwaita` crate name and fails to compile), so that lint must be excluded from any `--fix` run touching the `atrium` binary.
+
+### Audit findings deferred
+
+The audit's larger structural items remain queued for v0.22.0 as already planned: splitting `atrium/src/ui/window.rs` (6105 lines, one 156-method `impl`) and `inspector_pane.rs` (1922 lines). A phased split plan was drafted (test module first via the `#[path]` idiom, then free helpers, then the `impl` block carved into sidebar / pages / tasks / search / dialogs / actions modules).
+
 ## v0.21.0 (2026-05-10) — Maintenance pass: rapid-growth deferred work
 
 Seven minor releases shipped in one extended session (v0.14.0 → v0.20.0; +4972 LOC across 44 files in the bundled commit `67c7e7c`). v0.21.0 is the punctuation — a deliberate maintenance pass before any new feature work, sequenced by blast radius (small wins → focused refactors → structural splits → test coverage). No behaviour changes for the user; the audit findings are documented here so future-me has the receipts.

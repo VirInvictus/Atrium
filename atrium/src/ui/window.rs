@@ -1565,8 +1565,7 @@ impl AtriumWindow {
                 .tag_titles
                 .borrow()
                 .get(&id)
-                .map(|n| format!("#{n}"))
-                .unwrap_or_else(|| "Tag".into()),
+                .map_or_else(|| "Tag".into(), |n| format!("#{n}")),
             ActiveList::Perspective(id) => self
                 .imp()
                 .perspective_titles
@@ -2571,8 +2570,7 @@ impl AtriumWindow {
             let next_pos = entries
                 .iter()
                 .find(|(i, _, _)| *i == dest_idx + 1)
-                .map(|(_, _, p)| *p)
-                .unwrap_or(dest_pos + 1.0);
+                .map_or(dest_pos + 1.0, |(_, _, p)| *p);
             (dest_pos + next_pos) / 2.0
         } else {
             let prev_pos = if dest_idx == 0 {
@@ -2581,8 +2579,7 @@ impl AtriumWindow {
                 entries
                     .iter()
                     .find(|(i, _, _)| *i == dest_idx - 1)
-                    .map(|(_, _, p)| *p)
-                    .unwrap_or(dest_pos - 1.0)
+                    .map_or(dest_pos - 1.0, |(_, _, p)| *p)
             };
             (prev_pos + dest_pos) / 2.0
         };
@@ -3103,8 +3100,7 @@ impl AtriumWindow {
             .into_iter()
             .filter(|t| {
                 t.last_reviewed_at
-                    .map(|when| when.date_naive() < cutoff)
-                    .unwrap_or(true)
+                    .is_none_or(|when| when.date_naive() < cutoff)
             })
             .collect();
 

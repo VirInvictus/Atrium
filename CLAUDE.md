@@ -6,7 +6,7 @@ Project guidance for Claude Code working on Atrium.
 
 **Current release: v0.21.0** (May 2026). **Schema version: 13.** **888 tests across the workspace, all green.** Phase 18.5 wrapped at v0.19.0; Phase 19.5 (productivity essentials) opened at v0.20.0 with the preferences dialog + system-notification reminders. v0.21.0 was a maintenance pass — no behaviour changes; refactors, helper-method extraction, partial splits of `read.rs` and `cli/main.rs`, test coverage gap fill. Inspector pane and `window.rs` splits deferred to v0.22.0.
 
-Five workspace crates: `atrium-core` (data layer), `atrium-search` (Calibre-style search expression language), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary.
+Six workspace crates: `atrium-core` (data layer), `atrium-search` (Calibre-style search expression language), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary.
 
 For shipped-phase history, see `patchnotes.md` (newest at top); the next-up plan lives in `roadmap.md`. **Phase 18.5** (Org-mode power features) and **Phase 19.5** (productivity essentials) are next.
 
@@ -121,7 +121,7 @@ The v0.1 freeze's good instinct still applies: when a feature seems to need a ne
 ## Build / test / lint
 
 ```bash
-cargo test --workspace            # all tests (817 at v0.13.0)
+cargo test --workspace            # all tests (888 at v0.21.0)
 cargo test <test_name>            # single test
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
@@ -207,7 +207,7 @@ atrium-core/                          ← headless data layer
     ├── command.rs                    ← Command enum
     ├── changes.rs                    ← TaskChanges, LibraryChanges deltas
     ├── fixtures.rs                   ← --fixture stress generators
-    └── migrations/                   ← 0001 initial → 0007 task.orig_keyword; user_version PRAGMA currently 7
+    └── migrations/                   ← 0001 initial → 0013 task_clock_entry timestamps; user_version PRAGMA currently 13
 
 atrium-org/                           ← Phase 16 Org-mode projection + Phase 17 vault → DB sync
 ├── src/lib.rs                        ← VaultEvent + RecentWrites + sidecar re-exports; `spawn_org_vault` (write-only); `spawn_vault_loop` (two-way GUI builder)
