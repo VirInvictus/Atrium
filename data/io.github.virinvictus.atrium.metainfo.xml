@@ -90,6 +90,19 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.22.0" date="2026-05-27">
+      <description>
+        <p>Maintenance release: structural refactor only, no behaviour
+           or schema changes. The repository's two largest source files
+           were split into module trees for reviewability.</p>
+        <p>window.rs (6105 lines, one 156-method impl plus helpers)
+           became a window/ directory of ten focused modules (sidebar,
+           shell, lists, tasks, views, search, actions, widgets, tests,
+           and a 425-line mod.rs). inspector_pane.rs (1921 lines) became
+           an inspector_pane/ directory (mod.rs, fields, tests). 888
+           tests stay green; clippy and rustfmt clean.</p>
+      </description>
+    </release>
     <release version="0.21.2" date="2026-05-27">
       <description>
         <p>Packaging fix. Several historical release entries in this

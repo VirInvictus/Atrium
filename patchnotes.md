@@ -1,5 +1,31 @@
 # Atrium — Patch Notes
 
+## v0.22.0 (2026-05-27) — Module-tree split of the two largest source files
+
+A structural maintenance release: no behaviour changes, no schema changes. The audit that drove the v0.21.x patches flagged `window.rs` (6105 lines) and `inspector_pane.rs` (1921 lines) as the repo's outstanding structural debt; both are now decomposed into module trees. 888 tests stay green throughout, with clippy `-D warnings` and rustfmt clean at every step.
+
+### window.rs becomes window/
+
+The largest file in the repo: a single 156-method `impl AtriumWindow` plus roughly 1140 lines of free-function helpers, carved into a `window/` directory.
+
+- `mod.rs` (425, was 6105) keeps the `imp` subclass, the `glib::wrapper!`, `ActiveList`, the lifecycle constructors, and re-exports the helpers.
+- `sidebar.rs`, `shell.rs`, `lists.rs`, `tasks.rs`, `views.rs`, `search.rs`, `actions.rs` each hold one `impl AtriumWindow` block for a cohesive method group.
+- `widgets.rs` holds the free-function helpers (primary menu, sidebar row / badge builders, search-help popover, history ring buffer, dialog prompts).
+- `tests.rs` holds the relocated test module.
+
+Mechanism: child modules use `use super::*` to inherit `mod.rs`'s imports; cross-module methods were bumped to `pub(super)`; free-function helpers are re-exported from `mod.rs` via `pub(crate) use widgets::*`. The composite-template path was re-anchored for the deeper file location. Landed in three passes (test module, impl carve, free-function extraction), each independently green.
+
+### inspector_pane.rs becomes inspector_pane/
+
+- `mod.rs` (949) keeps `struct InspectorPane`, its impl, and the 735-line `build_editor` (left whole so its imports stay local).
+- `fields.rs` (931) holds the field / widget builders, the repeat-rule editor, and the small parsers.
+- `tests.rs` holds the relocated test module.
+
+### Notes for future maintenance passes
+
+- `cargo clippy --fix` with `redundant_closure_for_method_calls` is broken against our `adw` / `gtk` crate aliases: it emits the real `libadwaita` crate name and fails to compile. Exclude that lint from any `--fix` run touching the `atrium` binary.
+- The `window.rs` carve was done bottom-up so upper line numbers stayed stable across successive cuts; chunk boundaries had to avoid slicing a method's doc comment away from its `fn`.
+
 ## v0.21.2 (2026-05-27) — Metainfo XML escaping fix
 
 A packaging-correctness patch surfaced by the v0.21.1 audit. No code or behaviour changes.

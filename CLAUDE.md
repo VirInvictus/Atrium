@@ -4,7 +4,7 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.21.0** (May 2026). **Schema version: 13.** **888 tests across the workspace, all green.** Phase 18.5 wrapped at v0.19.0; Phase 19.5 (productivity essentials) opened at v0.20.0 with the preferences dialog + system-notification reminders. v0.21.0 was a maintenance pass — no behaviour changes; refactors, helper-method extraction, partial splits of `read.rs` and `cli/main.rs`, test coverage gap fill. Inspector pane and `window.rs` splits deferred to v0.22.0.
+**Current release: v0.22.0** (May 2026). **Schema version: 13.** **888 tests across the workspace, all green.** Phase 18.5 wrapped at v0.19.0; Phase 19.5 (productivity essentials) opened at v0.20.0 with the preferences dialog + system-notification reminders. v0.21.0 was a maintenance pass (refactors, helper-method extraction, partial `read.rs` / `cli/main.rs` splits). v0.21.1 / v0.21.2 fixed documentation drift, ran a clippy-cleanup pass, and escaped raw XML in the metainfo. v0.22.0 carved the repo's two largest files into module trees: `window.rs` (6105 lines) became `window/` (10 files, `mod.rs` 425) and `inspector_pane.rs` (1921 lines) became `inspector_pane/` (3 files). No behaviour changes across the v0.21.x / v0.22.0 maintenance arc.
 
 Six workspace crates: `atrium-core` (data layer), `atrium-search` (Calibre-style search expression language), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary.
 
@@ -226,7 +226,7 @@ atrium-org/                           ← Phase 16 Org-mode projection + Phase 1
 atrium/                               ← GTK binary
 ├── build.rs                          ← compiles GSettings schema for cargo-only runs
 ├── src/main.rs                       ← Application; boot_data_layer reads vault-path GSettings → spawn_worker_with_vault
-├── src/ui/                           ← window, task list/object, inspector + inspector_pane, tag editor, filter, forecast, review,
+├── src/ui/                           ← window/ + inspector_pane/ (module dirs, split v0.22.0), task list/object, inspector, tag editor, filter, forecast, review,
 │                                       perspective_editor, logbook, agenda, calendar, board, inline_complete, shortcuts, about, typography
 ├── src/quickentry/modal.rs           ← Quick Entry modal (adw::Window, fade-in); parser lives in atrium-inline
 └── src/debug/mod.rs                  ← Memory Watch + /proc/self/status sampler
