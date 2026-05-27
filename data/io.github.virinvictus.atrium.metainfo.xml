@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.21.2" date="2026-05-27">
+      <description>
+        <p>Packaging fix. Several historical release entries in this
+           metainfo file carried raw, unescaped angle brackets and an
+           ampersand inside their description text, which made the file
+           fail XML validation and would have blocked an AppStream /
+           Flathub submission. Those characters are now properly
+           escaped; the file validates cleanly. No code or behaviour
+           changes.</p>
+      </description>
+    </release>
     <release version="0.21.1" date="2026-05-27">
       <description>
         <p>Documentation and lint maintenance patch. No behaviour
@@ -305,8 +316,8 @@
            self-induced echoes. v0.13.4 missed the handshake, so
            on every fresh-vault boot the watcher treated all of
            Atrium's seeded `.org` files as external edits and the
-           writer flushed each one with a `<file>.atrium.bak.
-           <UTC>` backup — surfacing as a flood of "vault
+           writer flushed each one with a `&lt;file&gt;.atrium.bak.
+           &lt;UTC&gt;` backup — surfacing as a flood of "vault
            conflict" warnings.</p>
         <p>Fix exposes the shared filter set via a new
            `VaultLoopHandle::recent_writes()` accessor; the
@@ -608,7 +619,7 @@
            task.repeat_rule + repeat_mode and produces the
            cookie via rrule_to_org_repeater. The v0.7.10 None-
            returning placeholder finally flips on. SCHEDULED
-           lines now emit `<2026-05-11 Mon ++1w>` for repeating
+           lines now emit `&lt;2026-05-11 Mon ++1w&gt;` for repeating
            tasks; the canonical :RRULE: still lives in the
            property drawer as the source of truth.</p>
         <p>Watcher fixes two related v0.10.0 → v0.10.2 gaps. The
@@ -1489,7 +1500,7 @@
            help button, so auto-discovery missed it), causing
            a "search bar does not have an entry connected"
            warning on every key event. One-line
-           `bar.connect_entry(&entry)` fix.</p>
+           `bar.connect_entry(&amp;entry)` fix.</p>
       </description>
     </release>
     <release version="0.6.8" date="2026-05-08">

@@ -1,5 +1,13 @@
 # Atrium — Patch Notes
 
+## v0.21.2 (2026-05-27) — Metainfo XML escaping fix
+
+A packaging-correctness patch surfaced by the v0.21.1 audit. No code or behaviour changes.
+
+The AppStream metainfo (`data/io.github.virinvictus.atrium.metainfo.xml`) had several historical release entries whose description text contained raw, unescaped XML metacharacters: `<file>` / `<UTC>` in the v0.10.x conflict-flood note, a `<2026-05-11 Mon ++1w>` SCHEDULED cookie in the v0.10.3 note, and a `bar.connect_entry(&entry)` ampersand in a later note. Most entries escaped these correctly (`&lt;` / `&gt;` / `&amp;`); these few slipped through. The result: the file failed `xmllint` well-formedness and `appstreamcli validate`, which would have blocked the Phase 20 Flathub submission.
+
+All four spots are now escaped. `appstreamcli validate` passes (only non-blocking `description-first-word-not-capitalized` infos remain, all in older entries). `xmllint --noout` is clean.
+
 ## v0.21.1 (2026-05-27) — Documentation + lint maintenance patch
 
 A small follow-on to v0.21.0's maintenance pass, prompted by a full-codebase audit. No behaviour changes, no schema changes; the workspace stays at 888 tests with `cargo clippy --workspace --all-targets -- -D warnings` clean and `cargo fmt --all --check` clean.
