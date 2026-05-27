@@ -1115,6 +1115,29 @@ impl Worker {
         Ok(max.unwrap_or(0.0) + 1.0)
     }
 
+    /// Subtasks (Phase 19.5) — true when reparenting `task_id` under
+    /// `new_parent` would form a cycle. Walks the parent chain up from
+    /// `new_parent`; if it reaches `task_id`, the move would make
+    /// `task_id` its own ancestor. The degenerate self-parent case
+    /// (`new_parent == task_id`) is caught on the first step. The
+    /// depth guard defends against a pre-existing corrupt cycle in the
+    /// stored data rather than looping forever.
+    fn would_create_cycle(&self, task_id: i64, new_parent: i64) -> Result<bool, DbError> {
+        let mut cursor = Some(new_parent);
+        let mut depth = 0;
+        while let Some(c) = cursor {
+            if c == task_id {
+                return Ok(true);
+            }
+            depth += 1;
+            if depth > 10_000 {
+                break;
+            }
+            cursor = read::task_by_id(&self.conn, c)?.and_then(|t| t.parent_id);
+        }
+        Ok(false)
+    }
+
     fn update_task(&mut self, update: TaskUpdate) -> Result<Task, DbError> {
         if update.is_noop() {
             return read::task_by_id(&self.conn, update.id)?.ok_or(DbError::NotFound);
@@ -1147,6 +1170,36 @@ impl Worker {
             ));
         }
 
+        // Subtasks (Phase 19.5) — reparenting validation. When the
+        // caller sets a concrete new parent (Some(Some(id))) we reject
+        // cycles (the parent is the task itself or one of its
+        // descendants) and enforce the same same-project rule
+        // create_task applies. Promoting to top-level (Some(None))
+        // needs no validation.
+        if let Some(Some(new_parent)) = update.parent_id {
+            if self.would_create_cycle(update.id, new_parent)? {
+                return Err(DbError::Domain(crate::error::DomainError::ParentCycle {
+                    task: update.id,
+                    parent: new_parent,
+                }));
+            }
+            let parent = read::task_by_id(&self.conn, new_parent)?.ok_or(DbError::NotFound)?;
+            let existing = read::task_by_id(&self.conn, update.id)?.ok_or(DbError::NotFound)?;
+            let effective_project = match update.project_id {
+                Some(p) => p,
+                None => existing.project_id,
+            };
+            if parent.project_id != effective_project {
+                return Err(DbError::Domain(
+                    crate::error::DomainError::ParentProjectMismatch {
+                        parent_task: new_parent,
+                        parent_project: parent.project_id,
+                        claimed_project: effective_project,
+                    },
+                ));
+            }
+        }
+
         let mut sets: Vec<&'static str> = Vec::new();
         let mut bound: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
@@ -1165,6 +1218,10 @@ impl Worker {
         if let Some(project_id) = update.project_id {
             sets.push("project_id = ?");
             bound.push(Box::new(project_id));
+        }
+        if let Some(parent_id) = update.parent_id {
+            sets.push("parent_id = ?");
+            bound.push(Box::new(parent_id));
         }
         if let Some(schedule) = update.scheduled_for {
             sets.push("scheduled_for = ?");

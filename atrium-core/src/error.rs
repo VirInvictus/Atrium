@@ -72,6 +72,13 @@ pub enum DomainError {
         claimed_project: Option<i64>,
     },
 
+    /// A reparent would create a cycle: the requested parent is the
+    /// task itself or one of its descendants. Walking the parent
+    /// chain up from the requested parent reaches the task being
+    /// moved. Rejected so the hierarchy stays a tree.
+    #[error("reparenting task {task} under {parent} would create a cycle")]
+    ParentCycle { task: i64, parent: i64 },
+
     /// A perspective was created or updated with an empty or
     /// whitespace-only filter expression. A perspective with no
     /// predicate has no rows; reject at write time so the GUI

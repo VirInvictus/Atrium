@@ -310,6 +310,21 @@ pub fn list_project(conn: &Connection, project_id: i64) -> Result<Vec<Task>, DbE
         .map_err(Into::into)
 }
 
+/// Subtasks (Phase 19.5) — direct children of `parent_id`, ordered by
+/// position. Includes completed children (the Inspector Subtasks group
+/// renders them struck-through); callers filter to open-only if needed.
+pub fn list_subtasks(conn: &Connection, parent_id: i64) -> Result<Vec<Task>, DbError> {
+    let sql = format!(
+        "SELECT {TASK_COLUMNS} FROM task \
+         WHERE parent_id = ?1 \
+         ORDER BY position"
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map(params![parent_id], task_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
 /// all tasks belonging to `project_id` regardless of
 /// completion state, ordered by position. Used by the Org vault
 /// writer (sync::org::write) so the projected `.org` file
@@ -1391,6 +1406,36 @@ mod tests {
         let rows = list_project(&conn, p).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].title, "p1-task");
+    }
+
+    #[test]
+    fn list_subtasks_returns_children_ordered_by_position() {
+        let conn = fresh_conn();
+        conn.execute(
+            "INSERT INTO task (uuid, title, position) VALUES ('parent', 'Parent', 1.0)",
+            [],
+        )
+        .unwrap();
+        let parent_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO task (uuid, title, parent_id, position) VALUES \
+             ('c2', 'second', ?1, 2.0), \
+             ('c1', 'first', ?1, 1.0)",
+            params![parent_id],
+        )
+        .unwrap();
+        // A top-level task that must not appear among the children.
+        conn.execute(
+            "INSERT INTO task (uuid, title, position) VALUES ('top', 'top-level', 9.0)",
+            [],
+        )
+        .unwrap();
+
+        let kids = list_subtasks(&conn, parent_id).unwrap();
+        assert_eq!(kids.len(), 2);
+        assert_eq!(kids[0].title, "first");
+        assert_eq!(kids[1].title, "second");
+        assert!(kids.iter().all(|k| k.parent_id == Some(parent_id)));
     }
 
     #[test]

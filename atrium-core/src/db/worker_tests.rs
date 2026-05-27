@@ -1337,6 +1337,94 @@ async fn update_task_rejects_move_orphaning_parent() {
 }
 
 #[tokio::test]
+async fn update_task_reparents_within_project() {
+    let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+    let project = handle
+        .create_project(NewProject::unfiled("P"))
+        .await
+        .unwrap();
+    let _ = library_rx.recv().await.unwrap();
+    let parent = handle
+        .create_task(NewTask {
+            title: "Parent".into(),
+            project_id: Some(project.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let loose = handle
+        .create_task(NewTask {
+            title: "Loose".into(),
+            project_id: Some(project.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(loose.parent_id, None);
+
+    let reparented = handle
+        .update_task(TaskUpdate::new(loose.id).reparent(Some(parent.id)))
+        .await
+        .unwrap();
+    assert_eq!(reparented.parent_id, Some(parent.id));
+
+    // Promote back to top level.
+    let promoted = handle
+        .update_task(TaskUpdate::new(loose.id).reparent(None))
+        .await
+        .unwrap();
+    assert_eq!(promoted.parent_id, None);
+}
+
+#[tokio::test]
+async fn update_task_rejects_self_parent() {
+    use crate::error::DomainError;
+
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let t = handle.create_task(NewTask::inbox("Self")).await.unwrap();
+    let result = handle
+        .update_task(TaskUpdate::new(t.id).reparent(Some(t.id)))
+        .await;
+    assert!(matches!(
+        result,
+        Err(DbError::Domain(DomainError::ParentCycle { .. }))
+    ));
+}
+
+#[tokio::test]
+async fn update_task_rejects_descendant_cycle() {
+    use crate::error::DomainError;
+
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    // a -> b -> c (c is grandchild of a). Reparenting a under c would
+    // make a its own descendant.
+    let a = handle.create_task(NewTask::inbox("A")).await.unwrap();
+    let b = handle
+        .create_task(NewTask {
+            title: "B".into(),
+            parent_id: Some(a.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let c = handle
+        .create_task(NewTask {
+            title: "C".into(),
+            parent_id: Some(b.id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let result = handle
+        .update_task(TaskUpdate::new(a.id).reparent(Some(c.id)))
+        .await;
+    assert!(matches!(
+        result,
+        Err(DbError::Domain(DomainError::ParentCycle { .. }))
+    ));
+}
+
+#[tokio::test]
 async fn create_perspective_rejects_empty_filter() {
     use crate::domain::NewPerspective;
     use crate::error::DomainError;

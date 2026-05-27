@@ -155,6 +155,11 @@ pub struct TaskUpdate {
     /// `Some(Some(id))` moves the task to that project; `Some(None)`
     /// unfiles it (Inbox); `None` leaves the field alone.
     pub project_id: Option<Option<i64>>,
+    /// Subtasks (Phase 19.5): `Some(Some(id))` reparents under that
+    /// task; `Some(None)` promotes to top-level (no parent); `None`
+    /// leaves the field alone. The worker enforces the same-project
+    /// rule and rejects parent cycles (self-parent or a descendant).
+    pub parent_id: Option<Option<i64>>,
     /// Phase 7i — schedule (When). `Some(None)` clears the column
     /// (no schedule), `Some(Some(value))` sets to either a date or
     /// the Someday sentinel.
@@ -238,6 +243,15 @@ impl TaskUpdate {
     /// Move the task to a project (or to Inbox via `None`).
     pub fn project(mut self, project_id: Option<i64>) -> Self {
         self.project_id = Some(project_id);
+        self
+    }
+
+    /// Subtasks (Phase 19.5) — reparent the task. Pass `Some(parent_id)`
+    /// to nest it under that task, or `None` to promote it to
+    /// top-level. The worker enforces the same-project rule and rejects
+    /// parent cycles.
+    pub fn reparent(mut self, value: Option<i64>) -> Self {
+        self.parent_id = Some(value);
         self
     }
 
@@ -341,6 +355,7 @@ impl TaskUpdate {
             && self.note.is_none()
             && self.position.is_none()
             && self.project_id.is_none()
+            && self.parent_id.is_none()
             && self.scheduled_for.is_none()
             && self.deadline.is_none()
             && self.defer_until.is_none()

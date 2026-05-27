@@ -51,8 +51,9 @@ mod template;
 mod tests;
 
 use args::{
-    AddArgs, ClockSub, EditArgs, EditIcon, EditProject, ExportSource, Format, ImportSource,
-    PerspectiveArgs, PerspectiveSub, Subcommand, TargetSpec, TemplateSub, VaultSequencesOp,
+    AddArgs, ClockSub, EditArgs, EditIcon, EditParent, EditProject, ExportSource, Format,
+    ImportSource, PerspectiveArgs, PerspectiveSub, Subcommand, TargetSpec, TemplateSub,
+    VaultSequencesOp,
 };
 use clock::{run_clock_in, run_clock_log, run_clock_out, run_clock_status};
 use output::{Row, format_row, format_rows, format_task_detail};
@@ -1407,10 +1408,22 @@ fn run_add(
 ) -> CliResult<()> {
     let today = Local::now().date_naive();
     // Resolve flags into NewTask + tag attachments.
-    let project_id = match add.project.as_deref() {
+    let mut project_id = match add.project.as_deref() {
         Some(p) => Some(resolve_project_by_name(read_conn, p)?),
         None => None,
     };
+    // Subtasks (Phase 19.5) — when --parent is given without an
+    // explicit --project, inherit the parent's project so the worker's
+    // same-project rule passes. Reading the parent here also surfaces a
+    // clear "not found" before the create attempt.
+    if let Some(pid) = add.parent {
+        let parent = read::task_by_id(read_conn, pid)
+            .map_err(CliError::from)?
+            .ok_or_else(|| CliError::Args(format!("parent task {pid} not found")))?;
+        if add.project.is_none() {
+            project_id = parent.project_id;
+        }
+    }
     let scheduled_for = match add.scheduled.as_deref() {
         Some(s) => Some(parse_scheduled(s, today)?),
         None => None,
@@ -1427,7 +1440,7 @@ fn run_add(
         title: add.title.clone(),
         note: add.note.unwrap_or_default(),
         project_id,
-        parent_id: None,
+        parent_id: add.parent,
         scheduled_for,
         deadline,
         defer_until,
@@ -1559,6 +1572,12 @@ fn run_edit(
                 let pid = resolve_project_by_name(read_conn, &needle)?;
                 update = update.project(Some(pid));
             }
+        }
+    }
+    if let Some(p) = edit.parent.clone() {
+        match p {
+            EditParent::TopLevel => update = update.reparent(None),
+            EditParent::Task(pid) => update = update.reparent(Some(pid)),
         }
     }
     if let Some(s) = edit.scheduled.as_deref() {
@@ -1921,6 +1940,16 @@ fn run_info(conn: &Connection, id: i64, format: Format) -> CliResult<()> {
         }
         Format::Human => {
             println!("{}", format_task_detail(&task, &row));
+            // Subtasks (Phase 19.5) — Human format only, so the TSV /
+            // JSON one-record shape stays stable for grep / jq.
+            let children = read::list_subtasks(conn, id).map_err(CliError::from)?;
+            if !children.is_empty() {
+                println!("\nSubtasks ({}):", children.len());
+                for c in &children {
+                    let mark = if c.is_completed() { "x" } else { " " };
+                    println!("  [{mark}] {} (#{})", c.title, c.id);
+                }
+            }
         }
     }
     Ok(())

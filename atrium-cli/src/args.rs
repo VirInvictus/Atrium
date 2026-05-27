@@ -40,6 +40,9 @@ WRITE SUBCOMMANDS:
                         --note TEXT
                         --project NAME      attach to a project (by
                                             unique title prefix)
+                        --parent ID         nest under task ID as a
+                                            subtask (inherits the
+                                            parent's project)
                         --tag NAME          attach a tag (repeatable;
                                             tag is created if missing)
                         --scheduled DATE    YYYY-MM-DD, today,
@@ -56,6 +59,8 @@ WRITE SUBCOMMANDS:
                       vocabulary as `add`; pass `none` to clear a
                       field (`--due none`, `--scheduled none`, etc.).
                       Use `--inbox` to move a task back to Inbox.
+                      `--parent ID` reparents as a subtask; `--parent
+                      none` promotes back to top level.
                       Tag flags are additive — `--tag X` ensures the
                       tag is attached, `--remove-tag X` (alias
                       `--untag`) removes it, `--clear-tags` empties
@@ -375,6 +380,11 @@ pub struct EditArgs {
     /// `Some(EditProject::Named(s))` = move to the project matched
     /// by `s`.
     pub project: Option<EditProject>,
+    /// Subtasks (Phase 19.5) — `None` = leave alone,
+    /// `Some(EditParent::Task(id))` = reparent under `id`,
+    /// `Some(EditParent::TopLevel)` = promote to top level
+    /// (`--parent none`).
+    pub parent: Option<EditParent>,
     pub scheduled: Option<String>,
     pub due: Option<String>,
     pub defer: Option<String>,
@@ -415,6 +425,14 @@ pub enum EditProject {
     Named(String),
 }
 
+/// Subtasks (Phase 19.5) — `edit --parent` value. `TopLevel` clears
+/// the parent (`--parent none` / `top` / `0`); `Task(id)` reparents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditParent {
+    TopLevel,
+    Task(i64),
+}
+
 /// Fields populated from the `add` subcommand's flag soup. Resolved
 /// to a NewTask + project lookup + tag attachments at command time.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -422,6 +440,10 @@ pub struct AddArgs {
     pub title: String,
     pub note: Option<String>,
     pub project: Option<String>,
+    /// Subtasks (Phase 19.5) — `--parent ID` nests the new task under
+    /// task `ID`. When set without `--project`, run_add inherits the
+    /// parent's project so the worker's same-project rule is satisfied.
+    pub parent: Option<i64>,
     pub tags: Vec<String>,
     /// Raw text — `today`, `tomorrow`, `someday`, or `YYYY-MM-DD`.
     /// Resolved against `Local::now()` when the command runs.
@@ -608,6 +630,15 @@ fn parse_add(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
                 i += 1;
                 let v = rest.get(i).ok_or("--project requires a value")?;
                 add.project = Some(v.clone());
+                i += 1;
+            }
+            "--parent" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--parent requires a task id")?;
+                let id: i64 = v
+                    .parse()
+                    .map_err(|_| format!("--parent must be a task id (integer), got {v}"))?;
+                add.parent = Some(id);
                 i += 1;
             }
             "--tag" => {
@@ -827,6 +858,19 @@ fn parse_edit(rest: &[String], args: &mut Args) -> Result<EditArgs, String> {
             }
             "--inbox" | "--unfile" => {
                 edit.project = Some(EditProject::Inbox);
+                i += 1;
+            }
+            "--parent" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--parent requires a task id or 'none'")?;
+                if v.eq_ignore_ascii_case("none") || v.eq_ignore_ascii_case("top") || v == "0" {
+                    edit.parent = Some(EditParent::TopLevel);
+                } else {
+                    let id: i64 = v
+                        .parse()
+                        .map_err(|_| format!("--parent must be a task id or 'none', got {v}"))?;
+                    edit.parent = Some(EditParent::Task(id));
+                }
                 i += 1;
             }
             "--scheduled" | "--when" => {
@@ -1763,11 +1807,49 @@ mod tests {
         assert!(parse(&argv(&["add", "x", "--warn", "-1"])).is_err());
     }
 
+    #[test]
+    fn parse_add_with_parent() {
+        let r = parse(&argv(&["add", "Child", "--parent", "42"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Add(a)) => assert_eq!(a.parent, Some(42)),
+            other => panic!("expected Add, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_add_parent_non_integer_errors() {
+        assert!(parse(&argv(&["add", "x", "--parent", "abc"])).is_err());
+    }
+
     // ── edit subcommand ───────────────────────────────────────────
 
     #[test]
     fn parse_edit_invalid_id_errors() {
         assert!(parse(&argv(&["edit", "not-an-id"])).is_err());
+    }
+
+    #[test]
+    fn parse_edit_with_parent_id() {
+        let r = parse(&argv(&["edit", "7", "--parent", "3"])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Edit { edit, .. }) => {
+                assert_eq!(edit.parent, Some(EditParent::Task(3)));
+            }
+            other => panic!("expected Edit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_edit_parent_none_promotes() {
+        for word in ["none", "top", "0"] {
+            let r = parse(&argv(&["edit", "7", "--parent", word])).unwrap();
+            match r.subcommand {
+                Some(Subcommand::Edit { edit, .. }) => {
+                    assert_eq!(edit.parent, Some(EditParent::TopLevel), "for {word}");
+                }
+                other => panic!("expected Edit, got {other:?}"),
+            }
+        }
     }
 
     // ── capture subcommand ────────────────────────────────────────
