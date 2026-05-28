@@ -137,6 +137,7 @@ fn general_page(settings: &gio::Settings) -> adw::PreferencesPage {
         .css_classes(["flat"])
         .valign(gtk::Align::Center)
         .build();
+    pick_button.update_property(&[gtk::accessible::Property::Label("Choose vault folder")]);
     {
         let entry = vault_entry.clone();
         pick_button.connect_clicked(clone!(

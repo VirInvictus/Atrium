@@ -400,6 +400,7 @@ where
         .icon_name("go-previous-symbolic")
         .tooltip_text("Previous month (Page Up)")
         .build();
+    prev_btn.update_property(&[gtk::accessible::Property::Label("Previous month")]);
     {
         let cb = on_prev.clone();
         prev_btn.connect_clicked(move |_| cb());
@@ -428,6 +429,7 @@ where
         .icon_name("go-next-symbolic")
         .tooltip_text("Next month (Page Down)")
         .build();
+    next_btn.update_property(&[gtk::accessible::Property::Label("Next month")]);
     next_btn.connect_clicked(move |_| on_next());
     header.append(&next_btn);
 

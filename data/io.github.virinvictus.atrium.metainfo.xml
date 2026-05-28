@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.35.0" date="2026-05-28">
+      <description>
+        <p>Accessibility polish. Icon-only buttons throughout the app
+           (calendar navigation, the add buttons, the "Blocked by" and
+           Notes-link controls, the vault folder picker) now announce a
+           proper name to screen readers, and status cues like the
+           "Blocked" pill always carry text, not just colour.</p>
+      </description>
+    </release>
     <release version="0.34.0" date="2026-05-28">
       <description>
         <p>Import, now with a dialog. A new Import window lets you bring

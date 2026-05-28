@@ -1,5 +1,21 @@
 # Atrium — Patch Notes
 
+## v0.35.0 (2026-05-28) — accessibility round 2 (Phase 20)
+
+Opens Phase 20, the 1.0 endgame. The v0.1 accessibility audit predated every Builder and Tier 2/3 surface; this is the owed re-audit + the gaps it found. Workspace 1008 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema change.
+
+### What changed
+
+A tooltip on an icon-only button is exposed to assistive tech as a *description*, not the *name* a screen reader announces — so icon-only buttons across the newer surfaces got explicit `accessible::Property::Label`s: calendar month nav (prev/next), the sidebar New-Perspective add, the tag-editor add, the Inspector Notes "Link to another task" button, the "Blocked by" add + per-row remove buttons, and the preferences vault-folder picker. Buttons with visible text were already named.
+
+The audit (recorded in `docs/accessibility.md`'s new Round 2 section) also confirmed the surfaces compose already-labelled widget primitives, the empty-state `AdwStatusPage`s are self-describing, and status cues aren't colour-only (the "Blocked" pill and sequential "queued" rows pair colour with text).
+
+`atriumd` (the zero-launch capture daemon) is confirmed **deferred to post-1.0** — the spec + roadmap references that called it a v1.0 / v0.2 item are corrected. A stale `atrium-cli/src/vtodo/` path (the module moved to `atrium-import` at v0.34.0) is fixed in spec §7.5.
+
+### Tests
+
+No new automated tests — accessible labels aren't unit-testable in isolation, and the full assistive-tech pass (Orca, keyboard-only traversal) is owed on a real display (Brandon's verification). The audit doc is the code-side record.
+
 ## v0.34.0 (2026-05-28) — import library + unified import dialog (Tier 3, arc close)
 
 The last cut of the Post-v0.22.0 Tier 2 + 3 polish arc. Two parts: an enabling extraction and the GUI dialog it unlocks. Workspace 1008 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema change.

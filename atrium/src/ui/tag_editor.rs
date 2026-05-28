@@ -103,6 +103,7 @@ pub fn open(
         .tooltip_text("Add this tag (Enter)")
         .css_classes(["flat"])
         .build();
+    plus_button.update_property(&[gtk::accessible::Property::Label("Add this tag")]);
 
     let add_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)

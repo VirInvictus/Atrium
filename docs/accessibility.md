@@ -4,6 +4,19 @@ This document captures the v0.1 accessibility audit. It's a snapshot — each ch
 
 > **v0.6.x note.** The Phase 8f findings below cover the v0.1 surface area. The Builder Mode side pane (Phase 10), Forecast (Phase 12), Review (Phase 13), Perspectives (Phase 14), the kanban renderer (Slice D1), and the Agenda canonical page (Slice D2) all carry their accessible labels by inheriting the same widget primitives audited here, but a full re-audit covering the new surfaces is owed at the next minor — track in `roadmap.md`. The keyboard map below is updated through v0.6.20.
 
+## Round 2 — v0.35.0 (Phase 20)
+
+The owed re-audit, covering every surface added since the v0.1 pass: the Builder Inspector pane, Forecast, Review, Perspectives, the kanban board, Agenda, Calendar, and the Tier 2/3 surfaces (the "Blocked by" group, the first-run onboarding `AdwStatusPage`, the unified import dialog, the "New from Template…" picker, the Backups preferences page).
+
+Findings and the fixes applied:
+
+- **Labelled widget primitives carry through.** The task row (`task_list.rs`), Inspector rows, dialogs, and `adw::PreferencesPage` / `AdwActionRow` / `AdwSwitchRow` surfaces inherit the labels + roles audited in v0.1; the new surfaces compose those primitives, so they read correctly to AT-SPI without per-surface work.
+- **Empty-state pages are self-describing.** Review / Agenda / Logbook / onboarding use `AdwStatusPage` with a title + description; the icon is decorative and the text is the accessible name. No gap.
+- **Icon-only buttons now carry explicit accessible names.** A tooltip is exposed as an accessible *description*, not the accessible *name* a screen reader announces. v0.35.0 adds `accessible::Property::Label` to the icon-only buttons across these surfaces: calendar month nav (prev/next), the sidebar New-Perspective add, the tag-editor add, the Inspector Notes "Link to another task" button, the "Blocked by" add + per-row remove buttons, and the preferences vault-folder picker. (Buttons that already carry visible text — Today, the month-picker, Import, the onboarding CTAs, the Backups buttons — are named by their label.)
+- **Status is never colour-only.** The "Blocked" and sequential "queued" row treatments pair their colour with text (a "Blocked" pill label; the queued row also italicises) so the state survives for colour-blind users and screen readers.
+
+A full assistive-technology pass (Orca screen reader, keyboard-only traversal of every new dialog) is owed on a real display and is Brandon's verification step; the structural labelling above is the code-side record.
+
 ## Keyboard end-to-end
 
 Every common operation has a chord; mouse is optional. Full table lives in [`docs/keymap.md`](keymap.md). Highlights:

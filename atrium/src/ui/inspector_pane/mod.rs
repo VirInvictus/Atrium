@@ -614,6 +614,7 @@ where
         .tooltip_text("Link to another task…")
         .css_classes(["flat"])
         .build();
+    link_button.update_property(&[gtk::accessible::Property::Label("Link to another task")]);
     let link_popover = build_task_link_popover(&notes_buffer, pool_source.clone(), task_id);
     link_popover.set_parent(&link_button);
     link_button.connect_clicked(move |_| {
@@ -954,6 +955,9 @@ where
             remove_btn.add_css_class("flat");
             remove_btn.set_valign(gtk::Align::Center);
             remove_btn.set_tooltip_text(Some("Remove prerequisite"));
+            // v0.35.0 — icon-only: give it an accessible name, not just
+            // the tooltip (which a screen reader reads as a description).
+            remove_btn.update_property(&[gtk::accessible::Property::Label("Remove prerequisite")]);
             let worker_rm = worker.clone();
             let list_rm = list.clone();
             let row_rm = row.clone();
@@ -998,6 +1002,7 @@ where
         .tooltip_text("Add a prerequisite")
         .build();
     add_button.add_css_class("flat");
+    add_button.update_property(&[gtk::accessible::Property::Label("Add a prerequisite")]);
     let add_popover = gtk::Popover::new();
     add_popover.add_css_class("atrium-link-picker");
     let picker_box = gtk::Box::builder()

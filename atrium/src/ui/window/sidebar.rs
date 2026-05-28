@@ -125,6 +125,7 @@ impl AtriumWindow {
             .css_classes(["flat", "circular"])
             .valign(gtk::Align::Center)
             .build();
+        add_button.update_property(&[gtk::accessible::Property::Label("New Perspective")]);
         let win_weak = self.downgrade();
         add_button.connect_clicked(move |_| {
             let Some(win) = win_weak.upgrade() else {
