@@ -184,6 +184,73 @@ struct BootedDataLayer {
     vault_events_rx: Option<mpsc::UnboundedReceiver<atrium_org::VaultEvent>>,
 }
 
+/// v0.32.0 — apply a restore queued by the Backups preferences page
+/// before the DB opens, by copying the chosen snapshot over the live
+/// file. Best-effort: every failure is logged, never fatal.
+fn apply_pending_restore(db_path: &std::path::Path) {
+    let marker = atrium_core::paths::restore_marker_path();
+    let Ok(src) = std::fs::read_to_string(&marker) else {
+        return;
+    };
+    let _ = std::fs::remove_file(&marker);
+    let src = src.trim();
+    if src.is_empty() {
+        return;
+    }
+    let src_path = std::path::Path::new(src);
+    if !src_path.exists() {
+        warn!(restore = src, "queued restore source missing; ignoring");
+        return;
+    }
+    match std::fs::copy(src_path, db_path) {
+        Ok(_) => {
+            // Drop stale WAL/SHM so the previous DB's write-ahead log
+            // doesn't overlay the freshly restored file.
+            let _ = std::fs::remove_file(sidecar(db_path, "-wal"));
+            let _ = std::fs::remove_file(sidecar(db_path, "-shm"));
+            info!(restore = src, "restored database from backup");
+        }
+        Err(e) => error!(?e, restore = src, "failed to restore database from backup"),
+    }
+}
+
+fn sidecar(db: &std::path::Path, suffix: &str) -> std::path::PathBuf {
+    let mut s = db.as_os_str().to_owned();
+    s.push(suffix);
+    std::path::PathBuf::from(s)
+}
+
+/// v0.32.0 — when `backup-weekly` is enabled, write a snapshot if the
+/// newest one is older than seven days (or none exists). Best-effort.
+fn maybe_weekly_backup(db_path: &std::path::Path) {
+    let settings = gio::Settings::new(atrium_core::APP_ID);
+    if !settings.boolean("backup-weekly") {
+        return;
+    }
+    let dir = atrium_core::paths::backups_dir();
+    let due = match atrium_core::backup::latest_backup(&dir) {
+        None => true,
+        Some(latest) => std::fs::metadata(&latest)
+            .and_then(|m| m.modified())
+            .map(|m| {
+                m.elapsed()
+                    .map(|e| e.as_secs() > 7 * 24 * 3600)
+                    .unwrap_or(true)
+            })
+            .unwrap_or(true),
+    };
+    if !due {
+        return;
+    }
+    match atrium_core::backup::backup_now(db_path, &dir) {
+        Ok(path) => {
+            let _ = atrium_core::backup::prune(&dir, 10);
+            info!(backup = %path.display(), "weekly auto-backup written");
+        }
+        Err(e) => error!(?e, "weekly auto-backup failed"),
+    }
+}
+
 /// Open the DB, spawn the worker, build the read pool, and (when
 /// the `vault-path` GSettings key is non-empty and usable) attach
 /// the full Phase 17 two-way vault loop: writer + watcher + shared
@@ -193,8 +260,14 @@ struct BootedDataLayer {
 /// boot itself only fails for genuine DB errors.
 fn boot_data_layer() -> std::result::Result<BootedDataLayer, AtriumError> {
     let db_path = atrium_core::db_path();
+    // v0.32.0 — a restore queued from the Backups preferences page is
+    // applied here, before the DB opens, by copying the chosen
+    // snapshot over the live file.
+    apply_pending_restore(&db_path);
     let conn = atrium_core::db::open(&db_path)?;
     let pool = ReadPool::new(db_path.clone(), 4);
+    // v0.32.0 — opportunistic weekly backup when the GSetting is on.
+    maybe_weekly_backup(&db_path);
 
     let (vault_config, vault_loop, events_rx, vault_root) =
         match read_vault_setup_from_settings(&pool) {

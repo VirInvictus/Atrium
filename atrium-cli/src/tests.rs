@@ -187,6 +187,23 @@ fn parse_depend_requires_on() {
 }
 
 #[test]
+fn parse_backup_default_dir() {
+    let a = parse(&s(&["backup"])).unwrap();
+    assert_eq!(a.subcommand, Some(Subcommand::Backup { dir: None }));
+}
+
+#[test]
+fn parse_backup_with_dir() {
+    let a = parse(&s(&["backup", "--dir", "/tmp/b"])).unwrap();
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Backup {
+            dir: Some("/tmp/b".into())
+        })
+    );
+}
+
+#[test]
 fn parse_depend_with_json_flag() {
     let a = parse(&s(&["depend", "5", "--on", "9", "--json"])).unwrap();
     assert_eq!(a.format, Format::Json);

@@ -38,6 +38,9 @@ WRITE SUBCOMMANDS:
     depend ID --on ID [--remove]
                       mark task ID blocked by another task (a prerequisite),
                       or drop the dependency with --remove
+    backup [--dir PATH]
+                      write a timestamped database snapshot (VACUUM INTO),
+                      keeping the newest 10; defaults to the data dir
     add TITLE [FLAGS]
                       create a new task. Flags:
                         --note TEXT
@@ -165,6 +168,12 @@ pub enum Subcommand {
         id: i64,
         on: i64,
         remove: bool,
+    },
+    /// `backup [--dir PATH]` — write a timestamped database snapshot
+    /// (`VACUUM INTO`) and prune to the newest 10. Defaults to
+    /// `$XDG_DATA_HOME/atrium/backups/`. v0.32.0.
+    Backup {
+        dir: Option<String>,
     },
     Add(AddArgs),
     /// `capture LINE` — Quick-Entry-style one-shot capture.
@@ -665,6 +674,24 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
             apply_trailing_flags(&rest, &mut args)?;
             let on = on.ok_or("depend requires --on <task id>")?;
             Subcommand::Depend { id, on, remove }
+        }
+        "backup" => {
+            // Optional `--dir PATH`; everything else is a global flag.
+            let mut dir: Option<String> = None;
+            let mut rest: Vec<String> = Vec::new();
+            let mut j = i;
+            while j < raw.len() {
+                if raw[j] == "--dir" {
+                    let v = raw.get(j + 1).ok_or("--dir requires a path")?;
+                    dir = Some(v.clone());
+                    j += 2;
+                } else {
+                    rest.push(raw[j].clone());
+                    j += 1;
+                }
+            }
+            apply_trailing_flags(&rest, &mut args)?;
+            Subcommand::Backup { dir }
         }
         "add" => parse_add(&raw[i..], &mut args)?,
         "capture" => {

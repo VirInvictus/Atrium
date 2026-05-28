@@ -1,5 +1,25 @@
 # Atrium — Patch Notes
 
+## v0.32.0 (2026-05-28) — backup / restore (Tier 3)
+
+In-app database backups, the long-standing gap the file-copy escape hatch never closed. Workspace 1001 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema change.
+
+### Core (`atrium-core/src/backup.rs`)
+
+`backup_now(db_path, dir)` writes a defragmented single-file snapshot via SQLite's `VACUUM INTO`, run on a fresh read-only connection (documented to work on a read-only DB and never mutating the source, so it never contends with the single-writer worker). File name `atrium.<UTC>.db`, with a `~N` suffix to disambiguate same-second snapshots. `prune(dir, keep)` keeps the newest N by sortable name; `latest_backup(dir)` returns the newest. New `paths::backups_dir()` (`$XDG_DATA_HOME/atrium/backups/`) and `paths::restore_marker_path()`.
+
+### GUI (Preferences → Backups)
+
+"Back up now" (snapshot + prune to 10), "Restore from backup…" (a `FileDialog` that writes the chosen path into a `.restore-pending` marker; `boot_data_layer` copies it over the live DB before opening, then clears stale WAL/SHM), and a "Weekly automatic backup" switch bound to the new default-off `backup-weekly` GSetting (snapshot at launch when the newest is over seven days old).
+
+### CLI
+
+`atrium-cli backup [--dir PATH]` — snapshot + prune, summary respects `--json` / `--tsv` / `--human`. Defaults to the data-dir backups folder.
+
+### Tests
+
++5: three core (`backup_now` produces a readable snapshot, `prune` keeps N + leaves non-snapshots, prune no-op under limit) and two CLI argv (`backup`, `backup --dir`).
+
 ## v0.31.0 (2026-05-28) — first-run onboarding (Tier 3)
 
 A pristine database (no tasks, no projects, no areas) now paints a welcoming `AdwStatusPage` instead of an empty Inbox, with three next-steps: create your first project, capture a task, or set up an Org vault. It clears itself the instant the user creates anything. No seeding, no GSetting. Workspace 996 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema change.

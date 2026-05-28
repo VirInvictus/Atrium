@@ -26,6 +26,20 @@ pub fn db_path() -> PathBuf {
     data_dir().join("atrium.db")
 }
 
+/// `$XDG_DATA_HOME/atrium/backups/` — timestamped database snapshots
+/// (v0.32.0). Durable user data, not a disposable cache.
+pub fn backups_dir() -> PathBuf {
+    data_dir().join("backups")
+}
+
+/// Marker file (`$XDG_DATA_HOME/atrium/.restore-pending`) holding the
+/// path of a backup to restore on the next launch. The GUI writes it
+/// from the restore picker; `boot_data_layer` consumes it before the
+/// DB opens. v0.32.0.
+pub fn restore_marker_path() -> PathBuf {
+    data_dir().join(".restore-pending")
+}
+
 fn xdg_dir(env_var: &str, home_relative_fallback: &str) -> PathBuf {
     if let Ok(v) = std::env::var(env_var)
         && !v.is_empty()

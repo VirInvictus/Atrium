@@ -127,6 +127,9 @@ fn run(args: args::Args) -> ExitCode {
         Subcommand::Depend { id, on, remove } => with_writer(&db_path, |rt, handle, _conn| {
             run_depend(rt, handle, id, on, remove, args.format)
         }),
+        Subcommand::Backup { dir } => {
+            run_backup(&db_path, dir.as_deref(), args.format).unwrap_or_exit_code()
+        }
         Subcommand::Add(add) => with_writer(&db_path, |rt, handle, conn| {
             run_add(rt, handle, conn, add, args.format)
         }),
@@ -2322,6 +2325,28 @@ fn run_depend(
                 println!("Task #{id} is no longer blocked by #{on}.");
             } else {
                 println!("Task #{id} is now blocked by #{on}.");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `backup [--dir PATH]` — write a `VACUUM INTO` snapshot of the live
+/// database and prune to the newest 10. Read-only; no worker needed.
+fn run_backup(db_path: &std::path::Path, dir: Option<&str>, format: Format) -> CliResult<()> {
+    let backups_dir = dir
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(atrium_core::paths::backups_dir);
+    let snap = atrium_core::backup::backup_now(db_path, &backups_dir).map_err(CliError::from)?;
+    let pruned = atrium_core::backup::prune(&backups_dir, 10).map_err(CliError::from)?;
+    let path = snap.to_string_lossy();
+    match format {
+        Format::Json => println!("{{\"backup\":{path:?},\"pruned\":{pruned}}}"),
+        Format::Tsv => println!("{path}\t{pruned}"),
+        Format::Human => {
+            println!("Backed up to {path}");
+            if pruned > 0 {
+                println!("Pruned {pruned} old backup(s); keeping the newest 10.");
             }
         }
     }

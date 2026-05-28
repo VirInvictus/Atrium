@@ -42,6 +42,7 @@ pub fn open(parent: &impl IsA<gtk::Widget>) {
     dialog.add(&general_page(&settings));
     dialog.add(&capture_page(&settings));
     dialog.add(&notifications_page(&settings));
+    dialog.add(&backups_page(&settings));
 
     dialog.present(Some(parent));
 }
@@ -220,6 +221,124 @@ fn notifications_page(settings: &gio::Settings) -> adw::PreferencesPage {
         });
     }
     group.add(&enabled_row);
+
+    page.add(&group);
+    page
+}
+
+/// v0.32.0 — Backups page. "Back up now" writes a `VACUUM INTO`
+/// snapshot and prunes to the newest 10; "Restore from backup…"
+/// queues a snapshot to be copied over the live DB on next launch;
+/// the switch toggles the opportunistic weekly auto-backup GSetting.
+fn backups_page(settings: &gio::Settings) -> adw::PreferencesPage {
+    let page = adw::PreferencesPage::builder()
+        .title("Backups")
+        .icon_name("document-save-symbolic")
+        .build();
+
+    let group = adw::PreferencesGroup::builder()
+        .title("Database backups")
+        .description(
+            "Snapshots live in the Atrium data directory's `backups/` folder \
+             (the newest ten are kept).",
+        )
+        .build();
+
+    // Back up now.
+    let backup_row = adw::ActionRow::builder()
+        .title("Back up now")
+        .subtitle("Write a snapshot of the current database.")
+        .build();
+    let backup_btn = gtk::Button::builder()
+        .label("Back up")
+        .valign(gtk::Align::Center)
+        .build();
+    backup_btn.add_css_class("flat");
+    backup_row.add_suffix(&backup_btn);
+    backup_btn.connect_clicked(clone!(
+        #[weak]
+        backup_row,
+        move |_| {
+            let dir = atrium_core::paths::backups_dir();
+            match atrium_core::backup::backup_now(&atrium_core::db_path(), &dir) {
+                Ok(path) => {
+                    let _ = atrium_core::backup::prune(&dir, 10);
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    backup_row.set_subtitle(&format!("Backed up to {name}"));
+                }
+                Err(e) => backup_row.set_subtitle(&format!("Backup failed: {e}")),
+            }
+        }
+    ));
+    group.add(&backup_row);
+
+    // Restore from backup.
+    let restore_row = adw::ActionRow::builder()
+        .title("Restore from backup…")
+        .subtitle("Replace the current database on the next launch.")
+        .build();
+    let restore_btn = gtk::Button::builder()
+        .label("Restore…")
+        .valign(gtk::Align::Center)
+        .build();
+    restore_btn.add_css_class("flat");
+    restore_row.add_suffix(&restore_btn);
+    restore_btn.connect_clicked(clone!(
+        #[weak]
+        restore_row,
+        move |btn| {
+            let window = btn.root().and_downcast::<gtk::Window>();
+            let filter = gtk::FileFilter::new();
+            filter.set_name(Some("Atrium backups"));
+            filter.add_pattern("atrium.*.db");
+            filter.add_suffix("db");
+            let filters = gio::ListStore::new::<gtk::FileFilter>();
+            filters.append(&filter);
+            let dialog = gtk::FileDialog::builder()
+                .title("Restore from backup")
+                .filters(&filters)
+                .build();
+            if let Some(dir) = atrium_core::paths::backups_dir().to_str() {
+                dialog.set_initial_folder(Some(&gio::File::for_path(dir)));
+            }
+            let restore_row = restore_row.clone();
+            dialog.open(window.as_ref(), gio::Cancellable::NONE, move |res| {
+                if let Ok(file) = res
+                    && let Some(path) = file.path()
+                {
+                    match std::fs::write(
+                        atrium_core::paths::restore_marker_path(),
+                        path.to_string_lossy().as_bytes(),
+                    ) {
+                        Ok(()) => {
+                            restore_row.set_subtitle("Restore queued — restart Atrium to apply.")
+                        }
+                        Err(e) => {
+                            restore_row.set_subtitle(&format!("Could not queue restore: {e}"))
+                        }
+                    }
+                }
+            });
+        }
+    ));
+    group.add(&restore_row);
+
+    // Weekly auto-backup toggle.
+    let weekly_row = adw::SwitchRow::builder()
+        .title("Weekly automatic backup")
+        .subtitle("On launch, snapshot if the newest backup is over a week old.")
+        .active(settings.boolean("backup-weekly"))
+        .build();
+    {
+        let settings = settings.clone();
+        weekly_row.connect_active_notify(move |row| {
+            let _ = settings.set_boolean("backup-weekly", row.is_active());
+        });
+    }
+    group.add(&weekly_row);
 
     page.add(&group);
     page

@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.32.0" date="2026-05-28">
+      <description>
+        <p>Backups, built in. A new Backups page in Preferences lets you
+           snapshot your database with one click (kept as a compact,
+           defragmented copy), restore an earlier snapshot on the next
+           launch, and optionally take an automatic backup once a week.</p>
+        <p>Snapshots live in the Atrium data folder and the newest ten
+           are kept. The command line gains "atrium-cli backup" for
+           scripted or scheduled snapshots.</p>
+      </description>
+    </release>
     <release version="0.31.0" date="2026-05-28">
       <description>
         <p>A friendlier first run. When the database is empty, Atrium

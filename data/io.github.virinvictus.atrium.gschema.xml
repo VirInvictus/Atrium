@@ -98,5 +98,17 @@
         regardless of system setting.
       </description>
     </key>
+
+    <key name="backup-weekly" type="b">
+      <default>false</default>
+      <summary>Weekly automatic database backup</summary>
+      <description>
+        When enabled, Atrium writes a timestamped database snapshot to
+        `$XDG_DATA_HOME/atrium/backups/` at launch if the newest
+        existing snapshot is more than seven days old, keeping the
+        newest ten. Off by default; manual "Back up now" works
+        regardless. v0.32.0 — Phase 19.5.
+      </description>
+    </key>
   </schema>
 </schemalist>

@@ -7,6 +7,7 @@
 //! daemon, the eventual `atrium-tui` frontend, integration tests)
 //! depends on `atrium-core` directly.
 
+pub mod backup;
 pub mod checkbox;
 pub mod db;
 pub mod domain;
