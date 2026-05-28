@@ -184,16 +184,16 @@ pub fn open<F, N>(
     // edits the buffer text. The dialog's Apply button picks up
     // the resulting note string; Cancel discards both text edits
     // and toggles together (Apply/Cancel transactional surface).
-    let subtasks_group = adw::PreferencesGroup::builder().title("Subtasks").build();
-    let subtasks_list = gtk::ListBox::builder()
+    let checklist_group = adw::PreferencesGroup::builder().title("Checklist").build();
+    let checklist_list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .build();
-    subtasks_list.add_css_class("boxed-list");
-    subtasks_group.add(&subtasks_list);
+    checklist_list.add_css_class("boxed-list");
+    checklist_group.add(&checklist_list);
     let rebuild_subtasks = Rc::new({
         let buffer = notes_buffer.clone();
-        let list = subtasks_list.clone();
-        let group = subtasks_group.clone();
+        let list = checklist_list.clone();
+        let group = checklist_group.clone();
         move || {
             while let Some(child) = list.first_child() {
                 list.remove(&child);
@@ -316,7 +316,7 @@ pub fn open<F, N>(
     page.add(&title_group);
     page.add(&dates_group);
     page.add(&tags_group);
-    page.add(&subtasks_group);
+    page.add(&checklist_group);
     page.add(&notes_group);
 
     toolbar.set_content(Some(&page));

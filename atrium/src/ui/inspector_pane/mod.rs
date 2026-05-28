@@ -748,17 +748,17 @@ where
     // gated on focus-out — the click *is* the commit. The
     // notes_view stays the source of truth; this section is a
     // projection rendered on every buffer edit.
-    let subtasks_group = adw::PreferencesGroup::builder().title("Subtasks").build();
-    let subtasks_list = gtk::ListBox::builder()
+    let checklist_group = adw::PreferencesGroup::builder().title("Checklist").build();
+    let checklist_list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .build();
-    subtasks_list.add_css_class("boxed-list");
-    subtasks_group.add(&subtasks_list);
+    checklist_list.add_css_class("boxed-list");
+    checklist_group.add(&checklist_list);
 
     let rebuild_subtasks = std::rc::Rc::new({
         let buffer = notes_buffer.clone();
-        let list = subtasks_list.clone();
-        let group = subtasks_group.clone();
+        let list = checklist_list.clone();
+        let group = checklist_group.clone();
         let worker = worker.clone();
         move || {
             // Drain existing children.
@@ -832,6 +832,97 @@ where
     notes_buffer.connect_changed(move |_| {
         rebuild_for_changed();
     });
+
+    // ── Subtasks (parent_id children) ────────────────────────────
+    // v0.23.0 — real nested tasks, distinct from the Checklist
+    // group's body `- [ ]` items. Each child renders with a
+    // completion checkbox (toggle dispatches through the worker) and
+    // the row navigates to that child; a permanent "Add subtask"
+    // entry creates a child inheriting this task's project. The
+    // children list is refetched from the read pool on build and
+    // after each add. The `[done/total]` cookie on the task row
+    // already folds these children in via count_done_total_per_parent.
+    let subtasks_group = adw::PreferencesGroup::builder().title("Subtasks").build();
+    let subtasks_list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .build();
+    subtasks_list.add_css_class("boxed-list");
+    subtasks_group.add(&subtasks_list);
+    let add_subtask_row = adw::EntryRow::builder().title("Add subtask…").build();
+    subtasks_group.add(&add_subtask_row);
+
+    let parent_project = task.project_id;
+    let rebuild_children: Rc<dyn Fn()> = Rc::new({
+        let list = subtasks_list.clone();
+        let worker = worker.clone();
+        let pool_source = pool_source.clone();
+        let on_navigate = on_navigate_uuid.clone();
+        move || {
+            while let Some(child) = list.first_child() {
+                list.remove(&child);
+            }
+            let children = pool_source()
+                .and_then(|pool| {
+                    pool.with(|conn| atrium_core::db::read::list_subtasks(conn, task_id))
+                        .ok()
+                })
+                .unwrap_or_default();
+            for child in children {
+                let row = adw::ActionRow::builder().title(&child.title).build();
+                let check = gtk::CheckButton::builder()
+                    .active(child.completed_at.is_some())
+                    .valign(gtk::Align::Center)
+                    .build();
+                let cid = child.id;
+                let persisted = std::cell::Cell::new(child.completed_at.is_some());
+                let worker_toggle = worker.clone();
+                check.connect_toggled(move |b| {
+                    if b.is_active() == persisted.get() {
+                        return;
+                    }
+                    persisted.set(b.is_active());
+                    let worker = worker_toggle.clone();
+                    glib::MainContext::default().spawn_local(async move {
+                        if let Err(e) = worker.toggle_complete(cid).await {
+                            error!(?e, cid, "inspector pane: subtask toggle failed");
+                        }
+                    });
+                });
+                row.add_prefix(&check);
+                row.set_activatable(true);
+                let uuid = child.uuid.clone();
+                let nav = on_navigate.clone();
+                row.connect_activated(move |_| nav(uuid.clone()));
+                list.append(&row);
+            }
+        }
+    });
+    rebuild_children();
+    {
+        let worker = worker.clone();
+        let rebuild = rebuild_children.clone();
+        add_subtask_row.connect_entry_activated(move |entry| {
+            let title = entry.text().trim().to_string();
+            if title.is_empty() {
+                return;
+            }
+            entry.set_text("");
+            let worker = worker.clone();
+            let rebuild = rebuild.clone();
+            glib::MainContext::default().spawn_local(async move {
+                let new = atrium_core::NewTask {
+                    title,
+                    parent_id: Some(task_id),
+                    project_id: parent_project,
+                    ..Default::default()
+                };
+                match worker.create_task(new).await {
+                    Ok(_) => rebuild(),
+                    Err(e) => error!(?e, task_id, "inspector pane: add subtask failed"),
+                }
+            });
+        });
+    }
 
     // ── Builder-only fields ──────────────────────────────────────
     // The pane only renders in Builder Mode, so an "exposed only in
@@ -935,6 +1026,7 @@ where
     page.add(&dates_group);
     page.add(&classify_group);
     page.add(&subtasks_group);
+    page.add(&checklist_group);
     page.add(&notes_group);
     page.add(&time_group);
     page.add(&builder_group);
