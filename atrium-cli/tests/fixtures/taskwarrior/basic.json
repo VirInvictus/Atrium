@@ -1,0 +1,14 @@
+[
+  {
+    "uuid": "11111111-2222-3333-4444-555555555555",
+    "description": "Buy milk",
+    "status": "pending",
+    "project": "groceries",
+    "tags": ["home", "errand"],
+    "priority": "H",
+    "due": "20260430T235959Z",
+    "scheduled": "20260415T100000Z",
+    "entry": "20260101T120000Z",
+    "modified": "20260415T093000Z"
+  }
+]

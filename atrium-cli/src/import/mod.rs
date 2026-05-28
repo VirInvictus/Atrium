@@ -8,4 +8,5 @@
 //! later. Mirrors the placement decision documented in roadmap
 //! §18 + CLAUDE.md's dependency discipline section.
 
+pub mod taskwarrior;
 pub mod todoist;

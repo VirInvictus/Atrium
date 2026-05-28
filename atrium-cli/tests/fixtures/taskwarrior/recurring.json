@@ -1,0 +1,30 @@
+[
+  {
+    "uuid": "88888888-aaaa-bbbb-cccc-dddddddddddd",
+    "description": "Standup",
+    "status": "pending",
+    "recur": "1d",
+    "due": "20260601T093000Z"
+  },
+  {
+    "uuid": "99999999-aaaa-bbbb-cccc-dddddddddddd",
+    "description": "Weekly review",
+    "status": "pending",
+    "recur": "1week",
+    "due": "20260601T180000Z"
+  },
+  {
+    "uuid": "aaaaaaaa-1111-2222-3333-444444444444",
+    "description": "Quarterly tax estimate",
+    "status": "pending",
+    "recur": "3month",
+    "due": "20260615T120000Z"
+  },
+  {
+    "uuid": "bbbbbbbb-1111-2222-3333-444444444444",
+    "description": "Unparseable recurrence",
+    "status": "pending",
+    "recur": "every other Tuesday",
+    "due": "20260615T120000Z"
+  }
+]

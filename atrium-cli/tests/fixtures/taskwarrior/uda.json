@@ -1,0 +1,18 @@
+[
+  {
+    "uuid": "cccccccc-1111-2222-3333-444444444444",
+    "description": "Onboard new hire",
+    "status": "pending",
+    "tags": ["hr"],
+    "client": "Acme",
+    "effort": "large",
+    "estimate": "3d"
+  },
+  {
+    "uuid": "dddddddd-1111-2222-3333-444444444444",
+    "description": "Renew contract",
+    "status": "pending",
+    "client": "BetaCo",
+    "effort": "small"
+  }
+]

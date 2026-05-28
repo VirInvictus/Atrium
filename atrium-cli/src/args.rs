@@ -238,7 +238,8 @@ pub enum Subcommand {
 /// or vault-directory Org-mode importer); v0.12.0 adds
 /// `Todoist` (CSV export); v0.25.0 adds `Vtodo` (RFC 5545
 /// `.ics`, the CalDAV-side format used by Endeavour /
-/// Errands / Nextcloud Tasks / Planify). Things 3 was retired
+/// Errands / Nextcloud Tasks / Planify); v0.26.0 adds
+/// `Taskwarrior` (`task export` JSON). Things 3 was retired
 /// in v0.6.19.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportSource {
@@ -256,6 +257,47 @@ pub enum ImportSource {
     Vtodo {
         project_name: String,
     },
+    /// `import taskwarrior PATH --into PROJECT_NAME [--uda-as
+    /// tag|note|drop]`. Taskwarrior's `task export` JSON carries
+    /// an unbounded number of tasks under arbitrary project
+    /// hierarchies; the user picks one Atrium project for the
+    /// whole import. `uda_as` controls how user-defined
+    /// attributes (any unmodeled JSON field) flow into Atrium.
+    /// v0.26.0.
+    Taskwarrior {
+        project_name: String,
+        uda_as: UdaPolicy,
+    },
+}
+
+/// v0.26.0 — how the Taskwarrior importer treats user-defined
+/// attributes (UDA fields): arbitrary `name:value` pairs
+/// Taskwarrior allows users to attach to tasks via config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UdaPolicy {
+    /// Each UDA becomes a tag of the form `name-value`
+    /// (default — matches how Atrium treats every other
+    /// importer's labels: tag-as-everything).
+    Tag,
+    /// Each UDA appends one `UDA: name=value` line to
+    /// `task.note`. Preserves data without polluting the tag
+    /// surface.
+    Note,
+    /// Each UDA surfaces in the lossy report and otherwise
+    /// drops on the floor. Most defensive — useful when the
+    /// user wants to triage by hand.
+    Drop,
+}
+
+impl UdaPolicy {
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "tag" => Ok(Self::Tag),
+            "note" => Ok(Self::Note),
+            "drop" => Ok(Self::Drop),
+            other => Err(format!("--uda-as expects tag | note | drop, got: {other}")),
+        }
+    }
 }
 
 /// Supported export targets. v0.7.10 ships `Org` (vault
@@ -1043,7 +1085,7 @@ fn parse_export(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
 fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
     let source_str = rest
         .first()
-        .ok_or("import requires a source: org | todoist | vtodo")?
+        .ok_or("import requires a source: org | todoist | vtodo | taskwarrior")?
         .as_str();
     // Source-specific flags (e.g. todoist's `--into`) are parsed
     // alongside the common ones — we tag the source first, then
@@ -1052,6 +1094,7 @@ fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
         "org" => SourceKind::Org,
         "todoist" => SourceKind::Todoist,
         "vtodo" => SourceKind::Vtodo,
+        "taskwarrior" => SourceKind::Taskwarrior,
         other => return Err(format!("unknown import source: {other}")),
     };
     let body = &rest[1..];
@@ -1059,6 +1102,7 @@ fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
     let mut path: Option<String> = None;
     let mut dry_run = false;
     let mut into_project: Option<String> = None;
+    let mut uda_as: Option<UdaPolicy> = None;
     let mut trailing: Vec<String> = Vec::new();
     let mut iter = body.iter();
     while let Some(tok) = iter.next() {
@@ -1069,6 +1113,12 @@ fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
                     .next()
                     .ok_or_else(|| "--into requires a project name".to_string())?;
                 into_project = Some(next.clone());
+            }
+            "--uda-as" => {
+                let next = iter
+                    .next()
+                    .ok_or_else(|| "--uda-as requires tag | note | drop".to_string())?;
+                uda_as = Some(UdaPolicy::parse(next)?);
             }
             "--json" | "--tsv" | "--human" => trailing.push(tok.clone()),
             "--db" => {
@@ -1102,15 +1152,32 @@ fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
                         .to_string(),
                 );
             }
+            if uda_as.is_some() {
+                return Err("import org doesn't accept --uda-as".to_string());
+            }
             ImportSource::Org
         }
         SourceKind::Todoist => {
+            if uda_as.is_some() {
+                return Err("import todoist doesn't accept --uda-as".to_string());
+            }
             let project_name = into_project.ok_or("import todoist requires --into PROJECT_NAME")?;
             ImportSource::Todoist { project_name }
         }
         SourceKind::Vtodo => {
+            if uda_as.is_some() {
+                return Err("import vtodo doesn't accept --uda-as".to_string());
+            }
             let project_name = into_project.ok_or("import vtodo requires --into PROJECT_NAME")?;
             ImportSource::Vtodo { project_name }
+        }
+        SourceKind::Taskwarrior => {
+            let project_name =
+                into_project.ok_or("import taskwarrior requires --into PROJECT_NAME")?;
+            ImportSource::Taskwarrior {
+                project_name,
+                uda_as: uda_as.unwrap_or(UdaPolicy::Tag),
+            }
         }
     };
     Ok(Subcommand::Import {
@@ -1127,6 +1194,7 @@ enum SourceKind {
     Org,
     Todoist,
     Vtodo,
+    Taskwarrior,
 }
 
 /// Parse the rest-of-argv for `perspective <create|edit|delete>

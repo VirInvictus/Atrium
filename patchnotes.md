@@ -1,5 +1,62 @@
 # Atrium — Patch Notes
 
+## v0.26.0 (2026-05-28) — Taskwarrior `task export` JSON importer (Phase 19 slice 2)
+
+Phase 19's second slice; the Taskwarrior bridge for the TUI / CLI crowd. Hand-rolled stdlib importer (no new deps; `serde_json` was already in the workspace). UDA fields routed via a new `--uda-as tag|note|drop` flag; UUIDs round-trip directly because Taskwarrior already uses RFC 4122. No schema change. Workspace 948 tests + green; clippy `-D warnings` and fmt clean; `scripts/regression.sh` passes; `appstreamcli validate` clean.
+
+### New CLI surface
+
+```
+atrium-cli import taskwarrior PATH --into PROJECT [--uda-as tag|note|drop] [--dry-run]
+```
+
+Accepts both Taskwarrior's array form (`task export` default, `json.array=on`) and the line-stream form (`json.array=off`), one JSON object per non-empty line. UTF-8 BOM tolerated on the array form. Dry-run prints counts + lossy report without touching the DB.
+
+### Field mapping
+
+`description` → `task.title`. `status:pending` → open task; `status:waiting` → open task + `task.orig_keyword = "WAITING"` for Org round-trip parity; `status:completed` + `end` → `task.completed_at`; `status:deleted` and `status:recurring` parent templates skip with one lossy entry each. `uuid` → `task.uuid` directly (RFC 4122). `due` → `task.deadline`; `scheduled` → `task.scheduled_for` + `task.scheduled_time`; `wait` → `task.defer_until` (Atrium's exact schema home). `tags` array → `ensure_tag` per element. `priority:H|M|L` → `priority-1|2|3` tag. `recur` subset (`1d`, `3wks`, `2month`, `1year`, plus the common aliases) → RFC 5545 RRULE in `task.repeat_rule`; unrecognised forms drop with a `LossyKind::UnparseableRecurrence` entry. `annotations` flatten into `task.note` as `[YYYY-MM-DD] description` lines (one per annotation). `project` is dropped — the `--into` flag wins.
+
+### UDA policy
+
+The new `UdaPolicy` enum (`Tag` / `Note` / `Drop`) controls how user-defined attributes flow:
+
+- **`Tag` (default):** each UDA `name:value` becomes a `name-value` tag via the same `ensure_tag` path Atrium uses for every other label source.
+- **`Note`:** each UDA appends one `UDA: name=value` line to `task.note`. Preserves data without polluting the tag surface.
+- **`Drop`:** UDAs surface in a single `LossyKind::DroppedUda` entry per task and otherwise vanish. Defensive option for users who want hand triage.
+
+The flag is rejected on other importers (`org`, `todoist`, `vtodo`) so muscle-memory typos surface as clean argv errors.
+
+### Lossy report
+
+Eight `LossyKind` variants: `Deleted`, `ActiveAtImport` (the `start` field — Atrium has no per-task active state), `DroppedUntil`, `UnparseableRecurrence`, `DroppedRecurringChild` (the `parent`/`mask`/`imask` machinery), `DroppedRecurringTemplate`, `DroppedDepends` (with a hint that v0.29.0 will round-trip these once dependencies ship), `DroppedUda`. `urgency` is dropped silently — it's a computed metric with no schema home.
+
+### Module layout
+
+```
+atrium-cli/src/import/taskwarrior.rs            ← aggregator
+atrium-cli/src/import/taskwarrior/parser.rs     ← serde_json → typed TaskwarriorTask + UDA stash
+atrium-cli/src/import/taskwarrior/mapper.rs     ← import_taskwarrior + LossyKind + UdaPolicy routing
+atrium-cli/src/import/taskwarrior/round_trip_tests.rs  ← integration tests via tempfile DB
+```
+
+Mirrors `atrium-cli/src/import/todoist/` exactly, plus the `#[cfg(test)] mod round_trip_tests` pattern from v0.25.0's VTODO work.
+
+### Tests
+
+Four fixtures + 13 unit tests + 6 integration tests:
+
+- `tests/fixtures/taskwarrior/basic.json` — single pending task with description / project / tags / priority H / due / scheduled / RFC 4122 UUID.
+- `tests/fixtures/taskwarrior/multi.json` — six rows covering pending + waiting + completed + deleted + recurring parent + recurring child (each status path exercised).
+- `tests/fixtures/taskwarrior/recurring.json` — four `recur` shapes: `1d`, `1week`, `3month`, plus a deliberately-unparseable `"every other Tuesday"` for the lossy assertion.
+- `tests/fixtures/taskwarrior/uda.json` — two tasks with `client`/`effort`/`estimate` UDAs for the three `UdaPolicy` paths.
+- Parser unit tests: array + line-stream forms, UTF-8 BOM, status lowercasing, integer `imask`, date parse, annotation parse, UDA stash, top-level rejection.
+- Mapper unit tests: priority tagging, `recur` subset, UUID normalisation, UDA-policy tag collection, annotation formatting, `should_create` skips, `record_lossy` complete coverage, `build_new_task` field routing for the modeled subset.
+- Integration tests: basic round-trip via tempfile DB, multi-status round-trip with `WAITING`/`COMPLETED` parity, three `UdaPolicy` paths against the UDA fixture, `recur` translation against the recurring fixture.
+
+### Argv
+
+`src/tests.rs` gains five new cases: default `--uda-as tag`, each of the three valid `--uda-as` values, missing `--into` error, bad `--uda-as` value error, and the cross-importer rejection (`import org --uda-as` errors).
+
 ## v0.25.0 (2026-05-28) — VTODO import + export (Phase 19 slice 1)
 
 The CalDAV-side `.ics` bridge to Endeavour, Errands, Nextcloud Tasks, and Planify. Phase 19's first slice; Taskwarrior, todo.txt, and the unified import dialog defer to later minor cuts so each surface ships with focused tests and a focused patchnote. Workspace 910 tests + green; `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all --check` clean; `bash scripts/regression.sh` passes; `appstreamcli validate` clean.

@@ -528,6 +528,34 @@ fn run_import(
             print_vtodo_import_summary(&summary, dry_run, format);
             Ok(())
         }
+        ImportSource::Taskwarrior {
+            project_name,
+            uda_as,
+        } => {
+            let path_buf = std::path::PathBuf::from(path);
+            let text = std::fs::read_to_string(&path_buf).map_err(|e| {
+                CliError::Args(format!(
+                    "import taskwarrior: cannot read {}: {e}",
+                    path_buf.display()
+                ))
+            })?;
+            let parsed = import::taskwarrior::parser::parse_export(&text)
+                .map_err(|e| CliError::Args(format!("taskwarrior parse error: {e}")))?;
+            let summary = runtime
+                .block_on(async {
+                    import::taskwarrior::mapper::import_taskwarrior(
+                        handle,
+                        &parsed,
+                        &project_name,
+                        uda_as,
+                        dry_run,
+                    )
+                    .await
+                })
+                .map_err(|e| CliError::Args(format!("import taskwarrior failed: {e}")))?;
+            print_taskwarrior_summary(&summary, dry_run, format);
+            Ok(())
+        }
     }
 }
 
@@ -671,6 +699,68 @@ fn print_vtodo_import_summary(summary: &vtodo::ImportSummary, dry_run: bool, for
                     summary.unsupported_top_level.join(", "),
                 );
             }
+            for note in &summary.lossy {
+                println!(
+                    "  lossy ({:?}): {} — {}",
+                    note.kind,
+                    note.task_title.as_deref().unwrap_or("-"),
+                    note.raw,
+                );
+            }
+        }
+    }
+}
+
+/// v0.26.0 — Taskwarrior import summary printer. Mirrors the
+/// Todoist + VTODO summary shapes (TSV / JSON / human formats);
+/// scripted consumers can grep the JSON output for individual
+/// LossyKind variants.
+fn print_taskwarrior_summary(
+    summary: &import::taskwarrior::mapper::ImportSummary,
+    dry_run: bool,
+    format: Format,
+) {
+    let prefix = if dry_run { "DRY-RUN " } else { "" };
+    match format {
+        Format::Json => {
+            let mut s = String::new();
+            s.push_str("{\n");
+            s.push_str(&format!("  \"dry_run\": {dry_run},\n"));
+            s.push_str(&format!(
+                "  \"project_title\": {},\n",
+                json_string(&summary.project_title)
+            ));
+            s.push_str(&format!(
+                "  \"project_id\": {},\n",
+                summary
+                    .project_id
+                    .map_or_else(|| "null".to_string(), |n| n.to_string())
+            ));
+            s.push_str(&format!(
+                "  \"tasks_created\": {},\n",
+                summary.tasks_created
+            ));
+            s.push_str(&format!("  \"tags_created\": {},\n", summary.tags_created));
+            s.push_str("  \"lossy\": [");
+            for (i, note) in summary.lossy.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&json_string(&format!(
+                    "{:?}: {} ({})",
+                    note.kind,
+                    note.task_title.as_deref().unwrap_or("-"),
+                    note.raw
+                )));
+            }
+            s.push_str("]\n}\n");
+            print!("{s}");
+        }
+        _ => {
+            println!(
+                "{prefix}Imported project “{}”: {} tasks, {} tags.",
+                summary.project_title, summary.tasks_created, summary.tags_created,
+            );
             for note in &summary.lossy {
                 println!(
                     "  lossy ({:?}): {} — {}",

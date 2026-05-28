@@ -945,6 +945,98 @@ fn parse_import_vtodo_missing_into_errors() {
     );
 }
 
+// ── v0.26.0 — Taskwarrior import argv ───────────────────────────
+
+#[test]
+fn parse_import_taskwarrior_defaults_uda_as_to_tag() {
+    use crate::args::{ImportSource, UdaPolicy};
+    let a = parse(&s(&[
+        "import",
+        "taskwarrior",
+        "/tmp/x.json",
+        "--into",
+        "Inbox",
+    ]))
+    .unwrap();
+    let Some(Subcommand::Import { source, .. }) = a.subcommand else {
+        panic!("expected Import");
+    };
+    assert_eq!(
+        source,
+        ImportSource::Taskwarrior {
+            project_name: "Inbox".to_string(),
+            uda_as: UdaPolicy::Tag,
+        },
+    );
+}
+
+#[test]
+fn parse_import_taskwarrior_uda_as_flag_round_trips() {
+    use crate::args::{ImportSource, UdaPolicy};
+    for (flag, expected) in [
+        ("tag", UdaPolicy::Tag),
+        ("note", UdaPolicy::Note),
+        ("drop", UdaPolicy::Drop),
+    ] {
+        let a = parse(&s(&[
+            "import",
+            "taskwarrior",
+            "/tmp/x.json",
+            "--into",
+            "Inbox",
+            "--uda-as",
+            flag,
+        ]))
+        .unwrap();
+        let Some(Subcommand::Import { source, .. }) = a.subcommand else {
+            panic!("expected Import");
+        };
+        assert_eq!(
+            source,
+            ImportSource::Taskwarrior {
+                project_name: "Inbox".to_string(),
+                uda_as: expected,
+            },
+        );
+    }
+}
+
+#[test]
+fn parse_import_taskwarrior_missing_into_errors() {
+    let err = parse(&s(&["import", "taskwarrior", "/tmp/x.json"])).unwrap_err();
+    assert!(
+        err.contains("--into"),
+        "expected --into requirement in error; got: {err}"
+    );
+}
+
+#[test]
+fn parse_import_taskwarrior_bad_uda_value_errors() {
+    let err = parse(&s(&[
+        "import",
+        "taskwarrior",
+        "/tmp/x.json",
+        "--into",
+        "Inbox",
+        "--uda-as",
+        "garbage",
+    ]))
+    .unwrap_err();
+    assert!(
+        err.contains("--uda-as"),
+        "expected --uda-as in error; got: {err}"
+    );
+}
+
+#[test]
+fn parse_import_org_rejects_uda_as_flag() {
+    let err = parse(&s(&["import", "org", "/tmp/x.org", "--uda-as", "tag"])).unwrap_err();
+    assert!(
+        err.contains("--uda-as"),
+        "expected --uda-as rejection in error; got: {err}"
+    );
+}
+
 #[test]
 fn parse_export_vtodo_round_trips() {
     use crate::args::ExportSource;

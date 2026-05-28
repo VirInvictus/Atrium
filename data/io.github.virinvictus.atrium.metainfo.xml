@@ -90,6 +90,44 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.26.0" date="2026-05-28">
+      <description>
+        <p>Taskwarrior `task export` JSON importer. Phase 19's
+           second slice — the TUI / CLI Taskwarrior crowd's bridge
+           to Atrium. Hand-rolled stdlib parser via serde_json;
+           no new dependencies. Both Taskwarrior export shapes
+           (array form and one-object-per-line stream) round-trip
+           through the same downstream mapper.</p>
+        <p>New CLI surface: atrium-cli import taskwarrior PATH
+           --into PROJECT --uda-as tag|note|drop --dry-run.</p>
+        <p>UDA (user-defined attribute) fields routed via the new
+           --uda-as flag. The default `tag` policy maps each UDA
+           name:value into a `name-value` tag; `note` appends UDA
+           lines into the task note; `drop` surfaces them once per
+           task in the lossy report and otherwise drops them.</p>
+        <p>Field mapping covers description, status (pending /
+           waiting / completed / deleted / recurring), uuid (RFC
+           4122 round-trips directly into task.uuid), due, scheduled
+           (with time-of-day via the v0.19.0 scheduled_time column),
+           wait into defer_until, priority H/M/L into priority-N
+           tags, the `recur` subset (1d, 3wks, 2month, 1year and
+           their common aliases) into RFC 5545 RRULE, and
+           annotations flattened into the task note as dated lines.</p>
+        <p>Lossy report carries eight LossyKind variants: deleted
+           and recurring-template skips, the `start` active-task
+           marker, `until` recurring-end-date, unparseable `recur`
+           strings, `parent` / `mask` / `imask` recurring children,
+           `depends` (with a hint that v0.29.0 task dependencies
+           will round-trip these), and dropped UDAs under the
+           `drop` policy.</p>
+        <p>Tests: four fixtures (basic / multi / recurring / uda),
+           13 parser + mapper unit tests, six integration tests
+           covering the full DB round-trip including all three
+           UDA-policy paths. Workspace 948 tests + green; clippy
+           -D warnings and fmt clean; scripts/regression.sh
+           passes; appstreamcli validate clean. No schema change.</p>
+      </description>
+    </release>
     <release version="0.25.0" date="2026-05-28">
       <description>
         <p>VTODO (RFC 5545) import and export. Phase 19's first

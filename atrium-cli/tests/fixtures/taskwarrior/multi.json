@@ -1,0 +1,41 @@
+[
+  {
+    "uuid": "22222222-aaaa-bbbb-cccc-dddddddddddd",
+    "description": "Pending pay rent",
+    "status": "pending",
+    "due": "20260601T000000Z"
+  },
+  {
+    "uuid": "33333333-aaaa-bbbb-cccc-dddddddddddd",
+    "description": "Wait for invoice from Acme",
+    "status": "waiting",
+    "wait": "20260615T000000Z"
+  },
+  {
+    "uuid": "44444444-aaaa-bbbb-cccc-dddddddddddd",
+    "description": "Submit report",
+    "status": "completed",
+    "end": "20260501T100000Z",
+    "tags": ["work"]
+  },
+  {
+    "uuid": "55555555-aaaa-bbbb-cccc-dddddddddddd",
+    "description": "Stale deleted thing",
+    "status": "deleted"
+  },
+  {
+    "uuid": "66666666-aaaa-bbbb-cccc-dddddddddddd",
+    "description": "Weekly groceries (template)",
+    "status": "recurring",
+    "recur": "1week"
+  },
+  {
+    "uuid": "77777777-aaaa-bbbb-cccc-dddddddddddd",
+    "description": "Weekly groceries (occurrence 3)",
+    "status": "pending",
+    "parent": "66666666-aaaa-bbbb-cccc-dddddddddddd",
+    "mask": "++-X",
+    "imask": 3,
+    "due": "20260622T000000Z"
+  }
+]
