@@ -56,6 +56,13 @@ mod imp {
         /// project views.
         #[property(get, set)]
         pub queued: Cell<bool>,
+        /// v0.29.0 — `true` when the task is blocked by at least one
+        /// open prerequisite (task dependencies). The factory shows a
+        /// "Blocked" pill and applies the `.blocked` class based on
+        /// this; like `queued`, it's set externally (from
+        /// `read::blocked_task_ids`), not derived from the Task alone.
+        #[property(get, set)]
+        pub blocked: Cell<bool>,
         /// v0.5.0 (Slice B2) — hex colour of the area the task's
         /// project belongs to (e.g., `"#3584e4"`), or empty when
         /// the task is unfiled, the project has no area, or the

@@ -189,9 +189,13 @@ pub enum State {
     Tagged,
     /// Sequential project; not the first incomplete task.
     Queued,
-    /// Sequential project's first incomplete task, OR not in a
-    /// sequential project AND not deferred.
+    /// v0.29.0 — open AND not blocked by any open prerequisite
+    /// (task dependencies). Dependency-only: defer and sequential
+    /// state are queried separately (`is:deferred`, etc.).
     Available,
+    /// v0.29.0 — open AND blocked by at least one open prerequisite
+    /// (task dependencies). A completed task is never blocked.
+    Blocked,
     /// v0.4.1 — mirrors the Today list per spec §4.2: open AND
     /// (Schedule ≤ today OR Deadline ≤ today + N) AND defer-resolved.
     /// `N` is `EvalContext::today_deadline_window_days`, default 7
@@ -308,6 +312,7 @@ impl fmt::Display for State {
             Self::Tagged => "tagged",
             Self::Queued => "queued",
             Self::Available => "available",
+            Self::Blocked => "blocked",
             Self::Today => "today",
             Self::Inbox => "inbox",
             Self::Upcoming => "upcoming",

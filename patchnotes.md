@@ -1,5 +1,41 @@
 # Atrium — Patch Notes
 
+## v0.29.0 (2026-05-28) — task dependencies (`blocked_by`)
+
+Tier 2's remaining feature. A task can be blocked by one or more prerequisite tasks; a blocked task is "unavailable" until every prerequisite completes. Taskwarrior-parity (the v0.26.0 importer drops `depends` with a lossy hint pointing here) and a deepening of the OmniFocus-superset story. Mirrors the v0.23.0 subtasks scaffolding. Workspace 991 unit tests + green; `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all --check` clean; `bash scripts/regression.sh` passes; `appstreamcli validate` clean.
+
+### Schema
+
+Migration `0016_task_dependency.sql` adds the `task_dependency(task_id, blocked_by_id)` join table (`user_version` 15 → 16). A row means "task_id is blocked by blocked_by_id" (the latter is a prerequisite). FK CASCADE on both ends; `UNIQUE(task_id, blocked_by_id)` makes a re-added edge a no-op. Additive and backwards-compatible: v0.28.x binaries reading a v0.29.0 DB ignore the table.
+
+### Semantics
+
+- **`is:available`** = open AND not blocked by any open prerequisite. Dependency-only: defer is still `is:deferred`, sequential queue state is still `is:queued`. (It was a no-op stub before this release, so nothing regresses.)
+- **`is:blocked`** = open AND blocked by at least one open prerequisite. A completed task is never blocked, and a prerequisite that's already done doesn't gate availability.
+- Both translate to an `EXISTS` / `NOT EXISTS` subquery over `task_dependency` in the SQL fast-path; the in-memory evaluator gets a `blocked_ids` set on its `EvalContext` for the regex / fuzzy / composite fallback.
+- No completion cascade (mirrors subtasks): completing a prerequisite doesn't auto-touch dependents beyond recomputing their blocked state.
+
+### Worker
+
+`add_dependency` / `remove_dependency` commands. The worker rejects self-dependencies and cycles via `would_create_dependency_cycle` (walks the prerequisite chain forward from the proposed blocker; mirror of the subtasks `would_create_cycle`), and absorbs duplicate edges with `ON CONFLICT DO NOTHING`. Each successful add / remove emits a `TaskChanges` refresh for the affected task so its row repaints. New `DomainError::DependencyCycle`.
+
+### GUI
+
+- A "Blocked" pill (amber, `.atrium-task-blocked`) plus a faint title dim (`.blocked` row class) on any task with an open prerequisite. The window queries `read::blocked_task_ids` on list load and on every diff, recomputing across the whole store so completing a prerequisite unblocks its dependents in the same frame.
+- Builder Inspector gains a "Blocked by" group above Notes: each prerequisite renders as a row (click to navigate, button to remove), and a header "Add" button opens a search-as-you-type picker over other tasks that records the edge through the worker.
+
+### CLI
+
+`atrium-cli depend ID --on ID [--remove]` adds or drops a dependency; `info --human` lists a task's prerequisites under "Blocked by". `--on` is required; the flag round-trips through `Subcommand::Depend`.
+
+### Read helpers
+
+`read::blocked_task_ids(conn)` (open tasks with ≥1 open prerequisite — feeds both the pill and the eval context) and `read::list_prerequisites(conn, id)` (the tasks blocking a given task — feeds the Inspector group and CLI `info`).
+
+### Tests
+
++14 unit tests (977 → 991): worker self / direct / transitive cycle rejection + duplicate no-op + remove-absent no-op; read-side `blocked_task_ids` (open vs completed prerequisites), `list_prerequisites`, and FK CASCADE on delete; an eval test for `is:blocked` / `is:available` against a blocked set; SQL-translate assertions for both predicates plus `is:queued` still declining; four CLI argv tests for `depend`.
+
 ## v0.28.0 (2026-05-28) — per-area review schedules (Post-v0.22.0 Tier 3)
 
 The first cut of the Post-v0.22.0 Tier 3 polish arc, and a Phase 13 carryover finally landed. Until now a project only entered the Review queue when it carried its own non-NULL `review_interval_days`; every project had to be opted in by hand. An area can now set a default cadence that cascades to the projects filed under it. Workspace 977 unit tests + green; `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all --check` clean; `bash scripts/regression.sh` passes; `appstreamcli validate` clean.

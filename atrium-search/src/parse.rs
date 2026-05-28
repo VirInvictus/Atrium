@@ -524,6 +524,7 @@ impl State {
             "tagged" => Some(Self::Tagged),
             "queued" => Some(Self::Queued),
             "available" => Some(Self::Available),
+            "blocked" => Some(Self::Blocked),
             // v0.4.1 — canonical-list mirrors. Each maps `is:NAME` to
             // the same membership query the corresponding sidebar list
             // uses (per spec §4.2).

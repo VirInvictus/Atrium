@@ -84,6 +84,15 @@ pub enum DomainError {
     #[error("reparenting task {task} under {parent} would create a cycle")]
     ParentCycle { task: i64, parent: i64 },
 
+    /// v0.29.0 — Tier 2 task dependencies. Adding the edge "{task} is
+    /// blocked by {blocked_by}" would form a cycle: `blocked_by`
+    /// already (transitively) depends on `task`, so the two would
+    /// block each other. Also covers the degenerate self-dependency
+    /// (`task == blocked_by`). Rejected so the dependency graph stays
+    /// acyclic.
+    #[error("making task {task} blocked by {blocked_by} would create a dependency cycle")]
+    DependencyCycle { task: i64, blocked_by: i64 },
+
     /// A perspective was created or updated with an empty or
     /// whitespace-only filter expression. A perspective with no
     /// predicate has no rows; reject at write time so the GUI

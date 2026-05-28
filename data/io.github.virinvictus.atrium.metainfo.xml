@@ -90,6 +90,24 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.29.0" date="2026-05-28">
+      <description>
+        <p>Task dependencies. A task can now be blocked by one or more
+           prerequisite tasks; a blocked task is unavailable until every
+           prerequisite is complete.</p>
+        <p>Builder Mode gains a "Blocked by" group in the Inspector with
+           a search-as-you-type picker to add prerequisites and a remove
+           button on each. Blocked task rows show a "Blocked" pill that
+           clears the moment the last prerequisite is completed.</p>
+        <p>Search learns two predicates: is:blocked (open with an open
+           prerequisite) and is:available (open and not blocked). The
+           command line learns "depend ID --on ID" (add) and "--remove",
+           and "info" lists a task's prerequisites.</p>
+        <p>Schema migration 0016 adds the task_dependency table with
+           cascade-on-delete and a cycle guard. Databases written by
+           older releases keep working unchanged.</p>
+      </description>
+    </release>
     <release version="0.28.0" date="2026-05-28">
       <description>
         <p>Per-area review schedules. An area can now set a default

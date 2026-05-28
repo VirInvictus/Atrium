@@ -87,10 +87,43 @@ pub fn apply(
     project_areas: &HashMap<i64, Option<i64>>,
     area_titles: &HashMap<i64, String>,
 ) -> Vec<Task> {
+    // Dependency predicates (`is:blocked` / `is:available`) default to
+    // "no blockers" on this path. Callers that may evaluate them in
+    // the in-memory fallback should use `apply_with_blocked`.
+    static EMPTY: std::sync::LazyLock<std::collections::HashSet<i64>> =
+        std::sync::LazyLock::new(std::collections::HashSet::new);
+    apply_with_blocked(
+        tasks,
+        query,
+        today,
+        tag_names,
+        project_titles,
+        project_areas,
+        area_titles,
+        &EMPTY,
+    )
+}
+
+/// As [`apply`], but with the set of currently-blocked task ids so
+/// `is:blocked` / `is:available` evaluate correctly in the in-memory
+/// fallback (the SQL fast-path handles them when a query translates
+/// wholesale; this path is the regex / fuzzy / composite remainder).
+#[allow(clippy::too_many_arguments)]
+pub fn apply_with_blocked(
+    tasks: Vec<Task>,
+    query: &FilterQuery,
+    today: NaiveDate,
+    tag_names: &HashMap<i64, Vec<String>>,
+    project_titles: &HashMap<i64, String>,
+    project_areas: &HashMap<i64, Option<i64>>,
+    area_titles: &HashMap<i64, String>,
+    blocked_ids: &std::collections::HashSet<i64>,
+) -> Vec<Task> {
     let Some(expr) = &query.expr else {
         return tasks;
     };
-    let ctx = EvalContext::new(today, tag_names, project_titles, project_areas, area_titles);
+    let ctx = EvalContext::new(today, tag_names, project_titles, project_areas, area_titles)
+        .with_blocked_ids(blocked_ids);
     let mut filtered: Vec<Task> = tasks
         .into_iter()
         .filter(|t| evaluate(expr, t, &ctx))

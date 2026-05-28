@@ -31,7 +31,7 @@
 //!   info ID          print full details of a single task.
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -124,6 +124,9 @@ fn run(args: args::Args) -> ExitCode {
             with_readonly(&db_path, |conn| run_list(conn, &name, args.format))
         }
         Subcommand::Info { id } => with_readonly(&db_path, |conn| run_info(conn, id, args.format)),
+        Subcommand::Depend { id, on, remove } => with_writer(&db_path, |rt, handle, _conn| {
+            run_depend(rt, handle, id, on, remove, args.format)
+        }),
         Subcommand::Add(add) => with_writer(&db_path, |rt, handle, conn| {
             run_add(rt, handle, conn, add, args.format)
         }),
@@ -2273,6 +2276,53 @@ fn run_info(conn: &Connection, id: i64, format: Format) -> CliResult<()> {
                     println!("  [{mark}] {} (#{})", c.title, c.id);
                 }
             }
+            // Task dependencies (v0.29.0) — the prerequisites blocking
+            // this task. An open prerequisite still gates availability;
+            // a completed one is shown checked so the picture is whole.
+            let prereqs = read::list_prerequisites(conn, id).map_err(CliError::from)?;
+            if !prereqs.is_empty() {
+                println!("\nBlocked by ({}):", prereqs.len());
+                for p in &prereqs {
+                    let mark = if p.is_completed() { "x" } else { " " };
+                    println!("  [{mark}] {} (#{})", p.title, p.id);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `depend ID --on ID [--remove]` — add or drop a dependency edge.
+/// Task `id` becomes blocked by `on` (or, with `--remove`, no longer).
+/// The worker rejects self-edges and cycles; a duplicate add and a
+/// remove of a missing edge are both silent no-ops.
+fn run_depend(
+    runtime: &tokio::runtime::Runtime,
+    handle: &atrium_core::WorkerHandle,
+    id: i64,
+    on: i64,
+    remove: bool,
+    format: Format,
+) -> CliResult<()> {
+    runtime
+        .block_on(async {
+            if remove {
+                handle.remove_dependency(id, on).await
+            } else {
+                handle.add_dependency(id, on).await
+            }
+        })
+        .map_err(CliError::from)?;
+    let action = if remove { "removed" } else { "added" };
+    match format {
+        Format::Json => println!("{{\"task\":{id},\"blocked_by\":{on},\"action\":\"{action}\"}}"),
+        Format::Tsv => println!("{id}\t{on}\t{action}"),
+        Format::Human => {
+            if remove {
+                println!("Task #{id} is no longer blocked by #{on}.");
+            } else {
+                println!("Task #{id} is now blocked by #{on}.");
+            }
         }
     }
     Ok(())
@@ -2418,6 +2468,7 @@ struct ContextData {
     project_titles: HashMap<i64, String>,
     project_areas: HashMap<i64, Option<i64>>,
     area_titles: HashMap<i64, String>,
+    blocked_ids: HashSet<i64>,
 }
 
 impl ContextData {
@@ -2431,11 +2482,13 @@ impl ContextData {
             projects.iter().map(|p| (p.id, p.area_id)).collect();
         let area_titles: HashMap<i64, String> =
             areas.iter().map(|a| (a.id, a.title.clone())).collect();
+        let blocked_ids = read::blocked_task_ids(conn).map_err(CliError::from)?;
         Ok(Self {
             tag_names,
             project_titles,
             project_areas,
             area_titles,
+            blocked_ids,
         })
     }
 
@@ -2447,6 +2500,7 @@ impl ContextData {
             &self.project_areas,
             &self.area_titles,
         )
+        .with_blocked_ids(&self.blocked_ids)
     }
 }
 

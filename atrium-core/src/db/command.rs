@@ -47,6 +47,18 @@ pub enum Command {
         responder: oneshot::Sender<Result<(), DbError>>,
     },
 
+    // ── Task dependencies (v0.29.0) ─────────────────────────────
+    AddDependency {
+        task_id: i64,
+        blocked_by_id: i64,
+        responder: oneshot::Sender<Result<(), DbError>>,
+    },
+    RemoveDependency {
+        task_id: i64,
+        blocked_by_id: i64,
+        responder: oneshot::Sender<Result<(), DbError>>,
+    },
+
     // ── Areas (Phase 5b) ────────────────────────────────────────
     CreateArea {
         area: NewArea,
@@ -230,6 +242,8 @@ impl Command {
             Self::UpdateTask { .. } => "UpdateTask",
             Self::ToggleComplete { .. } => "ToggleComplete",
             Self::DeleteTask { .. } => "DeleteTask",
+            Self::AddDependency { .. } => "AddDependency",
+            Self::RemoveDependency { .. } => "RemoveDependency",
             Self::CreateArea { .. } => "CreateArea",
             Self::UpdateArea { .. } => "UpdateArea",
             Self::DeleteArea { .. } => "DeleteArea",

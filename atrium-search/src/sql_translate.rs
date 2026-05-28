@@ -180,11 +180,22 @@ fn state_clause(state: State, today: NaiveDate, params: &mut Vec<SqlValue>) -> O
         State::Repeating => "t.repeat_rule IS NOT NULL".into(),
         State::InProject => "t.project_id IS NOT NULL".into(),
         State::Tagged => "EXISTS (SELECT 1 FROM task_tag tt WHERE tt.task_id = t.id)".into(),
+        // v0.29.0 — dependency availability. "Blocked" = open with an
+        // open prerequisite; "available" = the open, not-blocked
+        // complement. Must mirror `match_state` in eval.rs exactly so
+        // the SQL fast-path and the in-memory fallback agree.
+        State::Blocked => "(t.completed_at IS NULL AND EXISTS (SELECT 1 FROM \
+             task_dependency d JOIN task b ON d.blocked_by_id = b.id \
+             WHERE d.task_id = t.id AND b.completed_at IS NULL))"
+            .into(),
+        State::Available => "(t.completed_at IS NULL AND NOT EXISTS (SELECT 1 FROM \
+             task_dependency d JOIN task b ON d.blocked_by_id = b.id \
+             WHERE d.task_id = t.id AND b.completed_at IS NULL))"
+            .into(),
         // Fall-back cases — handled by the in-memory evaluator.
         // Marked explicitly so a new `State` variant added later
         // forces a compile error here rather than silently drifting.
-        State::Available
-        | State::Queued
+        State::Queued
         | State::Today
         | State::Inbox
         | State::Upcoming
@@ -502,8 +513,26 @@ mod tests {
     }
 
     #[test]
-    fn state_available_falls_back() {
-        assert!(try_translate(&Expr::State(State::Available), today()).is_none());
+    fn state_available_and_blocked_translate() {
+        // v0.29.0 — both translate to an EXISTS / NOT EXISTS subquery
+        // over task_dependency, so the dependency filter runs in SQL
+        // rather than falling back to the in-memory evaluator.
+        let avail = try_translate(&Expr::State(State::Available), today()).unwrap();
+        assert!(avail.sql.contains("NOT EXISTS"));
+        assert!(avail.sql.contains("task_dependency"));
+        assert!(avail.params.is_empty());
+
+        let blocked = try_translate(&Expr::State(State::Blocked), today()).unwrap();
+        assert!(blocked.sql.contains("EXISTS"));
+        assert!(!blocked.sql.contains("NOT EXISTS"));
+        assert!(blocked.sql.contains("task_dependency"));
+        assert!(blocked.params.is_empty());
+    }
+
+    #[test]
+    fn state_queued_falls_back() {
+        // Sequential "queued" state is still not exposed via SQL.
+        assert!(try_translate(&Expr::State(State::Queued), today()).is_none());
     }
 
     #[test]

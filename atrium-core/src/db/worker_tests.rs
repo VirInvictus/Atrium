@@ -942,6 +942,83 @@ async fn area_default_review_interval_round_trips() {
     assert_eq!(cleared.default_review_interval_days, None);
 }
 
+// ── Task dependencies (v0.29.0) ─────────────────────────────────
+
+#[tokio::test]
+async fn add_dependency_round_trip_and_duplicate_is_noop() {
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let a = handle.create_task(NewTask::inbox("a")).await.unwrap();
+    let b = handle.create_task(NewTask::inbox("b")).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+
+    handle.add_dependency(a.id, b.id).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    // Duplicate edge is absorbed by the UNIQUE constraint, not an error.
+    handle.add_dependency(a.id, b.id).await.unwrap();
+}
+
+#[tokio::test]
+async fn self_dependency_is_rejected() {
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let a = handle.create_task(NewTask::inbox("a")).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    let err = handle.add_dependency(a.id, a.id).await.unwrap_err();
+    assert!(matches!(
+        err,
+        DbError::Domain(crate::error::DomainError::DependencyCycle { .. })
+    ));
+}
+
+#[tokio::test]
+async fn direct_dependency_cycle_is_rejected() {
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let a = handle.create_task(NewTask::inbox("a")).await.unwrap();
+    let b = handle.create_task(NewTask::inbox("b")).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    // a blocked by b is fine; b blocked by a would close a cycle.
+    handle.add_dependency(a.id, b.id).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    let err = handle.add_dependency(b.id, a.id).await.unwrap_err();
+    assert!(matches!(
+        err,
+        DbError::Domain(crate::error::DomainError::DependencyCycle { .. })
+    ));
+}
+
+#[tokio::test]
+async fn transitive_dependency_cycle_is_rejected() {
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let a = handle.create_task(NewTask::inbox("a")).await.unwrap();
+    let b = handle.create_task(NewTask::inbox("b")).await.unwrap();
+    let c = handle.create_task(NewTask::inbox("c")).await.unwrap();
+    for _ in 0..3 {
+        let _ = changes_rx.recv().await.unwrap();
+    }
+    // a → b → c (a depends on b, b depends on c). Closing c → a is a cycle.
+    handle.add_dependency(a.id, b.id).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    handle.add_dependency(b.id, c.id).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    let err = handle.add_dependency(c.id, a.id).await.unwrap_err();
+    assert!(matches!(
+        err,
+        DbError::Domain(crate::error::DomainError::DependencyCycle { .. })
+    ));
+}
+
+#[tokio::test]
+async fn remove_dependency_is_noop_when_absent() {
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let a = handle.create_task(NewTask::inbox("a")).await.unwrap();
+    let b = handle.create_task(NewTask::inbox("b")).await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    // No edge yet — removing one is a clean no-op.
+    handle.remove_dependency(a.id, b.id).await.unwrap();
+}
+
 #[tokio::test]
 async fn delete_area_unfiles_projects() {
     let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());

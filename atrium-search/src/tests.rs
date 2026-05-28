@@ -2,7 +2,7 @@
 //! Integration tests for the search module — parse → evaluate
 //! round-trips against synthetic Task fixtures.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{NaiveDate, Utc};
 
@@ -369,6 +369,37 @@ fn eval_state_open_done() {
     assert!(!match_simple(&r_open.expr, &done, d(2026, 5, 15)));
     assert!(!match_simple(&r_done.expr, &open, d(2026, 5, 15)));
     assert!(match_simple(&r_done.expr, &done, d(2026, 5, 15)));
+}
+
+#[test]
+fn eval_state_blocked_and_available() {
+    // v0.29.0 — task 1 is blocked (in the set), task 2 is available
+    // (open, not in the set), task 3 is completed (never blocked, and
+    // not available because it's done).
+    let mut t1 = dummy_task(1);
+    t1.completed_at = None;
+    let mut t2 = dummy_task(2);
+    t2.completed_at = None;
+    let mut t3 = dummy_task(3);
+    t3.completed_at = Some(Utc::now());
+
+    let tag_names = HashMap::new();
+    let pt = HashMap::new();
+    let pa = HashMap::new();
+    let at = HashMap::new();
+    let blocked: HashSet<i64> = [1].into_iter().collect();
+    let ctx = empty_ctx(d(2026, 5, 15), &tag_names, &pt, &pa, &at).with_blocked_ids(&blocked);
+
+    let blocked_expr = parse("is:blocked").unwrap().expr;
+    let avail_expr = parse("is:available").unwrap().expr;
+
+    assert!(evaluate(&blocked_expr, &t1, &ctx));
+    assert!(!evaluate(&blocked_expr, &t2, &ctx));
+    assert!(!evaluate(&blocked_expr, &t3, &ctx)); // completed → not blocked
+
+    assert!(!evaluate(&avail_expr, &t1, &ctx)); // blocked → not available
+    assert!(evaluate(&avail_expr, &t2, &ctx));
+    assert!(!evaluate(&avail_expr, &t3, &ctx)); // completed → not available
 }
 
 #[test]

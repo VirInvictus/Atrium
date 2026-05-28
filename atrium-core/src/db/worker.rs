@@ -81,6 +81,39 @@ impl WorkerHandle {
         rx.await.map_err(|_| DbError::WorkerClosed)?
     }
 
+    // ── Task dependencies (v0.29.0) ─────────────────────────────
+
+    /// Record that `task_id` is blocked by `blocked_by_id` (the latter
+    /// is a prerequisite of the former). Rejects self-dependencies and
+    /// cycles; a duplicate edge is a silent no-op.
+    pub async fn add_dependency(&self, task_id: i64, blocked_by_id: i64) -> Result<(), DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::AddDependency {
+                task_id,
+                blocked_by_id,
+                responder,
+            })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
+    /// Drop the dependency edge "`task_id` blocked by `blocked_by_id`".
+    /// A no-op when the edge doesn't exist.
+    pub async fn remove_dependency(&self, task_id: i64, blocked_by_id: i64) -> Result<(), DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::RemoveDependency {
+                task_id,
+                blocked_by_id,
+                responder,
+            })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
     // ── Areas (Phase 5b) ────────────────────────────────────────
 
     pub async fn create_area(&self, area: NewArea) -> Result<Area, DbError> {
@@ -698,6 +731,32 @@ impl Worker {
                 let _ = responder.send(result);
             }
 
+            // ── Task dependencies (v0.29.0) ───────────────────────
+            Command::AddDependency {
+                task_id,
+                blocked_by_id,
+                responder,
+            } => {
+                let result = self.add_dependency(task_id, blocked_by_id);
+                if result.is_ok() {
+                    // The blocked task's availability changed; refresh
+                    // its row so the GUI repaints the Blocked pill.
+                    self.emit_task_refresh(task_id);
+                }
+                let _ = responder.send(result);
+            }
+            Command::RemoveDependency {
+                task_id,
+                blocked_by_id,
+                responder,
+            } => {
+                let result = self.remove_dependency(task_id, blocked_by_id);
+                if result.is_ok() {
+                    self.emit_task_refresh(task_id);
+                }
+                let _ = responder.send(result);
+            }
+
             // ── Areas ─────────────────────────────────────────────
             Command::CreateArea { area, responder } => {
                 let result = self.create_area(area);
@@ -1149,6 +1208,83 @@ impl Worker {
                 break;
             }
             cursor = read::task_by_id(&self.conn, c)?.and_then(|t| t.parent_id);
+        }
+        Ok(false)
+    }
+
+    /// Task dependencies (v0.29.0) — record that `task_id` is blocked
+    /// by `blocked_by_id`. Rejects the self-edge and any edge that
+    /// would close a cycle; a duplicate edge is absorbed by the UNIQUE
+    /// constraint (`ON CONFLICT DO NOTHING`). Both tasks must exist.
+    fn add_dependency(&mut self, task_id: i64, blocked_by_id: i64) -> Result<(), DbError> {
+        if task_id == blocked_by_id {
+            return Err(DbError::Domain(
+                crate::error::DomainError::DependencyCycle {
+                    task: task_id,
+                    blocked_by: blocked_by_id,
+                },
+            ));
+        }
+        read::task_by_id(&self.conn, task_id)?.ok_or(DbError::NotFound)?;
+        read::task_by_id(&self.conn, blocked_by_id)?.ok_or(DbError::NotFound)?;
+        if self.would_create_dependency_cycle(task_id, blocked_by_id)? {
+            return Err(DbError::Domain(
+                crate::error::DomainError::DependencyCycle {
+                    task: task_id,
+                    blocked_by: blocked_by_id,
+                },
+            ));
+        }
+        self.conn.execute(
+            "INSERT INTO task_dependency (task_id, blocked_by_id) VALUES (?1, ?2) \
+             ON CONFLICT(task_id, blocked_by_id) DO NOTHING",
+            params![task_id, blocked_by_id],
+        )?;
+        Ok(())
+    }
+
+    fn remove_dependency(&mut self, task_id: i64, blocked_by_id: i64) -> Result<(), DbError> {
+        self.conn.execute(
+            "DELETE FROM task_dependency WHERE task_id = ?1 AND blocked_by_id = ?2",
+            params![task_id, blocked_by_id],
+        )?;
+        Ok(())
+    }
+
+    /// Task dependencies (v0.29.0) — true when adding the edge
+    /// "`task_id` blocked by `blocked_by_id`" would form a cycle.
+    /// Walks the prerequisite graph forward from `blocked_by_id`
+    /// (following each node's own `blocked_by_id` edges); if it reaches
+    /// `task_id`, then `blocked_by_id` already depends on `task_id` and
+    /// the new edge would make them block each other. Mirrors
+    /// `would_create_cycle` (subtasks); the `seen` set + depth guard
+    /// defend against a pre-existing corrupt cycle rather than looping.
+    fn would_create_dependency_cycle(
+        &self,
+        task_id: i64,
+        blocked_by_id: i64,
+    ) -> Result<bool, DbError> {
+        let mut stack = vec![blocked_by_id];
+        let mut seen = std::collections::HashSet::new();
+        let mut depth = 0;
+        while let Some(cur) = stack.pop() {
+            if cur == task_id {
+                return Ok(true);
+            }
+            if !seen.insert(cur) {
+                continue;
+            }
+            depth += 1;
+            if depth > 100_000 {
+                break;
+            }
+            let mut stmt = self
+                .conn
+                .prepare_cached("SELECT blocked_by_id FROM task_dependency WHERE task_id = ?1")?;
+            let rows = stmt.query_map(params![cur], |r| r.get::<_, i64>(0))?;
+            for r in rows {
+                stack.push(r?);
+            }
         }
         Ok(false)
     }

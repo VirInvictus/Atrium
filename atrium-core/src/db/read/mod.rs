@@ -26,7 +26,7 @@ pub use counts::{
 pub use search::{SqlBindValue, bm25_for_terms, list_tasks_matching, search_tasks};
 pub use templates::{list_quick_entry_templates, quick_entry_template_by_id};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -539,6 +539,49 @@ pub fn list_review_queue(conn: &Connection, today: NaiveDate) -> Result<Vec<Proj
     );
     let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(params![today_str], project_from_row)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+// ── Task dependencies (v0.29.0) ─────────────────────────────────
+
+/// The set of task ids that are currently blocked: an open task with
+/// at least one open prerequisite (a `blocked_by_id` task that isn't
+/// completed). Feeds both the GUI "Blocked" pill and the search
+/// engine's `is:blocked` / `is:available` evaluation. A completed task
+/// is never blocked, and a prerequisite that's already done doesn't
+/// count — both ends must be open for the edge to gate availability.
+pub fn blocked_task_ids(conn: &Connection) -> Result<HashSet<i64>, DbError> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT DISTINCT d.task_id FROM task_dependency d \
+         JOIN task b ON d.blocked_by_id = b.id \
+         JOIN task t ON d.task_id = t.id \
+         WHERE t.completed_at IS NULL AND b.completed_at IS NULL",
+    )?;
+    let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
+    rows.collect::<rusqlite::Result<HashSet<i64>>>()
+        .map_err(Into::into)
+}
+
+/// The prerequisite tasks blocking `task_id` (its `blocked_by_id`
+/// edges), ordered by position. Feeds the Builder Inspector's
+/// "Blocked by" group and the CLI `info` view. Includes completed
+/// prerequisites so the caller can show the full picture; filter on
+/// `completed_at` if only open blockers matter.
+pub fn list_prerequisites(conn: &Connection, task_id: i64) -> Result<Vec<Task>, DbError> {
+    let cols = TASK_COLUMNS
+        .split(", ")
+        .map(|c| format!("t.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT {cols} FROM task t \
+         JOIN task_dependency d ON d.blocked_by_id = t.id \
+         WHERE d.task_id = ?1 \
+         ORDER BY t.position"
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map(params![task_id], task_from_row)?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
 }
@@ -1645,6 +1688,93 @@ mod tests {
 
         let queue = list_review_queue(&conn, today()).unwrap();
         assert!(queue.is_empty());
+    }
+
+    // v0.29.0 — task dependencies.
+
+    #[test]
+    fn blocked_task_ids_and_list_prerequisites() {
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "A", None, None, None, None);
+        let a = conn.last_insert_rowid();
+        insert_task(&conn, "b", "B", None, None, None, None);
+        let b = conn.last_insert_rowid();
+        // c is a completed prerequisite — present in the list, but it
+        // doesn't gate availability.
+        insert_task(
+            &conn,
+            "c",
+            "C",
+            None,
+            None,
+            None,
+            Some("2026-05-01T00:00:00.000Z"),
+        );
+        let c = conn.last_insert_rowid();
+        for (t, blocker) in [(a, b), (a, c)] {
+            conn.execute(
+                "INSERT INTO task_dependency (task_id, blocked_by_id) VALUES (?1, ?2)",
+                params![t, blocker],
+            )
+            .unwrap();
+        }
+
+        // a has one open prerequisite (b) → blocked; b itself isn't.
+        let blocked = blocked_task_ids(&conn).unwrap();
+        assert!(blocked.contains(&a));
+        assert!(!blocked.contains(&b));
+
+        // list_prerequisites returns both blockers (open + completed).
+        let prereqs = list_prerequisites(&conn, a).unwrap();
+        let ids: Vec<i64> = prereqs.iter().map(|t| t.id).collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&b) && ids.contains(&c));
+    }
+
+    #[test]
+    fn blocked_excludes_task_when_all_prereqs_completed() {
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "A", None, None, None, None);
+        let a = conn.last_insert_rowid();
+        insert_task(
+            &conn,
+            "b",
+            "B",
+            None,
+            None,
+            None,
+            Some("2026-05-01T00:00:00.000Z"),
+        );
+        let b = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO task_dependency (task_id, blocked_by_id) VALUES (?1, ?2)",
+            params![a, b],
+        )
+        .unwrap();
+        // Only prerequisite is done → a is available, not blocked.
+        assert!(!blocked_task_ids(&conn).unwrap().contains(&a));
+    }
+
+    #[test]
+    fn deleting_a_task_cascades_its_dependency_rows() {
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "A", None, None, None, None);
+        let a = conn.last_insert_rowid();
+        insert_task(&conn, "b", "B", None, None, None, None);
+        let b = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO task_dependency (task_id, blocked_by_id) VALUES (?1, ?2)",
+            params![a, b],
+        )
+        .unwrap();
+        // Delete the prerequisite — the FK CASCADE drops the edge.
+        conn.execute("DELETE FROM task WHERE id = ?1", params![b])
+            .unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM task_dependency", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+        assert!(!blocked_task_ids(&conn).unwrap().contains(&a));
     }
 
     #[test]

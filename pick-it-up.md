@@ -1,30 +1,29 @@
-# pick-it-up.md — Atrium Tiers 2 + 3 arc (v0.29.0 → v0.35.0)
+# pick-it-up.md — Atrium Tiers 2 + 3 arc (v0.30.0 → v0.35.0)
 
-**Last updated:** 2026-05-28. **Reason:** end-of-cut handoff after v0.28.0 shipped.
+**Last updated:** 2026-05-28. **Reason:** end-of-cut handoff after v0.29.0 shipped.
 **Retire this file** once the v0.35.0 cut ships (precedent: v0.23.1 retired the prior `pick-it-up.md`).
 
 ## TL;DR
 
-We're in a ten-cut arc closing Atrium's pre-1.0 polish backlog. v0.26.0 (Taskwarrior import), v0.27.0 (todo.txt import), and **v0.28.0 (per-area review schedules) all shipped.** **v0.29.0 (task dependencies, `blocked_by`) is next — not started.** Pick up by entering plan mode for v0.29.0, writing the per-cut design plan, and executing.
+We're in a ten-cut arc closing Atrium's pre-1.0 polish backlog. v0.26.0 (Taskwarrior), v0.27.0 (todo.txt), v0.28.0 (per-area review schedules), and **v0.29.0 (task dependencies, `blocked_by`) all shipped.** **v0.30.0 (drag external files / URLs to capture) is next — not started.** Pick up by entering plan mode for v0.30.0, writing the per-cut design plan, and executing.
 
-The master plan with the full ten-cut sequence and shared scaffolding patterns lives at `/home/bdkl/.claude/plans/foamy-churning-summit.md` (its "Current cut" section is now v0.29.0). Read that first.
+The master plan with the full ten-cut sequence and shared scaffolding patterns lives at `/home/bdkl/.claude/plans/foamy-churning-summit.md` (its "Current cut" section is now v0.30.0). Read that first.
 
 ## Current state
 
-- **Repo HEAD:** v0.28.0 on `main` (per-area review schedules). Confirm with `git log --oneline -1`.
-- **Workspace unit-test count:** 977 (sum of the `Running unittests` binaries; the four `tests/*.rs` integration binaries — mode_flip_snapshot, org_roundtrip, vault_watcher_integration, worker_org_integration — are counted separately and excluded from the headline figure).
-- **Schema version:** 15 (`user_version` 15; next migration `0016_*` lands at v0.29.0).
+- **Repo HEAD:** v0.29.0 on `main` (task dependencies). Confirm with `git log --oneline -1`.
+- **Workspace unit-test count:** 991 (sum of the `Running unittests` binaries; the four `tests/*.rs` integration binaries — mode_flip_snapshot, org_roundtrip, vault_watcher_integration, worker_org_integration — are counted separately and excluded from the headline figure).
+- **Schema version:** 16 (`user_version` 16; next migration `0017_*` lands at v0.34.0 task templates — v0.30.0–v0.33.0 are schema-free).
 - **Tier 1 closed at v0.24.0** (custom property-drawer passthrough).
 - **Phase 19 importer arc closed at v0.27.0** (Org, Todoist, VTODO, Taskwarrior, todo.txt all shipped). Only the unified import dialog (v0.35.0) remains for Phase 19's GUI side.
 - **EDS calendar overlay deferred** out of this arc (needs separate dep sign-off for `libecal-sys` vs hand-rolled `zbus`).
 
 ## Remaining cuts (in order)
 
-Seven minor bumps left. One feature per cut; each ships independently. See the master plan for full per-cut scope; abbreviated here:
+Six minor bumps left. One feature per cut; each ships independently. See the master plan for full per-cut scope; abbreviated here:
 
 | Cut | Headline | Migration | Surface |
 |---|---|---|---|
-| v0.29.0 | Task dependencies (`blocked_by`) | `0016_task_dependency.sql` | Worker + search predicates + Inspector + CLI |
 | v0.30.0 | Drag external files / URLs to capture | none | Window-level `DropTarget` |
 | v0.31.0 | Inline editing on row edit | none | Surface `atrium-inline` parser on row edit |
 | v0.32.0 | First-run / onboarding | none | `AdwStatusPage` for empty DB |
@@ -34,37 +33,31 @@ Seven minor bumps left. One feature per cut; each ships independently. See the m
 
 After v0.35.0 the arc closes; EDS overlay, Phase 20 (1.0 endgame), README screenshots, and Flatpak font verification carry over.
 
-## v0.28.0 — shipped (reference)
+## v0.29.0 — shipped (reference)
 
-Per-area review schedules. The pattern is worth knowing for future area-property work:
+Task dependencies (`blocked_by`). Patterns worth knowing:
 
-- Migration `0015_area_default_review_interval.sql`: `ALTER TABLE area ADD COLUMN default_review_interval_days INTEGER NULL;` (`user_version` 14 → 15).
-- `Area` / `NewArea` / `AreaUpdate` carry the new field; `AreaUpdate.default_review_interval_days(Option<i64>)` mirrors the `color: Option<Option<_>>` builder (so `Some(None)` clears).
-- `list_review_queue` (`atrium-core/src/db/read/mod.rs`) now `LEFT JOIN area a ON p.area_id = a.id` with project columns alias-prefixed (`p.`), and `COALESCE(p.review_interval_days, a.default_review_interval_days)` in both the membership predicate and the date math.
-- UI: the shared `prompt_for_named_color` (`atrium/src/ui/window/widgets.rs`) grew an optional `review_initial: Option<i64>` param + a "Review every (days, 0 = off)" SpinButton row and a 3-tuple return; tag callers pass `None`. The window caches `area_review_intervals` (populated in `sidebar.rs`) to pre-fill the row on edit.
-- No CLI surface (areas have no create/edit subcommand); cascade is covered by atrium-core tests.
-- **One open item for Brandon:** interactive GUI sanity of the Edit Area review-interval row wasn't driven during the cut (no display session). Worth a quick manual check.
+- Migration `0016_task_dependency.sql`: `task_dependency(task_id, blocked_by_id)` join table, FK CASCADE both ends, `UNIQUE(task_id, blocked_by_id)`, `created_at` DEFAULT (`user_version` 15 → 16). Row `(A, B)` = "A blocked by B" (B is a prerequisite of A). Added `task_dependency` to the `all_user_tables_exist` test list.
+- Worker: `Command::{AddDependency,RemoveDependency}` + handle methods; `would_create_dependency_cycle` (walks prerequisites forward from the proposed blocker; mirror of `would_create_cycle`); `ON CONFLICT DO NOTHING` for dups; `emit_task_refresh(task_id)` after each so the row repaints. New `DomainError::DependencyCycle`.
+- Search: `State::Blocked` added; `State::Available` made functional (was a stub). Both translate to EXISTS / NOT EXISTS over `task_dependency` (`sql_translate.rs`); the in-memory path reads `EvalContext.blocked_ids` (new field, defaults to a shared empty set via `with_blocked_ids` builder so the 5-arg `EvalContext::new` callers didn't churn).
+- Read: `blocked_task_ids(conn) -> HashSet<i64>` (open tasks with ≥1 open prerequisite) + `list_prerequisites(conn, id) -> Vec<Task>`.
+- GUI: `AtriumTask.blocked` flag (mirror `queued`); a "Blocked" pill appended **at the row tail** (next_sibling-chain discipline — don't insert mid-row) + `.blocked` row class; `filter::apply_with_blocked` wrapper (so `apply`'s many callers didn't churn); `replace_store_with_tags_seq` / `apply_changes_seq` gained a `blocked_ids` param + a post-diff `recompute_blocked_state` across the whole store. Builder Inspector "Blocked by" group (`inspector_pane/mod.rs`) with per-prereq remove/navigate rows + a search popover Add picker.
+- CLI: `Subcommand::Depend { id, on, remove }`; `run_depend`; `info --human` "Blocked by" section.
 
-## v0.29.0 — next (not started)
+## v0.30.0 — next (not started)
 
 ### What's known (from the master plan)
 
-Task dependencies (`blocked_by`). A task can be blocked by one or more prerequisites; a blocked task is unavailable until all prerequisites complete. Mirrors the subtasks scaffolding. Sets up Taskwarrior `depends` round-trip (the v0.26.0 importer drops `depends` with a `LossyKind` hint pointing here).
+Drag external files / URLs to capture. No schema. A top-level `gtk::DropTarget` on `AtriumWindow` accepting `text/uri-list` + `text/plain`; a dropped file → Quick Entry pre-fill (title = filename, note = `file://…`), a dropped URL → pre-fill with the URL in the note/body. Mirrors Errands / Planify.
 
 ### Scope (confirm in plan mode)
 
-- **Schema**: migration `0016_task_dependency.sql` — `task_dependency(task_id, blocks_task_id, …)` with FK CASCADE both ends; `user_version` 15 → 16. Bump the 4 pinned `assert_eq!(v, 15)` sites + migrations comment block.
-- **Worker**: `add_dependency` / `remove_dependency`; cycle rejection via `would_create_dependency_cycle` (clone `would_create_cycle` in `atrium-core/src/db/worker.rs`); CASCADE on delete.
-- **Search** (`atrium-search/src/{ast,eval,parse,sql_translate}.rs`): extend `State::Available` (a task with any open prerequisite is unavailable); add `State::Blocked` / `is:blocked`. SQL `WHERE NOT EXISTS (SELECT 1 FROM task_dependency …)` fast-path; eval fallback for composites.
-- **Row treatment**: "blocked" pill reusing the queued / sequential CSS from Phase 11.
-- **Inspector (Builder)**: "Blocked by" group above Notes with a search-as-you-type picker (lift the Org-link picker from `atrium/src/ui/inspector_pane/fields.rs`).
-- **CLI**: `atrium-cli depend ID --on ID` / `--remove`; surface in `info --human`.
-- **Tests**: cycle rejection, `is:available` / `is:blocked` SQL ↔ eval parity, CASCADE.
+- Lift the `gtk::DropTarget` idiom from `atrium/src/ui/{forecast,task_list,board,calendar}.rs` / `window/sidebar.rs`; add a window-level top target.
+- Route the drop into the existing Quick Entry pre-fill path.
 
 ### Open decisions to surface
 
-- Should the "blocked" pill suppress when the task is also completed?
-- Confirm the `is:blocked` SQL fast-path scope.
+- Drop while the main window is minimised — capture, or require focus?
 
 ## Per-cut workflow (established, applies to every remaining cut)
 
@@ -94,7 +87,7 @@ Task dependencies (`blocked_by`). A task can be blocked by one or more prerequis
 
 ## Gotchas surfaced during this arc
 
-- **Test-count methodology.** The headline test count is the sum of `Running unittests` binaries only. The four `tests/*.rs` integration binaries are excluded. v0.28.0 = 977 by this method (full `cargo test` sum including integration + doctests is 1013).
+- **Test-count methodology.** The headline test count is the sum of `Running unittests` binaries only. The four `tests/*.rs` integration binaries are excluded. v0.29.0 = 991 by this method (full `cargo test` sum including integration + doctests is 1027).
 - **rustfmt-version churn.** `rustfmt 1.9.0` reorders `use` imports (lowercase items like `params` sort after type names). HEAD is already in that style. If a PostToolUse formatter hook or a stray `cargo fmt` regresses sibling files you didn't touch, `git checkout --` the untouched files and run `cargo fmt --all` once to normalise only your edits. Verify scope with `git diff --stat`.
 - **Cargo.lock drift.** The v0.27.0 commit bumped `Cargo.toml` but didn't commit the regenerated `Cargo.lock`; the v0.28.0 build corrected the workspace-crate versions in the lockfile. Always include the regenerated `Cargo.lock` in the cut commit.
 - **AppStream first-word capitalisation.** `appstreamcli validate` lints `description-first-word-not-capitalized` when any `<p>` inside `<description>` starts with a lowercase word. Recast so the first word is capitalised; don't open a `<p>` with `atrium-cli` / `todo.txt`.

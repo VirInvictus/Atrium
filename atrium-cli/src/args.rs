@@ -35,6 +35,9 @@ READ SUBCOMMANDS:
     info ID           print full details of a single task
 
 WRITE SUBCOMMANDS:
+    depend ID --on ID [--remove]
+                      mark task ID blocked by another task (a prerequisite),
+                      or drop the dependency with --remove
     add TITLE [FLAGS]
                       create a new task. Flags:
                         --note TEXT
@@ -153,6 +156,15 @@ pub enum Subcommand {
     },
     Info {
         id: i64,
+    },
+    /// `depend ID --on ID [--remove]` — record (or with `--remove`,
+    /// drop) a task dependency: task `id` becomes blocked by the
+    /// `--on` task (the latter is a prerequisite of the former).
+    /// v0.29.0.
+    Depend {
+        id: i64,
+        on: i64,
+        remove: bool,
     },
     Add(AddArgs),
     /// `capture LINE` — Quick-Entry-style one-shot capture.
@@ -619,6 +631,40 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
                 .map_err(|_| format!("invalid task id: {id_str}"))?;
             apply_trailing_flags(&raw[i..], &mut args)?;
             Subcommand::Info { id }
+        }
+        "depend" => {
+            let id_str = raw.get(i).ok_or("depend requires a task id")?;
+            i += 1;
+            let id: i64 = id_str
+                .parse()
+                .map_err(|_| format!("invalid task id: {id_str}"))?;
+            // Walk depend-specific flags (`--on`, `--remove`); hand
+            // anything else to the global trailing-flag parser so
+            // `--json` etc. still work on the summary.
+            let mut on: Option<i64> = None;
+            let mut remove = false;
+            let mut rest: Vec<String> = Vec::new();
+            let mut j = i;
+            while j < raw.len() {
+                match raw[j].as_str() {
+                    "--on" => {
+                        let v = raw.get(j + 1).ok_or("--on requires a task id")?;
+                        on = Some(v.parse().map_err(|_| format!("invalid task id: {v}"))?);
+                        j += 2;
+                    }
+                    "--remove" => {
+                        remove = true;
+                        j += 1;
+                    }
+                    _ => {
+                        rest.push(raw[j].clone());
+                        j += 1;
+                    }
+                }
+            }
+            apply_trailing_flags(&rest, &mut args)?;
+            let on = on.ok_or("depend requires --on <task id>")?;
+            Subcommand::Depend { id, on, remove }
         }
         "add" => parse_add(&raw[i..], &mut args)?,
         "capture" => {

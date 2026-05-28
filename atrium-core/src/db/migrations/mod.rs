@@ -60,6 +60,12 @@ use crate::error::DbError;
 /// `COALESCE(project.review_interval_days, area.default_review_interval_days)`
 /// in the Review query — a project's own value still wins, the area
 /// default only fills in where the project leaves it NULL.
+/// Version 16 (v0.29.0, Post-v0.22.0 Tier 2) adds the
+/// `task_dependency` join table for `blocked_by` task dependencies:
+/// a row `(task_id, blocked_by_id)` means `task_id` is blocked by
+/// `blocked_by_id`. FK CASCADE both ends; the worker enforces
+/// no-self-dependency and no-cycles. Powers `is:blocked` /
+/// `is:available` and the GUI "Blocked" pill.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
@@ -76,6 +82,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (13, include_str!("0013_task_clock_entry_timestamps.sql")),
     (14, include_str!("0014_task_extra_properties.sql")),
     (15, include_str!("0015_area_default_review_interval.sql")),
+    (16, include_str!("0016_task_dependency.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

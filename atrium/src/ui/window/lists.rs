@@ -165,7 +165,10 @@ impl AtriumWindow {
                         return;
                     }
                 };
-                crate::ui::filter::apply(
+                let blocked_ids = pool
+                    .with(atrium_core::db::read::blocked_task_ids)
+                    .unwrap_or_default();
+                crate::ui::filter::apply_with_blocked(
                     loaded,
                     &parsed,
                     today,
@@ -173,6 +176,7 @@ impl AtriumWindow {
                     &self.imp().project_titles.borrow(),
                     &project_areas,
                     &self.imp().area_titles.borrow(),
+                    &blocked_ids,
                 )
             };
             // sort: modifiers — both paths need this; only the
@@ -211,11 +215,15 @@ impl AtriumWindow {
             let context_for = self.build_context_resolver(&active);
             let area_color_for = self.build_area_color_resolver();
             let cookie_for = self.build_cookie_resolver();
+            let blocked_ids = pool
+                .with(atrium_core::db::read::blocked_task_ids)
+                .unwrap_or_default();
             replace_store_with_tags_seq(
                 &store,
                 &tasks,
                 &tag_pills,
                 false,
+                &blocked_ids,
                 context_for,
                 area_color_for,
                 cookie_for,
@@ -289,7 +297,10 @@ impl AtriumWindow {
                     let parsed = crate::ui::filter::parse(q);
                     search_pinned_sort = !parsed.sorts.is_empty();
                     let project_areas = self.project_areas_map();
-                    let mut filtered = crate::ui::filter::apply(
+                    let blocked_ids = pool
+                        .with(atrium_core::db::read::blocked_task_ids)
+                        .unwrap_or_default();
+                    let mut filtered = crate::ui::filter::apply_with_blocked(
                         tasks,
                         &parsed,
                         today,
@@ -297,6 +308,7 @@ impl AtriumWindow {
                         &self.imp().project_titles.borrow(),
                         &project_areas,
                         &self.imp().area_titles.borrow(),
+                        &blocked_ids,
                     );
                     // v0.5.2 — bm25 ranking when bare text is in the
                     // query and the user hasn't pinned a sort. We
@@ -342,11 +354,16 @@ impl AtriumWindow {
                 let context_for = self.build_context_resolver(&active);
                 let area_color_for = self.build_area_color_resolver();
                 let cookie_for = self.build_cookie_resolver();
+                let blocked_ids = self
+                    .read_pool()
+                    .and_then(|p| p.with(atrium_core::db::read::blocked_task_ids).ok())
+                    .unwrap_or_default();
                 replace_store_with_tags_seq(
                     &store,
                     &tasks,
                     &tag_pills,
                     sequential,
+                    &blocked_ids,
                     context_for,
                     area_color_for,
                     cookie_for,
@@ -501,6 +518,13 @@ impl AtriumWindow {
         let context_for = self.build_context_resolver(&active);
         let area_color_for = self.build_area_color_resolver();
         let cookie_for = self.build_cookie_resolver();
+        // v0.29.0 — fresh blocked set so completing a prerequisite
+        // unblocks its dependents in the same delta (recomputed across
+        // the store inside apply_changes_seq).
+        let blocked_ids = self
+            .read_pool()
+            .and_then(|p| p.with(atrium_core::db::read::blocked_task_ids).ok())
+            .unwrap_or_default();
         crate::ui::task_list::apply_changes_seq(
             &store,
             changes,
@@ -508,6 +532,7 @@ impl AtriumWindow {
             today,
             &tag_pills,
             sequential,
+            &blocked_ids,
             context_for,
             area_color_for,
             cookie_for,

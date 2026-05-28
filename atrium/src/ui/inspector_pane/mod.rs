@@ -924,6 +924,192 @@ where
         });
     }
 
+    // ── Blocked by (task dependencies, v0.29.0) ──────────────────
+    // Builder-only. Lists the task's prerequisites (the tasks that
+    // block it); each row navigates to that prerequisite and carries a
+    // remove button. A header "Add" button opens a search-as-you-type
+    // picker over other tasks; selecting one records the edge via
+    // worker.add_dependency. The worker rejects self-edges and cycles;
+    // the row's Blocked pill and is:blocked / is:available follow.
+    let blocked_group = adw::PreferencesGroup::builder().title("Blocked by").build();
+    let blocked_list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .build();
+    blocked_list.add_css_class("boxed-list");
+    blocked_group.add(&blocked_list);
+
+    // Row builder shared by the initial populate and the add path.
+    // The remove button drops just its own row on success rather than
+    // refetching the whole list.
+    let append_prereq_row = Rc::new({
+        let list = blocked_list.clone();
+        let worker = worker.clone();
+        let on_navigate = on_navigate_uuid.clone();
+        move |prereq_id: i64, title: &str, uuid: &str, completed: bool| {
+            let row = adw::ActionRow::builder().title(title).build();
+            if completed {
+                row.add_css_class("dim-label");
+            }
+            let remove_btn = gtk::Button::from_icon_name("edit-delete-symbolic");
+            remove_btn.add_css_class("flat");
+            remove_btn.set_valign(gtk::Align::Center);
+            remove_btn.set_tooltip_text(Some("Remove prerequisite"));
+            let worker_rm = worker.clone();
+            let list_rm = list.clone();
+            let row_rm = row.clone();
+            remove_btn.connect_clicked(move |_| {
+                let worker = worker_rm.clone();
+                let list = list_rm.clone();
+                let row = row_rm.clone();
+                glib::MainContext::default().spawn_local(async move {
+                    match worker.remove_dependency(task_id, prereq_id).await {
+                        Ok(()) => list.remove(&row),
+                        Err(e) => {
+                            error!(?e, task_id, prereq_id, "inspector pane: remove dep failed")
+                        }
+                    }
+                });
+            });
+            row.add_suffix(&remove_btn);
+            row.set_activatable(true);
+            let uuid = uuid.to_string();
+            let nav = on_navigate.clone();
+            row.connect_activated(move |_| nav(uuid.clone()));
+            list.append(&row);
+        }
+    });
+
+    // Initial populate from the read pool.
+    {
+        let prereqs = pool_source()
+            .and_then(|pool| {
+                pool.with(|conn| atrium_core::db::read::list_prerequisites(conn, task_id))
+                    .ok()
+            })
+            .unwrap_or_default();
+        for p in &prereqs {
+            append_prereq_row(p.id, &p.title, &p.uuid, p.completed_at.is_some());
+        }
+    }
+
+    // "Add" button → search-as-you-type picker over candidate tasks.
+    let add_button = gtk::MenuButton::builder()
+        .icon_name("list-add-symbolic")
+        .tooltip_text("Add a prerequisite")
+        .build();
+    add_button.add_css_class("flat");
+    let add_popover = gtk::Popover::new();
+    add_popover.add_css_class("atrium-link-picker");
+    let picker_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .width_request(320)
+        .height_request(300)
+        .build();
+    let picker_search = gtk::SearchEntry::builder()
+        .placeholder_text("Search tasks…")
+        .build();
+    picker_box.append(&picker_search);
+    let picker_list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .build();
+    picker_list.add_css_class("boxed-list");
+    let picker_scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .child(&picker_list)
+        .build();
+    picker_box.append(&picker_scroll);
+    add_popover.set_child(Some(&picker_box));
+    add_button.set_popover(Some(&add_popover));
+    blocked_group.set_header_suffix(Some(&add_button));
+
+    // Candidate cache, refreshed on each popover-show so freshly
+    // created tasks appear. Excludes the task itself.
+    let candidates: Rc<RefCell<Vec<atrium_core::Task>>> = Rc::new(RefCell::new(Vec::new()));
+    let populate_candidates = Rc::new({
+        let list = picker_list.clone();
+        let popover = add_popover.clone();
+        let worker = worker.clone();
+        let append_row = append_prereq_row.clone();
+        move |tasks: &[atrium_core::Task]| {
+            while let Some(child) = list.first_child() {
+                list.remove(&child);
+            }
+            if tasks.is_empty() {
+                list.append(
+                    &adw::ActionRow::builder()
+                        .title("(no matching tasks)")
+                        .build(),
+                );
+                return;
+            }
+            for task in tasks.iter().take(50) {
+                let row = adw::ActionRow::builder().title(&task.title).build();
+                row.set_activatable(true);
+                let cand_id = task.id;
+                let cand_title = task.title.clone();
+                let cand_uuid = task.uuid.clone();
+                let cand_completed = task.completed_at.is_some();
+                let worker_add = worker.clone();
+                let popover = popover.clone();
+                let append_row = append_row.clone();
+                let click = gtk::GestureClick::new();
+                click.connect_released(move |_, _, _, _| {
+                    let worker = worker_add.clone();
+                    let popover = popover.clone();
+                    let append_row = append_row.clone();
+                    let title = cand_title.clone();
+                    let uuid = cand_uuid.clone();
+                    glib::MainContext::default().spawn_local(async move {
+                        match worker.add_dependency(task_id, cand_id).await {
+                            Ok(()) => append_row(cand_id, &title, &uuid, cand_completed),
+                            Err(e) => {
+                                error!(?e, task_id, cand_id, "inspector pane: add dep failed")
+                            }
+                        }
+                    });
+                    popover.popdown();
+                });
+                row.add_controller(click);
+                list.append(&row);
+            }
+        }
+    });
+    {
+        let pool_source = pool_source.clone();
+        let candidates = candidates.clone();
+        let populate = populate_candidates.clone();
+        add_popover.connect_show(move |_| {
+            let tasks = pool_source()
+                .and_then(|pool| pool.with(atrium_core::db::read::list_all_tasks).ok())
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|t: &atrium_core::Task| t.id != task_id)
+                .collect::<Vec<_>>();
+            *candidates.borrow_mut() = tasks.clone();
+            populate(&tasks);
+        });
+    }
+    {
+        let candidates = candidates.clone();
+        let populate = populate_candidates.clone();
+        picker_search.connect_search_changed(move |entry| {
+            let needle = entry.text().to_string().to_ascii_lowercase();
+            let cached = candidates.borrow();
+            let filtered: Vec<atrium_core::Task> = if needle.is_empty() {
+                cached.clone()
+            } else {
+                cached
+                    .iter()
+                    .filter(|t| t.title.to_ascii_lowercase().contains(&needle))
+                    .cloned()
+                    .collect()
+            };
+            populate(&filtered);
+        });
+    }
+
     // ── Builder-only fields ──────────────────────────────────────
     // The pane only renders in Builder Mode, so an "exposed only in
     // Builder" subtitle reads as redundant noise. v0.6.11 dropped
@@ -1027,6 +1213,7 @@ where
     page.add(&classify_group);
     page.add(&subtasks_group);
     page.add(&checklist_group);
+    page.add(&blocked_group);
     page.add(&notes_group);
     page.add(&time_group);
     page.add(&builder_group);

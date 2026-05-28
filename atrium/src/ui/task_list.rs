@@ -10,7 +10,7 @@
 //! the applier here keeps the visible store in step *without* a full
 //! reload — preserving selection, scroll, and animations.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use atrium_core::db::read::TODAY_DEADLINE_WINDOW_DAYS;
 use atrium_core::{ScheduledFor, Task, TaskChanges};
@@ -382,6 +382,17 @@ where
         cookie.add_css_class("atrium-task-cookie");
         cookie.add_css_class("dim-label");
 
+        // v0.29.0 — "Blocked" pill for tasks with an open prerequisite
+        // (task dependencies). Hidden by default; the window sets the
+        // `blocked` property from `read::blocked_task_ids` before bind,
+        // and the bind path mirrors it to this pill's visibility plus
+        // the row's `.blocked` class.
+        let blocked_pill = gtk::Label::builder()
+            .label("Blocked")
+            .visible(false)
+            .build();
+        blocked_pill.add_css_class("atrium-task-blocked");
+
         // v0.3.0 — tags label renders Pango markup so per-pill
         // colours can ship as inline <span foreground="…"> tokens.
         // Format helper lives in this module; window-side wires the
@@ -439,6 +450,10 @@ where
         row.append(&schedule);
         row.append(&deadline);
         row.append(&repeat_icon);
+        // v0.29.0 — appended last so the `next_sibling` walk in `bind`
+        // for the existing pills doesn't shift (same discipline as the
+        // repeat icon above).
+        row.append(&blocked_pill);
 
         item.set_child(Some(&row));
     });
@@ -507,6 +522,10 @@ where
             .next_sibling()
             .and_downcast::<gtk::Image>()
             .expect("repeat icon");
+        let blocked_pill = repeat_icon
+            .next_sibling()
+            .and_downcast::<gtk::Label>()
+            .expect("blocked pill");
 
         // Title bindings: model → display label is one-way. The
         // entry is populated from the label only when edit mode
@@ -643,6 +662,29 @@ where
             }
         });
 
+        // v0.29.0 — blocked state. Mirror the `blocked` bool to the
+        // pill's visibility and a `.blocked` row class, and listen for
+        // runtime flips (completing a prerequisite unblocks dependents,
+        // which arrives as a TaskChanges refresh that re-runs the
+        // window's blocked recompute and flips this property).
+        blocked_pill.set_visible(task.blocked());
+        if task.blocked() {
+            row.add_css_class("blocked");
+        } else {
+            row.remove_css_class("blocked");
+        }
+        let row_for_blocked = row.clone();
+        let pill_for_blocked = blocked_pill.clone();
+        let blocked_handler = task.connect_blocked_notify(move |t| {
+            let b = t.blocked();
+            pill_for_blocked.set_visible(b);
+            if b {
+                row_for_blocked.add_css_class("blocked");
+            } else {
+                row_for_blocked.remove_css_class("blocked");
+            }
+        });
+
         // v0.5.0 (Slice B2) — area-accent stripe. The window-side
         // resolver writes `area_color` (hex string, empty for none)
         // before the row binds; we mirror it to the matching
@@ -737,6 +779,7 @@ where
             row.set_data("atrium-activate-handler", activate_handler);
             row.set_data("atrium-focus-handler", focus_handler);
             row.set_data("atrium-queued-handler", queued_handler);
+            row.set_data("atrium-blocked-handler", blocked_handler);
             row.set_data("atrium-tags-handler", tags_handler);
             row.set_data("atrium-context-handler", context_handler);
             row.set_data("atrium-cookie-handler", cookie_handler);
@@ -963,6 +1006,12 @@ where
             }
             if let (Some(task), Some(handler)) = (
                 task_obj.clone(),
+                row.steal_data::<glib::SignalHandlerId>("atrium-blocked-handler"),
+            ) {
+                task.disconnect(handler);
+            }
+            if let (Some(task), Some(handler)) = (
+                task_obj.clone(),
                 row.steal_data::<glib::SignalHandlerId>("atrium-tags-handler"),
             ) {
                 task.disconnect(handler);
@@ -1077,6 +1126,7 @@ pub fn replace_store_with_tags_seq<F, G, H>(
     tasks: &[Task],
     tag_pills: &TagPillMap,
     sequential: bool,
+    blocked_ids: &HashSet<i64>,
     context_for: F,
     area_color_for: G,
     cookie_for: H,
@@ -1100,6 +1150,7 @@ pub fn replace_store_with_tags_seq<F, G, H>(
             obj.set_area_color(area_color_for(t));
             obj.set_cookie_label(cookie_for(t.id, &t.note));
             obj.set_queued(*q);
+            obj.set_blocked(blocked_ids.contains(&t.id));
             obj.upcast()
         })
         .collect();
@@ -1157,6 +1208,7 @@ pub fn apply_changes_seq<F, G, H>(
     today: NaiveDate,
     tag_pills: &TagPillMap,
     sequential: bool,
+    blocked_ids: &HashSet<i64>,
     context_for: F,
     area_color_for: G,
     cookie_for: H,
@@ -1191,6 +1243,7 @@ pub fn apply_changes_seq<F, G, H>(
             obj.set_context_label(context_for(task));
             obj.set_area_color(area_color_for(task));
             obj.set_cookie_label(cookie_for(task.id, &task.note));
+            obj.set_blocked(blocked_ids.contains(&task.id));
             store.append(&obj);
         }
     }
@@ -1284,6 +1337,29 @@ pub fn apply_changes_seq<F, G, H>(
             if let Some(obj) = store.item(i).and_downcast::<AtriumTask>() {
                 obj.set_queued(false);
             }
+        }
+    }
+
+    // v0.29.0 — recompute blocked flags across the whole store. A
+    // completion toggle on a prerequisite changes the blocked state of
+    // its *dependents*, which the diff never names directly; the
+    // caller passes a freshly-queried set so the recompute reflects
+    // the post-write reality.
+    recompute_blocked_state(store, blocked_ids);
+}
+
+/// Walk the store and mirror each row's `blocked` flag to membership
+/// in `blocked_ids` (`read::blocked_task_ids`). Cheap idempotent pass
+/// run after every diff so unblocking a dependent lands in the same
+/// frame as the prerequisite's completion.
+fn recompute_blocked_state(store: &gio::ListStore, blocked_ids: &HashSet<i64>) {
+    for i in 0..store.n_items() {
+        let Some(obj) = store.item(i).and_downcast::<AtriumTask>() else {
+            continue;
+        };
+        let target = blocked_ids.contains(&obj.id());
+        if obj.blocked() != target {
+            obj.set_blocked(target);
         }
     }
 }

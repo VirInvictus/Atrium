@@ -155,6 +155,52 @@ fn parse_info_with_human_flag() {
 }
 
 #[test]
+fn parse_depend_subcommand() {
+    let a = parse(&s(&["depend", "5", "--on", "9"])).unwrap();
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Depend {
+            id: 5,
+            on: 9,
+            remove: false,
+        })
+    );
+}
+
+#[test]
+fn parse_depend_remove() {
+    let a = parse(&s(&["depend", "5", "--on", "9", "--remove"])).unwrap();
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Depend {
+            id: 5,
+            on: 9,
+            remove: true,
+        })
+    );
+}
+
+#[test]
+fn parse_depend_requires_on() {
+    let err = parse(&s(&["depend", "5"])).unwrap_err();
+    assert!(err.contains("--on"));
+}
+
+#[test]
+fn parse_depend_with_json_flag() {
+    let a = parse(&s(&["depend", "5", "--on", "9", "--json"])).unwrap();
+    assert_eq!(a.format, Format::Json);
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::Depend {
+            id: 5,
+            on: 9,
+            remove: false,
+        })
+    );
+}
+
+#[test]
 fn parse_unknown_subcommand_errors() {
     let err = parse(&s(&["frobnicate"])).unwrap_err();
     assert!(err.contains("unknown subcommand"));

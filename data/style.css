@@ -209,6 +209,24 @@ window.atrium-high-legibility .atrium-task-deadline {
   font-style: italic;
 }
 
+/* v0.29.0 — task dependencies. A task with at least one open
+ * prerequisite shows a small amber "Blocked" pill and a faintly
+ * dimmed title so it reads as not-yet-actionable without leaving the
+ * list (same "show, don't hide" spirit as the sequential .queued
+ * treatment above). */
+.atrium-task-blocked {
+  font-size: 0.78em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 7px;
+  border-radius: 6px;
+  color: @warning_color;
+  background-color: alpha(@warning_bg_color, 0.18);
+}
+.atrium-task-row.blocked .atrium-task-title {
+  opacity: 0.7;
+}
+
 /* Phase 12 — Forecast view. Vertical column of card-shaped day
  * blocks plus an Overdue pseudo-block at the top. Each card uses
  * libadwaita's `card` baseline; we add accents for "today" and

@@ -14,7 +14,7 @@
 //! evaluate the same regex against a thousand tasks; compiling once
 //! per query rather than once per task matters).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{Duration, NaiveDate};
 use regex::Regex;
@@ -33,11 +33,23 @@ pub struct EvalContext<'a> {
     pub project_titles: &'a HashMap<i64, String>,
     pub project_areas: &'a HashMap<i64, Option<i64>>,
     pub area_titles: &'a HashMap<i64, String>,
+    /// v0.29.0 — ids of tasks blocked by at least one open
+    /// prerequisite (`read::blocked_task_ids`). Drives `is:blocked` /
+    /// `is:available` in the in-memory path; the SQL fast-path uses an
+    /// EXISTS subquery instead. Defaults to a shared empty set; callers
+    /// that evaluate dependency predicates attach the real set via
+    /// [`EvalContext::with_blocked_ids`].
+    pub blocked_ids: &'a HashSet<i64>,
     /// Cache of compiled regexes — populated lazily as the evaluator
     /// encounters `MatchKind::Regex` nodes. Same query against many
     /// tasks reuses the compiled Regex.
     regex_cache: std::cell::RefCell<HashMap<String, Option<Regex>>>,
 }
+
+/// Shared empty blocked-id set so `EvalContext::new` can default the
+/// `blocked_ids` field without every caller owning one. `'static`
+/// coerces into any context lifetime.
+static EMPTY_BLOCKED: std::sync::LazyLock<HashSet<i64>> = std::sync::LazyLock::new(HashSet::new);
 
 impl<'a> EvalContext<'a> {
     pub fn new(
@@ -53,8 +65,17 @@ impl<'a> EvalContext<'a> {
             project_titles,
             project_areas,
             area_titles,
+            blocked_ids: &EMPTY_BLOCKED,
             regex_cache: std::cell::RefCell::new(HashMap::new()),
         }
+    }
+
+    /// v0.29.0 — attach the set of currently-blocked task ids so
+    /// `is:blocked` / `is:available` evaluate correctly in the
+    /// in-memory path. Build it from `read::blocked_task_ids`.
+    pub fn with_blocked_ids(mut self, blocked_ids: &'a HashSet<i64>) -> Self {
+        self.blocked_ids = blocked_ids;
+        self
     }
 
     /// Compile and cache a regex. Returns `None` if the pattern is
@@ -127,7 +148,13 @@ fn match_state(task: &Task, state: State, ctx: &EvalContext<'_>) -> bool {
             .and_then(|pid| ctx.project_areas.get(&pid).copied().flatten())
             .is_some(),
         State::Tagged => ctx.tag_names.get(&task.id).is_some_and(|v| !v.is_empty()),
-        State::Queued | State::Available => false, // sequential-project state, not a task field
+        State::Queued => false, // sequential-project state, not a task field
+        // v0.29.0 — dependency availability. A task is blocked when
+        // it's open and has at least one open prerequisite (membership
+        // in `ctx.blocked_ids`); available is the open-and-not-blocked
+        // complement. Mirrors the SQL fast-path's EXISTS subquery.
+        State::Available => task.completed_at.is_none() && !ctx.blocked_ids.contains(&task.id),
+        State::Blocked => task.completed_at.is_none() && ctx.blocked_ids.contains(&task.id),
         // v0.4.1 — canonical-list mirrors. Each must agree with the
         // corresponding read fn in `db::read` so the search predicate
         // and the sidebar list select the same set. Spec §4.2 is the
