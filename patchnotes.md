@@ -1,5 +1,34 @@
 # Atrium — Patch Notes
 
+## v0.23.0 (2026-05-27) — Subtasks UI (Phase 19.5)
+
+The first Phase 19.5 productivity essential after the v0.20.0 foundations. `parent_id` has been in the schema since `0001_initial.sql` and the Org importer has always built the tree, but the GUI rendered tasks flat; v0.23.0 surfaces real nested tasks end to end. No schema change. Workspace 899 tests; clippy `-D warnings` + fmt clean; `appstreamcli validate` clean.
+
+### Data layer (atrium-core)
+
+- `TaskUpdate` gains `parent_id` (`Option<Option<i64>>`) and a `reparent()` builder so a task's parent can change after create. The worker's `update_task` applies it with validation: the same-project rule `create_task` already enforced, plus a cycle guard (`would_create_cycle` walks the parent chain and rejects self-parent and descendant cycles) surfaced as the new `DomainError::ParentCycle`.
+- `read::list_subtasks(conn, parent_id)` lists a task's children ordered by position.
+
+### CLI (atrium-cli)
+
+- `add --parent ID` (inherits the parent's project when `--project` is omitted) and `edit --parent ID | none` (reparent / promote to top level) via the new `EditParent` enum.
+- `info` shows a "Subtasks (N)" section in `--human` output; the TSV / JSON one-record shape is unchanged for jq / grep consumers.
+
+### GUI (atrium)
+
+- **Builder Inspector pane** gains a "Subtasks" group above Notes: lists children with completion checkboxes (toggled through the worker), each row navigates to the child, and a permanent "Add subtask" entry creates a child inheriting the parent's project. Per spec §5.1 the group is Builder-only (Simple Mode hides subtask UI).
+- **List nesting:** children render indented under their parent in list views. `AtriumTask` gains `parent_id` + `depth`; a pure `nesting_order` helper orders rows depth-first (siblings by position, orphans as roots, cycle-safe); `apply_nesting` stamps depth + re-sorts and runs after both the full refresh and the incremental delta. Pinned-sort search / perspective views stay flat. The row factory indents 18 px per depth level.
+- **Drag-to-reparent:** Shift+drop makes the dragged task a child of the drop target; a plain drop still reorders. Worker rejections (cycle or different project) surface a toast.
+- The existing `[done/total]` row cookie already counted `parent_id` children (since v0.15.0), so it reflects subtasks with no new code.
+
+### Naming
+
+The v0.15.0 body-checkbox group (`- [ ]` items in the note) is renamed "Subtasks" to "Checklist" in both Inspector surfaces, freeing "Subtasks" for real nested tasks. Things-3 taxonomy: body items are a checklist; nested tasks are subtasks.
+
+### Deliberately deferred
+
+Completion cascade is omitted: completing a parent does not auto-complete its children (the cookie shows progress instead). Subtasks stay hidden in the Simple-mode dialog per spec §5.1.
+
 ## v0.22.1 (2026-05-27) — Metainfo capitalisation + post-v0.22.0 planning
 
 Documentation and metadata maintenance: no code, behaviour, or schema changes.

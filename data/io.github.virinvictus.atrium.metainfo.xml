@@ -90,6 +90,21 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.23.0" date="2026-05-27">
+      <description>
+        <p>Subtasks. Nested tasks (parent_id, in the schema since day
+           one) are now exposed end to end, the first Phase 19.5
+           productivity essential. No schema change.</p>
+        <p>Builder Mode's Inspector gains a Subtasks group (list
+           children, check them off, navigate, add a subtask); list
+           views render children indented under their parent; Shift and
+           drop reparents a task; the CLI gains add --parent and edit
+           --parent. The same-project rule and a cycle guard keep the
+           hierarchy a tree. The v0.15.0 body-checkbox group was renamed
+           to Checklist to free the Subtasks label for real nested
+           tasks.</p>
+      </description>
+    </release>
     <release version="0.22.1" date="2026-05-27">
       <description>
         <p>Documentation and metadata maintenance. No code, behaviour,
