@@ -114,6 +114,44 @@ impl WorkerHandle {
         rx.await.map_err(|_| DbError::WorkerClosed)?
     }
 
+    // ── Task templates (v0.33.0) ────────────────────────────────
+
+    /// Create a reusable project template plus its items in one call.
+    pub async fn create_task_template(
+        &self,
+        template: crate::domain::NewTaskTemplate,
+    ) -> Result<crate::domain::TaskTemplate, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::CreateTaskTemplate {
+                template,
+                responder,
+            })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
+    pub async fn delete_task_template(&self, id: i64) -> Result<(), DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::DeleteTaskTemplate { id, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
+    /// Stamp out a fresh project from a template, returning the new
+    /// project. The created tasks ride out on a `TaskChanges` delta.
+    pub async fn instantiate_template(&self, id: i64) -> Result<crate::domain::Project, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::InstantiateTemplate { id, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
     // ── Areas (Phase 5b) ────────────────────────────────────────
 
     pub async fn create_area(&self, area: NewArea) -> Result<Area, DbError> {
@@ -756,6 +794,36 @@ impl Worker {
                 }
                 let _ = responder.send(result);
             }
+
+            // ── Task templates (v0.33.0) ──────────────────────────
+            Command::CreateTaskTemplate {
+                template,
+                responder,
+            } => {
+                let _ = responder.send(self.create_task_template(template));
+            }
+            Command::DeleteTaskTemplate { id, responder } => {
+                let _ = responder.send(self.delete_task_template(id));
+            }
+            Command::InstantiateTemplate { id, responder } => match self.instantiate_template(id) {
+                Ok((project, tasks)) => {
+                    let _ = self.library_tx.send(LibraryChanges {
+                        projects_created: vec![project.clone()],
+                        ..Default::default()
+                    });
+                    if !tasks.is_empty() {
+                        let _ = self.changes_tx.send(TaskChanges {
+                            created: tasks,
+                            ..Default::default()
+                        });
+                    }
+                    self.notify_project_dirty(project.id);
+                    let _ = responder.send(Ok(project));
+                }
+                Err(e) => {
+                    let _ = responder.send(Err(e));
+                }
+            },
 
             // ── Areas ─────────────────────────────────────────────
             Command::CreateArea { area, responder } => {
@@ -1920,6 +1988,109 @@ impl Worker {
             return Err(DbError::NotFound);
         }
         Ok(())
+    }
+
+    // ── Task templates (v0.33.0) ────────────────────────────────
+
+    fn create_task_template(
+        &mut self,
+        new: crate::domain::NewTaskTemplate,
+    ) -> Result<crate::domain::TaskTemplate, DbError> {
+        let uuid = Uuid::new_v4().to_string();
+        let tags_json = serde_json::to_string(&new.tags).unwrap_or_else(|_| "[]".to_string());
+        self.conn.execute(
+            "INSERT INTO task_template (uuid, name, project_title_seed, note, tags_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![uuid, new.name, new.project_title_seed, new.note, tags_json],
+        )?;
+        let template_id = self.conn.last_insert_rowid();
+        for (i, item) in new.items.iter().enumerate() {
+            let item_tags =
+                serde_json::to_string(&item.default_tags).unwrap_or_else(|_| "[]".to_string());
+            self.conn.execute(
+                "INSERT INTO task_template_item \
+                 (template_id, title, parent_index, position, estimated_minutes, default_tags_json) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    template_id,
+                    item.title,
+                    item.parent_index,
+                    i as f64,
+                    item.estimated_minutes,
+                    item_tags
+                ],
+            )?;
+        }
+        read::task_template_by_id(&self.conn, template_id)?.ok_or(DbError::NotFound)
+    }
+
+    fn delete_task_template(&mut self, id: i64) -> Result<(), DbError> {
+        let n = self
+            .conn
+            .execute("DELETE FROM task_template WHERE id = ?1", params![id])?;
+        if n == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Stamp out a fresh project from a template: create the project,
+    /// then create each item as a task (resolving `parent_index` to the
+    /// real `parent_id` of the already-created item at that index) and
+    /// attach the template's + the item's tags. Returns the project and
+    /// the created tasks so the dispatch arm can emit deltas.
+    fn instantiate_template(&mut self, id: i64) -> Result<(Project, Vec<Task>), DbError> {
+        let template = read::task_template_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?;
+        let items = read::task_template_items(&self.conn, id)?;
+
+        let title = if template.project_title_seed.trim().is_empty() {
+            template.name.clone()
+        } else {
+            template.project_title_seed.clone()
+        };
+        let mut new_project = NewProject::unfiled(title);
+        new_project.note = template.note.clone();
+        let project = self.create_project(new_project)?;
+
+        // Ensure the template-level tags once; reused per item.
+        let mut template_tag_ids = Vec::with_capacity(template.tags.len());
+        for name in &template.tags {
+            template_tag_ids.push(self.ensure_tag(name)?.id);
+        }
+
+        let mut created: Vec<Task> = Vec::with_capacity(items.len());
+        let mut created_ids: Vec<i64> = Vec::with_capacity(items.len());
+        for item in &items {
+            // `parent_index` refers to an earlier item's slot; resolve
+            // to its real id. A forward / out-of-range reference
+            // degrades to a top-level task rather than failing.
+            let parent_id = item
+                .parent_index
+                .and_then(|pi| usize::try_from(pi).ok())
+                .and_then(|pi| created_ids.get(pi).copied());
+            let task = self.create_task(NewTask {
+                title: item.title.clone(),
+                project_id: Some(project.id),
+                parent_id,
+                estimated_minutes: item.estimated_minutes,
+                ..NewTask::default()
+            })?;
+            let mut tag_ids = template_tag_ids.clone();
+            for name in &item.default_tags {
+                let tid = self.ensure_tag(name)?.id;
+                if !tag_ids.contains(&tid) {
+                    tag_ids.push(tid);
+                }
+            }
+            let task = if tag_ids.is_empty() {
+                task
+            } else {
+                self.set_task_tags(task.id, tag_ids)?
+            };
+            created_ids.push(task.id);
+            created.push(task);
+        }
+        Ok((project, created))
     }
 
     fn set_task_tags(&mut self, task_id: i64, tag_ids: Vec<i64>) -> Result<Task, DbError> {

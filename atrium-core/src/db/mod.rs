@@ -110,7 +110,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 16);
+        assert_eq!(v, 17);
     }
 
     #[test]
@@ -122,7 +122,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 16);
+        assert_eq!(v, 17);
     }
 
     #[test]
@@ -156,7 +156,10 @@ mod tests {
                 "task_clock_entry",
                 // v0.29.0 — Tier 2 task dependencies (`blocked_by`).
                 "task_dependency",
-                "task_tag"
+                "task_tag",
+                // v0.33.0 — Phase 19.5 task templates.
+                "task_template",
+                "task_template_item"
             ]
         );
     }
@@ -370,7 +373,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 16);
+        assert_eq!(v, 17);
         drop(conn);
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_file(tmp.with_extension("db-shm"));

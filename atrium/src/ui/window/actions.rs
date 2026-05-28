@@ -311,6 +311,57 @@ impl AtriumWindow {
         });
     }
 
+    /// v0.33.0 — pick a saved task template and stamp it out as a fresh
+    /// project. Authoring templates is CLI-side (`atrium-cli
+    /// task-template create`); this is the GUI instantiate affordance.
+    pub fn prompt_create_from_template(&self) {
+        let Some(pool) = self.read_pool() else { return };
+        let templates = pool
+            .with(atrium_core::db::read::list_task_templates)
+            .unwrap_or_default();
+        if templates.is_empty() {
+            self.show_toast(
+                "No task templates yet. Create one with `atrium-cli task-template create`.",
+            );
+            return;
+        }
+        let names: Vec<&str> = templates.iter().map(|t| t.name.as_str()).collect();
+        let model = gtk::StringList::new(&names);
+        let dropdown = gtk::DropDown::builder().model(&model).build();
+        let dialog = adw::AlertDialog::new(
+            Some("Create from Template"),
+            Some("Stamp the chosen template out as a new project."),
+        );
+        dialog.set_extra_child(Some(&dropdown));
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("ok", "Create");
+        dialog.set_default_response(Some("ok"));
+        dialog.set_close_response("cancel");
+        dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+
+        let ids: Vec<i64> = templates.iter().map(|t| t.id).collect();
+        let win = self.clone();
+        glib::MainContext::default().spawn_local(async move {
+            if dialog.choose_future(&win).await.as_str() != "ok" {
+                return;
+            }
+            let Some(&template_id) = ids.get(dropdown.selected() as usize) else {
+                return;
+            };
+            let Some(worker) = win.worker() else { return };
+            match worker.instantiate_template(template_id).await {
+                Ok(project) => {
+                    win.set_active_list(ActiveList::Project(project.id));
+                    win.select_sidebar_row_for(ActiveList::Project(project.id));
+                }
+                Err(e) => {
+                    error!(?e, "instantiate_template failed");
+                    win.show_toast("Could not create project from template.");
+                }
+            }
+        });
+    }
+
     pub(super) fn prompt_rename_active(&self) {
         // Phase 7f — F2 prefers in-list inline editing when the task
         // list has focus. Falls through to the sidebar rename for

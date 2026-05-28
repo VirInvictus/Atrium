@@ -41,6 +41,9 @@ WRITE SUBCOMMANDS:
     backup [--dir PATH]
                       write a timestamped database snapshot (VACUUM INTO),
                       keeping the newest 10; defaults to the data dir
+    task-template list | create --name N [--project-title T] [--note X]
+                  [--tag T]... [--item TITLE]... | instantiate NAME | delete NAME
+                      manage reusable project templates
     add TITLE [FLAGS]
                       create a new task. Flags:
                         --note TEXT
@@ -175,6 +178,9 @@ pub enum Subcommand {
     Backup {
         dir: Option<String>,
     },
+    /// `task-template SUBCOMMAND` — manage reusable project templates
+    /// (v0.33.0). Distinct from the Quick Entry `template` subcommand.
+    TaskTemplate(TaskTemplateSub),
     Add(AddArgs),
     /// `capture LINE` — Quick-Entry-style one-shot capture.
     /// LINE is a single string parsed for `#tag` / `@date` /
@@ -395,6 +401,27 @@ pub enum TemplateSub {
     Add(TemplateArgs),
     Edit { name: String, args: TemplateArgs },
     Remove { name: String },
+}
+
+/// v0.33.0 — task-template sub-subcommand. `create` builds a reusable
+/// project template (top-level items only from the CLI; nesting is a
+/// GUI affordance); `instantiate` / `delete` operate by name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskTemplateSub {
+    List,
+    Create {
+        name: String,
+        project_title: String,
+        note: String,
+        tags: Vec<String>,
+        items: Vec<String>,
+    },
+    Instantiate {
+        name: String,
+    },
+    Delete {
+        name: String,
+    },
 }
 
 /// Flags shared by `template add` and `template edit`. On
@@ -693,6 +720,7 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
             apply_trailing_flags(&rest, &mut args)?;
             Subcommand::Backup { dir }
         }
+        "task-template" => parse_task_template(&raw[i..], &mut args)?,
         "add" => parse_add(&raw[i..], &mut args)?,
         "capture" => {
             // `capture` joins the rest of argv into one line so the
@@ -1600,6 +1628,88 @@ fn parse_clock(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
 
 /// v0.18.0 — `template SUBCOMMAND ...`. Dispatches list / add
 /// / edit / remove; flag soup is parsed via `parse_template_flags`.
+fn parse_task_template(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
+    let sub = rest
+        .first()
+        .ok_or("task-template requires a sub-subcommand (list / create / instantiate / delete)")?;
+    match sub.as_str() {
+        "list" => {
+            apply_trailing_flags(&rest[1..], args)?;
+            Ok(Subcommand::TaskTemplate(TaskTemplateSub::List))
+        }
+        "create" => {
+            // Flags: --name N, --project-title T, --note X,
+            // --tag T (repeatable), --item "Title" (repeatable).
+            let mut name = String::new();
+            let mut project_title = String::new();
+            let mut note = String::new();
+            let mut tags: Vec<String> = Vec::new();
+            let mut items: Vec<String> = Vec::new();
+            let mut passthrough: Vec<String> = Vec::new();
+            let body = &rest[1..];
+            let mut k = 0;
+            while k < body.len() {
+                match body[k].as_str() {
+                    "--name" => {
+                        name = body.get(k + 1).ok_or("--name requires a value")?.clone();
+                        k += 2;
+                    }
+                    "--project-title" => {
+                        project_title = body
+                            .get(k + 1)
+                            .ok_or("--project-title requires a value")?
+                            .clone();
+                        k += 2;
+                    }
+                    "--note" => {
+                        note = body.get(k + 1).ok_or("--note requires a value")?.clone();
+                        k += 2;
+                    }
+                    "--tag" => {
+                        tags.push(body.get(k + 1).ok_or("--tag requires a value")?.clone());
+                        k += 2;
+                    }
+                    "--item" => {
+                        items.push(body.get(k + 1).ok_or("--item requires a value")?.clone());
+                        k += 2;
+                    }
+                    _ => {
+                        passthrough.push(body[k].clone());
+                        k += 1;
+                    }
+                }
+            }
+            apply_trailing_flags(&passthrough, args)?;
+            if name.trim().is_empty() {
+                return Err("task-template create requires --name".into());
+            }
+            Ok(Subcommand::TaskTemplate(TaskTemplateSub::Create {
+                name,
+                project_title,
+                note,
+                tags,
+                items,
+            }))
+        }
+        "instantiate" | "delete" => {
+            let (name, trailing) = collect_expression_and_flags(&rest[1..]);
+            apply_trailing_flags(&trailing, args)?;
+            let name = name.trim().to_string();
+            if name.is_empty() {
+                return Err(format!("task-template {sub} requires a template name"));
+            }
+            if sub == "delete" {
+                Ok(Subcommand::TaskTemplate(TaskTemplateSub::Delete { name }))
+            } else {
+                Ok(Subcommand::TaskTemplate(TaskTemplateSub::Instantiate {
+                    name,
+                }))
+            }
+        }
+        other => Err(format!("unknown task-template sub-subcommand: {other}")),
+    }
+}
+
 fn parse_template(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
     let sub = rest
         .first()

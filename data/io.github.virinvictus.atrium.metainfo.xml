@@ -90,6 +90,18 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.33.0" date="2026-05-28">
+      <description>
+        <p>Task templates. Save a reusable project shape — a named set
+           of tasks, optionally nested, with their own tags and time
+           estimates — and stamp it out as a fresh project whenever you
+           need it.</p>
+        <p>Pick "New from Template…" in the menu to instantiate one.
+           Templates are authored from the command line with
+           "atrium-cli task-template", which also lists, instantiates,
+           and deletes them.</p>
+      </description>
+    </release>
     <release version="0.32.0" date="2026-05-28">
       <description>
         <p>Backups, built in. A new Backups page in Preferences lets you

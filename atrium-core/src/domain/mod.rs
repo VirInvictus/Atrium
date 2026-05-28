@@ -976,3 +976,61 @@ impl QuickEntryTemplateUpdate {
             && self.position.is_none()
     }
 }
+
+// ── Task templates (v0.33.0) ─────────────────────────────────────
+
+/// A reusable project shape: a named set of tasks (optionally nested)
+/// with per-item tags + estimates, instantiated into a fresh project.
+/// Distinct from [`QuickEntryTemplate`] (single-line capture).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TaskTemplate {
+    pub id: i64,
+    pub uuid: String,
+    pub name: String,
+    /// Title for the project an instantiate creates. Empty falls back
+    /// to `name`.
+    pub project_title_seed: String,
+    /// Seeds the new project's note.
+    pub note: String,
+    /// Tag names applied to every task the template instantiates
+    /// (merged with each item's own tags). JSON-encoded at the DB
+    /// layer, mirroring `QuickEntryTemplate.default_tags`.
+    pub tags: Vec<String>,
+    pub created_at: DateTime<Utc>,
+    pub modified_at: DateTime<Utc>,
+}
+
+/// One task a template stamps out.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TaskTemplateItem {
+    pub id: i64,
+    pub template_id: i64,
+    pub title: String,
+    /// Index (into the template's item list, ordered by `position`)
+    /// of this item's parent, or `None` for a top-level task. The
+    /// worker resolves it to a real `parent_id` at instantiate time.
+    pub parent_index: Option<i64>,
+    pub position: f64,
+    pub estimated_minutes: Option<i64>,
+    pub default_tags: Vec<String>,
+}
+
+/// Input for creating a template plus its items in one call.
+#[derive(Debug, Clone, Default)]
+pub struct NewTaskTemplate {
+    pub name: String,
+    pub project_title_seed: String,
+    pub note: String,
+    pub tags: Vec<String>,
+    pub items: Vec<NewTaskTemplateItem>,
+}
+
+/// Input for one template item. `parent_index` references an earlier
+/// item's position in the same `items` vec (top-level when `None`).
+#[derive(Debug, Clone, Default)]
+pub struct NewTaskTemplateItem {
+    pub title: String,
+    pub parent_index: Option<i64>,
+    pub estimated_minutes: Option<i64>,
+    pub default_tags: Vec<String>,
+}

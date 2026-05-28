@@ -66,6 +66,11 @@ use crate::error::DbError;
 /// `blocked_by_id`. FK CASCADE both ends; the worker enforces
 /// no-self-dependency and no-cycles. Powers `is:blocked` /
 /// `is:available` and the GUI "Blocked" pill.
+/// Version 17 (v0.33.0, Phase 19.5) adds `task_template` +
+/// `task_template_item` for reusable multi-task project templates
+/// (distinct from the single-line `quick_entry_template`); the
+/// item table's index-based `parent_index` carries a nested task
+/// tree with no task ids, resolved at instantiate time.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
@@ -83,6 +88,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (14, include_str!("0014_task_extra_properties.sql")),
     (15, include_str!("0015_area_default_review_interval.sql")),
     (16, include_str!("0016_task_dependency.sql")),
+    (17, include_str!("0017_task_template.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

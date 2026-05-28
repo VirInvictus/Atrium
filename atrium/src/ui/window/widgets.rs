@@ -15,6 +15,7 @@ pub(crate) fn build_primary_menu(include_debug: bool) -> gio::Menu {
     new_section.append(Some("New Task"), Some("app.new-task"));
     new_section.append(Some("Quick Entry"), Some("app.quick-entry"));
     new_section.append(Some("New Project"), Some("app.new-project"));
+    new_section.append(Some("New from Template…"), Some("app.new-from-template"));
     new_section.append(Some("New Area"), Some("app.new-area"));
     new_section.append(Some("New Tag"), Some("app.new-tag"));
     menu.append_section(None, &new_section);

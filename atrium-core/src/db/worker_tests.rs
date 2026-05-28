@@ -1761,3 +1761,76 @@ async fn update_task_clears_extras_with_empty_map() {
         .unwrap();
     assert!(updated.extra_properties.is_empty());
 }
+
+// ── Task templates (v0.33.0) ────────────────────────────────────
+
+#[tokio::test]
+async fn create_and_instantiate_task_template() {
+    use crate::domain::{NewTaskTemplate, NewTaskTemplateItem};
+    let (handle, mut changes_rx, mut library_rx) = spawn(fresh_conn());
+
+    let tmpl = handle
+        .create_task_template(NewTaskTemplate {
+            name: "Trip".into(),
+            project_title_seed: "Weekend Trip".into(),
+            note: "Pre-trip checklist".into(),
+            tags: vec!["travel".into()],
+            items: vec![
+                NewTaskTemplateItem {
+                    title: "Pack".into(),
+                    parent_index: None,
+                    estimated_minutes: Some(30),
+                    default_tags: vec![],
+                },
+                NewTaskTemplateItem {
+                    title: "Socks".into(),
+                    parent_index: Some(0),
+                    estimated_minutes: None,
+                    default_tags: vec!["clothing".into()],
+                },
+            ],
+        })
+        .await
+        .unwrap();
+    assert_eq!(tmpl.name, "Trip");
+    assert_eq!(tmpl.tags, vec!["travel".to_string()]);
+
+    let project = handle.instantiate_template(tmpl.id).await.unwrap();
+    assert_eq!(project.title, "Weekend Trip");
+
+    // Project-created library delta.
+    let lib = library_rx.recv().await.unwrap();
+    assert_eq!(lib.projects_created.len(), 1);
+    assert_eq!(lib.projects_created[0].id, project.id);
+
+    // Two tasks, the second nested under the first.
+    let changes = changes_rx.recv().await.unwrap();
+    assert_eq!(changes.created.len(), 2);
+    let pack = changes.created.iter().find(|t| t.title == "Pack").unwrap();
+    let socks = changes.created.iter().find(|t| t.title == "Socks").unwrap();
+    assert_eq!(pack.parent_id, None);
+    assert_eq!(pack.estimated_minutes, Some(30));
+    assert_eq!(socks.parent_id, Some(pack.id));
+    assert_eq!(pack.project_id, Some(project.id));
+}
+
+#[tokio::test]
+async fn delete_task_template_then_instantiate_is_not_found() {
+    use crate::domain::{NewTaskTemplate, NewTaskTemplateItem};
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let tmpl = handle
+        .create_task_template(NewTaskTemplate {
+            name: "Throwaway".into(),
+            items: vec![NewTaskTemplateItem {
+                title: "x".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    handle.delete_task_template(tmpl.id).await.unwrap();
+    // The template (and its CASCADE-deleted items) are gone.
+    let err = handle.instantiate_template(tmpl.id).await.unwrap_err();
+    assert!(matches!(err, DbError::NotFound));
+}

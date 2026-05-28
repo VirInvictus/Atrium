@@ -8,7 +8,7 @@
 
 use crate::args::{
     AddArgs, EditArgs, EditIcon, EditProject, Format, PerspectiveArgs, PerspectiveSub, Subcommand,
-    TargetSpec, parse,
+    TargetSpec, TaskTemplateSub, parse,
 };
 use crate::output::{Row, format_row, format_rows, format_rows_human, row_to_json, rows_to_json};
 
@@ -200,6 +200,59 @@ fn parse_backup_with_dir() {
         Some(Subcommand::Backup {
             dir: Some("/tmp/b".into())
         })
+    );
+}
+
+#[test]
+fn parse_task_template_create() {
+    let a = parse(&s(&[
+        "task-template",
+        "create",
+        "--name",
+        "Trip",
+        "--project-title",
+        "Weekend Trip",
+        "--tag",
+        "travel",
+        "--item",
+        "Pack",
+        "--item",
+        "Book hotel",
+    ]))
+    .unwrap();
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::TaskTemplate(TaskTemplateSub::Create {
+            name: "Trip".into(),
+            project_title: "Weekend Trip".into(),
+            note: String::new(),
+            tags: vec!["travel".into()],
+            items: vec!["Pack".into(), "Book hotel".into()],
+        }))
+    );
+}
+
+#[test]
+fn parse_task_template_create_requires_name() {
+    let err = parse(&s(&["task-template", "create", "--item", "x"])).unwrap_err();
+    assert!(err.contains("--name"));
+}
+
+#[test]
+fn parse_task_template_instantiate_and_delete() {
+    let a = parse(&s(&["task-template", "instantiate", "Trip"])).unwrap();
+    assert_eq!(
+        a.subcommand,
+        Some(Subcommand::TaskTemplate(TaskTemplateSub::Instantiate {
+            name: "Trip".into()
+        }))
+    );
+    let b = parse(&s(&["task-template", "delete", "Trip"])).unwrap();
+    assert_eq!(
+        b.subcommand,
+        Some(Subcommand::TaskTemplate(TaskTemplateSub::Delete {
+            name: "Trip".into()
+        }))
     );
 }
 

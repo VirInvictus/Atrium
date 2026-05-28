@@ -879,6 +879,19 @@ fn install_new_project_action(app: &adw::Application) {
         }
     ));
     app.add_action(&action);
+
+    // v0.33.0 — instantiate a saved task template into a fresh project.
+    let action = gio::SimpleAction::new("new-from-template", None);
+    action.connect_activate(clone!(
+        #[weak]
+        app,
+        move |_, _| {
+            if let Some(win) = app.active_window().and_downcast::<AtriumWindow>() {
+                win.prompt_create_from_template();
+            }
+        }
+    ));
+    app.add_action(&action);
 }
 
 fn install_show_list_action(app: &adw::Application) {

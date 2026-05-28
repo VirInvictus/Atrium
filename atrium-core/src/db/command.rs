@@ -59,6 +59,20 @@ pub enum Command {
         responder: oneshot::Sender<Result<(), DbError>>,
     },
 
+    // ── Task templates (v0.33.0) ────────────────────────────────
+    CreateTaskTemplate {
+        template: crate::domain::NewTaskTemplate,
+        responder: oneshot::Sender<Result<crate::domain::TaskTemplate, DbError>>,
+    },
+    DeleteTaskTemplate {
+        id: i64,
+        responder: oneshot::Sender<Result<(), DbError>>,
+    },
+    InstantiateTemplate {
+        id: i64,
+        responder: oneshot::Sender<Result<crate::domain::Project, DbError>>,
+    },
+
     // ── Areas (Phase 5b) ────────────────────────────────────────
     CreateArea {
         area: NewArea,
@@ -244,6 +258,9 @@ impl Command {
             Self::DeleteTask { .. } => "DeleteTask",
             Self::AddDependency { .. } => "AddDependency",
             Self::RemoveDependency { .. } => "RemoveDependency",
+            Self::CreateTaskTemplate { .. } => "CreateTaskTemplate",
+            Self::DeleteTaskTemplate { .. } => "DeleteTaskTemplate",
+            Self::InstantiateTemplate { .. } => "InstantiateTemplate",
             Self::CreateArea { .. } => "CreateArea",
             Self::UpdateArea { .. } => "UpdateArea",
             Self::DeleteArea { .. } => "DeleteArea",

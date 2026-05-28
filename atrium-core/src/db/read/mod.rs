@@ -24,7 +24,10 @@ pub use counts::{
     count_tasks,
 };
 pub use search::{SqlBindValue, bm25_for_terms, list_tasks_matching, search_tasks};
-pub use templates::{list_quick_entry_templates, quick_entry_template_by_id};
+pub use templates::{
+    list_quick_entry_templates, list_task_templates, quick_entry_template_by_id,
+    task_template_by_id, task_template_by_name, task_template_items,
+};
 
 use std::collections::{HashMap, HashSet};
 

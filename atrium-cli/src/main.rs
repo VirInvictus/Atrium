@@ -130,6 +130,14 @@ fn run(args: args::Args) -> ExitCode {
         Subcommand::Backup { dir } => {
             run_backup(&db_path, dir.as_deref(), args.format).unwrap_or_exit_code()
         }
+        Subcommand::TaskTemplate(sub) => match sub {
+            args::TaskTemplateSub::List => {
+                with_readonly(&db_path, |conn| run_task_template_list(conn, args.format))
+            }
+            sub => with_writer(&db_path, |rt, handle, conn| {
+                run_task_template_write(rt, handle, conn, sub, args.format)
+            }),
+        },
         Subcommand::Add(add) => with_writer(&db_path, |rt, handle, conn| {
             run_add(rt, handle, conn, add, args.format)
         }),
@@ -2351,6 +2359,98 @@ fn run_backup(db_path: &std::path::Path, dir: Option<&str>, format: Format) -> C
         }
     }
     Ok(())
+}
+
+/// `task-template list` — names + item counts of the saved templates.
+fn run_task_template_list(conn: &Connection, format: Format) -> CliResult<()> {
+    let templates = read::list_task_templates(conn).map_err(CliError::from)?;
+    for t in &templates {
+        let items = read::task_template_items(conn, t.id)
+            .map(|v| v.len())
+            .unwrap_or(0);
+        match format {
+            Format::Json => println!(
+                "{{\"name\":{:?},\"project_title_seed\":{:?},\"items\":{items}}}",
+                t.name, t.project_title_seed
+            ),
+            Format::Tsv => println!("{}\t{}\t{items}", t.name, t.project_title_seed),
+            Format::Human => println!("{} ({items} item(s))", t.name),
+        }
+    }
+    Ok(())
+}
+
+/// `task-template create | instantiate | delete`.
+fn run_task_template_write(
+    runtime: &tokio::runtime::Runtime,
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
+    sub: args::TaskTemplateSub,
+    format: Format,
+) -> CliResult<()> {
+    use args::TaskTemplateSub;
+    match sub {
+        TaskTemplateSub::List => unreachable!("list is handled on the read-only path"),
+        TaskTemplateSub::Create {
+            name,
+            project_title,
+            note,
+            tags,
+            items,
+        } => {
+            let template = atrium_core::NewTaskTemplate {
+                name,
+                project_title_seed: project_title,
+                note,
+                tags,
+                items: items
+                    .into_iter()
+                    .map(|title| atrium_core::NewTaskTemplateItem {
+                        title,
+                        ..Default::default()
+                    })
+                    .collect(),
+            };
+            let created = runtime
+                .block_on(async { handle.create_task_template(template).await })
+                .map_err(CliError::from)?;
+            match format {
+                Format::Json => println!("{{\"created\":{:?}}}", created.name),
+                Format::Tsv => println!("{}", created.name),
+                Format::Human => println!("Created template \"{}\".", created.name),
+            }
+            Ok(())
+        }
+        TaskTemplateSub::Instantiate { name } => {
+            let tmpl = read::task_template_by_name(read_conn, &name)
+                .map_err(CliError::from)?
+                .ok_or_else(|| CliError::Args(format!("no template named \"{name}\"")))?;
+            let project = runtime
+                .block_on(async { handle.instantiate_template(tmpl.id).await })
+                .map_err(CliError::from)?;
+            match format {
+                Format::Json => {
+                    println!("{{\"project\":{:?},\"id\":{}}}", project.title, project.id)
+                }
+                Format::Tsv => println!("{}\t{}", project.id, project.title),
+                Format::Human => println!("Created project \"{}\" from template.", project.title),
+            }
+            Ok(())
+        }
+        TaskTemplateSub::Delete { name } => {
+            let tmpl = read::task_template_by_name(read_conn, &name)
+                .map_err(CliError::from)?
+                .ok_or_else(|| CliError::Args(format!("no template named \"{name}\"")))?;
+            runtime
+                .block_on(async { handle.delete_task_template(tmpl.id).await })
+                .map_err(CliError::from)?;
+            match format {
+                Format::Json => println!("{{\"deleted\":{name:?}}}"),
+                Format::Tsv | Format::Human => println!("Deleted template \"{name}\"."),
+            }
+            Ok(())
+        }
+    }
 }
 
 fn print_tasks(tasks: &[Task], ctx: &ContextData, format: Format) {

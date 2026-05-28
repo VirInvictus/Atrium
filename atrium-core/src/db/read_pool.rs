@@ -110,7 +110,7 @@ mod tests {
 
         pool.with(|conn| {
             let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-            assert_eq!(v, 16);
+            assert_eq!(v, 17);
             Ok(())
         })
         .unwrap();

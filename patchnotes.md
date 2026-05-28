@@ -1,5 +1,25 @@
 # Atrium — Patch Notes
 
+## v0.33.0 (2026-05-28) — task templates (Tier 3)
+
+Reusable project templates: a named, optionally-nested set of tasks with per-item tags + estimates, stamped out as a fresh project on demand. Distinct from the single-line Quick Entry templates (v0.18.0). Workspace 1006 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean.
+
+### Schema
+
+Migration `0017_task_template.sql` (`user_version` 16 → 17) adds two tables. `task_template` (name UNIQUE, `project_title_seed`, `note`, `tags_json`) and `task_template_item` (title, index-based `parent_index`, `position`, `estimated_minutes`, `default_tags_json`, FK CASCADE to the template). The `parent_index` references an item's slot in the template's position-ordered list, so a template carries a nested task tree with no task ids; the worker resolves it at instantiate time. Additive; v0.32.x binaries ignore both tables.
+
+### Worker + read
+
+`create_task_template` inserts the template + its items; `instantiate_template` creates a fresh project (title from `project_title_seed`, falling back to the template name), walks the items in order resolving each `parent_index` to the real `parent_id`, and ensures both template-level and per-item tags. `delete_task_template` CASCADE-drops the items. New read helpers `list_task_templates`, `task_template_by_id`, `task_template_by_name`, `task_template_items`.
+
+### CLI + GUI
+
+`atrium-cli task-template list | create --name N [--project-title T] [--note X] [--tag T]... [--item TITLE]... | instantiate NAME | delete NAME` (CLI items are top-level; nesting is authored via the worker API). The GUI gains a "New from Template…" menu entry that opens a picker and instantiates through the worker, then navigates to the new project.
+
+### Tests
+
++5: two worker (`create_and_instantiate_task_template` checks the project + nested tasks + tags + estimate; `delete_task_template_then_instantiate_is_not_found` checks delete + CASCADE) and three CLI argv (`create`, `create` requires `--name`, `instantiate`/`delete`).
+
 ## v0.32.0 (2026-05-28) — backup / restore (Tier 3)
 
 In-app database backups, the long-standing gap the file-copy escape hatch never closed. Workspace 1001 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema change.

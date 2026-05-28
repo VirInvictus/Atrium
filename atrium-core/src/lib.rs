@@ -32,9 +32,9 @@ pub use db::worker::{
 };
 pub use domain::{
     Area, AreaUpdate, Heading, NewArea, NewClockEntry, NewHeading, NewPerspective, NewProject,
-    NewQuickEntryTemplate, NewTag, NewTask, Perspective, PerspectiveUpdate, Project, ProjectUpdate,
-    QuickEntryTemplate, QuickEntryTemplateUpdate, ScheduledFor, Tag, TagUpdate, Task,
-    TaskClockEntry, TaskUpdate,
+    NewQuickEntryTemplate, NewTag, NewTask, NewTaskTemplate, NewTaskTemplateItem, Perspective,
+    PerspectiveUpdate, Project, ProjectUpdate, QuickEntryTemplate, QuickEntryTemplateUpdate,
+    ScheduledFor, Tag, TagUpdate, Task, TaskClockEntry, TaskTemplate, TaskTemplateItem, TaskUpdate,
 };
 pub use error::{CoreError, DbError, DomainError};
 pub use links::{BodyLink, parse_body_links};
