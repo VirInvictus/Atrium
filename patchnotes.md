@@ -1,5 +1,93 @@
 # Atrium — Patch Notes
 
+## v0.25.0 (2026-05-28) — VTODO import + export (Phase 19 slice 1)
+
+The CalDAV-side `.ics` bridge to Endeavour, Errands, Nextcloud Tasks, and Planify. Phase 19's first slice; Taskwarrior, todo.txt, and the unified import dialog defer to later minor cuts so each surface ships with focused tests and a focused patchnote. Workspace 910 tests + green; `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all --check` clean; `bash scripts/regression.sh` passes; `appstreamcli validate` clean.
+
+### Dependency call: hand-roll
+
+The dependency-discipline question for Phase 19 was whether to take on the `ical` crate or hand-roll the VTODO subset. The hand-roll won on grounds of consistency: Atrium's Org parser was hand-rolled, the Todoist importer was hand-rolled, the vault sidecar TOML was hand-rolled. The savings from `ical` are limited to tokenisation + line-folding + escape decoding, all bounded code (~150 lines); the Atrium-specific mapping layer (typed columns, RRULE round-trip, lossy report) is the bulk of the work regardless. No new dependencies; stdlib only plus `chrono`, `uuid` (v5 feature already pulled in by the Todoist importer), `thiserror`.
+
+### New CLI surface
+
+- `atrium-cli import vtodo PATH --into PROJECT [--dry-run]` — read a `.ics` file, create a new project, import every VTODO. Dry-run prints counts + the lossy report without touching the DB.
+- `atrium-cli export vtodo PATH [--dry-run]` — write the entire DB to a single `.ics` file. If `PATH` is a directory, the file lands at `PATH/atrium.ics`. Dry-run prints counts without writing.
+- Both surfaces respect `--json` / `--tsv` / `--human` for the summary printer.
+
+### Field mapping (spec §7.5)
+
+| VTODO | Atrium |
+|---|---|
+| `SUMMARY` | `task.title` |
+| `DESCRIPTION` | `task.note` |
+| `DUE` | `task.deadline` (date portion only; time-of-day truncates) |
+| `DTSTART` | `task.scheduled_for` + `task.scheduled_time` (the v0.19.0 column carries the time portion) |
+| `COMPLETED` | `task.completed_at` |
+| `STATUS:COMPLETED` | sets `completed_at = now()` only when COMPLETED property absent |
+| `STATUS:IN-PROCESS` / `CANCELLED` | stashed in `task.orig_keyword` for round-trip parity |
+| `PRIORITY` 1–4 | `priority-N` tag (matches Todoist shape; 5–9 emits no tag) |
+| `CATEGORIES` | `task.tag` rows via `ensure_tag` (idempotent dedupe) |
+| `RRULE` | `task.repeat_rule` (verbatim — RFC 5545 is RFC 5545, no translation) |
+| `UID` | `task.uuid` when UUID-shaped; otherwise v5-derived + stashed in `extra_properties["VTODO_UID"]` |
+| `LOCATION` | `task.extra_properties["VTODO_LOCATION"]` (lossless via v0.24.0) |
+| `X-*` | `task.extra_properties[X-*]` (lossless via v0.24.0) |
+
+### UID round-trip anchor
+
+Atrium's `task.uuid` is UUID v4 by contract, but a VTODO UID is free-form (`task@nextcloud.example.com`, `12345`, anything). The v0.24.0 `extra_properties` column unlocks the clean round-trip: a UUID-shaped UID threads directly into `task.uuid`; anything else lands as `UUIDv5(VTODO_NAMESPACE, original_uid)` for `task.uuid` and the original gets stashed in `extra_properties["VTODO_UID"]`. On export, the stashed value wins, so receiving CalDAV apps see their UID unchanged. The frozen v5 namespace ensures re-imports of the same source land on the same row — same trick the Todoist mapper uses for its `(project_name, title)` v5 derivation.
+
+### Scope guardrails
+
+- **No CalDAV client.** No HTTP, no auth, no sync. Spec §7.2 carries this.
+- **No VTIMEZONE generation.** Export is UTC-only; receiving CalDAV apps universally accept UTC. Non-UTC timestamps on import drop the timezone and surface `LossyKind::DroppedTimezone`.
+- **No VEVENT / VJOURNAL / VFREEBUSY handling.** One lossy entry per top-level non-VTODO component, then skipped.
+- **No VALARM round-trip.** Atrium's reminders are separate (`task.reminder_at`); cross-mapping VALARM ↔ reminder is deferred. Each VALARM block inside a VTODO surfaces a `LossyKind::DroppedAlarm` entry.
+- **No multi-file vault.** `.ics` convention is one calendar per file; multi-file is the JSON snapshot's job.
+
+### Parser surface (hand-rolled)
+
+The `atrium-cli/src/vtodo/parser.rs` implements the subset Atrium needs:
+
+- Line unfolding per RFC 5545 §3.1 (CRLF + SPACE/TAB continuation).
+- TEXT-typed escape decoding per §3.3.11 (`\n`, `\N`, `\,`, `\;`, `\\`).
+- Property tokenisation: `KEY[;PARAM=VALUE...]:VALUE` with quoted-value support.
+- DATE / DATE-TIME parsing (`YYYYMMDD`, `YYYYMMDDTHHMMSSZ`, floating local).
+- Component nesting via `BEGIN:X` / `END:X` stack walk.
+- Tolerant skip of VEVENT / VJOURNAL / VTIMEZONE / X-* blocks.
+- Per-VTODO lossy tally tracking alarm count, attendee count, GEO flag, PERCENT-COMPLETE, DURATION, TZID flag, unknown property names.
+
+### Emitter surface (hand-rolled)
+
+`atrium-cli/src/vtodo/emit.rs` writes RFC 5545-compliant `.ics`:
+
+- VCALENDAR header with versioned `PRODID:-//Atrium//atrium-cli vX.Y.Z//EN`.
+- One VTODO per task, modeled lines first then `extra_properties` in source order.
+- UTC for all timestamps (`YYYYMMDDTHHMMSSZ`); date-only DTSTART / DUE carry `;VALUE=DATE:`.
+- TEXT escape encoding (newlines → `\n`, commas → `\,`, semicolons → `\;`, backslashes → `\\`).
+- Line folding at 75 octets with CRLF + space continuation. UTF-8 char-boundary safe.
+- Atomic write via `atrium_core::sync::atomic::write_atomic`.
+
+### Lossy report
+
+`LossyKind` mirrors the Todoist mapper's shape. Each VTODO contributes one entry per dropped construct kind (groups duplicates by name in `UnknownProperty`). Top-level components surface as `UnsupportedComponent` without a task title. The summary printer emits TSV / JSON / human formats; scripted consumers can grep for `:DroppedAlarm:` / `:DroppedTimezone:` etc.
+
+### Test coverage
+
+Five fixtures + four integration tests + ~30 unit tests:
+
+- **`tests/fixtures/vtodo/basic.ics`** — single VTODO with every modeled field (SUMMARY, DESCRIPTION with escapes, DUE, DTSTART date-only, STATUS, PRIORITY, CATEGORIES, RRULE, LOCATION, UUID-shaped UID).
+- **`tests/fixtures/vtodo/multi.ics`** — three VTODOs covering open-with-schedule, COMPLETED-with-cookie, CANCELLED-status round-trip.
+- **`tests/fixtures/vtodo/lossy.ics`** — full drop-coverage: VEVENT + VJOURNAL siblings, plus a VTODO with TZID timestamps, ATTENDEE × 2, GEO, PERCENT-COMPLETE, DURATION, RESOURCES, URL, two VALARM blocks, and an X-* property that should survive.
+- **`tests/fixtures/vtodo/nextcloud_sample.ics`** — hand-crafted Nextcloud Tasks shape (CALSCALE, CREATED / LAST-MODIFIED, free-form UID).
+- **`src/vtodo/round_trip_tests.rs`** — basic-fixture modeled-subset round-trip, Nextcloud original-UID-via-extras preservation, lossy report shape, multi-task status round-trip.
+- **`src/vtodo/parser.rs#tests`** — line unfolding, escape decoding, basic VTODO parse, X-* stash, TZID flag, VALARM + ATTENDEE counts, non-VTODO skip, VTIMEZONE tolerance, error paths (unmatched END, unclosed component, mismatched END kind), property tokenisation incl. quoted params, COMPLETED date-only promotion.
+- **`src/vtodo/emit.rs#tests`** — basic VTODO round-trip via parse-emit-parse, escape encoding for newlines / commas / semicolons / backslashes, 75-octet line folding, date-only DTSTART, empty VCALENDAR wrapper, extras-after-modeled ordering.
+- **`src/vtodo/mapper.rs#tests`** — UID resolution (UUID-shaped, free-form v5 derive, none), priority-N tag round-trip, date+time vs date-only shape, dry-run summary counts, lossy entry emission for the full drop-coverage set.
+
+### CLI argv
+
+`atrium-cli/src/tests.rs` gains four `parse_args` cases verifying the new `import vtodo PATH --into PROJECT [--dry-run]` and `export vtodo PATH` shapes round-trip correctly. The `--into` requirement on import raises a clean error when omitted; the parser surfaces both `org | todoist | vtodo` in its error text.
+
 ## v0.24.0 (2026-05-28) — Custom property-drawer passthrough (Post-v0.22.0 Tier 1)
 
 The Post-v0.22.0 Tier 1 item right after subtasks, and the last documented Org round-trip data loss. Before today, the importer cherry-picked four well-known `:PROPERTIES:` drawer keys (`ID`, `EFFORT`, `DEFER_UNTIL`, `RRULE`) and silently dropped every other `:KEY: value` line. Custom `:CATEGORY:`, `:CLIENT:`, `:URL:`, anything a user might park in a drawer: gone on the first round-trip. Spec §7.3.3 rule 1 ("preserve unknown constructs verbatim") held for body content (Org tables, source blocks, lists, links survived in `task.note`) but not for property drawers. v0.24.0 closes that gap.

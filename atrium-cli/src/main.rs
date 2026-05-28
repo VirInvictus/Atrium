@@ -46,6 +46,7 @@ mod clock;
 mod import;
 mod output;
 mod template;
+mod vtodo;
 
 #[cfg(test)]
 mod tests;
@@ -509,6 +510,24 @@ fn run_import(
             print_todoist_summary(&summary, dry_run, format);
             Ok(())
         }
+        ImportSource::Vtodo { project_name } => {
+            let path_buf = std::path::PathBuf::from(path);
+            let text = std::fs::read_to_string(&path_buf).map_err(|e| {
+                CliError::Args(format!(
+                    "import vtodo: cannot read {}: {e}",
+                    path_buf.display()
+                ))
+            })?;
+            let parsed = vtodo::parse_ics(&text)
+                .map_err(|e| CliError::Args(format!("vtodo parse error: {e}")))?;
+            let summary = runtime
+                .block_on(async {
+                    vtodo::import_vtodo(handle, &parsed, &project_name, dry_run).await
+                })
+                .map_err(|e| CliError::Args(format!("import vtodo failed: {e}")))?;
+            print_vtodo_import_summary(&summary, dry_run, format);
+            Ok(())
+        }
     }
 }
 
@@ -586,6 +605,107 @@ fn print_todoist_summary(
                     note.kind,
                     note.task_title.as_deref().unwrap_or("?"),
                     note.raw,
+                );
+            }
+        }
+    }
+}
+
+/// v0.25.0 — VTODO import summary printer. Mirrors the Todoist
+/// shape: JSON-keyed dump for scripted consumers, human banner
+/// otherwise. Unsupported top-level components (VEVENT etc.)
+/// surface in the human path as a one-liner; the JSON path
+/// folds them into `lossy[]` for uniformity.
+fn print_vtodo_import_summary(summary: &vtodo::ImportSummary, dry_run: bool, format: Format) {
+    let prefix = if dry_run { "DRY-RUN " } else { "" };
+    match format {
+        Format::Json => {
+            let mut s = String::new();
+            s.push_str("{\n");
+            s.push_str(&format!("  \"dry_run\": {dry_run},\n"));
+            s.push_str(&format!(
+                "  \"project_title\": {},\n",
+                json_string(&summary.project_title)
+            ));
+            s.push_str(&format!(
+                "  \"project_id\": {},\n",
+                summary
+                    .project_id
+                    .map_or_else(|| "null".to_string(), |n| n.to_string())
+            ));
+            s.push_str(&format!(
+                "  \"tasks_created\": {},\n",
+                summary.tasks_created
+            ));
+            s.push_str(&format!("  \"tags_created\": {},\n", summary.tags_created));
+            s.push_str("  \"unsupported_top_level\": [");
+            for (i, name) in summary.unsupported_top_level.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&json_string(name));
+            }
+            s.push_str("],\n  \"lossy\": [");
+            for (i, note) in summary.lossy.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&json_string(&format!(
+                    "{:?}: {} ({})",
+                    note.kind,
+                    note.task_title.as_deref().unwrap_or("-"),
+                    note.raw
+                )));
+            }
+            s.push_str("]\n}\n");
+            print!("{s}");
+        }
+        _ => {
+            println!(
+                "{prefix}Imported project “{}”: {} tasks, {} tags.",
+                summary.project_title, summary.tasks_created, summary.tags_created,
+            );
+            if !summary.unsupported_top_level.is_empty() {
+                println!(
+                    "  skipped non-VTODO components: {}",
+                    summary.unsupported_top_level.join(", "),
+                );
+            }
+            for note in &summary.lossy {
+                println!(
+                    "  lossy ({:?}): {} — {}",
+                    note.kind,
+                    note.task_title.as_deref().unwrap_or("-"),
+                    note.raw,
+                );
+            }
+        }
+    }
+}
+
+/// v0.25.0 — VTODO export summary printer.
+fn print_vtodo_export_summary(summary: &vtodo::ExportSummary, dry_run: bool, format: Format) {
+    let prefix = if dry_run { "DRY-RUN " } else { "" };
+    match format {
+        Format::Json => {
+            let s = format!(
+                "{{\n  \"dry_run\": {dry_run},\n  \"path\": {},\n  \"tasks_exported\": {},\n  \"bytes_written\": {}\n}}\n",
+                json_string(&summary.path),
+                summary.tasks_exported,
+                summary.bytes_written,
+            );
+            print!("{s}");
+        }
+        _ => {
+            if dry_run {
+                println!(
+                    "{prefix}Would export {} tasks to {}.",
+                    summary.tasks_exported, summary.path,
+                );
+            } else {
+                println!(
+                    "Exported {} tasks ({} bytes) to {}.",
+                    summary.tasks_exported, summary.bytes_written, summary.path,
                 );
             }
         }
@@ -889,6 +1009,37 @@ fn run_export(
             let summaries = atrium_org::org::write_all_projects_to_vault(conn, &vault_root)
                 .map_err(|e| CliError::Args(format!("export failed: {e}")))?;
             print_export_summary(&summaries, false, format);
+            Ok(())
+        }
+        ExportSource::Vtodo => {
+            let path_buf = std::path::PathBuf::from(path);
+            // If the user passed a directory, emit `atrium.ics`
+            // inside it. Otherwise treat `path` as the literal
+            // output file.
+            let out_path = if path_buf.is_dir() {
+                path_buf.join("atrium.ics")
+            } else {
+                path_buf
+            };
+            let components = vtodo::export_vtodo(conn).map_err(CliError::Db)?;
+            if dry_run {
+                let summary = vtodo::ExportSummary {
+                    path: out_path.display().to_string(),
+                    tasks_exported: components.len(),
+                    bytes_written: 0,
+                };
+                print_vtodo_export_summary(&summary, true, format);
+                return Ok(());
+            }
+            let text = vtodo::emit_vcalendar(&components, &vtodo::EmitConfig::default());
+            atrium_core::sync::atomic::write_atomic(&out_path, text.as_bytes())
+                .map_err(|e| CliError::Args(format!("export vtodo failed: {e}")))?;
+            let summary = vtodo::ExportSummary {
+                path: out_path.display().to_string(),
+                tasks_exported: components.len(),
+                bytes_written: text.len(),
+            };
+            print_vtodo_export_summary(&summary, false, format);
             Ok(())
         }
     }

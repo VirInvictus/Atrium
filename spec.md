@@ -1,6 +1,6 @@
 # Atrium — Application Specification
 
-**Version:** 0.24.0 (Phases 0–18.5 complete plus Phase 19.5 foundations; schema version 14. Phase 18.5's Org-mode power features shipped across v0.14.0 → v0.19.0: DEADLINE warning windows, statistics cookies, body inline checkboxes, custom TODO sequences, CLOCK time tracking, Quick Entry templates, inter-task `[[id:UUID]]` links, and time-of-day on SCHEDULED. v0.20.0 opened Phase 19.5 with an `AdwPreferencesDialog` and system-notification reminders (`reminder_at`). v0.21.0 was a behaviour-neutral maintenance pass: helper-method extraction, partial `read.rs` / `cli/main.rs` splits, and test-coverage gap fill. The six-crate workspace, single-writer SQLite worker, two-way Org vault, and Calibre-style search grammar described below are all current. Phase 19.5 productivity essentials are underway: v0.20.0 shipped system-notification reminders + the preferences dialog, v0.23.0 added subtasks (Builder Inspector "Subtasks" group, indented list nesting, Shift-drag reparent, CLI `--parent`), and v0.24.0 closes the Org property-drawer round-trip gap (custom `:KEY: value` entries survive verbatim via the new `task.extra_properties` JSON column). See `patchnotes.md` for the full arc.)
+**Version:** 0.25.0 (Phases 0–18.5 complete plus Phase 19.5 foundations and Phase 19 slice 1; schema version 14. Phase 18.5's Org-mode power features shipped across v0.14.0 → v0.19.0: DEADLINE warning windows, statistics cookies, body inline checkboxes, custom TODO sequences, CLOCK time tracking, Quick Entry templates, inter-task `[[id:UUID]]` links, and time-of-day on SCHEDULED. v0.20.0 opened Phase 19.5 with an `AdwPreferencesDialog` and system-notification reminders (`reminder_at`). v0.21.0 was a behaviour-neutral maintenance pass: helper-method extraction, partial `read.rs` / `cli/main.rs` splits, and test-coverage gap fill. The six-crate workspace, single-writer SQLite worker, two-way Org vault, and Calibre-style search grammar described below are all current. Phase 19.5 productivity essentials are underway: v0.20.0 shipped system-notification reminders + the preferences dialog, v0.23.0 added subtasks (Builder Inspector "Subtasks" group, indented list nesting, Shift-drag reparent, CLI `--parent`), and v0.24.0 closed the Org property-drawer round-trip gap (custom `:KEY: value` entries survive verbatim via the new `task.extra_properties` JSON column). v0.25.0 opens Phase 19 with VTODO (RFC 5545) import + export, the CalDAV-side `.ics` bridge to Endeavour, Errands, Nextcloud Tasks, and Planify; the parser + emitter + mapper are hand-rolled stdlib, matching the Org + Todoist precedents. See `patchnotes.md` for the full arc.)
 **Target:** GNOME 50+, GTK4 ≥ 4.16, libadwaita ≥ 1.7
 **Language:** Rust (2024 Edition)
 **Build System:** Cargo / Meson wrapper for Flatpak packaging
@@ -477,7 +477,7 @@ v0.6.19 retired the Things 3 import phase — `.things` JSON requires a macOS ex
 |---|---|---|---|
 | **Org-mode** | `.org` plain text | 16 | First-class. Two-way mirror at Phase 17. TODO/DONE keywords, SCHEDULED/DEADLINE/CLOSED, headline tags, properties drawer. Stock `org-agenda` reads Atrium's vault directly. |
 | **Todoist** | CSV via Todoist's official export tool | 18 (shipped v0.12.0) | Per-project CSV export. `section` → heading; INDENT chain → `parent_id`; inline `@label` → tag; PRIORITY 1-3 → `priority-N` tag; `DATE` natural-language → RRULE + `scheduled_for`. v5 UUIDs from `(project_name, title)` give re-import stability. Lossy fields (time-of-day, timezone, duration, deadline) surface in the per-row import report. |
-| **VTODO** (RFC 5545) | `.ics` | 19 | Covers Endeavour, Errands, Nextcloud Tasks, Planify (CalDAV-side) |
+| **VTODO** (RFC 5545) | `.ics` | 19 (shipped v0.25.0) | Covers Endeavour, Errands, Nextcloud Tasks, Planify (CalDAV-side). Hand-rolled stdlib parser; UID round-trip via the v0.24.0 `extra_properties` column. See §7.5. |
 | **Taskwarrior** | `task export` JSON | 19 | Well-documented; UDA fields → tags or notes per user choice |
 | **todo.txt** | plain text | 19 | `(A)` priority, `+project`, `@context`, `due:` |
 
@@ -487,7 +487,7 @@ v0.6.19 retired the Things 3 import phase — `.things` JSON requires a macOS ex
 |---|---|---|---|
 | **Atrium native backup** | JSON, includes UUIDs and Builder fields | 16 | Universal lossless dump; ships with the Org vault writer |
 | **Org-mode** | `.org`, two-way-ready | 16 / 17 | First-class plain-text covenant. Read-only DB→vault at 16; full two-way at 17. |
-| **VTODO** | `.ics` | 19 | One-way file dump for CalDAV apps |
+| **VTODO** | `.ics` | 19 (shipped v0.25.0) | One-way file dump for CalDAV apps. One VCALENDAR per file, one VTODO per task, UTC for all timestamps, no VTIMEZONE. Atomic write via `atrium_core::sync::atomic::write_atomic`. |
 | **Markdown** | per-list `.md` | nice-to-have, no phase | Human-readable archive |
 
 Atrium does **not** act as a CalDAV client in v1.0. VTODO export is a one-way file dump intended for archival or hand-off to apps like Endeavour, Errands, or Planify.
@@ -582,6 +582,62 @@ Apps Atrium will share users with, sorted by likely import demand:
 | **Logseq / AppFlowy** | Electron block editors | JSON / Markdown | not yet — block-editor semantics differ enough to defer |
 
 The strategic choice: support **VTODO/CalDAV interop** (Phase 19) and **Org-mode** (Phase 16/17 — primary covenant) as two complementary interop directions. VTODO covers the GNOME/CalDAV ecosystem broadly; Org covers the Emacs/plain-text crowd and is Atrium's must-ship two-way mirror. Together they reach almost every Linux task user without per-app importer sprawl. Todoist (Phase 18) is the first-class proprietary-app on-ramp because its install base on Linux is real and its CSV export is friction-free; Things 3 is intentionally absent (retired at v0.6.19 — `.things` JSON is macOS-export-only and the GNOME audience is vanishingly small).
+
+### 7.5 VTODO mapping (RFC 5545)
+
+Phase 19 slice 1 (v0.25.0). One-shot file import + one-way file export for the CalDAV ecosystem's lingua franca. The parser, emitter, and mapper live in `atrium-cli/src/vtodo/` and are stdlib-only — no `ical` crate, matching the Org parser + Todoist importer precedents. Per §7.2, Atrium is **not** a CalDAV client.
+
+#### 7.5.1 Field mapping
+
+| VTODO | Atrium |
+|---|---|
+| `SUMMARY` | `task.title` |
+| `DESCRIPTION` | `task.note` |
+| `DUE` | `task.deadline` (date portion only; time-of-day truncates) |
+| `DTSTART` | `task.scheduled_for` (date) and `task.scheduled_time` (time portion, v0.19.0 column) |
+| `COMPLETED` | `task.completed_at` |
+| `STATUS:COMPLETED` | sets `completed_at = now()` when no COMPLETED property |
+| `STATUS:NEEDS-ACTION` / `IN-PROCESS` / `CANCELLED` | stashed in `task.orig_keyword` for round-trip parity |
+| `PRIORITY` 1–4 | `priority-N` tag (matches Todoist's shape; 5–9 emits no tag) |
+| `CATEGORIES` | `task.tag` rows via `ensure_tag` (idempotent dedupe) |
+| `RRULE` | `task.repeat_rule` (verbatim — RFC 5545 is RFC 5545) |
+| `UID` (UUID-shaped) | `task.uuid` directly |
+| `UID` (free-form) | v5 UUID derived from frozen namespace; original stashed in `task.extra_properties["VTODO_UID"]` |
+| `LOCATION` | `task.extra_properties["VTODO_LOCATION"]` (no typed column; lossless via v0.24.0) |
+| `X-*` | `task.extra_properties[X-*]` (lossless via v0.24.0) |
+| `CREATED` / `LAST-MODIFIED` / `DTSTAMP` / `SEQUENCE` | dropped; Atrium's auto-stamped `created_at` / `modified_at` carry the equivalent |
+| Anything else | one lossy entry per occurrence |
+
+#### 7.5.2 UID round-trip anchor
+
+Atrium's `task.uuid` is UUID v4 by contract; a VTODO UID is free-form text (`task@nextcloud.example.com`, `1234`, anything). The v0.24.0 `extra_properties` column unlocks the clean round-trip:
+
+- **UUID-shaped UID:** thread directly into `task.uuid`. Identity round-trip.
+- **Free-form UID:** derive `task.uuid` as `UUIDv5(VTODO_NAMESPACE, original_uid)` and stash the original in `extra_properties["VTODO_UID"]`. The exporter prefers the stashed value on emit, so the receiving app sees its UID unchanged. The frozen v5 namespace makes re-imports of the same source land on the same row.
+
+#### 7.5.3 Scope guardrails
+
+- No CalDAV client. No HTTP, no auth, no sync.
+- No VTIMEZONE generation. Export is UTC-only — receiving CalDAV apps universally accept UTC.
+- Non-UTC timestamps on import drop the timezone; the parser flags the loss as `LossyKind::DroppedTimezone`.
+- No VEVENT / VJOURNAL / VFREEBUSY handling. One lossy entry per top-level non-VTODO component.
+- No VALARM round-trip. Atrium's reminders are separate (`task.reminder_at`); cross-mapping VALARM ↔ reminder is deferred. Count surfaces in the lossy report.
+- No multi-file vault. `.ics` convention is one calendar per file; multi-file is the JSON snapshot's job.
+
+#### 7.5.4 Lossy report
+
+Mirror of the Todoist `LossyKind` shape. One entry per per-VTODO occurrence; the unified `ImportSummary` carries them all. Variants:
+
+| Kind | Trigger |
+|---|---|
+| `UnsupportedComponent` | Top-level VEVENT / VJOURNAL / VFREEBUSY / VTIMEZONE / X-* |
+| `DroppedAlarm` | One or more VALARM blocks inside a VTODO |
+| `DroppedAttendee` | ATTENDEE or ORGANIZER properties |
+| `DroppedGeo` | GEO property |
+| `DroppedPercentComplete` | PERCENT-COMPLETE property |
+| `DroppedDuration` | DURATION property without paired DTSTART/DUE |
+| `DroppedTimezone` | DTSTART / DUE / COMPLETED carried a TZID parameter |
+| `UnknownProperty` | A property name outside the modeled set and not X-* |
 
 ---
 

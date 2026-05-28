@@ -895,6 +895,73 @@ fn format_rows_human_truncates_long_titles() {
     assert!(out.contains("…"));
 }
 
+// ── v0.25.0 — VTODO import / export argv ────────────────────────
+
+#[test]
+fn parse_import_vtodo_requires_into_project() {
+    use crate::args::ImportSource;
+    let a = parse(&s(&["import", "vtodo", "/tmp/x.ics", "--into", "Errands"])).unwrap();
+    let Some(Subcommand::Import {
+        source,
+        path,
+        dry_run,
+    }) = a.subcommand
+    else {
+        panic!("expected Import");
+    };
+    assert_eq!(
+        source,
+        ImportSource::Vtodo {
+            project_name: "Errands".to_string(),
+        }
+    );
+    assert_eq!(path, "/tmp/x.ics");
+    assert!(!dry_run);
+}
+
+#[test]
+fn parse_import_vtodo_dry_run_flag_threads_through() {
+    let a = parse(&s(&[
+        "import",
+        "vtodo",
+        "/tmp/x.ics",
+        "--into",
+        "Errands",
+        "--dry-run",
+    ]))
+    .unwrap();
+    let Some(Subcommand::Import { dry_run, .. }) = a.subcommand else {
+        panic!("expected Import");
+    };
+    assert!(dry_run);
+}
+
+#[test]
+fn parse_import_vtodo_missing_into_errors() {
+    let err = parse(&s(&["import", "vtodo", "/tmp/x.ics"])).unwrap_err();
+    assert!(
+        err.contains("--into"),
+        "expected --into requirement in error; got: {err}"
+    );
+}
+
+#[test]
+fn parse_export_vtodo_round_trips() {
+    use crate::args::ExportSource;
+    let a = parse(&s(&["export", "vtodo", "/tmp/out.ics"])).unwrap();
+    let Some(Subcommand::Export {
+        source,
+        path,
+        dry_run,
+    }) = a.subcommand
+    else {
+        panic!("expected Export");
+    };
+    assert_eq!(source, ExportSource::Vtodo);
+    assert_eq!(path, "/tmp/out.ics");
+    assert!(!dry_run);
+}
+
 // ── SQL fast-path ↔ in-memory eval parity ───────────────────────
 //
 // The SQL translator is the v0.5.3 perf optimization: queries that

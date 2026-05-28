@@ -90,6 +90,50 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.25.0" date="2026-05-28">
+      <description>
+        <p>VTODO (RFC 5545) import and export. Phase 19's first
+           slice, opening Atrium's bridge to the CalDAV ecosystem:
+           Endeavour, Errands, Nextcloud Tasks, Planify. One-shot
+           file import via `atrium-cli import vtodo PATH --into
+           PROJECT`; one-way file export via `atrium-cli export
+           vtodo PATH`. Atrium is not a CalDAV client; export is
+           a `.ics` file dump for archival or hand-off.</p>
+        <p>The parser, emitter, and mapper are hand-rolled stdlib,
+           matching the Org and Todoist precedents. The `ical`
+           crate was evaluated and declined; tokenisation savings
+           are bounded and the Atrium-specific mapping layer
+           (typed columns, RRULE round-trip, lossy report) is the
+           bulk of the work regardless.</p>
+        <p>Field mapping covers SUMMARY, DESCRIPTION, DUE, DTSTART
+           (date + time-of-day via the v0.19.0 column), COMPLETED,
+           STATUS (with IN-PROCESS and CANCELLED stashed in
+           orig_keyword), PRIORITY 1 through 4 mapping to
+           priority-N tags, CATEGORIES via ensure_tag, RRULE
+           verbatim, and UID with a clean round-trip anchor.</p>
+        <p>UID round-trip rides the v0.24.0 extra_properties
+           column: UUID-shaped UIDs thread directly into
+           task.uuid; free-form UIDs derive a v5 UUID and stash
+           the original at extra_properties VTODO_UID, so external
+           CalDAV apps see their UID unchanged after a round-
+           trip. LOCATION and any X- properties also stash
+           losslessly through the same column.</p>
+        <p>Lossy report mirrors the Todoist mapper shape with
+           eight LossyKind variants for VEVENT and VJOURNAL
+           components, VALARM blocks, ATTENDEE / GEO / PERCENT-
+           COMPLETE / DURATION drops, TZID parameters, and
+           unknown properties.</p>
+        <p>Tests: four fixtures (basic, multi, lossy, nextcloud
+           sample) plus parser unit tests for line folding and
+           escape decoding, emitter unit tests for the round-trip
+           contract, mapper tests for UID resolution and lossy
+           emission, and four integration tests covering the full
+           parse → import → export → re-parse loop. Workspace 910
+           tests + green; cargo clippy -D warnings and cargo fmt
+           clean; scripts/regression.sh passes; appstreamcli
+           validate clean.</p>
+      </description>
+    </release>
     <release version="0.24.0" date="2026-05-28">
       <description>
         <p>Custom property-drawer passthrough. The Post-v0.22.0 Tier 1

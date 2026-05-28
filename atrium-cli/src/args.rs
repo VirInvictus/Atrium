@@ -236,7 +236,10 @@ pub enum Subcommand {
 
 /// Supported import sources. v0.7.9 ships `Org` (single-file
 /// or vault-directory Org-mode importer); v0.12.0 adds
-/// `Todoist` (CSV export). Things 3 was retired in v0.6.19.
+/// `Todoist` (CSV export); v0.25.0 adds `Vtodo` (RFC 5545
+/// `.ics`, the CalDAV-side format used by Endeavour /
+/// Errands / Nextcloud Tasks / Planify). Things 3 was retired
+/// in v0.6.19.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportSource {
     Org,
@@ -246,15 +249,25 @@ pub enum ImportSource {
     Todoist {
         project_name: String,
     },
+    /// `import vtodo PATH --into PROJECT_NAME`. A `.ics`
+    /// VCALENDAR can carry an unbounded number of VTODOs
+    /// without naming a project; the user provides one. Phase
+    /// 19 slice 1 (v0.25.0).
+    Vtodo {
+        project_name: String,
+    },
 }
 
 /// Supported export targets. v0.7.10 ships `Org` (vault
 /// projection). v0.7.11 adds `Json` (lossless DB snapshot).
-/// VTODO and other targets follow in later phases.
+/// v0.25.0 adds `Vtodo` — one-way `.ics` file dump for hand-
+/// off to CalDAV apps. Atrium does **not** act as a CalDAV
+/// client (spec §7.2); the exporter writes a single file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExportSource {
     Org,
     Json,
+    Vtodo,
 }
 
 /// Sub-subcommand of `perspective`. Each variant carries its own
@@ -973,6 +986,7 @@ fn parse_export(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
     let source = match source_str {
         "org" => ExportSource::Org,
         "json" => ExportSource::Json,
+        "vtodo" => ExportSource::Vtodo,
         other => return Err(format!("unknown export source: {other}")),
     };
     let body = &rest[1..];
@@ -1029,7 +1043,7 @@ fn parse_export(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
 fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
     let source_str = rest
         .first()
-        .ok_or("import requires a source: org | todoist")?
+        .ok_or("import requires a source: org | todoist | vtodo")?
         .as_str();
     // Source-specific flags (e.g. todoist's `--into`) are parsed
     // alongside the common ones — we tag the source first, then
@@ -1037,6 +1051,7 @@ fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
     let source_kind = match source_str {
         "org" => SourceKind::Org,
         "todoist" => SourceKind::Todoist,
+        "vtodo" => SourceKind::Vtodo,
         other => return Err(format!("unknown import source: {other}")),
     };
     let body = &rest[1..];
@@ -1093,6 +1108,10 @@ fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
             let project_name = into_project.ok_or("import todoist requires --into PROJECT_NAME")?;
             ImportSource::Todoist { project_name }
         }
+        SourceKind::Vtodo => {
+            let project_name = into_project.ok_or("import vtodo requires --into PROJECT_NAME")?;
+            ImportSource::Vtodo { project_name }
+        }
     };
     Ok(Subcommand::Import {
         source,
@@ -1107,6 +1126,7 @@ fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
 enum SourceKind {
     Org,
     Todoist,
+    Vtodo,
 }
 
 /// Parse the rest-of-argv for `perspective <create|edit|delete>
