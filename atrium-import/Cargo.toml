@@ -1,0 +1,25 @@
+[package]
+name = "atrium-import"
+description = "Non-Org import/export formats for Atrium (Todoist CSV, Taskwarrior JSON, todo.txt, VTODO/.ics). Hand-rolled stdlib parsers + mappers that drive the atrium-core worker. Extracted from atrium-cli at v0.34.0 so the GTK binary's import dialog and the CLI share one implementation."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+atrium-core = { path = "../atrium-core" }
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+# VTODO export reads tasks through a read-only Connection.
+rusqlite.workspace = true
+
+[dev-dependencies]
+atrium-core = { path = "../atrium-core", features = ["test-support"] }
+# Round-trip tests spin up the single-writer worker on a current-thread
+# runtime and round-trip a few imports through the Org vault writer.
+atrium-org = { path = "../atrium-org" }
+tokio.workspace = true

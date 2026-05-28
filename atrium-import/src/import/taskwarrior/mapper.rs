@@ -18,7 +18,7 @@ use atrium_core::error::DbError;
 use atrium_core::{NewProject, NewTask, ScheduledFor, WorkerHandle};
 use uuid::Uuid;
 
-use crate::args::UdaPolicy;
+use super::UdaPolicy;
 
 use super::parser::{Annotation, TaskwarriorTask};
 

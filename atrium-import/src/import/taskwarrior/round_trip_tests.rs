@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use crate::args::UdaPolicy;
+use crate::import::taskwarrior::UdaPolicy;
 use crate::import::taskwarrior::mapper::{LossyKind, import_taskwarrior};
 use crate::import::taskwarrior::parser::parse_export;
 

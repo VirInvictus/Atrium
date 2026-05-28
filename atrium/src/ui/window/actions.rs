@@ -362,6 +362,14 @@ impl AtriumWindow {
         });
     }
 
+    /// v0.34.0 — open the unified import dialog. No-op until the
+    /// worker is attached.
+    pub fn open_import_dialog(&self) {
+        if let Some(worker) = self.worker() {
+            crate::ui::import_dialog::open(self, worker);
+        }
+    }
+
     pub(super) fn prompt_rename_active(&self) {
         // Phase 7f — F2 prefers in-list inline editing when the task
         // list has focus. Falls through to the sidebar rename for

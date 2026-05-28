@@ -67,6 +67,12 @@ pub(crate) fn build_primary_menu(include_debug: bool) -> gio::Menu {
         menu.append_section(None, &debug_section);
     }
 
+    // v0.34.0 — unified import dialog (Org / Todoist / VTODO /
+    // Taskwarrior / todo.txt).
+    let io_section = gio::Menu::new();
+    io_section.append(Some("Import…"), Some("app.import"));
+    menu.append_section(None, &io_section);
+
     let about_section = gio::Menu::new();
     // v0.20.0 — Phase 19.5 preferences entry. Above the
     // shortcuts/about line so it reads as part of the "primary"

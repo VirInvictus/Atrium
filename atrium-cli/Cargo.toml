@@ -23,6 +23,10 @@ atrium-org = { path = "../atrium-org" }
 # CLI's `capture` subcommand and the GTK binary share the parser
 # without dragging it through atrium-core.
 atrium-inline = { path = "../atrium-inline" }
+# v0.34.0 — the non-Org importers (Todoist / Taskwarrior / todo.txt /
+# VTODO) moved into atrium-import so the GTK binary's import dialog
+# shares them; the CLI re-imports the modules under their old names.
+atrium-import = { path = "../atrium-import" }
 
 # Date arithmetic (today's date for the EvalContext, deadline / schedule
 # parsing for output).

@@ -892,6 +892,20 @@ fn install_new_project_action(app: &adw::Application) {
         }
     ));
     app.add_action(&action);
+
+    // v0.34.0 — unified import dialog (Org / Todoist / VTODO /
+    // Taskwarrior / todo.txt).
+    let action = gio::SimpleAction::new("import", None);
+    action.connect_activate(clone!(
+        #[weak]
+        app,
+        move |_, _| {
+            if let Some(win) = app.active_window().and_downcast::<AtriumWindow>() {
+                win.open_import_dialog();
+            }
+        }
+    ));
+    app.add_action(&action);
 }
 
 fn install_show_list_action(app: &adw::Application) {

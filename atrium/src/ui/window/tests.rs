@@ -11,8 +11,8 @@ use super::*;
 #[test]
 fn primary_menu_has_four_sections_no_debug() {
     let menu = build_primary_menu(false);
-    // New + Library + Mode + About sections.
-    assert_eq!(menu.n_items(), 4);
+    // New + Library + Mode + Import (v0.34.0) + About sections.
+    assert_eq!(menu.n_items(), 5);
 }
 
 // ── v0.4.1 search-history helpers ──────────────────────────────
@@ -121,8 +121,8 @@ fn cycle_history_cursor_newer_from_live_stays_live() {
 #[test]
 fn primary_menu_includes_debug_section_when_enabled() {
     let menu = build_primary_menu(true);
-    // New + Library + Mode + Debug + About sections.
-    assert_eq!(menu.n_items(), 5);
+    // New + Library + Mode + Import (v0.34.0) + Debug + About sections.
+    assert_eq!(menu.n_items(), 6);
 }
 
 #[test]

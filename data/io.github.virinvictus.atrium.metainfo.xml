@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.34.0" date="2026-05-28">
+      <description>
+        <p>Import, now with a dialog. A new Import window lets you bring
+           in tasks from Org files, Todoist CSV, VTODO (.ics),
+           Taskwarrior JSON, and todo.txt — pick the format and file,
+           preview the result with a dry run, then import.</p>
+        <p>Under the hood the importers moved into their own library so
+           the app and the command line share exactly one
+           implementation.</p>
+      </description>
+    </release>
     <release version="0.33.0" date="2026-05-28">
       <description>
         <p>Task templates. Save a reusable project shape — a named set

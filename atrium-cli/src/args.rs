@@ -307,34 +307,9 @@ pub enum ImportSource {
 }
 
 /// v0.26.0 — how the Taskwarrior importer treats user-defined
-/// attributes (UDA fields): arbitrary `name:value` pairs
-/// Taskwarrior allows users to attach to tasks via config.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UdaPolicy {
-    /// Each UDA becomes a tag of the form `name-value`
-    /// (default — matches how Atrium treats every other
-    /// importer's labels: tag-as-everything).
-    Tag,
-    /// Each UDA appends one `UDA: name=value` line to
-    /// `task.note`. Preserves data without polluting the tag
-    /// surface.
-    Note,
-    /// Each UDA surfaces in the lossy report and otherwise
-    /// drops on the floor. Most defensive — useful when the
-    /// user wants to triage by hand.
-    Drop,
-}
-
-impl UdaPolicy {
-    pub fn parse(s: &str) -> Result<Self, String> {
-        match s {
-            "tag" => Ok(Self::Tag),
-            "note" => Ok(Self::Note),
-            "drop" => Ok(Self::Drop),
-            other => Err(format!("--uda-as expects tag | note | drop, got: {other}")),
-        }
-    }
-}
+/// attributes. Moved into `atrium-import` at v0.34.0 (the extraction);
+/// re-exported here so the argv layer + tests keep one name.
+pub use atrium_import::UdaPolicy;
 
 /// Supported export targets. v0.7.10 ships `Org` (vault
 /// projection). v0.7.11 adds `Json` (lossless DB snapshot).

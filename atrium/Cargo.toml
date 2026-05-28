@@ -23,6 +23,9 @@ atrium-org = { path = "../atrium-org" }
 # / `!priority`) lives in its own crate so the GTK binary, the
 # CLI, and the post-1.0 TUI all speak the same vocabulary.
 atrium-inline = { path = "../atrium-inline" }
+# v0.34.0 — the non-Org importers (Todoist / Taskwarrior / todo.txt /
+# VTODO) for the unified import dialog.
+atrium-import = { path = "../atrium-import" }
 
 # Phase 0 set.
 anyhow.workspace = true

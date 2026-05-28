@@ -30,3 +30,36 @@ pub mod parser;
 
 #[cfg(test)]
 mod round_trip_tests;
+
+/// How a Taskwarrior user-defined attribute (UDA) is mapped on import.
+/// Moved here from `atrium-cli` at v0.34.0 (the extraction) since it's
+/// import-domain; the CLI's `--uda-as tag|note|drop` flag parses into
+/// it via [`UdaPolicy::parse`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UdaPolicy {
+    /// Each UDA becomes a tag of the form `name-value` (default —
+    /// matches how Atrium treats every other importer's labels).
+    #[default]
+    Tag,
+    /// Each UDA appends one `UDA: name=value` line to `task.note`.
+    /// Preserves data without polluting the tag surface.
+    Note,
+    /// Each UDA surfaces in the lossy report and otherwise drops.
+    /// Most defensive — useful for hand triage.
+    Drop,
+}
+
+impl UdaPolicy {
+    /// Parse the `--uda-as` flag value. Returns an error message
+    /// suitable for the CLI's argv layer on an unknown value.
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "tag" => Ok(Self::Tag),
+            "note" => Ok(Self::Note),
+            "drop" => Ok(Self::Drop),
+            other => Err(format!(
+                "invalid --uda-as value {other:?} (expected tag, note, or drop)"
+            )),
+        }
+    }
+}

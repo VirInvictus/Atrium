@@ -1,5 +1,25 @@
 # Atrium — Patch Notes
 
+## v0.34.0 (2026-05-28) — import library + unified import dialog (Tier 3, arc close)
+
+The last cut of the Post-v0.22.0 Tier 2 + 3 polish arc. Two parts: an enabling extraction and the GUI dialog it unlocks. Workspace 1008 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema change.
+
+### `atrium-import` crate (extraction)
+
+The non-Org importers — Todoist CSV, Taskwarrior `task export` JSON, todo.txt, and VTODO `.ics` — moved out of the `atrium-cli` binary into a new `atrium-import` library crate (the workspace is now seven crates). They depend only on `atrium-core`, so the GTK binary can consume them directly. `atrium-cli` re-imports the modules under their old names (`use atrium_import::{import, vtodo};`), so every existing `import::…` / `vtodo::…` call site is unchanged; `UdaPolicy` moved with the Taskwarrior importer and `atrium-cli` re-exports it. The importer test suites (and their fixtures, which resolve via `CARGO_MANIFEST_DIR`) moved with the code and stay green — the regression guard for a behaviour-neutral move. Org import/export stays in `atrium-org` (already a library).
+
+### Unified import dialog (GUI)
+
+A new "Import…" menu entry opens an `AdwDialog` (`atrium/src/ui/import_dialog.rs`) with a source picker (Org / Todoist / VTODO / Taskwarrior / todo.txt), a file chooser, a project-name field, a Taskwarrior UDA-handling combo, and a Dry run toggle (default on). Import runs the matching parser + mapper through the single-writer worker — mirroring the CLI's `run_import` per-source flow — and shows a summary (tasks created, tags ensured, lossy-field count) in the result pane. Dry run previews without writing.
+
+### Tests
+
++2 GUI unit tests for the pure `format_import_result` summary formatter (dry-run wording + lossy note; clean wet-run). The bulk of the coverage is the importer suites that moved into `atrium-import` (now run under that crate).
+
+### Arc closed
+
+This closes the ten-cut Tier 2 + 3 arc (v0.26.0 → v0.34.0). The `pick-it-up.md` handoff is retired (removed in this commit). Carryover for later: the EDS calendar overlay (needs a `libecal` / `zbus` dependency sign-off), README screenshots, Flatpak font verification under the sandbox, and the Phase 20 / 1.0 endgame.
+
 ## v0.33.0 (2026-05-28) — task templates (Tier 3)
 
 Reusable project templates: a named, optionally-nested set of tasks with per-item tags + estimates, stamped out as a fresh project on demand. Distinct from the single-line Quick Entry templates (v0.18.0). Workspace 1006 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean.

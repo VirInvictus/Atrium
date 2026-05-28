@@ -43,10 +43,13 @@ use rusqlite::{Connection, OpenFlags};
 
 mod args;
 mod clock;
-mod import;
 mod output;
 mod template;
-mod vtodo;
+
+// v0.34.0 — the non-Org importers live in atrium-import now; pull the
+// `import` + `vtodo` module roots back under their old names so the
+// existing `import::…` / `vtodo::…` call sites are unchanged.
+use atrium_import::{import, vtodo};
 
 #[cfg(test)]
 mod tests;
