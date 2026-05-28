@@ -568,6 +568,17 @@ fn task_to_org(
     if let Some(defer) = task.defer_until {
         properties.insert("DEFER_UNTIL".into(), defer.format("%Y-%m-%d").to_string());
     }
+    // v0.24.0 — merge custom property-drawer extras back into
+    // the emitted drawer so spec §7.3.3 rule 1 holds. The
+    // importer / watcher stripped modeled keys before stashing
+    // here so the typed-column value always wins; `entry().or_insert`
+    // defends against a hand-crafted DB row that puts a
+    // modeled-name key in `extra_properties`.
+    for (key, value) in &task.extra_properties {
+        properties
+            .entry(key.clone())
+            .or_insert_with(|| value.clone());
+    }
 
     let tags = tag_names.get(&task.id).cloned().unwrap_or_default();
 

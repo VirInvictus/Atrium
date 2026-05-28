@@ -90,6 +90,46 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.24.0" date="2026-05-28">
+      <description>
+        <p>Custom property-drawer passthrough. The Post-v0.22.0 Tier 1
+           item next on the roadmap after subtasks, closing the last
+           documented Org round-trip data loss: unmodeled
+           :PROPERTIES: drawer keys (:CATEGORY:, :CLIENT:, :URL:, or
+           anything else a user puts in their drawer) used to vanish
+           on import. They now stash into a new task.extra_properties
+           JSON column and the writer re-emits them verbatim on every
+           flush. Spec section 7.3.3 rule 1 ("preserve unknown
+           constructs verbatim") now holds for property drawers as
+           well as body content.</p>
+        <p>Schema: migration 0014 adds task.extra_properties TEXT
+           NULL; user_version 13 to 14. JSON-on-column shape mirrors
+           the v0.18.0 default_tags precedent. The modeled key set
+           (ID, CREATED, MODIFIED, DEFER_UNTIL, EFFORT, RRULE,
+           ORIG_KEYWORD) is filtered out before stashing so typed-
+           column values always win on emit.</p>
+        <p>The vault watcher's diff path picks up external Emacs
+           edits to custom drawer keys (add, change, remove) and
+           syncs them into the column. The importer, the watcher,
+           and the writer share a single MODELED_PROPERTY_KEYS
+           constant in atrium_org::org so the partitioning contract
+           stays in one place.</p>
+        <p>No UI. The Phase 18.5 research note closed this as
+           lossless passthrough rather than a surface: real-world Org
+           users almost never depend on arbitrary properties beyond
+           the modeled set, so adding an Inspector affordance would
+           be over-design. Custom keys round-trip silently.</p>
+        <p>Tests: the documented-limit test
+           (documented_limit_org_importer_drops_custom_property_keys)
+           is flipped and renamed to assert round-trip preservation;
+           a multi-key stress fixture covers eight extra keys
+           including an empty-value entry; the worker test suite
+           gains four cases covering create + update + clear + empty-
+           map normalisation; an integration test exercises the
+           watcher's external-edit path. Workspace 905 tests + green;
+           cargo clippy and cargo fmt clean.</p>
+      </description>
+    </release>
     <release version="0.23.1" date="2026-05-28">
       <description>
         <p>Subtasks bugfixes from the v0.23.0 hands-on pass. Workspace

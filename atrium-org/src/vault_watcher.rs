@@ -669,6 +669,11 @@ impl<'a> ParsedTask<'a> {
             deadline_warn_days: self.org.deadline_warning.map(i64::from),
             // v0.19.0 — Phase 18.5 Tier-2 time-of-day on schedule.
             scheduled_time: self.org.scheduled_time,
+            // v0.24.0 — custom property-drawer passthrough.
+            // External Emacs creates with unmodeled drawer
+            // keys (`:CLIENT:`, `:URL:`, etc.) round-trip
+            // verbatim through the column.
+            extra_properties: crate::org::extras_from_properties(&self.org.properties),
             ..Default::default()
         }
     }
@@ -751,6 +756,18 @@ impl<'a> ParsedTask<'a> {
         // `HH:MM` portion flow back into the new column.
         if self.org.scheduled_time != existing.scheduled_time {
             update = update.scheduled_time_value(self.org.scheduled_time);
+            dirty = true;
+        }
+
+        // v0.24.0 — custom property-drawer passthrough.
+        // External Emacs edits that add, change, or remove
+        // unmodeled `:KEY: value` drawer entries flow back
+        // into the column. Whole-map replace (the watcher
+        // rewrites the drawer on any change anyway, so
+        // per-key delta plumbing isn't worth its weight).
+        let parsed_extras = crate::org::extras_from_properties(&self.org.properties);
+        if parsed_extras != existing.extra_properties {
+            update = update.extra_properties_value(parsed_extras);
             dirty = true;
         }
 

@@ -1,5 +1,63 @@
 # Atrium — Patch Notes
 
+## v0.24.0 (2026-05-28) — Custom property-drawer passthrough (Post-v0.22.0 Tier 1)
+
+The Post-v0.22.0 Tier 1 item right after subtasks, and the last documented Org round-trip data loss. Before today, the importer cherry-picked four well-known `:PROPERTIES:` drawer keys (`ID`, `EFFORT`, `DEFER_UNTIL`, `RRULE`) and silently dropped every other `:KEY: value` line. Custom `:CATEGORY:`, `:CLIENT:`, `:URL:`, anything a user might park in a drawer: gone on the first round-trip. Spec §7.3.3 rule 1 ("preserve unknown constructs verbatim") held for body content (Org tables, source blocks, lists, links survived in `task.note`) but not for property drawers. v0.24.0 closes that gap.
+
+Workspace 905 tests + green; `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all --check` clean; `bash scripts/regression.sh` passes; `appstreamcli validate` clean.
+
+### Schema
+
+Migration `0014_task_extra_properties.sql` adds `task.extra_properties TEXT NULL`, a JSON object stashing every unmodeled `:KEY: value` from a task's `:PROPERTIES:` drawer. `user_version` 13 → 14. Backwards-compatible additive change: v0.23.x binaries reading a v0.24.0 DB ignore the column, and a v0.24.0 binary opening a v0.23.x DB applies the migration on first run.
+
+JSON-on-column shape mirrors the v0.18.0 `quick_entry_template.default_tags` precedent: `serde_json` encode at the worker write boundary, defensive `unwrap_or_default()` decode at the read boundary so a malformed blob never poisons a query. Empty map normalises to NULL (cheaper than storing `{}`); the read boundary normalises NULL or malformed back to an empty `BTreeMap` at the Rust boundary.
+
+### Modeled set + partition contract
+
+A new `MODELED_PROPERTY_KEYS` constant in `atrium_org::org` is the single source of truth for which `:KEY:` names map through typed columns:
+
+```
+ID  CREATED  MODIFIED  DEFER_UNTIL  EFFORT  RRULE  ORIG_KEYWORD
+```
+
+Keys in this set are never written to `extra_properties` (the importer / watcher filter them out, the writer ignores them on merge). Everything else round-trips through the JSON column. `CREATED` / `MODIFIED` aren't currently read by the importer (Atrium's `created_at` / `modified_at` triggers stamp them at write time), but they're listed defensively: a manual user-set `:CREATED:` value would otherwise round-trip-conflict with the schema-managed timestamp. `ORIG_KEYWORD` isn't emitted as a property today (the keyword sits on the headline) but listing it future-proofs.
+
+The helper `extras_from_properties(&HashMap<String, String>) -> BTreeMap<String, String>` is the single partition function consumed by the importer (`atrium-org/src/org/import.rs`), the vault watcher's create + diff paths (`atrium-org/src/vault_watcher.rs`), and the emit-time merge (`atrium-org/src/org/write.rs`). One contract, three consumers, no drift.
+
+### Data layer (atrium-core)
+
+`Task`, `NewTask`, and `TaskUpdate` all carry `extra_properties` now. `Task.extra_properties: BTreeMap<String, String>` (empty is the natural "no extras" state — no `Option<BTreeMap>` wrapper to thread). `NewTask.extra_properties: BTreeMap<String, String>` with `Default::default()` falling through cleanly. `TaskUpdate.extra_properties: Option<BTreeMap<String, String>>` (whole-map replace, not a per-key delta — the watcher rewrites the drawer on any change anyway, so the simpler shape carries its weight). `TaskUpdate::extra_properties_value(map)` is the new builder; `BTreeMap::new()` clears the column.
+
+The worker's `create_task` adds `extra_properties` to the INSERT column list, JSON-encoded when non-empty and NULL otherwise. `update_task` pushes `extra_properties = ?` into its `sets` vec when the field is `Some(...)`. `complete_repeating_task` (the recurring-task respawn path) carries the extras forward so a `:CLIENT: Acme` on a daily standup keeps `:CLIENT: Acme` on every roll-forward instance.
+
+`TASK_COLUMNS` in `db/read/mod.rs` gains the new column; `task_from_row` decodes it with `unwrap_or_default()` on both the NULL and malformed paths. The JSON snapshot exporter (`sync/json.rs`) round-trips automatically since `Task` derives `Serialize`/`Deserialize`; `#[serde(default)]` on the new field keeps pre-v0.24.0 snapshots loadable (missing field deserialises to an empty map).
+
+### Vault watcher (atrium-org)
+
+`ParsedTask::to_new_task` (the external-add path) populates `NewTask.extra_properties` via `extras_from_properties`. `ParsedTask::diff_from` (the external-edit path) builds a parsed `BTreeMap`, compares against `existing.extra_properties`, and pushes `extra_properties_value(...)` when they differ. An Emacs user adding `:CLIENT: Acme` in the drawer now flows back into the DB column; an Emacs user changing `:CLIENT: Acme` to `:CLIENT: BetaCo` syncs the new value; an Emacs user deleting the line clears the key from the column.
+
+### Writer (atrium-org)
+
+`task_to_org_task` (which builds the `OrgTask` shape the emitter consumes) seeds its local `properties: HashMap<String, String>` with the four modeled keys it always emitted (`ID`, `RRULE`, `EFFORT`, `DEFER_UNTIL`), then extends with `task.extra_properties` via `entry().or_insert_with`. The `or_insert_with` defends against a hand-crafted DB row that puts a modeled-name key in `extra_properties` — the typed column always wins. The existing alphabetical-sort emit pass (`org/emit.rs:202`) handles ordering uniformly; modeled keys and extras interleave by name rather than getting a special section.
+
+### No UI
+
+Confirmed by the Phase 18.5 research note that closed this item: real-world Org users almost never depend on arbitrary properties beyond the modeled set (Karl Voit explicitly says he uses only `CREATED`, `ID`, and link-related properties; cmdln.org-2024 doesn't mention custom keys at all). Adding an Inspector affordance would be over-design. Custom keys round-trip silently: a user who adds `:CATEGORY: Q3-deliverables` in Emacs gets it back on every vault read, and Atrium-side edits don't disturb it.
+
+### Tests
+
+- `org_importer_round_trips_custom_property_keys` (renamed from `documented_limit_org_importer_drops_custom_property_keys`): the previously-documented gap is now an asserted round-trip. `CATEGORY` / `CLIENT` / `URL` all survive with their exact values.
+- `org_importer_round_trips_many_custom_property_keys`: a stress fixture with eight extras (`ALPHA` through `ZETA` plus `FLAG` and `URL`) — `FLAG` is an empty-value key, since the parser permits `:FLAG:` with no value, and the round-trip assertion confirms empty-string preservation.
+- `db::worker::tests::create_task_persists_extra_properties`: round-trips a populated map through `create_task` + read.
+- `db::worker::tests::create_task_empty_extras_round_trips_as_empty`: a freshly-created task with no extras compares `==` to one round-tripped through the column. The NULL → empty-map normalisation is part of the contract.
+- `db::worker::tests::update_task_replaces_extra_properties_whole_map`: confirms whole-map replace semantics — keys absent from the replacement get dropped.
+- `db::worker::tests::update_task_clears_extras_with_empty_map`: confirms `extra_properties_value(BTreeMap::new())` clears the column.
+- `external_custom_property_drawer_round_trips_through_db` (vault_watcher_integration): a full Emacs-side add → DB sync → writer-side re-emit → second Emacs-side edit → DB sync cycle. Covers the create, change-value, and remove-key paths.
+
+### Migration housekeeping
+
+The three pinned `user_version == 13` assertions (`db::tests::migration_applies_cleanly`, `migration_is_idempotent`, `open_creates_parent_dir_and_migrates`, plus `db::read_pool::tests::acquire_release_round_trips`) all bump to 14. Standard migration-bump hygiene; no behaviour change.
+
 ## v0.23.1 (2026-05-28) — Subtasks GUI bugfixes from hands-on verification
 
 A focused patch closing the four GUI gaps a hands-on run after v0.23.0 surfaced. The headless layer was solid; the bind / signal wiring on the row factory had three holes plus one error-formatting leak. No schema change; workspace stays at 899 tests green.

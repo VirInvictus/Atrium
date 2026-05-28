@@ -482,6 +482,11 @@ fn import_task<'a>(
             // standard reminder cookie; importer leaves this
             // None and users set reminders in Atrium.
             reminder_at: None,
+            // v0.24.0 — Post-v0.22.0 Tier 1 custom-property
+            // drawer passthrough. Stash every drawer key
+            // outside the modeled set so spec §7.3.3 rule 1
+            // holds for property drawers.
+            extra_properties: super::extras_from_properties(&org.properties),
         };
         let created = handle.create_task(new).await?;
         summary.tasks_created += 1;

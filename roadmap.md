@@ -1,6 +1,6 @@
 # Atrium — Roadmap
 
-What's done, what's next, what's deferred. Sequenced for a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. Current release: **v0.22.1**. Phase 19.5 foundations (preferences dialog + system-notification reminders) shipped at v0.20.0; v0.21.x and v0.22.0 were maintenance releases (documentation sync, a clippy-cleanup pass, a metainfo XML fix, and splitting the two largest source files, `window.rs` and `inspector_pane.rs`, into module trees). The inline-syntax parser (`#tag`, `@today`, etc.) was small in v0.1 and grew steadily through Phase 6c (Quick Entry) + Phase 18 (Todoist mapper); v0.13.0 unifies the vocabulary across every capture surface, expands it (`!N` priority + `@<weekday>`), lifts the parser into its own `atrium-inline` workspace crate (atrium-core stays inline-syntax-agnostic), and wires a tab-completion popover into the bottom-of-list entry and Quick Entry modal so the syntax becomes discoverable. Phase 18 (Todoist CSV import) shipped at v0.12.0. Phase 17 (vault → DB two-way sync) closed at v0.10.3; Phase 12.5 (Calendar Month View) closed at v0.11.0. Phase 18.5 (Org-mode power features) and Phase 19.5 (productivity essentials) are next.
+What's done, what's next, what's deferred. Sequenced for a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. Current release: **v0.24.0**. Phase 19.5 foundations (preferences dialog + system-notification reminders) shipped at v0.20.0; v0.21.x and v0.22.0 were maintenance releases (documentation sync, a clippy-cleanup pass, a metainfo XML fix, and splitting the two largest source files, `window.rs` and `inspector_pane.rs`, into module trees). v0.23.0 added subtasks UI exposure (the first Phase 19.5 productivity essential after the v0.20.0 foundations); v0.24.0 closes the Org property-drawer round-trip gap (custom `:KEY: value` entries stash into the new `task.extra_properties` JSON column and re-emit verbatim, reinforcing spec §7.3.3 rule 1 for property drawers). The inline-syntax parser (`#tag`, `@today`, etc.) was small in v0.1 and grew steadily through Phase 6c (Quick Entry) + Phase 18 (Todoist mapper); v0.13.0 unifies the vocabulary across every capture surface, expands it (`!N` priority + `@<weekday>`), lifts the parser into its own `atrium-inline` workspace crate (atrium-core stays inline-syntax-agnostic), and wires a tab-completion popover into the bottom-of-list entry and Quick Entry modal so the syntax becomes discoverable. Phase 18 (Todoist CSV import) shipped at v0.12.0. Phase 17 (vault → DB two-way sync) closed at v0.10.3; Phase 12.5 (Calendar Month View) closed at v0.11.0. Phase 18.5 (Org-mode power features) and Phase 19.5 (productivity essentials) are next.
 
 ---
 
@@ -23,7 +23,7 @@ The **debug harness** (spec §3.4 — `--debug` flag, stress generators, IO inst
 
 v0.22.0 closed the maintenance backlog (the `window.rs` / `inspector_pane.rs` splits). The remaining pre-1.0 work is ranked here by value-to-effort rather than phase order. Tiers 1 and 2 carry detailed todos; Tiers 3 and 4 cross-reference their phase sections below.
 
-### Tier 1 (next up)
+### Tier 1 — shipped
 
 **Subtasks UI exposure** *(Phase 19.5; shipped v0.23.0).* `parent_id` had shipped since `0001_initial.sql` and the Org importer already built the tree; v0.23.0 exposes it in the GUI + CLI.
 
@@ -36,15 +36,15 @@ v0.22.0 closed the maintenance backlog (the `window.rs` / `inspector_pane.rs` sp
 - [x] Tests: `list_subtasks` + reparent + self-parent + descendant-cycle (core), `--parent` parse round-trips (cli), `nesting_order` depth/orphan/cycle (gui). Workspace 899.
 - [x] Schema: none (already present).
 
-**Custom property-drawer passthrough** *(correctness; closes a documented Org round-trip data-loss).* `documented_limit_org_importer_drops_custom_property_keys` pins the gap: unmodeled `:PROPERTIES:` keys are dropped, which dents spec §7.3.3 rule 1.
+**Custom property-drawer passthrough** *(correctness; shipped v0.24.0).* `documented_limit_org_importer_drops_custom_property_keys` flipped to `org_importer_round_trips_custom_property_keys`; spec §7.3.3 rule 1 now holds for property drawers as well as body content.
 
-- [ ] Schema: migration `0014_task_extra_properties.sql` (or next free number) adds `task.extra_properties TEXT NULL` (JSON object of unmodeled key to value); `user_version` 13 to 14.
-- [ ] `atrium-org` parser: collect drawer keys outside the modeled set (ID / CREATED / MODIFIED / DEFER_UNTIL / Effort / RRULE / ORIG_KEYWORD) into the JSON blob instead of discarding.
-- [ ] `atrium-org` emitter: re-emit stashed keys verbatim, ordered after the modeled keys.
-- [ ] Worker / read: thread `extra_properties` through `NewTask` + `TaskUpdate` (JSON encode/decode at the boundary, like `default_tags`).
-- [ ] Watcher diff path: round-trip external edits to custom keys.
-- [ ] Tests: flip `documented_limit_org_importer_drops_custom_property_keys` from "documents the drop" to "round-trips"; add a multi-key fixture.
-- [ ] No UI (per the Phase 18.5 research note: lossless passthrough, not a surface).
+- [x] Schema: migration `0014_task_extra_properties.sql` adds `task.extra_properties TEXT NULL` (JSON object of unmodeled key to value); `user_version` 13 → 14.
+- [x] `atrium-org`: the parser already collected every key into `OrgTask.properties`; the importer now partitions via `extras_from_properties` (sharing the new `MODELED_PROPERTY_KEYS` constant in `org/mod.rs`) and stashes the non-modeled keys.
+- [x] `atrium-org` emitter: `task_to_org_task` merges `task.extra_properties` back into the local properties HashMap before emit. The existing alphabetical-sort emit pass handles ordering.
+- [x] Worker / read: `NewTask.extra_properties` (BTreeMap) + `TaskUpdate.extra_properties_value` thread through `create_task` / `update_task`. JSON encode/decode at the boundary, mirroring the `default_tags` precedent. Empty map normalises to NULL on the column; read boundary normalises NULL or malformed back to empty BTreeMap.
+- [x] Watcher diff path: `ParsedTask::to_new_task` and `diff_from` partition the parsed drawer; whole-map replace via `TaskUpdate::extra_properties_value`.
+- [x] Tests: existing test flipped + multi-key stress fixture; four worker_tests covering CRUD; integration test exercising the watcher's external-edit path.
+- [x] No UI (per the Phase 18.5 research note: lossless passthrough, not a surface).
 
 ### Tier 2 (high value, bigger lift)
 

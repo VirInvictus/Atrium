@@ -7,6 +7,8 @@ mod scheduled;
 
 pub use scheduled::ScheduledFor;
 
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -65,6 +67,20 @@ pub struct Task {
     /// `scheduled_for` / `deadline` — a reminder can fire on
     /// any task. NULL means "no reminder set."
     pub reminder_at: Option<DateTime<Utc>>,
+    /// v0.24.0 — Post-v0.22.0 Tier 1 custom property-drawer
+    /// passthrough. Holds every `:KEY: value` line from the
+    /// Org `:PROPERTIES:` drawer that *isn't* one of the
+    /// modeled keys (ID / CREATED / MODIFIED / DEFER_UNTIL /
+    /// EFFORT / RRULE / ORIG_KEYWORD — those map to typed
+    /// columns). Empty map == no extras (the DB stores NULL
+    /// for that case; the read boundary normalises). The Org
+    /// writer merges this back into the emitted drawer so
+    /// custom user keys round-trip verbatim per spec §7.3.3
+    /// rule 1. `#[serde(default)]` keeps pre-v0.24.0 JSON
+    /// snapshots loadable: missing field deserialises to an
+    /// empty map.
+    #[serde(default)]
+    pub extra_properties: BTreeMap<String, String>,
     pub position: f64,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
@@ -131,6 +147,13 @@ pub struct NewTask {
     /// Inspector picker writes through `TaskUpdate` after the
     /// initial create, so this stays None for in-app captures.
     pub reminder_at: Option<DateTime<Utc>>,
+    /// v0.24.0 — Post-v0.22.0 Tier 1 custom property-drawer
+    /// passthrough. The Org importer + vault watcher partition
+    /// the parsed `:PROPERTIES:` drawer into modeled keys
+    /// (consumed into typed columns) and the rest, which lands
+    /// here. Empty map is the default — no extras, the worker
+    /// writes NULL to the column.
+    pub extra_properties: BTreeMap<String, String>,
 }
 
 impl NewTask {
@@ -215,6 +238,14 @@ pub struct TaskUpdate {
     /// picker writes through this; CLI `--reminder` on edit
     /// does the same.
     pub reminder_at: Option<Option<DateTime<Utc>>>,
+    /// v0.24.0 — custom property-drawer passthrough. `None`
+    /// leaves the column alone; `Some(map)` replaces the
+    /// stored extras with `map` (whole-map replace, not a
+    /// per-key delta — the watcher rewrites the drawer on
+    /// any change anyway, so the simpler shape carries its
+    /// weight). `Some(BTreeMap::new())` clears the column
+    /// back to NULL.
+    pub extra_properties: Option<BTreeMap<String, String>>,
 }
 
 impl TaskUpdate {
@@ -348,6 +379,16 @@ impl TaskUpdate {
         self
     }
 
+    /// v0.24.0 — replace the stored custom property-drawer map
+    /// wholesale. Pass `BTreeMap::new()` to clear; pass a
+    /// populated map to overwrite. The vault watcher uses this
+    /// when an external Emacs edit adds, changes, or removes
+    /// unmodeled `:KEY: value` lines in the drawer.
+    pub fn extra_properties_value(mut self, value: BTreeMap<String, String>) -> Self {
+        self.extra_properties = Some(value);
+        self
+    }
+
     /// `true` when no field will change. The worker treats no-op
     /// updates as a read of the current row.
     pub fn is_noop(&self) -> bool {
@@ -367,6 +408,7 @@ impl TaskUpdate {
             && self.deadline_warn_days.is_none()
             && self.scheduled_time.is_none()
             && self.reminder_at.is_none()
+            && self.extra_properties.is_none()
     }
 }
 

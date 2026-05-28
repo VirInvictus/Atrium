@@ -41,6 +41,7 @@ pub fn dummy_task(id: i64) -> Task {
         deadline_warn_days: None,
         scheduled_time: None,
         reminder_at: None,
+        extra_properties: std::collections::BTreeMap::new(),
         position: id as f64,
         created_at: Utc::now(),
         modified_at: Utc::now(),

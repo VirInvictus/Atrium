@@ -447,6 +447,11 @@ impl AtriumWindow {
                             // Preserve any pending reminder so undo
                             // restores the full task state.
                             reminder_at: task.reminder_at,
+                            // v0.24.0 — preserve custom property-
+                            // drawer extras across the delete/undo
+                            // cycle so an Org-imported task with
+                            // `:CLIENT: Acme` keeps its drawer.
+                            extra_properties: task.extra_properties,
                         };
                         match worker.create_task(new).await {
                             Ok(restored) => {

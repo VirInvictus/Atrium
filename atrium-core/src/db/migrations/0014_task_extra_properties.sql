@@ -1,0 +1,44 @@
+-- 0014_task_extra_properties.sql — v0.24.0
+--
+-- Post-v0.22.0 Tier 1 — custom property-drawer passthrough.
+-- Closes the documented Org round-trip data loss pinned by
+-- `documented_limit_org_importer_drops_custom_property_keys`:
+-- the importer cherry-picked four well-known keys (ID, EFFORT,
+-- DEFER_UNTIL, RRULE) and silently dropped every other
+-- `:KEY: value` line in a task's `:PROPERTIES:` drawer. Spec
+-- §7.3.3 rule 1 ("preserve unknown constructs verbatim") was
+-- satisfied for body content (Org tables, source blocks,
+-- lists, links survive in `task.note`) but not for property
+-- drawers. v0.24.0 fixes that.
+--
+-- One new column on `task`:
+--
+--   extra_properties   TEXT NULL
+--                      JSON object of unmodeled `:KEY: value`
+--                      drawer entries. The modeled set
+--                      (`ID`, `CREATED`, `MODIFIED`,
+--                      `DEFER_UNTIL`, `EFFORT`, `RRULE`,
+--                      `ORIG_KEYWORD`) is never written here —
+--                      those keys map to typed columns and
+--                      would round-trip-conflict with the
+--                      schema. Everything else (`CATEGORY`,
+--                      `CLIENT`, `URL`, free-form user keys)
+--                      survives verbatim. NULL == no extras
+--                      (cheaper than storing `{}`); the read
+--                      boundary normalises both to an empty
+--                      `BTreeMap` at the Rust boundary.
+--
+-- The encode/decode shape mirrors `quick_entry_template.default_tags`
+-- (v0.18.0 precedent): serde_json at the worker write boundary,
+-- defensive `unwrap_or_default()` at the read boundary so a
+-- malformed blob never poisons a query.
+--
+-- Scope guardrail: task-level only. Project-level
+-- (`file_properties`) custom-key passthrough is a separate
+-- ticket; the failing test pins task drawers, and that's
+-- what this migration addresses.
+--
+-- Backwards-compatible additive change. v0.23.x binaries
+-- reading a v0.24.0 DB ignore the column. user_version 13 → 14.
+
+ALTER TABLE task ADD COLUMN extra_properties TEXT NULL;

@@ -37,7 +37,7 @@ use crate::error::DbError;
 pub(super) const TASK_COLUMNS: &str = "id, uuid, title, note, project_id, parent_id, \
     scheduled_for, deadline, defer_until, estimated_minutes, completed_at, \
     repeat_rule, repeat_mode, last_reviewed_at, orig_keyword, deadline_warn_days, \
-    scheduled_time, reminder_at, position, created_at, modified_at";
+    scheduled_time, reminder_at, extra_properties, position, created_at, modified_at";
 
 /// Fetch a single task by primary key.
 pub fn task_by_id(conn: &Connection, id: i64) -> Result<Option<Task>, DbError> {
@@ -734,6 +734,11 @@ pub(super) fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
             .get::<_, Option<String>>("scheduled_time")?
             .and_then(|s| chrono::NaiveTime::parse_from_str(&s, "%H:%M").ok()),
         reminder_at: row.get("reminder_at")?,
+        extra_properties: row
+            .get::<_, Option<String>>("extra_properties")?
+            .as_deref()
+            .map(|s| serde_json::from_str(s).unwrap_or_default())
+            .unwrap_or_default(),
         position: row.get("position")?,
         created_at: row.get("created_at")?,
         modified_at: row.get("modified_at")?,

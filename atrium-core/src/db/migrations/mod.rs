@@ -46,7 +46,14 @@ use crate::error::DbError;
 /// Version 13 (v0.21.0, maintenance) adds `created_at` / `modified_at`
 /// to `task_clock_entry` — the only table that shipped without them
 /// (see 0009). Closes an audit-trail gap surfaced by the v0.21.0
-/// maintenance audit.
+/// maintenance audit. Version 14 (v0.24.0, Post-v0.22.0 Tier 1)
+/// adds `task.extra_properties` — a JSON object stashing unmodeled
+/// `:PROPERTIES:` drawer keys (anything outside the modeled set of
+/// ID / CREATED / MODIFIED / DEFER_UNTIL / EFFORT / RRULE /
+/// ORIG_KEYWORD) so custom user keys survive an Org round-trip
+/// verbatim. Closes the documented gap pinned by
+/// `documented_limit_org_importer_drops_custom_property_keys`
+/// and reinforces spec §7.3.3 rule 1 for property drawers.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
@@ -61,6 +68,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (11, include_str!("0011_task_scheduled_time.sql")),
     (12, include_str!("0012_task_reminder_at.sql")),
     (13, include_str!("0013_task_clock_entry_timestamps.sql")),
+    (14, include_str!("0014_task_extra_properties.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

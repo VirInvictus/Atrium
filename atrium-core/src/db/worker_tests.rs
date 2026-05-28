@@ -1559,3 +1559,97 @@ async fn ensure_heading_increments_position() {
         "successive headings should sort after"
     );
 }
+
+#[tokio::test]
+async fn create_task_persists_extra_properties() {
+    // v0.24.0 — Post-v0.22.0 Tier 1. NewTask.extra_properties
+    // round-trips through the JSON column.
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let mut extras = std::collections::BTreeMap::new();
+    extras.insert("CATEGORY".to_string(), "Q3-deliverables".to_string());
+    extras.insert("CLIENT".to_string(), "Acme Corp".to_string());
+    let new = NewTask {
+        title: "task with extras".to_string(),
+        extra_properties: extras.clone(),
+        ..Default::default()
+    };
+    let task = handle.create_task(new).await.unwrap();
+    assert_eq!(task.extra_properties, extras);
+}
+
+#[tokio::test]
+async fn create_task_empty_extras_round_trips_as_empty() {
+    // Empty BTreeMap normalises to NULL in the column; the
+    // read boundary turns it back into an empty map. The
+    // distinction matters for diff-checking: a freshly
+    // created task with no extras should be `==` to one
+    // round-tripped through the column.
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let task = handle
+        .create_task(NewTask {
+            title: "no extras".to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(task.extra_properties.is_empty());
+}
+
+#[tokio::test]
+async fn update_task_replaces_extra_properties_whole_map() {
+    // TaskUpdate.extra_properties is a whole-map replace —
+    // calling extra_properties_value with a new map
+    // overwrites everything in the column.
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let mut initial = std::collections::BTreeMap::new();
+    initial.insert("CATEGORY".to_string(), "Old".to_string());
+    initial.insert("CLIENT".to_string(), "Acme".to_string());
+    let task = handle
+        .create_task(NewTask {
+            title: "to update".to_string(),
+            extra_properties: initial,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    let mut replacement = std::collections::BTreeMap::new();
+    replacement.insert("CATEGORY".to_string(), "New".to_string());
+    replacement.insert("URL".to_string(), "https://example.com".to_string());
+    let updated = handle
+        .update_task(TaskUpdate::new(task.id).extra_properties_value(replacement.clone()))
+        .await
+        .unwrap();
+    assert_eq!(updated.extra_properties, replacement);
+    assert!(
+        !updated.extra_properties.contains_key("CLIENT"),
+        "whole-map replace drops keys not in the replacement"
+    );
+}
+
+#[tokio::test]
+async fn update_task_clears_extras_with_empty_map() {
+    // Calling extra_properties_value(BTreeMap::new()) clears
+    // the column back to NULL (read boundary normalises to
+    // empty map).
+    let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
+    let mut initial = std::collections::BTreeMap::new();
+    initial.insert("CATEGORY".to_string(), "Q3".to_string());
+    let task = handle
+        .create_task(NewTask {
+            title: "to clear".to_string(),
+            extra_properties: initial,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(!task.extra_properties.is_empty());
+
+    let updated = handle
+        .update_task(
+            TaskUpdate::new(task.id).extra_properties_value(std::collections::BTreeMap::new()),
+        )
+        .await
+        .unwrap();
+    assert!(updated.extra_properties.is_empty());
+}

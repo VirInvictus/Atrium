@@ -1019,3 +1019,81 @@ async fn external_deadline_warning_suffix_round_trips_through_db() {
     drop(handle);
     let _ = std::fs::remove_dir_all(&vault);
 }
+
+#[tokio::test]
+async fn external_custom_property_drawer_round_trips_through_db() {
+    // v0.24.0 — Post-v0.22.0 Tier 1. An external Emacs edit
+    // that adds unmodeled `:KEY: value` lines to a task's
+    // `:PROPERTIES:` drawer flows back into the DB column,
+    // and a subsequent removal clears them again. Closes the
+    // last documented Org round-trip gap for property drawers.
+    let (conn, vault, pool) = fresh_setup("ext-custom-properties");
+    let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
+
+    let project_path = vault.join("Errands.org");
+
+    // External add: a task with two custom drawer keys.
+    let existing = std::fs::read_to_string(&project_path).unwrap();
+    let appended = format!(
+        "{existing}\n* TODO Acme retainer\n:PROPERTIES:\n:CLIENT: Acme Corp\n:URL: https://example.com/x\n:END:\n"
+    );
+    std::fs::write(&project_path, appended).unwrap();
+
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let tasks = pool
+        .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+        .unwrap();
+    let acme = tasks
+        .iter()
+        .find(|t| t.title == "Acme retainer")
+        .expect("task should land in DB");
+    assert_eq!(
+        acme.extra_properties.get("CLIENT").map(String::as_str),
+        Some("Acme Corp"),
+    );
+    assert_eq!(
+        acme.extra_properties.get("URL").map(String::as_str),
+        Some("https://example.com/x"),
+    );
+
+    // The writer rewrites the file. Confirm both keys survive
+    // the re-emit.
+    let after_first = std::fs::read_to_string(&project_path).unwrap();
+    assert!(
+        after_first.contains(":CLIENT: Acme Corp"),
+        ":CLIENT: must survive the writer round-trip; got:\n{after_first}"
+    );
+    assert!(
+        after_first.contains(":URL: https://example.com/x"),
+        ":URL: must survive the writer round-trip; got:\n{after_first}"
+    );
+
+    // External edit: change the CLIENT value and drop URL.
+    let edited = after_first
+        .replace(":CLIENT: Acme Corp", ":CLIENT: BetaCo")
+        .replace(":URL: https://example.com/x\n", "");
+    std::fs::write(&project_path, edited).unwrap();
+
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let tasks2 = pool
+        .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+        .unwrap();
+    let updated = tasks2
+        .iter()
+        .find(|t| t.title == "Acme retainer")
+        .expect("task should still exist after edit");
+    assert_eq!(
+        updated.extra_properties.get("CLIENT").map(String::as_str),
+        Some("BetaCo"),
+        "external CLIENT edit must sync through the column"
+    );
+    assert!(
+        !updated.extra_properties.contains_key("URL"),
+        "external URL removal must clear the key from the column"
+    );
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&vault);
+}

@@ -575,26 +575,16 @@ SCHEDULED: <2026-05-15 Fri>
 }
 
 #[tokio::test]
-async fn documented_limit_org_importer_drops_custom_property_keys() {
-    // Documents the asymmetry: the writer emits whatever's in
-    // `task.properties` HashMap, but the IMPORTER cherry-picks
-    // only the four well-known keys (ID, EFFORT, DEFER_UNTIL,
-    // RRULE) and writes them through typed columns. Custom keys
-    // — `:CATEGORY:`, `:CLIENT:`, `:URL:`, anything else a user
-    // might put in their drawer — get dropped because the schema
-    // doesn't have a place for arbitrary key-value extras.
-    //
-    // Spec §7.3.3 rule 1 ("preserve unknown constructs
-    // verbatim") is upheld for body content (Org tables / source
-    // blocks / lists / links all survive in `task.note`) but
-    // not for property-drawer keys outside the well-known set.
-    // Closing this gap needs either a `task_property` table or
-    // a JSON column on `task` — both schema-changing, both
-    // out-of-scope for the current Org-emit-styling work.
-    //
-    // When that lands, this test fails: the regenerated drawer
-    // will carry the custom keys and the round-trip becomes
-    // lossless. Flip the assertion to expect the keys present.
+async fn org_importer_round_trips_custom_property_keys() {
+    // v0.24.0 — Post-v0.22.0 Tier 1 closed the documented gap.
+    // Before: the importer cherry-picked four well-known keys
+    // (ID, EFFORT, DEFER_UNTIL, RRULE) and silently dropped
+    // every other `:KEY: value` line. Now: unmodeled keys
+    // stash into `task.extra_properties` (JSON column, migration
+    // 0014) and the writer merges them back into the emitted
+    // drawer. Spec §7.3.3 rule 1 ("preserve unknown constructs
+    // verbatim") now holds for property drawers as well as
+    // body content.
     let fixture = "\
 * TODO Task with mixed well-known + custom property keys
 :PROPERTIES:
@@ -605,25 +595,61 @@ async fn documented_limit_org_importer_drops_custom_property_keys() {
 :URL: https://example.com/ticket/42
 :END:
 ";
-    let (_source, regenerated) = round_trip_through_db("custom_property_keys_drop", fixture).await;
+    let (_source, regenerated) =
+        round_trip_through_db("custom_property_keys_roundtrip", fixture).await;
     let props = &regenerated.headlines[0].properties;
 
-    // Well-known keys survive.
+    // Well-known keys survive (mapped through typed columns).
     assert_eq!(props.get("EFFORT").map(String::as_str), Some("1:30"));
     assert!(props.contains_key("ID"));
 
-    // Custom keys are dropped on the way through the importer.
-    assert!(
-        !props.contains_key("CATEGORY"),
-        "CATEGORY survived round-trip — the property-drawer gap from \
-         spec §7.3.3 rule 1 may have been closed; flip this test \
-         from documenting the limit to asserting preservation.",
+    // Custom keys now survive via `task.extra_properties`.
+    assert_eq!(
+        props.get("CATEGORY").map(String::as_str),
+        Some("Q3-deliverables"),
     );
-    assert!(
-        !props.contains_key("CLIENT"),
-        "CLIENT unexpectedly survived"
+    assert_eq!(props.get("CLIENT").map(String::as_str), Some("Acme Corp"),);
+    assert_eq!(
+        props.get("URL").map(String::as_str),
+        Some("https://example.com/ticket/42"),
     );
-    assert!(!props.contains_key("URL"), "URL unexpectedly survived");
+}
+
+#[tokio::test]
+async fn org_importer_round_trips_many_custom_property_keys() {
+    // Stress-cover the extras passthrough: every letter of the
+    // alphabet (mostly) plus an empty-value key (the parser
+    // permits `:FLAG:` with no value). All survive the
+    // round-trip via the JSON column.
+    let fixture = "\
+* TODO Task with many custom property keys
+:PROPERTIES:
+:ID: eeeeeeee-2222-2222-2222-222222222222
+:ALPHA: a
+:BETA: b
+:GAMMA: c
+:DELTA: d
+:EPSILON: e
+:ZETA: f
+:FLAG:
+:URL: https://example.com/x
+:END:
+";
+    let (_source, regenerated) = round_trip_through_db("custom_property_keys_many", fixture).await;
+    let props = &regenerated.headlines[0].properties;
+
+    assert_eq!(props.get("ALPHA").map(String::as_str), Some("a"));
+    assert_eq!(props.get("BETA").map(String::as_str), Some("b"));
+    assert_eq!(props.get("GAMMA").map(String::as_str), Some("c"));
+    assert_eq!(props.get("DELTA").map(String::as_str), Some("d"));
+    assert_eq!(props.get("EPSILON").map(String::as_str), Some("e"));
+    assert_eq!(props.get("ZETA").map(String::as_str), Some("f"));
+    // Empty-value drawer entries round-trip as empty strings.
+    assert_eq!(props.get("FLAG").map(String::as_str), Some(""));
+    assert_eq!(
+        props.get("URL").map(String::as_str),
+        Some("https://example.com/x"),
+    );
 }
 
 #[tokio::test]

@@ -1457,6 +1457,11 @@ fn run_add(
         // v0.20.0 — populated by the --reminder flag wired in
         // task #61.
         reminder_at: add.reminder_at,
+        // v0.24.0 — `atrium-cli add` doesn't surface a
+        // `--extra` flag; in-CLI captures land with no
+        // extras. The Org importer is the only path that
+        // populates this column today.
+        extra_properties: std::collections::BTreeMap::new(),
     };
 
     let task = runtime

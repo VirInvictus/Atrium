@@ -1058,12 +1058,26 @@ impl Worker {
         // completed_at appended so the Org importer
         // can preserve the source CLOSED cookie.
         let scheduled_time_str = new.scheduled_time.map(|t| t.format("%H:%M").to_string());
+        // v0.24.0 — empty extras map → NULL (cheaper than `{}`),
+        // matching the `default_tags` JSON precedent. Encode
+        // failures bubble out as a Sync error rather than
+        // crashing — a malformed BTreeMap shouldn't be possible
+        // at the Rust boundary, but we don't silently drop.
+        let extra_properties_json = if new.extra_properties.is_empty() {
+            None
+        } else {
+            Some(
+                serde_json::to_string(&new.extra_properties)
+                    .map_err(|e| DbError::Sync(format!("extra_properties JSON encode: {e}")))?,
+            )
+        };
         self.conn.execute(
             "INSERT INTO task \
              (uuid, title, note, project_id, parent_id, scheduled_for, deadline, \
               defer_until, estimated_minutes, repeat_rule, repeat_mode, orig_keyword, \
-              completed_at, deadline_warn_days, scheduled_time, reminder_at, position) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              completed_at, deadline_warn_days, scheduled_time, reminder_at, \
+              extra_properties, position) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 uuid,
                 new.title,
@@ -1081,6 +1095,7 @@ impl Worker {
                 new.deadline_warn_days,
                 scheduled_time_str,
                 new.reminder_at,
+                extra_properties_json,
                 position,
             ],
         )?;
@@ -1267,6 +1282,21 @@ impl Worker {
             sets.push("reminder_at = ?");
             bound.push(Box::new(reminder));
         }
+        if let Some(extras) = update.extra_properties {
+            sets.push("extra_properties = ?");
+            // Empty map normalises to NULL on the column for
+            // parity with the create path; the read boundary
+            // turns either back into an empty BTreeMap.
+            let encoded: Option<String> = if extras.is_empty() {
+                None
+            } else {
+                Some(
+                    serde_json::to_string(&extras)
+                        .map_err(|e| DbError::Sync(format!("extra_properties JSON encode: {e}")))?,
+                )
+            };
+            bound.push(Box::new(encoded));
+        }
         bound.push(Box::new(update.id));
 
         let sql = format!("UPDATE task SET {} WHERE id = ?", sets.join(", "));
@@ -1428,6 +1458,10 @@ impl Worker {
             // it. Users can re-set the reminder if they want
             // it to repeat alongside the task.
             reminder_at: None,
+            // v0.24.0 — custom property-drawer extras carry
+            // forward; the user put them on the task once
+            // and expects them on every recurrence.
+            extra_properties: completed.extra_properties.clone(),
         };
         let inserted = self.create_task(new_task)?;
 
