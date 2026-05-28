@@ -1,0 +1,29 @@
+-- 0015_area_default_review_interval.sql — v0.28.0
+--
+-- Phase 13 carryover (promoted to the Post-v0.22.0 Tier 3 polish
+-- arc) — per-area review schedules. Until now a project only
+-- entered the Review queue when it carried its own non-NULL
+-- `review_interval_days`; every project had to be opted in by
+-- hand. This column lets an area set a default that cascades to
+-- every project filed under it.
+--
+-- One new column on `area`:
+--
+--   default_review_interval_days   INTEGER NULL
+--                                  Default review cadence (in days)
+--                                  for projects in this area that
+--                                  don't set their own
+--                                  `review_interval_days`. NULL == no
+--                                  area default (the prior behaviour:
+--                                  only per-project opt-in counts).
+--
+-- The Review query resolves the effective cadence with
+-- `COALESCE(project.review_interval_days, area.default_review_interval_days)`:
+-- a project's own value always wins, the area default fills in when
+-- the project leaves it NULL, and a project in no area (or an area
+-- with no default) behaves exactly as it did before this migration.
+--
+-- Backwards-compatible additive change. v0.27.x binaries reading a
+-- v0.28.0 DB ignore the column. user_version 14 → 15.
+
+ALTER TABLE area ADD COLUMN default_review_interval_days INTEGER NULL;

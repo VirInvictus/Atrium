@@ -1,5 +1,27 @@
 # Atrium — Patch Notes
 
+## v0.28.0 (2026-05-28) — per-area review schedules (Post-v0.22.0 Tier 3)
+
+The first cut of the Post-v0.22.0 Tier 3 polish arc, and a Phase 13 carryover finally landed. Until now a project only entered the Review queue when it carried its own non-NULL `review_interval_days`; every project had to be opted in by hand. An area can now set a default cadence that cascades to the projects filed under it. Workspace 977 unit tests + green; `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all --check` clean; `bash scripts/regression.sh` passes; `appstreamcli validate` clean.
+
+### Schema
+
+Migration `0015_area_default_review_interval.sql` adds `area.default_review_interval_days INTEGER NULL` (`user_version` 14 → 15). Additive and backwards-compatible: v0.27.x binaries reading a v0.28.0 DB ignore the column.
+
+### Cascade
+
+`list_review_queue` now `LEFT JOIN`s the area and resolves the effective cadence with `COALESCE(project.review_interval_days, area.default_review_interval_days)` for both the membership predicate and the next-due date math. The project's own value always wins; the area default only fills in where the project leaves it NULL; a project in no area (or an area with no default) behaves exactly as it did before. Both-NULL keeps the project out of the queue.
+
+### Surface
+
+- `Area` / `NewArea` / `AreaUpdate` carry the new field; `AreaUpdate.default_review_interval_days(Option<i64>)` mirrors the existing `color` `Option<Option<_>>` builder, so `Some(None)` clears an existing default and `Some(Some(n))` sets it.
+- The shared Edit Area / New Area dialog (`prompt_for_named_color`) grows an optional "Review every (days, 0 = off)" `SpinButton` row; tag dialogs pass `None` and are unchanged. The window caches each area's current value (`area_review_intervals`) to pre-fill the row on edit. 0 maps to "no default" (a clear).
+- No CLI change: areas have no create/edit subcommand today, so the cascade is exercised through the data-layer tests rather than a shell surface.
+
+### Tests
+
+Three new atrium-core tests: `review_queue_honors_area_default_when_project_interval_null` and `review_queue_project_interval_overrides_area_default` (read-side cascade, including the override case where the project's own slower cadence keeps it out of a queue the area default would pull it into), plus `area_default_review_interval_round_trips` (worker create / update / clear-to-NULL).
+
 ## v0.27.0 (2026-05-28) — todo.txt importer (Phase 19 slice 3)
 
 Phase 19's third slice. todo.txt is the simplest of the importer formats — one task per line, no quoting, Gina Trapani's spec at <https://github.com/todotxt/todo.txt>. Hand-rolled stdlib parser + mapper; no new deps. Workspace 974 tests + green; clippy `-D warnings` and fmt clean; `scripts/regression.sh` passes; `appstreamcli validate` clean. No schema change.

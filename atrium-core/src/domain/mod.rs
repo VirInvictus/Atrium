@@ -423,6 +423,10 @@ pub struct NewArea {
     /// from the same six-swatch palette tags use; `None` for areas
     /// with no chosen accent.
     pub color: Option<String>,
+    /// v0.28.0 — optional default Review cadence (in days) for
+    /// projects in this area that don't set their own interval.
+    /// `None` for no area default.
+    pub default_review_interval_days: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -433,6 +437,9 @@ pub struct AreaUpdate {
     /// Phase 15.75 — `Some(Some(hex))` sets the accent, `Some(None)`
     /// clears it back to no accent.
     pub color: Option<Option<String>>,
+    /// v0.28.0 — `Some(Some(days))` sets the area default Review
+    /// cadence, `Some(None)` clears it back to no default.
+    pub default_review_interval_days: Option<Option<i64>>,
 }
 
 impl AreaUpdate {
@@ -460,8 +467,18 @@ impl AreaUpdate {
         self
     }
 
+    /// v0.28.0 — set or clear the area's default Review cadence. Pass
+    /// `None` to clear (back to no default), `Some(days)` to set.
+    pub fn default_review_interval_days(mut self, days: Option<i64>) -> Self {
+        self.default_review_interval_days = Some(days);
+        self
+    }
+
     pub fn is_noop(&self) -> bool {
-        self.title.is_none() && self.position.is_none() && self.color.is_none()
+        self.title.is_none()
+            && self.position.is_none()
+            && self.color.is_none()
+            && self.default_review_interval_days.is_none()
     }
 }
 
@@ -591,6 +608,10 @@ pub struct Area {
     /// Phase 15.75 — optional accent colour as a hex string. `None`
     /// for areas with no chosen accent.
     pub color: Option<String>,
+    /// v0.28.0 — default Review cadence (in days) for projects filed
+    /// under this area that don't set their own `review_interval_days`.
+    /// `None` means no area default (only per-project opt-in counts).
+    pub default_review_interval_days: Option<i64>,
     pub position: f64,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,

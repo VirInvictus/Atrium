@@ -113,7 +113,8 @@ pub(super) async fn prompt_for_named_color(
     name_initial: &str,
     color_initial: Option<&str>,
     confirm_label: &str,
-) -> Option<(String, Option<String>)> {
+    review_initial: Option<i64>,
+) -> Option<(String, Option<String>, Option<i64>)> {
     let entry = gtk::Entry::builder()
         .placeholder_text(placeholder)
         .text(name_initial)
@@ -173,6 +174,28 @@ pub(super) async fn prompt_for_named_color(
     body.append(&entry);
     body.append(&swatches);
 
+    // v0.28.0 — optional Review-cadence row. Only the area dialogs opt
+    // in (`Some`); tag dialogs pass `None` and keep the original
+    // name + colour form. 0 means "no default" (cleared).
+    let review_spin = review_initial.map(|initial| {
+        let row = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(12)
+            .build();
+        let label = gtk::Label::builder()
+            .label("Review every (days, 0 = off)")
+            .halign(gtk::Align::Start)
+            .hexpand(true)
+            .xalign(0.0)
+            .build();
+        let spin = gtk::SpinButton::with_range(0.0, 365.0, 1.0);
+        spin.set_value(initial.max(0) as f64);
+        row.append(&label);
+        row.append(&spin);
+        body.append(&row);
+        spin
+    });
+
     let dialog = adw::AlertDialog::new(Some(heading), None);
     dialog.set_extra_child(Some(&body));
     dialog.add_response("cancel", "Cancel");
@@ -187,7 +210,8 @@ pub(super) async fn prompt_for_named_color(
         if text.is_empty() {
             None
         } else {
-            Some((text, selected_color.borrow().clone()))
+            let review = review_spin.map(|s| s.value().round() as i64);
+            Some((text, selected_color.borrow().clone(), review))
         }
     } else {
         None

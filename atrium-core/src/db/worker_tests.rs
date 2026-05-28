@@ -912,6 +912,37 @@ async fn rename_area_round_trip() {
 }
 
 #[tokio::test]
+async fn area_default_review_interval_round_trips() {
+    let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+    // Create with a default cadence set.
+    let area = handle
+        .create_area(NewArea {
+            title: "Work".into(),
+            default_review_interval_days: Some(7),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(area.default_review_interval_days, Some(7));
+    let _ = library_rx.recv().await.unwrap();
+
+    // Update it to a different value.
+    let updated = handle
+        .update_area(AreaUpdate::new(area.id).default_review_interval_days(Some(14)))
+        .await
+        .unwrap();
+    assert_eq!(updated.default_review_interval_days, Some(14));
+    let _ = library_rx.recv().await.unwrap();
+
+    // Clear it back to NULL via Some(None).
+    let cleared = handle
+        .update_area(AreaUpdate::new(area.id).default_review_interval_days(None))
+        .await
+        .unwrap();
+    assert_eq!(cleared.default_review_interval_days, None);
+}
+
+#[tokio::test]
 async fn delete_area_unfiles_projects() {
     let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
     let area = handle

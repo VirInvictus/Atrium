@@ -172,6 +172,10 @@ mod imp {
         /// the row factory consults it (resolved through `project_meta`'s
         /// `area_id`) to paint the 3 px area-accent stripe on each row.
         pub area_colors: RefCell<HashMap<i64, Option<String>>>,
+        /// v0.28.0 — per-area default Review cadence cache (days or
+        /// None). The Edit Area dialog reads it to pre-fill the
+        /// review-interval row.
+        pub area_review_intervals: RefCell<HashMap<i64, Option<i64>>>,
 
         /// Open-task count caches (Phase 5c). Refreshed alongside the
         /// sidebar from `read::count_open_*`; the sidebar consumes

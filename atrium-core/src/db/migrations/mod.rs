@@ -54,6 +54,12 @@ use crate::error::DbError;
 /// verbatim. Closes the documented gap pinned by
 /// `documented_limit_org_importer_drops_custom_property_keys`
 /// and reinforces spec §7.3.3 rule 1 for property drawers.
+/// Version 15 (v0.28.0, Post-v0.22.0 Tier 3) adds
+/// `area.default_review_interval_days` so an area can set a default
+/// Review cadence that cascades to its projects via
+/// `COALESCE(project.review_interval_days, area.default_review_interval_days)`
+/// in the Review query — a project's own value still wins, the area
+/// default only fills in where the project leaves it NULL.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
@@ -69,6 +75,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (12, include_str!("0012_task_reminder_at.sql")),
     (13, include_str!("0013_task_clock_entry_timestamps.sql")),
     (14, include_str!("0014_task_extra_properties.sql")),
+    (15, include_str!("0015_area_default_review_interval.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

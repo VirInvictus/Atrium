@@ -522,15 +522,20 @@ impl AtriumWindow {
         let mut project_titles: HashMap<i64, String> = HashMap::new();
         let mut area_titles: HashMap<i64, String> = HashMap::new();
         let mut area_colors: HashMap<i64, Option<String>> = HashMap::new();
+        let mut area_review_intervals: HashMap<i64, Option<i64>> = HashMap::new();
         for a in &areas {
             area_titles.insert(a.id, a.title.clone());
             area_colors.insert(a.id, a.color.clone());
+            area_review_intervals.insert(a.id, a.default_review_interval_days);
         }
         for p in &projects {
             project_titles.insert(p.id, p.title.clone());
         }
         self.imp().area_titles.replace(area_titles);
         self.imp().area_colors.replace(area_colors);
+        self.imp()
+            .area_review_intervals
+            .replace(area_review_intervals);
         self.imp().project_titles.replace(project_titles);
 
         // Group projects by area_id for nesting.

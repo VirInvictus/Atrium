@@ -257,13 +257,22 @@ impl AtriumWindow {
     pub fn prompt_create_area(&self) {
         let win = self.clone();
         glib::MainContext::default().spawn_local(async move {
-            let Some((title, color)) =
-                prompt_for_named_color(&win, "New Area", "Area name", "", None, "Create").await
+            let Some((title, color, review)) =
+                prompt_for_named_color(&win, "New Area", "Area name", "", None, "Create", Some(0))
+                    .await
             else {
                 return;
             };
             let Some(worker) = win.worker() else { return };
-            if let Err(e) = worker.create_area(NewArea { title, color }).await {
+            let default_review_interval_days = review.filter(|&d| d > 0);
+            if let Err(e) = worker
+                .create_area(NewArea {
+                    title,
+                    color,
+                    default_review_interval_days,
+                })
+                .await
+            {
                 error!(?e, "create_area failed");
             }
         });
@@ -321,22 +330,39 @@ impl AtriumWindow {
                     .cloned()
                     .unwrap_or_default();
                 let current_color = self.imp().area_colors.borrow().get(&id).cloned().flatten();
+                let current_review = self
+                    .imp()
+                    .area_review_intervals
+                    .borrow()
+                    .get(&id)
+                    .cloned()
+                    .flatten();
                 glib::MainContext::default().spawn_local(async move {
-                    let Some((title, color)) = prompt_for_named_color(
+                    let Some((title, color, review)) = prompt_for_named_color(
                         &win,
                         "Edit Area",
                         "Area name",
                         &current_name,
                         current_color.as_deref(),
                         "Save",
+                        Some(current_review.unwrap_or(0)),
                     )
                     .await
                     else {
                         return;
                     };
                     let Some(worker) = win.worker() else { return };
+                    // 0 from the spin means "no default": `interval`
+                    // becomes None, and the builder's Some(None) clears
+                    // any existing default rather than just changing it.
+                    let interval = review.filter(|&d| d > 0);
                     if let Err(e) = worker
-                        .update_area(AreaUpdate::new(id).title(title).color(color))
+                        .update_area(
+                            AreaUpdate::new(id)
+                                .title(title)
+                                .color(color)
+                                .default_review_interval_days(interval),
+                        )
                         .await
                     {
                         error!(?e, id, "update_area failed");
@@ -377,13 +403,14 @@ impl AtriumWindow {
                     .unwrap_or_default();
                 let current_color = self.imp().tag_colors.borrow().get(&id).cloned().flatten();
                 glib::MainContext::default().spawn_local(async move {
-                    let Some((name, color)) = prompt_for_named_color(
+                    let Some((name, color, _)) = prompt_for_named_color(
                         &win,
                         "Edit Tag",
                         "Tag name",
                         &current_name,
                         current_color.as_deref(),
                         "Save",
+                        None,
                     )
                     .await
                     else {
@@ -558,8 +585,8 @@ impl AtriumWindow {
     pub fn prompt_create_tag(&self) {
         let win = self.clone();
         glib::MainContext::default().spawn_local(async move {
-            let Some((name, color)) =
-                prompt_for_named_color(&win, "New Tag", "Tag name", "", None, "Create").await
+            let Some((name, color, _)) =
+                prompt_for_named_color(&win, "New Tag", "Tag name", "", None, "Create", None).await
             else {
                 return;
             };

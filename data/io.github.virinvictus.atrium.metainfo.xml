@@ -90,6 +90,23 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.28.0" date="2026-05-28">
+      <description>
+        <p>Per-area review schedules. An area can now set a default
+           review cadence that cascades to every project filed under
+           it, so projects no longer have to be opted into the Review
+           queue one at a time.</p>
+        <p>The Review query resolves the effective cadence as the
+           project's own review interval, falling back to the area
+           default when the project leaves it unset. A project's own
+           value always wins; a project in no area, or an area with
+           no default, behaves exactly as before.</p>
+        <p>The Edit Area dialog gains a review-interval row (0 = off).
+           Schema migration 0015 adds the additive, nullable
+           area.default_review_interval_days column; databases written
+           by older releases keep working unchanged.</p>
+      </description>
+    </release>
     <release version="0.27.0" date="2026-05-28">
       <description>
         <p>The todo.txt importer. Phase 19's third slice and

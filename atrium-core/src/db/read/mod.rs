@@ -363,7 +363,8 @@ pub fn list_area(conn: &Connection, area_id: i64) -> Result<Vec<Task>, DbError> 
         .map_err(Into::into)
 }
 
-const AREA_COLUMNS: &str = "id, uuid, title, color, position, created_at, modified_at";
+const AREA_COLUMNS: &str =
+    "id, uuid, title, color, default_review_interval_days, position, created_at, modified_at";
 
 const PROJECT_COLUMNS: &str = "id, uuid, title, note, area_id, sequential, \
     review_interval_days, last_reviewed_at, archived_at, position, \
@@ -507,18 +508,34 @@ pub fn list_task_tags(conn: &Connection) -> Result<Vec<(i64, i64)>, DbError> {
 /// SQL level to avoid pulling each row into Rust just to filter.
 pub fn list_review_queue(conn: &Connection, today: NaiveDate) -> Result<Vec<Project>, DbError> {
     let today_str = today.format("%Y-%m-%d").to_string();
+    // Prefix the projected columns with the project alias — the
+    // LEFT JOIN onto area shares column names (id, title, position,
+    // created_at, modified_at), so bare names would be ambiguous.
+    let project_cols = PROJECT_COLUMNS
+        .split(", ")
+        .map(|c| format!("p.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    // v0.28.0 — the effective cadence is the project's own
+    // review_interval_days, falling back to its area's
+    // default_review_interval_days. Both NULL keeps the project out
+    // of the queue, exactly as before the area default existed.
     let sql = format!(
-        "SELECT {PROJECT_COLUMNS} FROM project \
-         WHERE review_interval_days IS NOT NULL \
-           AND archived_at IS NULL \
+        "SELECT {project_cols} FROM project p \
+         LEFT JOIN area a ON p.area_id = a.id \
+         WHERE COALESCE(p.review_interval_days, a.default_review_interval_days) IS NOT NULL \
+           AND p.archived_at IS NULL \
            AND ( \
-                 last_reviewed_at IS NULL \
-                 OR date(last_reviewed_at, '+' || review_interval_days || ' days') <= ?1 \
+                 p.last_reviewed_at IS NULL \
+                 OR date( \
+                      p.last_reviewed_at, \
+                      '+' || COALESCE(p.review_interval_days, a.default_review_interval_days) || ' days' \
+                    ) <= ?1 \
                ) \
          ORDER BY \
-             CASE WHEN last_reviewed_at IS NULL THEN 0 ELSE 1 END, \
-             last_reviewed_at ASC, \
-             position"
+             CASE WHEN p.last_reviewed_at IS NULL THEN 0 ELSE 1 END, \
+             p.last_reviewed_at ASC, \
+             p.position"
     );
     let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(params![today_str], project_from_row)?;
@@ -671,6 +688,7 @@ fn area_from_row(row: &Row<'_>) -> rusqlite::Result<Area> {
         uuid: row.get("uuid")?,
         title: row.get("title")?,
         color: row.get("color")?,
+        default_review_interval_days: row.get("default_review_interval_days")?,
         position: row.get("position")?,
         created_at: row.get("created_at")?,
         modified_at: row.get("modified_at")?,
@@ -1578,6 +1596,55 @@ mod tests {
         let titles: Vec<&str> = queue.iter().map(|p| p.title.as_str()).collect();
         // Never-reviewed first, then oldest review next, then most recent.
         assert_eq!(titles, vec!["never", "two weeks ago", "two days ago"]);
+    }
+
+    // v0.28.0 — per-area review default cascade.
+
+    #[test]
+    fn review_queue_honors_area_default_when_project_interval_null() {
+        let conn = fresh_conn();
+        let area = insert_area(&conn, "ar", "Work");
+        conn.execute(
+            "UPDATE area SET default_review_interval_days = 7 WHERE id = ?1",
+            params![area],
+        )
+        .unwrap();
+
+        // Project filed under the area, never reviewed, with no own
+        // interval — it inherits the area default and enters the queue.
+        let _inherits = insert_project(&conn, "p", "inherits", Some(area), None);
+        // No area, no interval — stays out, exactly as before.
+        let _orphan = insert_project(&conn, "q", "orphan", None, None);
+
+        let queue = list_review_queue(&conn, today()).unwrap();
+        let titles: Vec<&str> = queue.iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(titles, vec!["inherits"]);
+    }
+
+    #[test]
+    fn review_queue_project_interval_overrides_area_default() {
+        let conn = fresh_conn();
+        // Area default is aggressive (1 day); the project sets its own
+        // slower cadence (7 days). today = 2026-05-15.
+        let area = insert_area(&conn, "ar", "Work");
+        conn.execute(
+            "UPDATE area SET default_review_interval_days = 1 WHERE id = ?1",
+            params![area],
+        )
+        .unwrap();
+        // Reviewed 5 days ago. Own interval 7 → next due 2026-05-17
+        // (not yet). The area default 1 would make it overdue; if the
+        // override didn't work this project would wrongly appear.
+        conn.execute(
+            "INSERT INTO project \
+             (uuid, title, area_id, review_interval_days, last_reviewed_at, position) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+            params!["p", "own wins", area, 7, "2026-05-10T08:00:00.000Z", 1.0],
+        )
+        .unwrap();
+
+        let queue = list_review_queue(&conn, today()).unwrap();
+        assert!(queue.is_empty());
     }
 
     #[test]

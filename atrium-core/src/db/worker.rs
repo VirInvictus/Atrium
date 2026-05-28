@@ -1493,8 +1493,15 @@ impl Worker {
         let uuid = Uuid::new_v4().to_string();
         let position = self.next_area_position()?;
         self.conn.execute(
-            "INSERT INTO area (uuid, title, color, position) VALUES (?, ?, ?, ?)",
-            params![uuid, new.title, new.color, position],
+            "INSERT INTO area (uuid, title, color, default_review_interval_days, position) \
+             VALUES (?, ?, ?, ?, ?)",
+            params![
+                uuid,
+                new.title,
+                new.color,
+                new.default_review_interval_days,
+                position
+            ],
         )?;
         let id = self.conn.last_insert_rowid();
         read::area_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
@@ -1524,6 +1531,10 @@ impl Worker {
         if let Some(color) = update.color {
             sets.push("color = ?");
             bound.push(Box::new(color));
+        }
+        if let Some(interval) = update.default_review_interval_days {
+            sets.push("default_review_interval_days = ?");
+            bound.push(Box::new(interval));
         }
         bound.push(Box::new(update.id));
         let sql = format!("UPDATE area SET {} WHERE id = ?", sets.join(", "));
@@ -1865,6 +1876,7 @@ impl Worker {
             Err(rusqlite::Error::QueryReturnedNoRows) => self.create_area(NewArea {
                 title: name.to_string(),
                 color: None,
+                default_review_interval_days: None,
             }),
             Err(e) => Err(e.into()),
         }
