@@ -62,9 +62,14 @@ pub enum DomainError {
     /// project boundary. The schema's FK ensures the parent row
     /// exists; this rule catches the cross-project case the FK
     /// can't.
+    // v0.23.1 — message format previously leaked `Some(N)` Debug
+    // output to user-facing surfaces. Project ids render bare; the
+    // unfiled (`None`) case prints `unfiled`.
     #[error(
-        "parent task {parent_task} is in project {parent_project:?}; \
-         cannot host a child claiming project {claimed_project:?}"
+        "parent task {parent_task} is in project {parent}; \
+         cannot host a child claiming project {claimed}",
+        parent = parent_project.map_or_else(|| String::from("unfiled"), |id| id.to_string()),
+        claimed = claimed_project.map_or_else(|| String::from("unfiled"), |id| id.to_string()),
     )]
     ParentProjectMismatch {
         parent_task: i64,

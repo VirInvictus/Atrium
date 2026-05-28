@@ -234,6 +234,39 @@ impl ActiveList {
     }
 }
 
+/// v0.23.1 — reorder drop-position bias. The cursor's vertical position
+/// on the target row picks before/after semantics: top half lands the
+/// dropped task immediately *above* the target, bottom half lands it
+/// immediately *below*. Matches the GNOME / macOS list-reorder idiom.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropBias {
+    Above,
+    Below,
+}
+
+/// v0.23.1 — robust shift-held read for drag-to-reparent. GTK's
+/// `current_event_state()` is documented as the modifier state of the
+/// event the controller is currently handling, but during Wayland DnD
+/// sequences it can come up empty (no event has been delivered to the
+/// controller's window at drop time). Fall through to the live keyboard
+/// modifier state on the display's default seat. Public so the
+/// inspector pane's drag picker can reuse it.
+pub fn shift_held(target: &gtk::DropTarget) -> bool {
+    if target
+        .current_event_state()
+        .contains(gdk::ModifierType::SHIFT_MASK)
+    {
+        return true;
+    }
+    target
+        .widget()
+        .map(|w| w.display())
+        .and_then(|d| d.default_seat())
+        .and_then(|s| s.keyboard())
+        .map(|kb| kb.modifier_state().contains(gdk::ModifierType::SHIFT_MASK))
+        .unwrap_or(false)
+}
+
 /// Build a `SignalListItemFactory` that produces task-row widgets.
 ///
 /// The row layout (Phase 4 baseline):
@@ -254,7 +287,11 @@ pub fn build_factory<ToggleFn, RenameFn, ReorderFn, ReparentFn, PoolFn>(
 where
     ToggleFn: Fn(i64, bool) + Clone + 'static,
     RenameFn: Fn(i64, String) + Clone + 'static,
-    ReorderFn: Fn(i64, i64) + Clone + 'static,
+    // v0.23.1 — DropBias picks above/below from the cursor's vertical
+    // position on the target row. Plain drop only; reparent ignores y
+    // (Shift+drop on a row always means "make me a child," regardless
+    // of which half of the row received the drop).
+    ReorderFn: Fn(i64, i64, DropBias) + Clone + 'static,
     // Subtasks (v0.23.0) — Shift+drop reparents (drop A onto B makes A
     // a child of B); plain drop reorders.
     ReparentFn: Fn(i64, i64) + Clone + 'static,
@@ -417,7 +454,17 @@ where
         // Subtasks (v0.23.0) — indent the row by nesting depth. Depth 0
         // (top level) keeps the base 12px; each level adds 18. Rows are
         // recycled, so this recomputes on every rebind.
+        //
+        // v0.23.1 — `apply_nesting` mutates depth on already-bound tasks
+        // and then re-sorts the store. ListView only re-binds rows that
+        // visually move; rows whose depth changed without a position
+        // change kept stale margins. Wire a notify-handler so the
+        // margin tracks live depth changes on the bound task.
         row.set_margin_start(12 + task.depth().max(0) * 18);
+        let row_for_depth = row.clone();
+        let depth_handler = task.connect_depth_notify(move |t| {
+            row_for_depth.set_margin_start(12 + t.depth().max(0) * 18);
+        });
 
         // Walk the children. Layout order is fixed per `setup`.
         let check = row
@@ -696,6 +743,7 @@ where
             row.set_data("atrium-area-color-handler", area_color_handler);
             row.set_data("atrium-row-state-handler", state_handler);
             row.set_data("atrium-repeating-handler", repeating_handler);
+            row.set_data("atrium-depth-handler", depth_handler);
             row.set_data("atrium-task-obj", task.clone());
             row.set_data("atrium-check", check.clone());
             row.set_data("atrium-title-stack", title_stack.clone());
@@ -723,22 +771,42 @@ where
         let on_reorder_clone = on_reorder.clone();
         let on_reparent_clone = on_reparent.clone();
         let dest_id = task_id;
-        drop_target.connect_drop(move |target, value, _, _| {
+        drop_target.connect_drop(move |target, value, _x, y| {
             if let Ok(src_id) = value.get::<i64>() {
                 if src_id != dest_id {
                     // Subtasks (v0.23.0) — Shift held at drop makes the
                     // dragged task a child of this row; a plain drop
-                    // reorders (the pre-subtasks behaviour). Reading the
-                    // modifier can come up empty during some DnD
-                    // sequences; the safe fallback is reorder, never an
+                    // reorders (the pre-subtasks behaviour). v0.23.1
+                    // bugfix: `current_event_state()` can come up empty
+                    // during Wayland DnD sequences, so fall through to
+                    // the keyboard device's live modifier state. The
+                    // safe fallback is still reorder, never an
                     // accidental reparent.
-                    if target
-                        .current_event_state()
-                        .contains(gdk::ModifierType::SHIFT_MASK)
-                    {
+                    let shift = shift_held(target);
+                    if shift {
+                        tracing::debug!(src_id, dest_id, y, "drop fired (reparent)");
                         on_reparent_clone(src_id, dest_id);
                     } else {
-                        on_reorder_clone(src_id, dest_id);
+                        // v0.23.1 — top half of the row drops *above*
+                        // dest, bottom half drops *below*. Matches the
+                        // GNOME / macOS list-reorder idiom; OmniFocus
+                        // uses the same split. Row height comes from
+                        // the widget we're attached to (the row Box).
+                        let row_height = target.widget().map(|w| w.height()).unwrap_or(0).max(1);
+                        let bias = if y < (row_height as f64) / 2.0 {
+                            DropBias::Above
+                        } else {
+                            DropBias::Below
+                        };
+                        tracing::debug!(
+                            src_id,
+                            dest_id,
+                            y,
+                            row_height,
+                            ?bias,
+                            "drop fired (reorder)"
+                        );
+                        on_reorder_clone(src_id, dest_id, bias);
                     }
                 }
                 return true;
@@ -924,8 +992,14 @@ where
                 task.disconnect(handler);
             }
             if let (Some(task), Some(handler)) = (
-                task_obj,
+                task_obj.clone(),
                 row.steal_data::<glib::SignalHandlerId>("atrium-repeating-handler"),
+            ) {
+                task.disconnect(handler);
+            }
+            if let (Some(task), Some(handler)) = (
+                task_obj,
+                row.steal_data::<glib::SignalHandlerId>("atrium-depth-handler"),
             ) {
                 task.disconnect(handler);
             }
@@ -1009,7 +1083,10 @@ pub fn replace_store_with_tags_seq<F, G, H>(
 ) where
     F: Fn(&Task) -> String,
     G: Fn(&Task) -> String,
-    H: Fn(&Task) -> String,
+    // v0.23.1 — cookie_for takes (id, note) so the same closure can
+    // refresh parent-row cookies from `AtriumTask` instances in
+    // `apply_changes_seq` without a Task round-trip.
+    H: Fn(i64, &str) -> String,
 {
     store.remove_all();
     let queued = compute_queued_state(tasks, sequential);
@@ -1021,7 +1098,7 @@ pub fn replace_store_with_tags_seq<F, G, H>(
             let obj = AtriumTask::from_task_with_tags(t, &pills);
             obj.set_context_label(context_for(t));
             obj.set_area_color(area_color_for(t));
-            obj.set_cookie_label(cookie_for(t));
+            obj.set_cookie_label(cookie_for(t.id, &t.note));
             obj.set_queued(*q);
             obj.upcast()
         })
@@ -1086,22 +1163,41 @@ pub fn apply_changes_seq<F, G, H>(
 ) where
     F: Fn(&Task) -> String,
     G: Fn(&Task) -> String,
-    H: Fn(&Task) -> String,
+    // v0.23.1 — cookie_for: `(task_id, note)` so the parent-cookie
+    // refresh below can call it against AtriumTask rows already in the
+    // store (we have id + note on AtriumTask; we don't want to round-
+    // trip a Task struct for every parent).
+    H: Fn(i64, &str) -> String,
 {
+    // v0.23.1 — collect parents of every child whose status / parent /
+    // note changed so we can refresh their cookies after the diff
+    // settles. The worker emits a child's row in `updated` but never
+    // synthesises a parent-row update for a "your child's status
+    // shifted" reason, so the parent's cookie went stale on every
+    // subtask check / uncheck before this fix.
+    let mut parents_to_refresh: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    let mut collect_parent = |t: &Task| {
+        if let Some(pid) = t.parent_id {
+            parents_to_refresh.insert(pid);
+        }
+    };
+
     // Created — append rows that belong here.
     for task in &changes.created {
+        collect_parent(task);
         if active.task_matches(task, today) && find_index(store, task.id).is_none() {
             let pills = tag_pills.get(&task.id).cloned().unwrap_or_default();
             let obj = AtriumTask::from_task_with_tags(task, &pills);
             obj.set_context_label(context_for(task));
             obj.set_area_color(area_color_for(task));
-            obj.set_cookie_label(cookie_for(task));
+            obj.set_cookie_label(cookie_for(task.id, &task.note));
             store.append(&obj);
         }
     }
 
     // Updated — reconcile each row's presence and contents.
     for task in &changes.updated {
+        collect_parent(task);
         let idx = find_index(store, task.id);
         let now_matches = active.task_matches(task, today);
         match (idx, now_matches) {
@@ -1121,7 +1217,7 @@ pub fn apply_changes_seq<F, G, H>(
                     obj.set_area_color(area_color_for(task));
                     // v0.15.0 — cookie can flip when a child task is
                     // toggled (the parent's cookie counts shift).
-                    obj.set_cookie_label(cookie_for(task));
+                    obj.set_cookie_label(cookie_for(task.id, &task.note));
                 }
             }
             (Some(i), false) => {
@@ -1132,14 +1228,18 @@ pub fn apply_changes_seq<F, G, H>(
                 let obj = AtriumTask::from_task_with_tags(task, &pills);
                 obj.set_context_label(context_for(task));
                 obj.set_area_color(area_color_for(task));
-                obj.set_cookie_label(cookie_for(task));
+                obj.set_cookie_label(cookie_for(task.id, &task.note));
                 store.append(&obj);
             }
             (None, false) => {}
         }
     }
 
-    // Deleted — remove by id if present.
+    // Deleted — remove by id if present. We don't know the deleted
+    // task's parent_id from just an id, so the parent cookies covered
+    // by this set are limited to deleted rows whose parent we already
+    // captured via a sibling's `updated` entry. In practice the worker
+    // emits both updates for the affected family in the same delta.
     for id in &changes.deleted {
         if let Some(i) = find_index(store, *id) {
             store.remove(i);
@@ -1147,6 +1247,18 @@ pub fn apply_changes_seq<F, G, H>(
     }
     // status_changed: the affected tasks are also in `updated` (the
     // worker emits both), so the loop above covered them.
+
+    // v0.23.1 — refresh parent cookies. For each parent_id collected
+    // above, find the row in the visible store and re-set its cookie
+    // from the freshly-built `cookie_for` (which captured an up-to-
+    // date snapshot of child_counts when it was constructed).
+    for pid in parents_to_refresh {
+        if let Some(i) = find_index(store, pid)
+            && let Some(obj) = store.item(i).and_downcast::<AtriumTask>()
+        {
+            obj.set_cookie_label(cookie_for(obj.id(), &obj.note()));
+        }
+    }
 
     // Re-sort by position so reorder updates land in the right slot.
     sort_by_position(store);

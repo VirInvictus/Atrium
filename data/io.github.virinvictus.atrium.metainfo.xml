@@ -90,6 +90,37 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.23.1" date="2026-05-28">
+      <description>
+        <p>Subtasks bugfixes from the v0.23.0 hands-on pass. Workspace
+           tests stay at 899 + green; no schema change.</p>
+        <p>List indent now updates live when a subtask is created,
+           reparented, or surfaces in a different view. The depth field
+           had a notify hook bound to the row's margin, but rebinding
+           only fired when a row's visual slot moved; rows whose depth
+           changed without moving kept stale indentation. Now wired.</p>
+        <p>Statistics cookies on parent rows refresh when a child is
+           checked off in the Inspector. The diff applier collects every
+           parent_id touched by the delta and re-resolves its cookie
+           against the fresh count snapshot before the frame lands.</p>
+        <p>Drag-to-reorder works on Inbox, Anytime, Someday, project
+           pages, and area pages. The Phase 4 cut had narrowed reorder
+           to Inbox only; pick-it-up surfaced the gap during the
+           subtasks Shift-drag test. Time-sorted canonical views (Today,
+           Upcoming, Forecast, Logbook) still skip reorder by design.</p>
+        <p>The cursor's vertical position on the target row picks
+           above-or-below for plain drag-reorder, matching the GNOME and
+           macOS list idiom. Shift-drag still reparents anywhere on the
+           row.</p>
+        <p>Shift detection for drag-to-reparent has a Wayland fallback.
+           current_event_state can come up empty during some compositor
+           DnD sequences; the new path consults the keyboard device's
+           live modifier state on the display's default seat.</p>
+        <p>The cross-project rejection message no longer leaks Some(N)
+           Debug output; project ids render bare, with unfiled used for
+           the None case.</p>
+      </description>
+    </release>
     <release version="0.23.0" date="2026-05-27">
       <description>
         <p>Subtasks. Nested tasks (parent_id, in the schema since day

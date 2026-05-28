@@ -1,5 +1,37 @@
 # Atrium — Patch Notes
 
+## v0.23.1 (2026-05-28) — Subtasks GUI bugfixes from hands-on verification
+
+A focused patch closing the four GUI gaps a hands-on run after v0.23.0 surfaced. The headless layer was solid; the bind / signal wiring on the row factory had three holes plus one error-formatting leak. No schema change; workspace stays at 899 tests green.
+
+### List indent now updates live
+
+`apply_nesting` stamps `depth` on each `AtriumTask` and re-sorts the store. The row factory's `connect_bind` reads `depth` and applies `margin_start = 12 + depth * 18` — but `connect_bind` only fires when GTK re-binds an item to a row, which the post-sort `items-changed` only triggers for rows whose visual slot moved. Rows whose depth changed without their position changing kept the old margin. The fix wires `task.connect_depth_notify` to set the row's margin in step, mirroring the existing pattern for `cookie-label` / `area-color` / `row-state`. Unit-tested values flowed through fine; the visual side had no coverage until the manual pass.
+
+### Cookie reactivity in the list
+
+Toggling a subtask in the Inspector pane left the parent row's `[done/total]` cookie stale. The diff applier (`apply_changes_seq`) only re-resolved cookies for tasks present in `changes.updated`, and the worker doesn't synthesise a parent-row update when a child's status changes. v0.23.1 collects every `parent_id` referenced by the `created` / `updated` deltas and refreshes those parents' cookies against the freshly-built `cookie_for` snapshot before the frame lands. The resolver's signature changed to `Fn(i64, &str) -> String` (id + note) so the refresh pass can call it against `AtriumTask` rows already in the store without a `Task` round-trip.
+
+### Drag-to-reorder widened beyond Inbox
+
+`handle_reorder` gated to `ActiveList::Inbox` since Phase 4 — pick-it-up's "fails safe to reorder" assumption needed reorder to actually work on project pages (where the Shift-drag-reparent verification ran). v0.23.1 allows reorder on every position-ordered view: Inbox, Anytime, Someday, Project, Area. Time-sorted canonical views (Today, Upcoming, Forecast, Logbook) and read-only debug views still no-op; reorder on those has no persistent meaning. A short debug-log line records the rejection so future-me can see when it fires.
+
+### Drop-position bias on the target row
+
+Plain drag-reorder now reads the cursor's vertical position on the target row: top half lands the task *above* the target, bottom half lands it *below*. Matches the GNOME / macOS / OmniFocus list idiom. Implemented as a `DropBias { Above, Below }` enum threaded from the drop callback through `handle_reorder` (the neighbour-position math now picks the prev or next row by bias instead of by `src_pos < dest_pos`, and skips `src_id` so dragging onto an adjacent row's far half doesn't snap back to the current slot). Shift+drop still reparents anywhere on the row — vertical position only matters for the reorder branch.
+
+### Shift detection fallback for Wayland DnD
+
+`gtk::DropTarget::current_event_state()` can return an empty modifier set during some Wayland compositor DnD sequences (the controller hasn't received an event of its own at the moment the drop completes). v0.23.1 falls through to the keyboard device's live modifier state on the display's default seat: `widget()` → `display()` → `default_seat()` → `keyboard()` → `modifier_state()`. The new `task_list::shift_held(&DropTarget)` helper centralises the read; debug tracing records the resolved value alongside the drop coords for future diagnosis.
+
+### Error-message Debug leak
+
+`DomainError::ParentProjectMismatch`'s thiserror format used `{parent_project:?}` for an `Option<i64>`, surfacing `Some(1)` to CLI consumers. The format now resolves the option via `map_or_else(|| "unfiled", id.to_string())`, so the rejection reads `parent task 2 is in project 2; cannot host a child claiming project 1` — bare ids, with `unfiled` for the `None` case.
+
+### Maintenance
+
+`pick-it-up.md`'s handoff note was retired; its three "do this first" items all landed. The demo DB's verification task (`task 43 — VERIFY v0.23.0 — drag onto a parent`) was deleted as part of cleanup.
+
 ## v0.23.0 (2026-05-27) — Subtasks UI (Phase 19.5)
 
 The first Phase 19.5 productivity essential after the v0.20.0 foundations. `parent_id` has been in the schema since `0001_initial.sql` and the Org importer has always built the tree, but the GUI rendered tasks flat; v0.23.0 surfaces real nested tasks end to end. No schema change. Workspace 899 tests; clippy `-D warnings` + fmt clean; `appstreamcli validate` clean.

@@ -48,11 +48,11 @@ impl AtriumWindow {
             win.handle_rename(id, new_title);
         };
         let win_weak3 = self.downgrade();
-        let on_reorder = move |src_id: i64, dest_id: i64| {
+        let on_reorder = move |src_id: i64, dest_id: i64, bias: crate::ui::task_list::DropBias| {
             let Some(win) = win_weak3.upgrade() else {
                 return;
             };
-            win.handle_reorder(src_id, dest_id);
+            win.handle_reorder(src_id, dest_id, bias);
         };
         // Subtasks (v0.23.0) — Shift+drop makes the dropped task a child
         // of the drop target; plain drop reorders (above).
@@ -653,7 +653,12 @@ impl AtriumWindow {
     /// `org-checkbox-hierarchical-statistics` default. A task with
     /// zero subtasks but a body checklist still earns a cookie;
     /// a task with neither stays empty. Both modes.
-    pub(super) fn build_cookie_resolver(&self) -> impl Fn(&Task) -> String + use<> {
+    /// v0.23.1 — signature changed to `Fn(i64, &str)` so the diff
+    /// applier can refresh parent-task cookies (the parent isn't in
+    /// `changes.updated` when only a child status flips; the resolver
+    /// has to be callable against `AtriumTask` rows already in the
+    /// store, which expose `id` and `note` cheaply).
+    pub(super) fn build_cookie_resolver(&self) -> impl Fn(i64, &str) -> String + use<> {
         let child_counts: HashMap<i64, (u32, u32)> = self
             .read_pool()
             .and_then(|pool| {
@@ -661,9 +666,9 @@ impl AtriumWindow {
                     .ok()
             })
             .unwrap_or_default();
-        move |task: &Task| -> String {
-            let (child_done, child_total) = child_counts.get(&task.id).copied().unwrap_or((0, 0));
-            let (body_done, body_total) = atrium_core::count_body_checkboxes(&task.note);
+        move |task_id: i64, note: &str| -> String {
+            let (child_done, child_total) = child_counts.get(&task_id).copied().unwrap_or((0, 0));
+            let (body_done, body_total) = atrium_core::count_body_checkboxes(note);
             let total = child_total.saturating_add(body_total);
             if total == 0 {
                 return String::new();

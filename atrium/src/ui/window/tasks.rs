@@ -182,18 +182,41 @@ impl AtriumWindow {
     /// `dest`, then fires a single `update_task` with the new
     /// position. Active store re-sorts via `apply_changes` after the
     /// worker round-trip.
-    pub(super) fn handle_reorder(&self, src_id: i64, dest_id: i64) {
+    pub(super) fn handle_reorder(
+        &self,
+        src_id: i64,
+        dest_id: i64,
+        bias: crate::ui::task_list::DropBias,
+    ) {
+        tracing::debug!(src_id, dest_id, ?bias, active = ?self.active_list(), "reorder entry");
         if src_id == dest_id {
+            tracing::debug!(src_id, "reorder: same id, ignoring");
             return;
         }
-        // Drag-reorder is only meaningful for Inbox in Phase 4 — the
-        // other lists either auto-sort by date (Today, Upcoming) or
-        // aren't user-orderable yet. Silently skip elsewhere.
-        if !matches!(self.active_list(), ActiveList::Inbox) {
+        // Drag-reorder is meaningful on every view whose ordering
+        // derives from `task.position` — Inbox, project pages, area
+        // pages, and the "manual" canonical lists (Anytime, Someday).
+        // The original Phase-4 cut narrowed this to Inbox; v0.23.1
+        // widens it because pick-it-up.md's "fails safe to reorder"
+        // assumption requires reorder to actually work on project
+        // pages (which is where the subtasks Shift-drag tests run).
+        // Time-sorted views (Today, Upcoming, Forecast, Logbook) and
+        // the read-only debug views stay out — reorder there has no
+        // persistent meaning.
+        if !matches!(
+            self.active_list(),
+            ActiveList::Inbox
+                | ActiveList::Anytime
+                | ActiveList::Someday
+                | ActiveList::Project(_)
+                | ActiveList::Area(_)
+        ) {
+            tracing::debug!(active = ?self.active_list(), "reorder: not a position-ordered view, ignoring");
             return;
         }
 
         let Some(store) = self.imp().store.borrow().clone() else {
+            tracing::debug!("reorder: no store, ignoring");
             return;
         };
 
@@ -210,29 +233,41 @@ impl AtriumWindow {
         }
         let src = entries.iter().find(|(_, id, _)| *id == src_id);
         let dest = entries.iter().find(|(_, id, _)| *id == dest_id);
-        let (Some(&(_, _, src_pos)), Some(&(dest_idx, _, dest_pos))) = (src, dest) else {
+        let (Some(&(_, _, _src_pos)), Some(&(dest_idx, _, dest_pos))) = (src, dest) else {
+            tracing::debug!(
+                src_id,
+                dest_id,
+                src_found = src.is_some(),
+                dest_found = dest.is_some(),
+                "reorder: src/dest not in store"
+            );
             return;
         };
 
-        // Compute the new position. If src is moving DOWN past dest,
-        // it lands between dest and the next neighbour after dest.
-        // If moving UP, it lands between the row before dest and dest.
-        let new_position = if src_pos < dest_pos {
-            let next_pos = entries
+        // v0.23.1 — cursor's vertical position on the dest row decides
+        // before / after. The bias was computed at drop time from the
+        // row's `y` coordinate vs its height. Skip src itself when
+        // looking up the neighbour so dragging onto an adjacent row's
+        // far half lands the right way rather than snapping back.
+        let neighbour_pos = |idx: u32| -> Option<f64> {
+            entries
                 .iter()
-                .find(|(i, _, _)| *i == dest_idx + 1)
-                .map_or(dest_pos + 1.0, |(_, _, p)| *p);
-            (dest_pos + next_pos) / 2.0
-        } else {
-            let prev_pos = if dest_idx == 0 {
-                dest_pos - 1.0
-            } else {
-                entries
-                    .iter()
-                    .find(|(i, _, _)| *i == dest_idx - 1)
-                    .map_or(dest_pos - 1.0, |(_, _, p)| *p)
-            };
-            (prev_pos + dest_pos) / 2.0
+                .find(|(i, id, _)| *i == idx && *id != src_id)
+                .map(|(_, _, p)| *p)
+        };
+        let new_position = match bias {
+            crate::ui::task_list::DropBias::Above => {
+                let prev_pos = if dest_idx == 0 {
+                    dest_pos - 1.0
+                } else {
+                    neighbour_pos(dest_idx - 1).unwrap_or(dest_pos - 1.0)
+                };
+                (prev_pos + dest_pos) / 2.0
+            }
+            crate::ui::task_list::DropBias::Below => {
+                let next_pos = neighbour_pos(dest_idx + 1).unwrap_or(dest_pos + 1.0);
+                (dest_pos + next_pos) / 2.0
+            }
         };
 
         let Some(worker) = self.worker() else {
@@ -260,6 +295,7 @@ impl AtriumWindow {
         let Some(worker) = self.worker() else {
             return;
         };
+        tracing::debug!(src_id, new_parent_id, "reparent dispatch");
         let win = self.downgrade();
         glib::MainContext::default().spawn_local(async move {
             if let Err(e) = worker
