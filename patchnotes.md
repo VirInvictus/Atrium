@@ -1,5 +1,22 @@
 # Atrium — Patch Notes
 
+## v0.30.0 (2026-05-28) — drag files / URLs to capture (Tier 3)
+
+First of the Tier 3 polish run. Drop a file, a URL, or selected text anywhere on the window and Quick Entry opens pre-filled, so the capture is reviewable (add a `#tag`, a `@date`) rather than a silent insert. Workspace 996 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema change.
+
+### Behavior
+
+A window-level `gtk::DropTarget` accepts `gdk::FileList` (how file managers deliver a drag) and `String` (how a browser delivers a URL or selected text). A dropped file becomes a task named after the file (base name, extension stripped); a URL or text is kept verbatim as the title. Quick Entry then opens with the entry primed and the cursor at the end.
+
+### Surface
+
+- `quickentry::modal::open` gained an `initial_text: Option<String>` param (the `Ctrl+Alt+Space` action passes `None`).
+- A new `atrium/src/ui/window/drop.rs` installs the target on the window; the drop-payload parsing is a pure `capture_prefill_from_drop` helper (file-URI percent-decode + base-name, URL/text passthrough) so it's unit-testable without GTK.
+
+### Tests
+
++5 atrium unit tests covering the file-URI / authority / URL / multi-line-text / empty-payload shapes of `capture_prefill_from_drop`.
+
 ## v0.29.0 (2026-05-28) — task dependencies (`blocked_by`)
 
 Tier 2's remaining feature. A task can be blocked by one or more prerequisite tasks; a blocked task is "unavailable" until every prerequisite completes. Taskwarrior-parity (the v0.26.0 importer drops `depends` with a lossy hint pointing here) and a deepening of the OmniFocus-superset story. Mirrors the v0.23.0 subtasks scaffolding. Workspace 991 unit tests + green; `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all --check` clean; `bash scripts/regression.sh` passes; `appstreamcli validate` clean.

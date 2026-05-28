@@ -418,6 +418,7 @@ impl AtriumWindow {
 mod tests;
 
 mod actions;
+mod drop;
 mod lists;
 mod search;
 mod shell;

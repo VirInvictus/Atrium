@@ -34,6 +34,7 @@ pub fn open(
     parent: &impl IsA<gtk::Window>,
     worker: Option<WorkerHandle>,
     tag_pool: Option<ReadPool>,
+    initial_text: Option<String>,
 ) {
     // v0.18.0 — Phase 18.5 Tier-1 Quick Entry templates. Pre-load
     // the configured templates once. Empty Vec = no picker bar
@@ -74,6 +75,14 @@ pub fn open(
         .activates_default(true)
         .hexpand(true)
         .build();
+    // v0.30.0 — drag-to-capture pre-fill. A file / URL / text dropped
+    // on the window opens Quick Entry with the entry primed; the
+    // cursor lands at the end so the user can keep typing (e.g. add a
+    // #tag) before pressing Enter.
+    if let Some(text) = initial_text {
+        entry.set_text(&text);
+        entry.set_position(-1);
+    }
 
     let hint = gtk::Label::builder()
         .label("Press Enter to drop into Inbox · Esc to dismiss")

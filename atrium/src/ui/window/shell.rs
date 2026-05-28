@@ -174,6 +174,7 @@ impl AtriumWindow {
         self.install_inspector_pane(worker);
         self.install_mode_observer();
         self.install_calendar_width_watcher();
+        self.install_drop_target();
         // Append the Areas / Projects sections to the sidebar.
         self.rebuild_dynamic_sidebar();
         // Initial content-pane load now that the read pool exists.

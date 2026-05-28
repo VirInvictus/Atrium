@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.30.0" date="2026-05-28">
+      <description>
+        <p>Drag to capture. Drop a file or a URL (or selected text)
+           anywhere on the window and Quick Entry opens pre-filled, so
+           you can add tags or a date and drop it into your list
+           without retyping.</p>
+        <p>A dropped file becomes a task named after the file; a URL or
+           text is kept as the task title. Nothing is captured silently
+           — the Quick Entry box appears for you to review and confirm.</p>
+      </description>
+    </release>
     <release version="0.29.0" date="2026-05-28">
       <description>
         <p>Task dependencies. A task can now be blocked by one or more

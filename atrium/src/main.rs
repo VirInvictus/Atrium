@@ -626,7 +626,7 @@ fn install_quick_entry_action(app: &adw::Application) {
                 .as_ref()
                 .and_then(|w| w.worker_handle_for_quickentry());
             let pool = atrium_win.and_then(|w| w.read_pool_for_quickentry());
-            crate::quickentry::modal::open(&window, worker, pool);
+            crate::quickentry::modal::open(&window, worker, pool, None);
         }
     ));
     app.add_action(&action);
