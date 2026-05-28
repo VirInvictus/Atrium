@@ -528,6 +528,24 @@ fn run_import(
             print_vtodo_import_summary(&summary, dry_run, format);
             Ok(())
         }
+        ImportSource::TodoTxt { project_name } => {
+            let path_buf = std::path::PathBuf::from(path);
+            let text = std::fs::read_to_string(&path_buf).map_err(|e| {
+                CliError::Args(format!(
+                    "import todotxt: cannot read {}: {e}",
+                    path_buf.display()
+                ))
+            })?;
+            let parsed = import::todotxt::parser::parse_document(&text);
+            let summary = runtime
+                .block_on(async {
+                    import::todotxt::mapper::import_todotxt(handle, &parsed, &project_name, dry_run)
+                        .await
+                })
+                .map_err(|e| CliError::Args(format!("import todotxt failed: {e}")))?;
+            print_todotxt_summary(&summary, dry_run, format);
+            Ok(())
+        }
         ImportSource::Taskwarrior {
             project_name,
             uda_as,
@@ -699,6 +717,65 @@ fn print_vtodo_import_summary(summary: &vtodo::ImportSummary, dry_run: bool, for
                     summary.unsupported_top_level.join(", "),
                 );
             }
+            for note in &summary.lossy {
+                println!(
+                    "  lossy ({:?}): {} — {}",
+                    note.kind,
+                    note.task_title.as_deref().unwrap_or("-"),
+                    note.raw,
+                );
+            }
+        }
+    }
+}
+
+/// v0.27.0 — todo.txt import summary printer.
+fn print_todotxt_summary(
+    summary: &import::todotxt::mapper::ImportSummary,
+    dry_run: bool,
+    format: Format,
+) {
+    let prefix = if dry_run { "DRY-RUN " } else { "" };
+    match format {
+        Format::Json => {
+            let mut s = String::new();
+            s.push_str("{\n");
+            s.push_str(&format!("  \"dry_run\": {dry_run},\n"));
+            s.push_str(&format!(
+                "  \"project_title\": {},\n",
+                json_string(&summary.project_title)
+            ));
+            s.push_str(&format!(
+                "  \"project_id\": {},\n",
+                summary
+                    .project_id
+                    .map_or_else(|| "null".to_string(), |n| n.to_string())
+            ));
+            s.push_str(&format!(
+                "  \"tasks_created\": {},\n",
+                summary.tasks_created
+            ));
+            s.push_str(&format!("  \"tags_created\": {},\n", summary.tags_created));
+            s.push_str("  \"lossy\": [");
+            for (i, note) in summary.lossy.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&json_string(&format!(
+                    "{:?}: {} ({})",
+                    note.kind,
+                    note.task_title.as_deref().unwrap_or("-"),
+                    note.raw
+                )));
+            }
+            s.push_str("]\n}\n");
+            print!("{s}");
+        }
+        _ => {
+            println!(
+                "{prefix}Imported project “{}”: {} tasks, {} tags.",
+                summary.project_title, summary.tasks_created, summary.tags_created,
+            );
             for note in &summary.lossy {
                 println!(
                     "  lossy ({:?}): {} — {}",

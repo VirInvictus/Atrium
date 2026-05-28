@@ -1,0 +1,3 @@
+# todo.txt basic fixture — one open task with priority, creation date,
+# context, and a due key:value extension.
+(A) 2026-04-15 Buy milk @home @errands +groceries due:2026-05-01

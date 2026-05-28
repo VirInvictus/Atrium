@@ -1,5 +1,43 @@
 # Atrium — Patch Notes
 
+## v0.27.0 (2026-05-28) — todo.txt importer (Phase 19 slice 3)
+
+Phase 19's third slice. todo.txt is the simplest of the importer formats — one task per line, no quoting, Gina Trapani's spec at <https://github.com/todotxt/todo.txt>. Hand-rolled stdlib parser + mapper; no new deps. Workspace 974 tests + green; clippy `-D warnings` and fmt clean; `scripts/regression.sh` passes; `appstreamcli validate` clean. No schema change.
+
+### New CLI surface
+
+```
+atrium-cli import todotxt PATH --into PROJECT [--dry-run]
+```
+
+Lines beginning with `#` and blank lines are skipped (the widely-accepted comment convention). Everything else parses positionally: optional `x ` completion marker (+ optional completion date), optional `(L)` priority letter, optional creation date, then the description with inline `@context` / `+project` / `key:value` tokens.
+
+### Field mapping
+
+`description` (description tokens, with inline markers stripped) → `task.title`. Completion marker `x` + optional completion date → `task.completed_at`. Priority `(A)` / `(B)` / `(C)` → `priority-1` / `priority-2` / `priority-3` tag (matching Todoist and Taskwarrior conventions); `(D)`–`(Z)` drops with one lossy entry. Creation date → `task.scheduled_for` for open tasks; completed tasks skip this path. Inline `@context` tokens → tags via `ensure_tag`. Inline `+project` tokens → dropped + one lossy entry per occurrence (the `--into` flag wins; user can't have it both ways). `due:YYYY-MM-DD` extension → `task.deadline`. `t:YYYY-MM-DD` extension (threshold / start date) → `task.defer_until`. Other `key:value` extensions → dropped + lossy entry per occurrence.
+
+### UUID round-trip
+
+todo.txt lines don't carry UIDs. The mapper derives `task.uuid = UUIDv5(TODOTXT_NAMESPACE, "<project_name>|<title>|<creation_date>")` from a frozen namespace constant. Re-imports of the same file onto the same project produce the same UUIDs, so an Atrium-side edit + re-import lands as an update if a future merge-by-uuid path ships, rather than a fresh row.
+
+### Lossy report
+
+Three `LossyKind` variants: `DroppedInlineProject` (one per `+project` token), `PriorityBelowC` (priorities `(D)`–`(Z)`), `DroppedKeyValue` (unknown extensions, one per occurrence).
+
+### Tests
+
+Two fixtures + 11 parser unit tests + 8 mapper unit tests + 3 integration tests:
+
+- `tests/fixtures/todotxt/basic.txt` — single open task with priority + contexts + project + `due:`.
+- `tests/fixtures/todotxt/mixed.txt` — six lines covering open + completed + threshold-deferred + bare title + `(D)` low priority + a URL token (which deliberately parses as `http://...` to exercise the `DroppedKeyValue` path).
+- Parser tests: minimal title, priority + creation date, completion marker + completion date, inline `@`/`+`/`key:value` classification, comment + blank skip, `(D)` letter capture, double-letter rejection, multi-line document parse, URL-token behaviour, `x` without space rejection, empty `@`/`+` token rejection.
+- Mapper tests: priority A/B/C tag mapping, tag collection, `due:` and `t:` date extraction, lossy emission, NewTask field routing, completion path, deterministic UUID, dry-run summary.
+- Integration tests: basic fixture round-trip, mixed fixture status + threshold + lossy verification, comment/blank skip.
+
+### Argv
+
+`src/tests.rs` gains three new cases: `parse_import_todotxt_requires_into`, missing `--into` error, and the cross-importer rejection (`import todotxt --uda-as tag` errors).
+
 ## v0.26.0 (2026-05-28) — Taskwarrior `task export` JSON importer (Phase 19 slice 2)
 
 Phase 19's second slice; the Taskwarrior bridge for the TUI / CLI crowd. Hand-rolled stdlib importer (no new deps; `serde_json` was already in the workspace). UDA fields routed via a new `--uda-as tag|note|drop` flag; UUIDs round-trip directly because Taskwarrior already uses RFC 4122. No schema change. Workspace 948 tests + green; clippy `-D warnings` and fmt clean; `scripts/regression.sh` passes; `appstreamcli validate` clean.

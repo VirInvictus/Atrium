@@ -10,3 +10,4 @@
 
 pub mod taskwarrior;
 pub mod todoist;
+pub mod todotxt;

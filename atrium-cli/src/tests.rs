@@ -1037,6 +1037,44 @@ fn parse_import_org_rejects_uda_as_flag() {
     );
 }
 
+// ── v0.27.0 — todo.txt import argv ──────────────────────────────
+
+#[test]
+fn parse_import_todotxt_requires_into() {
+    use crate::args::ImportSource;
+    let a = parse(&s(&["import", "todotxt", "/tmp/x.txt", "--into", "Inbox"])).unwrap();
+    let Some(Subcommand::Import { source, .. }) = a.subcommand else {
+        panic!("expected Import");
+    };
+    assert_eq!(
+        source,
+        ImportSource::TodoTxt {
+            project_name: "Inbox".to_string(),
+        },
+    );
+}
+
+#[test]
+fn parse_import_todotxt_missing_into_errors() {
+    let err = parse(&s(&["import", "todotxt", "/tmp/x.txt"])).unwrap_err();
+    assert!(err.contains("--into"));
+}
+
+#[test]
+fn parse_import_todotxt_rejects_uda_as_flag() {
+    let err = parse(&s(&[
+        "import",
+        "todotxt",
+        "/tmp/x.txt",
+        "--into",
+        "Inbox",
+        "--uda-as",
+        "tag",
+    ]))
+    .unwrap_err();
+    assert!(err.contains("--uda-as"));
+}
+
 #[test]
 fn parse_export_vtodo_round_trips() {
     use crate::args::ExportSource;

@@ -90,6 +90,41 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.27.0" date="2026-05-28">
+      <description>
+        <p>The todo.txt importer. Phase 19's third slice and
+           the simplest of the importer formats: one task per
+           line, plain text, no quoting. Hand-rolled stdlib
+           parser; no new dependencies. Lines beginning with `#`
+           and blank
+           lines are skipped.</p>
+        <p>New CLI surface: atrium-cli import todotxt PATH
+           --into PROJECT --dry-run.</p>
+        <p>Field mapping covers completion marker `x` (and
+           optional completion date) into task.completed_at,
+           priority `(A/B/C)` into priority-N tags (D-Z drop with
+           one lossy entry per occurrence), inline `@context`
+           tokens into tags, inline `+project` tokens dropped as
+           lossy (the --into flag wins), creation date into
+           scheduled_for for open tasks, `due:YYYY-MM-DD` into
+           deadline, and `t:YYYY-MM-DD` (threshold / start date)
+           into defer_until. Other `key:value` extensions drop
+           with one lossy entry per occurrence.</p>
+        <p>UUIDs are derived from a frozen v5 namespace plus the
+           tuple of (project name, title, creation date), so re-
+           imports of the same file onto the same project produce
+           the same UUIDs.</p>
+        <p>Three LossyKind variants cover dropped inline
+           projects, priorities below C, and unknown key-value
+           extensions.</p>
+        <p>Tests: two fixtures (basic and mixed), 11 parser unit
+           tests, 8 mapper unit tests, and three integration
+           tests covering the full DB round-trip. Workspace 974
+           tests + green; clippy -D warnings and fmt clean;
+           scripts/regression.sh passes; appstreamcli validate
+           clean. No schema change.</p>
+      </description>
+    </release>
     <release version="0.26.0" date="2026-05-28">
       <description>
         <p>Taskwarrior `task export` JSON importer. Phase 19's

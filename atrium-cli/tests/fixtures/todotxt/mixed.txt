@@ -1,0 +1,7 @@
+# Mixed fixture: open + completed + threshold-deferred + bare title.
+(A) 2026-03-01 Pay rent @home +bills due:2026-04-01
+(B) 2026-03-02 Plan vacation @home t:2026-05-15
+x 2026-03-05 (A) 2026-02-20 File taxes @work +finance
+Submit expense report @work
+(D) Low-priority cleanup
+Look at http://example.com later

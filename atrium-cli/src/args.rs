@@ -268,6 +268,15 @@ pub enum ImportSource {
         project_name: String,
         uda_as: UdaPolicy,
     },
+    /// `import todotxt PATH --into PROJECT_NAME`. The todo.txt
+    /// format is plain text, one task per line. The file's
+    /// inline `+project` tokens are dropped (the `--into` flag
+    /// wins); inline `@context` tokens become tags; priority
+    /// `(A)`/`(B)`/`(C)` becomes `priority-N` tags; `due:` and
+    /// `t:` key-value extensions map to typed columns. v0.27.0.
+    TodoTxt {
+        project_name: String,
+    },
 }
 
 /// v0.26.0 — how the Taskwarrior importer treats user-defined
@@ -1085,7 +1094,7 @@ fn parse_export(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
 fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> {
     let source_str = rest
         .first()
-        .ok_or("import requires a source: org | todoist | vtodo | taskwarrior")?
+        .ok_or("import requires a source: org | todoist | vtodo | taskwarrior | todotxt")?
         .as_str();
     // Source-specific flags (e.g. todoist's `--into`) are parsed
     // alongside the common ones — we tag the source first, then
@@ -1095,6 +1104,7 @@ fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
         "todoist" => SourceKind::Todoist,
         "vtodo" => SourceKind::Vtodo,
         "taskwarrior" => SourceKind::Taskwarrior,
+        "todotxt" => SourceKind::TodoTxt,
         other => return Err(format!("unknown import source: {other}")),
     };
     let body = &rest[1..];
@@ -1179,6 +1189,13 @@ fn parse_import(rest: &[String], args: &mut Args) -> Result<Subcommand, String> 
                 uda_as: uda_as.unwrap_or(UdaPolicy::Tag),
             }
         }
+        SourceKind::TodoTxt => {
+            if uda_as.is_some() {
+                return Err("import todotxt doesn't accept --uda-as".to_string());
+            }
+            let project_name = into_project.ok_or("import todotxt requires --into PROJECT_NAME")?;
+            ImportSource::TodoTxt { project_name }
+        }
     };
     Ok(Subcommand::Import {
         source,
@@ -1195,6 +1212,7 @@ enum SourceKind {
     Todoist,
     Vtodo,
     Taskwarrior,
+    TodoTxt,
 }
 
 /// Parse the rest-of-argv for `perspective <create|edit|delete>
