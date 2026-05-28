@@ -16,6 +16,16 @@ impl AtriumWindow {
             return;
         };
 
+        // v0.31.0 — a pristine library shows the onboarding page
+        // instead of an empty list. The flag is kept current by the
+        // change handlers (and at startup).
+        if self.imp().db_empty.get() {
+            self.imp()
+                .content_stack
+                .set_visible_child_name("onboarding");
+            return;
+        }
+
         let active = self.active_list();
         let today = Local::now().date_naive();
 
@@ -397,6 +407,12 @@ impl AtriumWindow {
             _ => false,
         };
         self.rebuild_dynamic_sidebar();
+        // v0.31.0 — reconcile onboarding first; if it took over the
+        // display (library now empty, or just left empty), skip the
+        // normal refresh.
+        if self.sync_onboarding() {
+            return;
+        }
         if deleted {
             // Active entity is gone — fall back to Today.
             self.set_active_list(ActiveList::Today);
@@ -426,6 +442,13 @@ impl AtriumWindow {
         let Some(store) = self.imp().store.borrow().clone() else {
             return;
         };
+        // v0.31.0 — the first captured task dismisses onboarding (and
+        // deleting the last one restores it). When onboarding takes
+        // over, it reloads the list itself, so skip the incremental
+        // apply below.
+        if self.sync_onboarding() {
+            return;
+        }
         let active = self.active_list();
         // Phase 12 — Forecast view rebuilds in full on any task
         // delta. Day-card layout depends on date grouping that's

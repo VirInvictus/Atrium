@@ -1,5 +1,19 @@
 # Atrium — Patch Notes
 
+## v0.31.0 (2026-05-28) — first-run onboarding (Tier 3)
+
+A pristine database (no tasks, no projects, no areas) now paints a welcoming `AdwStatusPage` instead of an empty Inbox, with three next-steps: create your first project, capture a task, or set up an Org vault. It clears itself the instant the user creates anything. No seeding, no GSetting. Workspace 996 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema change.
+
+The "inline editing on row edit" item planned for this slot turned out to be already shipped (the row editor's `handle_rename` has parsed `#tag` / `@date` / `!N` into structured fields on commit since the `atrium-inline` work, and the row entry already carries the tab-completion popover), so the slot was repurposed for onboarding and that roadmap box was ticked in place.
+
+### Mechanics
+
+A new `atrium/src/ui/window/onboarding.rs` builds the page (added to `content_stack` as the `"onboarding"` child) and owns a cached `db_empty` flag. `recompute_db_empty` short-circuits on the first task (`count_tasks > 0`) so a populated DB never lists projects / areas. `refresh_active_list` yields to the onboarding page while the flag is set; `sync_onboarding` (called from `apply_task_changes` + `apply_library_changes`) flips the page in and out as the data crosses the empty boundary. The CTAs reuse the existing `prompt_create_project`, the `app.quick-entry` action, and `preferences::open`.
+
+### Tests
+
+No new automated tests — the onboarding decision is GUI-side composition of already-tested read helpers (`count_tasks`, `list_areas`, `list_projects`). Manual GUI pass flagged for the empty → populated → empty transitions.
+
 ## v0.30.0 (2026-05-28) — drag files / URLs to capture (Tier 3)
 
 First of the Tier 3 polish run. Drop a file, a URL, or selected text anywhere on the window and Quick Entry opens pre-filled, so the capture is reviewable (add a `#tag`, a `@date`) rather than a silent insert. Workspace 996 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema change.

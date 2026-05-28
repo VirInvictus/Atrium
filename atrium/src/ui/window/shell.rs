@@ -175,9 +175,13 @@ impl AtriumWindow {
         self.install_mode_observer();
         self.install_calendar_width_watcher();
         self.install_drop_target();
+        self.setup_onboarding_page();
         // Append the Areas / Projects sections to the sidebar.
         self.rebuild_dynamic_sidebar();
         // Initial content-pane load now that the read pool exists.
+        // Compute the empty-library flag first so a pristine DB paints
+        // the onboarding page instead of an empty Inbox.
+        self.recompute_db_empty();
         self.refresh_active_list();
         // Apply the persisted mode (calls into apply_mode which
         // updates overlay-split visibility, sidebar Builder rows,

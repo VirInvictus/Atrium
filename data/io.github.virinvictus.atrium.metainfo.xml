@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.31.0" date="2026-05-28">
+      <description>
+        <p>A friendlier first run. When the database is empty, Atrium
+           now shows a welcome screen with three ways to start: create
+           your first project, capture a task, or set up an Org vault.</p>
+        <p>The welcome screen clears itself the moment you create
+           anything, and never gets in the way again.</p>
+      </description>
+    </release>
     <release version="0.30.0" date="2026-05-28">
       <description>
         <p>Drag to capture. Drop a file or a URL (or selected text)

@@ -140,6 +140,10 @@ mod imp {
         pub project_review_spin: TemplateChild<gtk::SpinButton>,
 
         pub debug_enabled: Cell<bool>,
+        /// v0.31.0 — cached "the library has nothing in it" flag
+        /// (no tasks, no projects, no areas). Drives the first-run
+        /// onboarding page; recomputed on every task / library change.
+        pub db_empty: Cell<bool>,
         pub active_list: RefCell<ActiveList>,
         pub store: RefCell<Option<gio::ListStore>>,
         pub worker: OnceCell<WorkerHandle>,
@@ -420,6 +424,7 @@ mod tests;
 mod actions;
 mod drop;
 mod lists;
+mod onboarding;
 mod search;
 mod shell;
 mod sidebar;
