@@ -54,13 +54,22 @@ impl AtriumWindow {
             };
             win.handle_reorder(src_id, dest_id);
         };
+        // Subtasks (v0.23.0) — Shift+drop makes the dropped task a child
+        // of the drop target; plain drop reorders (above).
+        let win_weak_rp = self.downgrade();
+        let on_reparent = move |src_id: i64, new_parent_id: i64| {
+            let Some(win) = win_weak_rp.upgrade() else {
+                return;
+            };
+            win.handle_reparent(src_id, new_parent_id);
+        };
         let win_weak4 = self.downgrade();
         let pool_source = move || {
             win_weak4
                 .upgrade()
                 .and_then(|w| w.imp().read_pool.get().cloned())
         };
-        let factory = build_factory(on_toggle, on_rename, on_reorder, pool_source);
+        let factory = build_factory(on_toggle, on_rename, on_reorder, on_reparent, pool_source);
         self.imp().task_list_view.set_factory(Some(&factory));
 
         // v0.1.15 — listen to GtkListView::activate as the canonical

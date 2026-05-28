@@ -86,6 +86,17 @@ mod imp {
         /// sidebar.
         #[property(get, set)]
         pub cookie_label: RefCell<String>,
+        /// Subtasks (Phase 19.5, v0.23.0) — the task's `parent_id`,
+        /// flattened to `0` for top-level (real ids are ≥ 1). The
+        /// list-nesting pass (`apply_nesting`) reads this to build the
+        /// hierarchy and assign `depth`.
+        #[property(get, set)]
+        pub parent_id: Cell<i64>,
+        /// Subtasks (Phase 19.5, v0.23.0) — nesting depth in the
+        /// current view (0 = top level). Set by `apply_nesting`; the
+        /// row factory indents the row by `depth` levels.
+        #[property(get, set)]
+        pub depth: Cell<i32>,
     }
 
     #[glib::object_subclass]
@@ -126,6 +137,7 @@ impl AtriumTask {
         obj.set_tag_names_csv(format_tag_names(pills));
         obj.set_row_state(classify_row_state(task));
         obj.set_repeating(task.repeat_rule.is_some());
+        obj.set_parent_id(task.parent_id.unwrap_or(0));
         obj
     }
 
@@ -160,6 +172,10 @@ impl AtriumTask {
         let new_repeating = task.repeat_rule.is_some();
         if self.repeating() != new_repeating {
             self.set_repeating(new_repeating);
+        }
+        let new_parent = task.parent_id.unwrap_or(0);
+        if self.parent_id() != new_parent {
+            self.set_parent_id(new_parent);
         }
     }
 }

@@ -248,6 +248,32 @@ impl AtriumWindow {
         });
     }
 
+    /// Subtasks (v0.23.0) — Shift+drop reparents: make `src_id` a child
+    /// of `new_parent_id`. The worker enforces the same-project rule and
+    /// rejects cycles; on rejection we surface a toast rather than fail
+    /// silently. The resulting TaskChanges delta re-nests the list via
+    /// `apply_nesting`.
+    pub(super) fn handle_reparent(&self, src_id: i64, new_parent_id: i64) {
+        if src_id == new_parent_id {
+            return;
+        }
+        let Some(worker) = self.worker() else {
+            return;
+        };
+        let win = self.downgrade();
+        glib::MainContext::default().spawn_local(async move {
+            if let Err(e) = worker
+                .update_task(TaskUpdate::new(src_id).reparent(Some(new_parent_id)))
+                .await
+            {
+                warn!(?e, src_id, new_parent_id, "reparent failed");
+                if let Some(win) = win.upgrade() {
+                    win.show_toast("Can't nest there (a different project or a cycle).");
+                }
+            }
+        });
+    }
+
     /// Create with the given title — fired by the bottom-of-list entry.
     /// Phase 6b: parses inline `#tag` / `@today` / `@yyyy-mm-dd` /
     /// `@deadline yyyy-mm-dd` syntax via `quickentry::parser` and

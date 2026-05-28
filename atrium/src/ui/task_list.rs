@@ -244,16 +244,20 @@ impl ActiveList {
 ///
 /// `tag_pills` come in Phase 6 with the tag editor. Notes editor
 /// comes in Phase 10 with the Inspector.
-pub fn build_factory<ToggleFn, RenameFn, ReorderFn, PoolFn>(
+pub fn build_factory<ToggleFn, RenameFn, ReorderFn, ReparentFn, PoolFn>(
     on_toggle: ToggleFn,
     on_rename: RenameFn,
     on_reorder: ReorderFn,
+    on_reparent: ReparentFn,
     pool_source: PoolFn,
 ) -> gtk::SignalListItemFactory
 where
     ToggleFn: Fn(i64, bool) + Clone + 'static,
     RenameFn: Fn(i64, String) + Clone + 'static,
     ReorderFn: Fn(i64, i64) + Clone + 'static,
+    // Subtasks (v0.23.0) — Shift+drop reparents (drop A onto B makes A
+    // a child of B); plain drop reorders.
+    ReparentFn: Fn(i64, i64) + Clone + 'static,
     // v0.13.2 — fetched lazily by the row's inline-completion
     // popover so the read pool can be unset at factory-build
     // time (callers pass a weak-window closure that resolves on
@@ -409,6 +413,11 @@ where
             .and_downcast::<AtriumTask>()
             .expect("AtriumTask");
         let row = item.child().and_downcast::<gtk::Box>().expect("row Box");
+
+        // Subtasks (v0.23.0) — indent the row by nesting depth. Depth 0
+        // (top level) keeps the base 12px; each level adds 18. Rows are
+        // recycled, so this recomputes on every rebind.
+        row.set_margin_start(12 + task.depth().max(0) * 18);
 
         // Walk the children. Layout order is fixed per `setup`.
         let check = row
@@ -712,11 +721,25 @@ where
         // onto B" = move A to B's position.
         let drop_target = gtk::DropTarget::new(i64::static_type(), gdk::DragAction::MOVE);
         let on_reorder_clone = on_reorder.clone();
+        let on_reparent_clone = on_reparent.clone();
         let dest_id = task_id;
-        drop_target.connect_drop(move |_, value, _, _| {
+        drop_target.connect_drop(move |target, value, _, _| {
             if let Ok(src_id) = value.get::<i64>() {
                 if src_id != dest_id {
-                    on_reorder_clone(src_id, dest_id);
+                    // Subtasks (v0.23.0) — Shift held at drop makes the
+                    // dragged task a child of this row; a plain drop
+                    // reorders (the pre-subtasks behaviour). Reading the
+                    // modifier can come up empty during some DnD
+                    // sequences; the safe fallback is reorder, never an
+                    // accidental reparent.
+                    if target
+                        .current_event_state()
+                        .contains(gdk::ModifierType::SHIFT_MASK)
+                    {
+                        on_reparent_clone(src_id, dest_id);
+                    } else {
+                        on_reorder_clone(src_id, dest_id);
+                    }
                 }
                 return true;
             }
@@ -1220,6 +1243,101 @@ pub fn sort_by_position(store: &gio::ListStore) {
     });
 }
 
+/// Subtasks (Phase 19.5, v0.23.0) — order `(id, parent_id, position)`
+/// rows depth-first: each parent immediately followed by its children
+/// (recursively), sibling groups ordered by `position`. Returns
+/// `(id, depth)` in display order. A row whose `parent_id` references a
+/// task absent from the input (an "orphan", e.g. a child surfacing in
+/// Today without its parent) is treated as a root at depth 0. Cycle-safe
+/// via a visited set, so a corrupt parent chain can't loop. Pure so the
+/// hierarchy logic is unit-testable without a live store.
+pub fn nesting_order(rows: &[(i64, Option<i64>, f64)]) -> Vec<(i64, i32)> {
+    use std::collections::{HashMap, HashSet};
+    let ids: HashSet<i64> = rows.iter().map(|r| r.0).collect();
+    let mut children: HashMap<Option<i64>, Vec<(i64, f64)>> = HashMap::new();
+    for &(id, parent, pos) in rows {
+        let key = match parent {
+            Some(p) if ids.contains(&p) => Some(p),
+            _ => None,
+        };
+        children.entry(key).or_default().push((id, pos));
+    }
+    for v in children.values_mut() {
+        v.sort_by(|a, b| a.1.total_cmp(&b.1));
+    }
+    let mut out = Vec::with_capacity(rows.len());
+    let mut visited = HashSet::new();
+    // Seed the stack with the roots (the `None` bucket) at depth 0,
+    // then walk depth-first. Children are pushed in reverse so they pop
+    // back in position order. The visited set makes a corrupt parent
+    // chain terminate instead of looping.
+    let mut stack: Vec<(i64, i32)> = Vec::new();
+    if let Some(roots) = children.get(&None) {
+        for &(id, _) in roots.iter().rev() {
+            stack.push((id, 0));
+        }
+    }
+    while let Some((id, depth)) = stack.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        out.push((id, depth));
+        if let Some(kids) = children.get(&Some(id)) {
+            for &(cid, _) in kids.iter().rev() {
+                stack.push((cid, depth + 1));
+            }
+        }
+    }
+    // Defensive: anything unvisited (shouldn't happen) lands at root.
+    for &(id, _, _) in rows {
+        if visited.insert(id) {
+            out.push((id, 0));
+        }
+    }
+    out
+}
+
+/// Subtasks (Phase 19.5, v0.23.0) — reorder `store` into nested
+/// depth-first order and stamp each `AtriumTask`'s `depth` (which the
+/// row factory turns into indentation). Idempotent; cheap enough to run
+/// after every full refresh and every applied delta. A flat set (no
+/// parent relationships) sorts identically to `sort_by_position`.
+pub fn apply_nesting(store: &gio::ListStore) {
+    use std::collections::HashMap;
+    let n = store.n_items();
+    let mut rows: Vec<(i64, Option<i64>, f64)> = Vec::with_capacity(n as usize);
+    for i in 0..n {
+        if let Some(obj) = store.item(i).and_downcast::<AtriumTask>() {
+            let pid = obj.parent_id();
+            rows.push((obj.id(), (pid != 0).then_some(pid), obj.position()));
+        }
+    }
+    let order = nesting_order(&rows);
+    let mut keys: HashMap<i64, (u32, i32)> = HashMap::with_capacity(order.len());
+    for (idx, (id, depth)) in order.into_iter().enumerate() {
+        keys.insert(id, (idx as u32, depth));
+    }
+    for i in 0..store.n_items() {
+        if let Some(obj) = store.item(i).and_downcast::<AtriumTask>()
+            && let Some(&(_, depth)) = keys.get(&obj.id())
+            && obj.depth() != depth
+        {
+            obj.set_depth(depth);
+        }
+    }
+    store.sort(move |a, b| {
+        let ai = a
+            .downcast_ref::<AtriumTask>()
+            .and_then(|o| keys.get(&o.id()))
+            .map_or(u32::MAX, |k| k.0);
+        let bi = b
+            .downcast_ref::<AtriumTask>()
+            .and_then(|o| keys.get(&o.id()))
+            .map_or(u32::MAX, |k| k.0);
+        ai.cmp(&bi)
+    });
+}
+
 fn find_index(store: &gio::ListStore, id: i64) -> Option<u32> {
     for i in 0..store.n_items() {
         if let Some(obj) = store.item(i).and_downcast::<AtriumTask>()
@@ -1239,6 +1357,47 @@ mod tests {
 
     fn today() -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 5, 15).unwrap()
+    }
+
+    #[test]
+    fn nesting_order_depth_first_by_position() {
+        // a(1) has children b(2), c(3); b has child d(4). e(5) is a
+        // second top-level task. Sibling order follows position.
+        let rows = vec![
+            (1, None, 1.0),
+            (2, Some(1), 1.0),
+            (3, Some(1), 2.0),
+            (4, Some(2), 1.0),
+            (5, None, 2.0),
+        ];
+        let order = nesting_order(&rows);
+        let ids: Vec<i64> = order.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, vec![1, 2, 4, 3, 5]);
+        let depth = |id: i64| order.iter().find(|(i, _)| *i == id).unwrap().1;
+        assert_eq!(depth(1), 0);
+        assert_eq!(depth(2), 1);
+        assert_eq!(depth(4), 2);
+        assert_eq!(depth(3), 1);
+        assert_eq!(depth(5), 0);
+    }
+
+    #[test]
+    fn nesting_order_orphan_treated_as_root() {
+        // Child references an absent parent (99) — surfaces as a root.
+        let rows = vec![(2, Some(99), 1.0), (1, None, 2.0)];
+        let order = nesting_order(&rows);
+        assert_eq!(order, vec![(2, 0), (1, 0)]);
+    }
+
+    #[test]
+    fn nesting_order_is_cycle_safe() {
+        // 1 -> 2 -> 1 is a corrupt cycle; the walk must terminate and
+        // surface each task exactly once.
+        let rows = vec![(1, Some(2), 1.0), (2, Some(1), 1.0)];
+        let order = nesting_order(&rows);
+        assert_eq!(order.len(), 2);
+        let ids: std::collections::HashSet<i64> = order.iter().map(|(i, _)| *i).collect();
+        assert!(ids.contains(&1) && ids.contains(&2));
     }
 
     #[test]

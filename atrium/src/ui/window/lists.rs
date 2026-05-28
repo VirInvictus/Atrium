@@ -226,7 +226,7 @@ impl AtriumWindow {
             // with sort_by_position. v0.5.2 — same skip when
             // bm25 ranking ordered the Vec.
             if parsed.sorts.is_empty() && !bm25_pinned_sort {
-                sort_by_position(&store);
+                apply_nesting(&store);
             }
             self.update_empty_state(&store);
             return;
@@ -354,7 +354,7 @@ impl AtriumWindow {
                 // Skip the position sort when the search expression
                 // pinned a sort — apply() already ordered the Vec.
                 if !search_pinned_sort {
-                    sort_by_position(&store);
+                    apply_nesting(&store);
                 }
             }
             Err(e) => {
@@ -512,6 +512,10 @@ impl AtriumWindow {
             area_color_for,
             cookie_for,
         );
+        // Subtasks (v0.23.0) — re-nest after the delta so a freshly
+        // created / reparented child lands under its parent without a
+        // full reload. Falls back to position order for flat sets.
+        apply_nesting(&store);
         self.update_empty_state(&store);
         // Phase 5c: any task delta might have moved a count.
         self.refresh_counts();

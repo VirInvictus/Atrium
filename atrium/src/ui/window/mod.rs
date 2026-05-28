@@ -37,7 +37,7 @@ use gtk::{CompositeTemplate, gio, glib};
 use tracing::{debug, error, warn};
 
 use crate::ui::task_list::{
-    ActiveList, TagMap, build_factory, replace_store_with_tags_seq, sort_by_position,
+    ActiveList, TagMap, apply_nesting, build_factory, replace_store_with_tags_seq,
 };
 
 /// Shared cell used by both the undo toast button and the `Ctrl+Z`
