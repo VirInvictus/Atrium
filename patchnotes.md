@@ -1,5 +1,28 @@
 # Atrium — Patch Notes
 
+## v0.36.0 (2026-05-28) — perf regression suite (Phase 20)
+
+Turns the spec §8 perf budget from a one-off measurement into a repeatable, headless gate. Workspace 1008 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema change, no code change (a script + doc).
+
+### `scripts/perf.sh`
+
+Generates the Large (50K) and Stress (100K) fixtures, times generation + a full read-path load (`atrium-cli list all`), captures peak RSS via `/usr/bin/time -v`, and asserts the budgets that don't need a display: the 50K data-layer working set stays under the 80 MB idle budget, and the `atrium --version` cold-start floor beats the 250 ms first-frame budget. Exits non-zero on a breach. An opt-in `--heaptrack` arm runs a heaptrack pass when the tool is installed (external tooling, not a build dependency).
+
+It's deliberately **separate** from `regression.sh` — generating 150K rows is too heavy for the per-commit ship gate. Run it before tagging or after touching the data layer.
+
+### Reference numbers
+
+| Scale | Fixture gen | Read-path load | Peak RSS |
+|---|---|---|---|
+| 50K | ~1.3 s | ~220 ms | ~55 MB |
+| 100K | ~2.2 s | ~470 ms | ~100 MB |
+
+50K sits comfortably under the 80 MB idle budget; cold-start floor measured 20–30 ms. The GUI active-RSS + first-interactive-frame budgets still need a real display (the in-app Memory Watch). `docs/perf-baseline.md` gains a v0.36.0 section with the numbers + the read-path-vs-fixture-only distinction.
+
+### Tests
+
+No new automated tests — `perf.sh` is the suite, exercised against the release binaries. Test count unchanged.
+
 ## v0.35.0 (2026-05-28) — accessibility round 2 (Phase 20)
 
 Opens Phase 20, the 1.0 endgame. The v0.1 accessibility audit predated every Builder and Tier 2/3 surface; this is the owed re-audit + the gaps it found. Workspace 1008 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema change.

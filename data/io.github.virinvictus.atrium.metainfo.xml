@@ -90,6 +90,14 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.36.0" date="2026-05-28">
+      <description>
+        <p>Internal: a performance regression suite. A new script
+           exercises 50,000- and 100,000-task databases and checks
+           Atrium's memory and load times stay within budget, so future
+           changes can't quietly slow it down. No user-facing change.</p>
+      </description>
+    </release>
     <release version="0.35.0" date="2026-05-28">
       <description>
         <p>Accessibility polish. Icon-only buttons throughout the app

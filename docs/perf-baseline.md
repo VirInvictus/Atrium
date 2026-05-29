@@ -113,3 +113,32 @@ If a measurement exceeds the §8 budget, the offending feature gets gated or rev
 **All four §8 budgets are met or trending well under** at the data-layer level. The 50K-task fixture (5× the spec's reference DB) lands at under 39 MB peak RSS — the data layer is not the dominant cost in the budget, the GUI surface is. GUI-mode RSS lands per Brandon's measurement using the in-app Memory Watch (`atrium --debug` → *Debug → Memory Watch*); recent interactive sessions sit comfortably inside the 200 MB active budget on the medium fixture.
 
 **Search-engine evolution did not regress the data layer.** The v0.5.2 FTS5 bm25 + recency ranking and the v0.5.3 SQL-translation evaluator both push *more* work to SQLite, not less, but the work is cached, indexed, and bounded; CLI startup is unchanged from the Phase 8g capture and fixture-emission throughput is in the same ballpark.
+
+## v0.36.0 — `scripts/perf.sh` regression suite (Phase 20)
+
+The baseline is now a repeatable, headless gate. `scripts/perf.sh`
+generates the Large (50K) and Stress (100K) fixtures, times generation
++ a full read-path load, captures peak RSS via `/usr/bin/time -v`, and
+asserts the headless-checkable budgets (50K data-layer working set <
+80 MB idle budget; `atrium --version` cold-start floor < 250 ms). An
+opt-in `--heaptrack` arm runs a heaptrack pass when the tool is present
+(external tooling — not a build dependency). It's a separate gate from
+`regression.sh` (50K + 100K generation is too heavy for the per-commit
+ship gate); run it before tagging or after touching the data layer.
+
+Reference numbers (same environment as the v0.6.20 baseline):
+
+| Scale | Fixture gen | Full read-path load (`list all`) | Peak RSS |
+|---|---|---|---|
+| 50K (Large) | ~1.3 s | ~220 ms | ~55 MB |
+| 100K (Stress) | ~2.2 s | ~470 ms | ~100 MB |
+
+The ~55 MB at 50K is the **read-path** working set — `atrium-cli list
+all` materialises all 50 000 `Task` structs into a `Vec` and formats
+them, heavier than the fixture-only lower bound above (~39 MB) but
+still comfortably under the 80 MB idle budget. 100K is 2× the spec's
+reference stress scale and stays informational (a full-materialisation
+peak naturally crosses the idle line; idle ≠ load-everything).
+Cold-start floor measured 20–30 ms across three runs. GUI active-RSS +
+first-interactive-frame on a populated DB still need a display —
+measured via the in-app Memory Watch.
