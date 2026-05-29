@@ -1,5 +1,22 @@
 # Atrium — Patch Notes
 
+## v0.37.4 (2026-05-28): README rewrite for professionalism
+
+The README had accreted into a release log: a version-by-version "Current release" wall, a full phase-ledger Status table, and a `(v0.X.0)` tag on nearly every feature row and CLI entry. That belongs in the roadmap and these patch notes, not on the front page. This rewrite refocuses it on users and developers, with no code, schema, or behaviour change.
+
+What changed:
+
+- **Cut the release-tracking.** The phase ledger and the version narrative are gone; the Status section is now a short "feature-complete, heading to 1.0" note that links to `spec.md` / `roadmap.md` / `patchnotes.md` for anyone who wants the history.
+- **De-versioned the features.** The Simple Mode, Builder Mode, import, and CLI sections describe capabilities, not ship dates. Every `(v0.X.0)` annotation was removed.
+- **Tightened the structure.** The 400-word architecture paragraph and the "Where things live" table collapsed into a seven-crate list plus the four load-bearing decisions; the exhaustive Org-research bibliography was trimmed to a pointer into `roadmap.md`.
+- **Status badge, not a version badge.** The header badge now reads "feature-complete, heading to 1.0" so it stops going stale on every patch release.
+
+Net: 395 lines down to 199, no em-dashes, all links and screenshots verified. The benchmark was the cleaner READMEs elsewhere in the portfolio (Viaduct, Conservatory).
+
+### Tests
+
+No code change; the workspace stays at 985. Verification is `appstreamcli validate` clean on the metainfo and a link/screenshot existence check.
+
 ## v0.37.3 (2026-05-28): documentation-soundness sweep
 
 A final drift pass over the doc set, with no code, schema, or behaviour change. The v0.37.2 test-count change (1008 → 985) and the accumulated patch releases had left a handful of version and test-count headers behind:

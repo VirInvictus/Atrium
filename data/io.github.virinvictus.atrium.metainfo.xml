@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.37.4" date="2026-05-28">
+      <description>
+        <p>A focused rewrite of the project README for clarity. The
+           version-by-version narrative and phase-tracking tables moved
+           out to the roadmap and release notes where they belong, the
+           feature lists were tightened to describe what the app does
+           rather than when each piece landed, and the whole document
+           is now about half its former length. No code, schema, or
+           behaviour change.</p>
+      </description>
+    </release>
     <release version="0.37.3" date="2026-05-28">
       <description>
         <p>Documentation maintenance. The version and test-count
