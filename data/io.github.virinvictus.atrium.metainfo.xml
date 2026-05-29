@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.37.0" date="2026-05-28">
+      <description>
+        <p>A documentation handbook. Atrium's guides and reference docs
+           (modes, Quick Entry, search, importing, the Org vault,
+           keyboard map, schema, accessibility, performance) are now an
+           mdbook site, assembled from the in-repo docs so they never
+           drift out of sync. No change to the app itself.</p>
+      </description>
+    </release>
     <release version="0.36.0" date="2026-05-28">
       <description>
         <p>Internal: a performance regression suite. A new script

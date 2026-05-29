@@ -1,5 +1,23 @@
 # Atrium — Patch Notes
 
+## v0.37.0 (2026-05-28) — documentation site (Phase 20)
+
+An `mdbook` handbook under `book/`. Workspace 1008 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema / code change (a docs site + `.gitignore` entry).
+
+### Structure
+
+`book/book.toml` + `book/src/SUMMARY.md` with two parts. The **Guide** chapters (Simple & Builder modes, Quick Entry & inline syntax, search expressions, importing & exporting, the Org vault) are short, original on-ramps that point to `spec.md` for the authoritative detail — they don't restate the contract. The **Reference** chapters (keyboard map, database schema, accessibility, performance) and the GTD-patterns + Org round-trip chapters `{{#include}}` the canonical `docs/*.md` files verbatim, so the site never forks from the single source of truth.
+
+Built with `mdbook build book` (clean; all includes resolve). The rendered HTML is git-ignored (`/book/book`); only the source is checked in. Hosting (GitHub Pages) is a follow-on.
+
+### Phase 20 reorder
+
+Localisation scaffolding and Flathub readiness are **deferred to a session at the sandbox** — their verification (the meson MO-build for l10n; the offline `flatpak-builder` build + screenshot capture + Flathub PR) lands in Brandon's environment, not CI. The docs site took the next contiguous slot (v0.37.0); those two cuts get later numbers when they ship, before the `v1.0.0` tag.
+
+### Tests
+
+No new automated tests — the verification is `mdbook build` succeeding with every include resolved. Test count unchanged.
+
 ## v0.36.0 (2026-05-28) — perf regression suite (Phase 20)
 
 Turns the spec §8 perf budget from a one-off measurement into a repeatable, headless gate. Workspace 1008 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema change, no code change (a script + doc).
