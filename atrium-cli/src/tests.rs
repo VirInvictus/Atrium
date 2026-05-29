@@ -7,10 +7,10 @@
 //! the same coverage.
 
 use crate::args::{
-    AddArgs, EditArgs, EditIcon, EditProject, Format, PerspectiveArgs, PerspectiveSub, Subcommand,
-    TargetSpec, TaskTemplateSub, parse,
+    parse, AddArgs, ClockSub, EditArgs, EditIcon, EditParent, EditProject, Format, PerspectiveArgs,
+    PerspectiveSub, Subcommand, TargetSpec, TaskTemplateSub, TemplateSub,
 };
-use crate::output::{Row, format_row, format_rows, format_rows_human, row_to_json, rows_to_json};
+use crate::output::{format_row, format_rows, format_rows_human, row_to_json, rows_to_json, Row};
 
 fn s(args: &[&str]) -> Vec<String> {
     args.iter().map(std::string::ToString::to_string).collect()
@@ -378,6 +378,43 @@ fn parse_add_unknown_flag_errors() {
 }
 
 #[test]
+fn parse_add_with_deadline_warn() {
+    let r = parse(&s(&["add", "x", "--deadline-warn", "14"])).unwrap();
+    match r.subcommand {
+        Some(Subcommand::Add(a)) => assert_eq!(a.deadline_warn, Some(14)),
+        other => panic!("expected Add, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_add_with_warn_alias() {
+    let r = parse(&s(&["add", "x", "--warn", "3"])).unwrap();
+    match r.subcommand {
+        Some(Subcommand::Add(a)) => assert_eq!(a.deadline_warn, Some(3)),
+        other => panic!("expected Add, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_add_warn_negative_errors() {
+    assert!(parse(&s(&["add", "x", "--warn", "-1"])).is_err());
+}
+
+#[test]
+fn parse_add_with_parent() {
+    let r = parse(&s(&["add", "Child", "--parent", "42"])).unwrap();
+    match r.subcommand {
+        Some(Subcommand::Add(a)) => assert_eq!(a.parent, Some(42)),
+        other => panic!("expected Add, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_add_parent_non_integer_errors() {
+    assert!(parse(&s(&["add", "x", "--parent", "abc"])).is_err());
+}
+
+#[test]
 fn parse_capture_single_line() {
     let a = parse(&s(&["capture", "Buy milk #errand @today"])).unwrap();
     assert_eq!(
@@ -576,6 +613,120 @@ fn parse_edit_replace_tags_via_clear_then_add() {
 fn touches_tags_false_when_no_tag_flags() {
     let edit = EditArgs::default();
     assert!(!edit.touches_tags());
+}
+
+#[test]
+fn parse_edit_with_parent_id() {
+    let r = parse(&s(&["edit", "7", "--parent", "3"])).unwrap();
+    match r.subcommand {
+        Some(Subcommand::Edit { edit, .. }) => {
+            assert_eq!(edit.parent, Some(EditParent::Task(3)));
+        }
+        other => panic!("expected Edit, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_edit_parent_none_promotes() {
+    for word in ["none", "top", "0"] {
+        let r = parse(&s(&["edit", "7", "--parent", word])).unwrap();
+        match r.subcommand {
+            Some(Subcommand::Edit { edit, .. }) => {
+                assert_eq!(edit.parent, Some(EditParent::TopLevel), "for {word}");
+            }
+            other => panic!("expected Edit, got {other:?}"),
+        }
+    }
+}
+
+// ── Clock subcommand ──────────────────────────────────────────
+
+#[test]
+fn parse_clock_bare_status() {
+    let r = parse(&s(&["clock"])).unwrap();
+    assert!(matches!(
+        r.subcommand,
+        Some(Subcommand::Clock(ClockSub::Status))
+    ));
+}
+
+#[test]
+fn parse_clock_status_explicit() {
+    let r = parse(&s(&["clock", "status"])).unwrap();
+    assert!(matches!(
+        r.subcommand,
+        Some(Subcommand::Clock(ClockSub::Status))
+    ));
+}
+
+#[test]
+fn parse_clock_in_with_id() {
+    let r = parse(&s(&["clock", "in", "42"])).unwrap();
+    match r.subcommand {
+        Some(Subcommand::Clock(ClockSub::In { task_id, .. })) => assert_eq!(task_id, 42),
+        other => panic!("expected Clock In, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_clock_in_with_note() {
+    let r = parse(&s(&["clock", "in", "1", "--note", "deep work"])).unwrap();
+    match r.subcommand {
+        Some(Subcommand::Clock(ClockSub::In { note, .. })) => assert_eq!(note, "deep work"),
+        other => panic!("expected Clock In, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_clock_log_with_id() {
+    let r = parse(&s(&["clock", "log", "7"])).unwrap();
+    match r.subcommand {
+        Some(Subcommand::Clock(ClockSub::Log { task_id })) => assert_eq!(task_id, 7),
+        other => panic!("expected Clock Log, got {other:?}"),
+    }
+}
+
+// ── Template subcommand ───────────────────────────────────────
+
+#[test]
+fn parse_template_list() {
+    let r = parse(&s(&["template", "list"])).unwrap();
+    assert!(matches!(
+        r.subcommand,
+        Some(Subcommand::Template(TemplateSub::List))
+    ));
+}
+
+#[test]
+fn parse_template_add_minimal() {
+    let r = parse(&s(&["template", "add", "Capture Errand"])).unwrap();
+    match r.subcommand {
+        Some(Subcommand::Template(TemplateSub::Add(t))) => {
+            assert_eq!(t.name.as_deref(), Some("Capture Errand"));
+        }
+        other => panic!("expected Template Add, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_template_add_with_shortcut() {
+    let r = parse(&s(&[
+        "template",
+        "add",
+        "Errand",
+        "--shortcut",
+        "e",
+        "--prefix",
+        "Buy:",
+    ]))
+    .unwrap();
+    match r.subcommand {
+        Some(Subcommand::Template(TemplateSub::Add(t))) => {
+            assert_eq!(t.shortcut.as_deref(), Some("e"));
+            assert_eq!(t.prefix.as_deref(), Some("Buy:"));
+        }
+        other => panic!("expected Template Add, got {other:?}"),
+    }
 }
 
 #[test]
@@ -1221,9 +1372,9 @@ fn parse_export_vtodo_round_trips() {
 
 mod sql_parity {
     use atrium_core::db::{self, read};
-    use atrium_search::{EvalContext, evaluate};
+    use atrium_search::{evaluate, EvalContext};
     use chrono::NaiveDate;
-    use rusqlite::{Connection, params};
+    use rusqlite::{params, Connection};
     use std::collections::{HashMap, HashSet};
     use std::path::Path;
 

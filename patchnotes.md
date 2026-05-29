@@ -1,5 +1,17 @@
 # Atrium — Patch Notes
 
+## v0.37.2 (2026-05-28): consolidate the CLI parser tests
+
+A test-suite tidy in `atrium-cli`, with no code, schema, or behaviour change.
+
+The crate carried two test homes for one argv parser: the inline `#[cfg(test)] mod tests` in `args.rs` (38 tests, added in the v0.21.0 maintenance pass) and the older `src/tests.rs` (127 tests). 23 of the `args.rs` cases duplicated `tests.rs` (nine shared the exact function name). They are now one home: the 15 unique `args.rs` tests (the `clock` subcommand, the v0.18 `template` subcommand, `--deadline-warn` / `--warn`, and `--parent` on `add` / `edit`) moved into `tests.rs`, and the duplicate module was deleted.
+
+Net effect is **−23 tests with no coverage loss**: `atrium-cli` goes from 165 to 142 unit tests and the workspace headline from 1008 to **985**. The audit also confirmed the CLI's `parity_*` / `falls_back_*` tests are *not* redundant: they are the only place the SQL fast-path and the in-memory evaluator are checked to return the same rows against a real database (`atrium-search`'s `sql_translate` tests only check the emitted SQL), so they stay.
+
+### Tests
+
+`cargo test -p atrium-cli` green at 142; `cargo clippy -p atrium-cli --all-targets -- -D warnings` clean. The moved tests are byte-for-byte the originals (only the `argv` helper renamed to the destination's `s` helper). Test count 985 (was 1008).
+
 ## v0.37.1 (2026-05-28): public-facing prose cleanup
 
 A documentation pass over the three public-facing surfaces (README, the AppStream app description, and the mdbook handbook's guide chapters), with no code, schema, or behaviour change.

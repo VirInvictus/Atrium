@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.37.2" date="2026-05-28">
+      <description>
+        <p>Internal test-suite tidy. The command-line parser had two
+           test homes that overlapped heavily; they are consolidated
+           into one, dropping 23 duplicate cases while keeping every
+           unique check (clock, templates, deadline warnings,
+           subtask parenting). No code, schema, or behaviour change.</p>
+      </description>
+    </release>
     <release version="0.37.1" date="2026-05-28">
       <description>
         <p>Documentation polish for the public-facing surfaces. The
