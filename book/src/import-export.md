@@ -14,7 +14,7 @@ sources with a dry-run preview; the CLI exposes the same paths.
 | todo.txt | plain text | `atrium-cli import todotxt PATH --into PROJECT` |
 
 Export targets: Org vault (two-way), a lossless JSON snapshot, and a
-one-way VTODO `.ics` dump. Atrium is **not** a CalDAV client — VTODO
+one-way VTODO `.ics` dump. Atrium is **not** a CalDAV client; VTODO
 export is a file hand-off.
 
 The non-Org importers live in the `atrium-import` crate (shared by the

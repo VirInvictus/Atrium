@@ -10,9 +10,9 @@ telemetry.
 This handbook is the reader's guide. The authoritative contract lives
 in the repository:
 
-- [`spec.md`](https://github.com/VirInvictus/Atrium/blob/main/spec.md) — architecture, schema, search grammar, import/export mapping, perf budget.
-- [`roadmap.md`](https://github.com/VirInvictus/Atrium/blob/main/roadmap.md) — what shipped and what's next.
-- [`patchnotes.md`](https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md) — release notes, newest first.
+- [`spec.md`](https://github.com/VirInvictus/Atrium/blob/main/spec.md): architecture, schema, search grammar, import/export mapping, perf budget.
+- [`roadmap.md`](https://github.com/VirInvictus/Atrium/blob/main/roadmap.md): what shipped and what's next.
+- [`patchnotes.md`](https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md): release notes, newest first.
 
 The **Guide** chapters are a quick on-ramp; the **Reference** chapters
 (keyboard map, schema, accessibility, performance) are the canonical

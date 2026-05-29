@@ -18,7 +18,7 @@
     <p>
       Storage is one SQLite file at $XDG_DATA_HOME/atrium/atrium.db, written
       by a single dedicated worker thread so the UI never blocks on I/O. The
-      schema is the OmniFocus superset on day one — Simple Mode hides the
+      schema is the OmniFocus superset on day one: Simple Mode hides the
       Builder fields, it doesn't lack them. An optional Org-mode vault
       mirrors the database as round-trippable .org files so your data stays
       portable to Emacs, Logseq, or a pile of files in a git repo.
@@ -32,9 +32,9 @@
       <li>FTS5-backed search with filter expressions (tag:, is:, due:)</li>
       <li>Multi-select bulk operations with undo (Ctrl+Z)</li>
       <li>Find-as-you-type sidebar filter (Ctrl+L)</li>
-      <li>Keyboard-first — every common op bindable, mouse optional</li>
+      <li>Keyboard-first: every common op bindable, mouse optional</li>
       <li>Drag-reorder rows; drag tasks onto projects to file them</li>
-      <li>Local-first — no network, no telemetry, no accounts</li>
+      <li>Local-first: no network, no telemetry, no accounts</li>
     </ul>
   </description>
 
@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.37.1" date="2026-05-28">
+      <description>
+        <p>Documentation polish for the public-facing surfaces. The
+           README was brought up to date (it still announced v0.20.0
+           and marked shipped work as planned) and every em-dash was
+           recast for a cleaner reading voice; the same prose pass
+           covered this metainfo's app description and the mdbook
+           handbook's guide chapters. No code, schema, or behaviour
+           change.</p>
+      </description>
+    </release>
     <release version="0.37.0" date="2026-05-28">
       <description>
         <p>A documentation handbook. Atrium's guides and reference docs

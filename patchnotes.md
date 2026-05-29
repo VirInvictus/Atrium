@@ -1,5 +1,17 @@
 # Atrium — Patch Notes
 
+## v0.37.1 (2026-05-28): public-facing prose cleanup
+
+A documentation pass over the three public-facing surfaces (README, the AppStream app description, and the mdbook handbook's guide chapters), with no code, schema, or behaviour change.
+
+Two problems were addressed. First, drift: the README still announced **v0.20.0** with **854 tests** and marked Phase 19, most of Phase 19.5, and most of Phase 20 as "planned" though all of it had shipped. The badge, the "Current release" narrative, the Status table, and the test count are now current at **v0.37.0 / 1008 tests**, and the CLI table gained the rows it was missing (`depend`, `backup`, `task-template`, the VTODO / Taskwarrior / todo.txt importers, and `export vtodo`). Second, voice: every em-dash in the README (95), in the metainfo's evergreen `<summary>`/`<description>` (3), and in the book's narrative chapters (11) was recast to a colon, comma, period, or parenthetical for a cleaner read.
+
+Deliberately left as historical record: the `patchnotes.md` entries below this one and the metainfo's per-release changelog. Those are a log of what was written at ship time, parallel to a git history, so they keep their original prose. New entries from here on use a colon in the header rather than an em-dash.
+
+### Tests
+
+No automated-test change. Verification is the standard gate (`cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `scripts/regression.sh`) plus `appstreamcli validate` on the metainfo and `mdbook build book` on the handbook. Test count unchanged at 1008.
+
 ## v0.37.0 (2026-05-28) — documentation site (Phase 20)
 
 An `mdbook` handbook under `book/`. Workspace 1008 unit tests + green; clippy `-D warnings`, fmt, `scripts/regression.sh`, and `appstreamcli validate` all clean. No schema / code change (a docs site + `.gitignore` entry).

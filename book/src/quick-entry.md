@@ -3,7 +3,7 @@
 `Ctrl+Alt+Space` opens Quick Entry, a small modal that drops a task
 into the Inbox. The same inline vocabulary works in the bottom-of-list
 entry, inline row rename (double-click / F2), and the CLI `capture`
-subcommand — one parser (`atrium-inline`) drives them all.
+subcommand. One parser (`atrium-inline`) drives them all.
 
 | Token | Effect |
 |---|---|
