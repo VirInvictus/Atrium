@@ -90,6 +90,14 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.37.3" date="2026-05-28">
+      <description>
+        <p>Documentation maintenance. The version and test-count
+           headers across the project's docs were reconciled to the
+           current release, so nothing claims a stale version. No
+           code, schema, or behaviour change.</p>
+      </description>
+    </release>
     <release version="0.37.2" date="2026-05-28">
       <description>
         <p>Internal test-suite tidy. The command-line parser had two

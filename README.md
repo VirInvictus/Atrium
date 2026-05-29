@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/GNOME-50%2B-4a86cf" alt="GNOME 50+">
   <img src="https://img.shields.io/badge/Simple%20Mode-shipping-2ea44f" alt="Simple Mode: shipping">
   <img src="https://img.shields.io/badge/Builder%20Mode-shipping-2ea44f" alt="Builder Mode: shipping">
-  <img src="https://img.shields.io/badge/version-0.37.0-blueviolet" alt="version 0.37.0">
+  <img src="https://img.shields.io/badge/version-0.37.3-blueviolet" alt="version 0.37.3">
 </p>
 
 ---
@@ -21,7 +21,7 @@ Atrium is the first GNOME-native productivity app that synthesises four traditio
 
 Two surfaces over one store. **Simple Mode** for *what am I doing right now*: Things calm, six lists, no defer dates, no review queue. **Builder Mode** for the days the system needs to do the work: Forecast, Calendar, Review, Perspectives, repeating tasks, sequential projects, the always-visible Inspector pane, full Org-mode bidirectional mirror. Same schema, same rows; mode is a UI-layer flip that never touches the database. The OmniFocus superset is the schema on day one, so Simple Mode hides Builder columns, it doesn't lack them.
 
-**Current release: v0.37.0.** Simple Mode, Builder Mode, Calibre-powered search, the kanban renderer, two-way Org-mode sync, Calendar Month View, and the inline-syntax engine (with tab-completion popover) shipped through v0.13.0. **Phase 18.5** added the Org-mode power features for Builder Mode across v0.14.0 to v0.19.0: per-task DEADLINE warning windows, statistics cookies plus body inline checkboxes, custom TODO sequences (`#+TODO: TODO NEXT WAITING | DONE`), CLOCK time tracking with `:LOGBOOK:` round-trip, Quick Entry templates (`org-capture`-style), ID-based links between tasks (`[[id:UUID][label]]`), and scheduled time-of-day. **Phase 19** opened the cross-app importers: VTODO / RFC 5545 import and export (v0.25.0), Taskwarrior `task export` JSON (v0.26.0), and todo.txt (v0.27.0). **Phase 19.5** (productivity essentials) landed the preferences dialog and system-notification reminders (v0.20.0), subtasks (v0.23.0), per-area review schedules (v0.28.0), task dependencies (v0.29.0), drag-to-capture (v0.30.0), first-run onboarding (v0.31.0), built-in backups (v0.32.0), task templates (v0.33.0), and the unified import dialog over an extracted `atrium-import` crate (v0.34.0). **Phase 20** (the 1.0 endgame) has shipped accessibility round 2 (v0.35.0), a performance regression suite (v0.36.0), and this mdbook handbook (v0.37.0); localisation scaffolding and Flathub packaging remain before the v1.0.0 tag. Full release narrative in [`patchnotes.md`](patchnotes.md); plan in [`roadmap.md`](roadmap.md).
+**Current release: v0.37.3.** Simple Mode, Builder Mode, Calibre-powered search, the kanban renderer, two-way Org-mode sync, Calendar Month View, and the inline-syntax engine (with tab-completion popover) shipped through v0.13.0. **Phase 18.5** added the Org-mode power features for Builder Mode across v0.14.0 to v0.19.0: per-task DEADLINE warning windows, statistics cookies plus body inline checkboxes, custom TODO sequences (`#+TODO: TODO NEXT WAITING | DONE`), CLOCK time tracking with `:LOGBOOK:` round-trip, Quick Entry templates (`org-capture`-style), ID-based links between tasks (`[[id:UUID][label]]`), and scheduled time-of-day. **Phase 19** opened the cross-app importers: VTODO / RFC 5545 import and export (v0.25.0), Taskwarrior `task export` JSON (v0.26.0), and todo.txt (v0.27.0). **Phase 19.5** (productivity essentials) landed the preferences dialog and system-notification reminders (v0.20.0), subtasks (v0.23.0), per-area review schedules (v0.28.0), task dependencies (v0.29.0), drag-to-capture (v0.30.0), first-run onboarding (v0.31.0), built-in backups (v0.32.0), task templates (v0.33.0), and the unified import dialog over an extracted `atrium-import` crate (v0.34.0). **Phase 20** (the 1.0 endgame) has shipped accessibility round 2 (v0.35.0), a performance regression suite (v0.36.0), and this mdbook handbook (v0.37.0); localisation scaffolding and Flathub packaging remain before the v1.0.0 tag. (v0.37.1 through v0.37.3 were documentation and test-suite maintenance.) Full release narrative in [`patchnotes.md`](patchnotes.md); plan in [`roadmap.md`](roadmap.md).
 
 **Author's Note:** I'm a college student in my late thirties with no professional industry experience yet. Atrium is one in a string of native Linux desktop apps I'm building to learn the craft and assemble a portfolio. I came from Things 3 and OmniFocus on macOS / iOS, and Linux has nothing in their lane that isn't an Electron wrapper or a CalDAV form over a webview. Atrium is the answer I wanted to exist. I work on Fedora 44 on a ThinkPad T14s AMD Gen 6; that's the environment it'll be tested against. I welcome contributions but can only honestly support my own setup.
 
@@ -292,7 +292,7 @@ flatpak run io.github.virinvictus.atrium
 ## Testing and debugging
 
 ```bash
-# Full workspace test suite: 1008 tests at v0.37.0.
+# Full workspace test suite: 985 tests at v0.37.3.
 cargo test --workspace
 
 # Single test (any crate).

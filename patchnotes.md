@@ -1,5 +1,20 @@
 # Atrium — Patch Notes
 
+## v0.37.3 (2026-05-28): documentation-soundness sweep
+
+A final drift pass over the doc set, with no code, schema, or behaviour change. The v0.37.2 test-count change (1008 → 985) and the accumulated patch releases had left a handful of version and test-count headers behind:
+
+- **README**: the badge and "Current release" line moved to v0.37.3; the testing-section comment corrected to "985 tests at v0.37.3" (it still read 1008).
+- **CLAUDE.md**: the status line moved to v0.37.3; the `cargo test --workspace` comment, stale at "974 at v0.27.0", corrected to "985 at v0.37.3".
+- **spec.md**: the `Version:` header, lagging at 0.35.0, moved to 0.37.3, with a note that v0.37.1 through v0.37.3 were documentation and test-suite maintenance.
+- **roadmap.md**: the intro "Current release" moved to v0.37.3, with the same maintenance note.
+
+`roadmap.md`'s phase checkboxes were already accurate (every Phase 19 / 19.5 / Tier 3 item ticked; the open l10n / Flathub / screenshots / `v1.0.0`-tag items correctly still open), so only its intro line changed.
+
+### Tests
+
+No test change; the workspace stays at 985. Verification is `appstreamcli validate` clean on the metainfo.
+
 ## v0.37.2 (2026-05-28): consolidate the CLI parser tests
 
 A test-suite tidy in `atrium-cli`, with no code, schema, or behaviour change.
