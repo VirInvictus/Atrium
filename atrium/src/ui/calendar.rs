@@ -736,6 +736,13 @@ where
         .build();
     if cell.is_today {
         day_lbl.add_css_class("heading");
+        // Accessible marker (v0.38.x audit): today is otherwise cued by
+        // border colour + a bold day number, which reads identically to
+        // any other day for a screen reader. Name it explicitly.
+        day_lbl.update_property(&[gtk::accessible::Property::Label(&format!(
+            "{} (today)",
+            cell.date.day()
+        ))]);
     }
     header.append(&day_lbl);
     if !cell.tasks.is_empty() {

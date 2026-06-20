@@ -90,6 +90,16 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.38.3" date="2026-06-20">
+      <description>
+        <p>Accessibility improvements. The keyboard focus ring is
+           visible again on the sidebar and task lists, icon-only
+           controls (colour swatches, the repeating-task icon) now have
+           accessible names for screen readers, and the calendar's
+           "today" cell announces itself instead of relying on colour
+           alone.</p>
+      </description>
+    </release>
     <release version="0.38.2" date="2026-06-20">
       <description>
         <p>Performance tightening. Editing tasks in an external Org-mode

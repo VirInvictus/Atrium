@@ -146,6 +146,16 @@ pub(super) async fn prompt_for_named_color(
             .build();
         toggle.add_css_class("circular");
         toggle.add_css_class("atrium-swatch");
+        // Accessible name (v0.38.x audit): the swatch is icon-only, and
+        // the "no colour" one's only visible mark is a glyph that reads
+        // as garbage to a screen reader. A tooltip is not an accessible
+        // name, so set one explicitly.
+        let a11y_name = if hex.is_some() {
+            format!("{label} colour")
+        } else {
+            "No colour".to_string()
+        };
+        toggle.update_property(&[gtk::accessible::Property::Label(&a11y_name)]);
         if hex.is_some() {
             // Lower-case the colour name → CSS class. style.css defines
             // .atrium-swatch-{blue,green,yellow,orange,red,purple} as

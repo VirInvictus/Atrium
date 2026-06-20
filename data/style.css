@@ -696,6 +696,18 @@ listview.navigation-sidebar > row:focus,
 .navigation-sidebar > row:focus {
   outline: none;
 }
+/* Accessibility (v0.38.x audit): keep keyboard focus visible. The
+ * outline:none above keeps mouse focus clean (selection glow is the
+ * cue), but a keyboard user needs to see where focus landed.
+ * :focus-visible matches only keyboard focus, so this ring appears
+ * for Tab/arrow navigation and never for a mouse click. It follows
+ * the :focus rule in source order so it wins when both match. */
+listview.navigation-sidebar > row:focus-visible,
+.navigation-sidebar > row:focus-visible {
+  outline: 2px solid @accent_color;
+  outline-offset: -2px;
+  border-radius: 8px;
+}
 
 /* Inspector-pane header treatment — the "Title" / "Schedule" /
  * "Tags" preference-group labels. v0.3.0 added the card treatment;
@@ -856,6 +868,15 @@ listview.navigation-sidebar > row:focus,
 }
 .atrium-task-listview > row:focus {
   outline: none;
+}
+/* Accessibility (v0.38.x audit): keyboard focus stays visible on task
+ * rows via :focus-visible (keyboard only), while a mouse click keeps
+ * the clean selection glow. Follows :focus in source order so it wins
+ * when a keyboard-focused row matches both. */
+.atrium-task-listview > row:focus-visible {
+  outline: 2px solid @accent_color;
+  outline-offset: -2px;
+  border-radius: 6px;
 }
 
 /* v0.7.0 — quick-add entry as a ghost.

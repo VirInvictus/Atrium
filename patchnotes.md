@@ -1,5 +1,15 @@
 # Atrium — Patch Notes
 
+## v0.38.3 (2026-06-20): accessibility (audit Tier C)
+
+Third slice of the audit-driven foundation pass. Accessibility fixes:
+
+- **Keyboard focus is visible again.** The sidebar and task-list rows set `outline: none` so the mouse selection-glow stayed clean, but that also erased the keyboard focus ring, leaving keyboard users unable to see where they were. A `:focus-visible` rule now draws an accent ring for keyboard navigation only (a mouse click keeps the clean glow).
+- **Accessible names on icon-only controls.** The tag-colour swatches (whose "no colour" option read as a stray glyph to a screen reader) and the per-row recurrence icon now carry explicit accessible labels; a tooltip is not an accessible name.
+- **Calendar "today" is announced.** In the month grid, today was cued only by a border colour and a bold day number, indistinguishable to a screen reader; the day number now reports "N (today)".
+
+(Two larger audit items, keyboard-operable rows on the custom calendar/board/agenda pages and a keyboard alternative to drag operations, are being planned as a follow-up since they touch the interaction model rather than being surgical fixes. The Inspector's keyboard-dead dependency/link pickers were already fixed in v0.38.1.)
+
 ## v0.38.2 (2026-06-20): performance tightening (audit Tier B)
 
 Second slice of the audit-driven foundation pass. Behavior-preserving:

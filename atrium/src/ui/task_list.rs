@@ -438,6 +438,10 @@ where
         // existing next_sibling chain in `bind` doesn't shift.
         let repeat_icon = gtk::Image::from_icon_name("view-refresh-symbolic");
         repeat_icon.set_tooltip_text(Some("Repeating task"));
+        // Accessible name (v0.38.x audit): a tooltip is not an
+        // accessible name, so the "repeating" state would otherwise be
+        // invisible to assistive tech.
+        repeat_icon.update_property(&[gtk::accessible::Property::Label("Repeating task")]);
         repeat_icon.set_visible(false);
         repeat_icon.add_css_class("atrium-task-repeating");
         repeat_icon.add_css_class("dim-label");
