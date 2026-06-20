@@ -90,6 +90,16 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.39.2" date="2026-06-20">
+      <description>
+        <p>Discoverability polish. Kanban boards gained a Configure
+           button in the page header, so changing columns no longer
+           means hunting through a right-click menu. Quick Entry now
+           hints at template shortcuts when you have any configured. And
+           the drag-and-drop gestures are documented in the keymap
+           reference.</p>
+      </description>
+    </release>
     <release version="0.39.1" date="2026-06-20">
       <description>
         <p>Interaction consistency. Clicking a task in the calendar's

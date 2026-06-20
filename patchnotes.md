@@ -1,5 +1,15 @@
 # Atrium — Patch Notes
 
+## v0.39.2 (2026-06-20): discoverability polish (audit Tier D, part 3)
+
+Surfacing features the audit found buried:
+
+- **Kanban boards have a "Configure…" button.** Columns and axis were only reachable from the perspective row's right-click menu. The board page header now carries a Configure button that opens the same renderer dialog directly.
+- **Quick Entry advertises template shortcuts.** When you have a Quick Entry template with a shortcut key configured, the modal's hint line now mentions the `:key` trigger; it stays quiet when no such templates exist.
+- **Drag-and-drop interactions are documented.** A new "Drag and drop" section in the keymap reference (and the docs site) catalogs the gestures that had no written home: reorder, Shift-drag to nest, drag-to-reschedule, drag-to-project, kanban column moves, and drop-to-capture.
+
+(Inspector-pane checkbox undo parity and a per-row Shift-drag tooltip were considered and deferred: the first is low-value against a single re-click, the second would put a tooltip on every task row. The keyboard-first alternatives to drag land in the D5 pass.)
+
 ## v0.39.1 (2026-06-20): interaction consistency (audit Tier D, part 2)
 
 Two interaction dead-ends from the audit:

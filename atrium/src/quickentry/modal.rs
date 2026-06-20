@@ -84,8 +84,16 @@ pub fn open(
         entry.set_position(-1);
     }
 
+    // Surface the `:key` template trigger only when a template with a
+    // shortcut key is actually configured — otherwise it's noise.
+    let has_template_shortcuts = templates.iter().any(|t| t.shortcut_key.is_some());
+    let hint_text = if has_template_shortcuts {
+        "Press Enter to drop into Inbox · Esc to dismiss · type :key for a template"
+    } else {
+        "Press Enter to drop into Inbox · Esc to dismiss"
+    };
     let hint = gtk::Label::builder()
-        .label("Press Enter to drop into Inbox · Esc to dismiss")
+        .label(hint_text)
         .halign(gtk::Align::Start)
         .build();
     hint.add_css_class("dim-label");

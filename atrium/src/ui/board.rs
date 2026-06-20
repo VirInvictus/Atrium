@@ -59,7 +59,11 @@ pub enum DropDestination {
 /// a read-only state cue (same shape as v0.6.0).
 ///
 /// `on_row_click` is the per-row click callback (open in Inspector).
-pub fn build_page<F, D>(
+// Eight params: the board page legitimately needs the data refs plus
+// three callbacks (row click, drop, configure). Splitting into a
+// struct would only move the same fields around.
+#[allow(clippy::too_many_arguments)]
+pub fn build_page<F, D, C>(
     perspective_name: &str,
     columns: &[Column<'_>],
     tag_pills: &TagPillMap,
@@ -67,10 +71,12 @@ pub fn build_page<F, D>(
     worker: Option<WorkerHandle>,
     on_row_click: F,
     on_drop: D,
+    on_configure: C,
 ) -> gtk::Widget
 where
     F: Fn(i64) + 'static + Clone,
     D: Fn(i64, DropDestination) + 'static + Clone,
+    C: Fn() + 'static,
 {
     let outer = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -81,14 +87,32 @@ where
         .margin_bottom(16)
         .build();
 
-    // Page heading — perspective name + total task count.
+    // Page heading — perspective name + a Configure button. The board's
+    // columns / axis are otherwise reachable only from the perspective
+    // row's right-click menu, which the audit flagged as buried; the
+    // button activates the same `win.configure-renderer` action.
     let total: usize = columns.iter().map(|c| c.tasks.len()).sum();
+    let heading = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .build();
     let title = gtk::Label::builder()
         .label(perspective_name)
         .halign(gtk::Align::Start)
+        .hexpand(true)
         .build();
     title.add_css_class("title-2");
-    outer.append(&title);
+    heading.append(&title);
+
+    let configure = gtk::Button::builder()
+        .label("Configure\u{2026}")
+        .valign(gtk::Align::Center)
+        .build();
+    configure.add_css_class("flat");
+    configure.update_property(&[gtk::accessible::Property::Label("Configure board columns")]);
+    configure.connect_clicked(move |_| on_configure());
+    heading.append(&configure);
+    outer.append(&heading);
 
     let total_label = gtk::Label::builder()
         .label(format!(

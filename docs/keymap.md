@@ -73,6 +73,19 @@ Builder Mode shipped at v0.2.0 — Inspector pane, Forecast, Review queue, Persp
 | `Ctrl+P` | Perspective picker | Shipped via sidebar Perspectives section (Phase 14) — chord pending |
 | `Ctrl+D` | Defer-date editor | Shipped via Inspector (Phase 11) — chord pending |
 
+## Drag and drop
+
+Not all interactions are keyboard accels. The mouse gestures worth knowing (a keyboard-first alternative for each is tracked in the Tier D / D5 work):
+
+| Gesture | Effect |
+|---|---|
+| Drag a task up/down | Reorder, on position-ordered lists only (Inbox, Anytime, Someday, project and area pages). On date-sorted lists (Today, Upcoming, Logbook) order follows the date, so a reorder drag is declined with a toast. |
+| **Shift**-drag a task onto another task | Nest it as a subtask of the target (same project only; cycles are rejected with a toast). A plain drop still reorders. |
+| Drag a task onto another day | Reschedule it — in the Forecast "Strip" layout and the Calendar Month View. |
+| Drag a task onto a sidebar project / area | Move it there. |
+| Drag a card between kanban columns | Tag-axis boards rewrite the task's tags; status-axis boards change the task's real state (and complete it on a "done" column). |
+| Drop files / URLs / text onto the window | Opens Quick Entry pre-filled, so the capture is reviewable before it lands. |
+
 ## Reserved (stub bindings)
 
 These are wired in `install_accels` so muscle memory works once the feature lands; activating them today is a no-op or shows a "coming in Phase X" toast.

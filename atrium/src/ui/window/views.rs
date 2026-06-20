@@ -688,6 +688,15 @@ impl AtriumWindow {
             }
         };
 
+        // Configure button → the existing win.configure-renderer
+        // action (a no-op off a Perspective; a board always is one).
+        let weak_cfg = self.downgrade();
+        let on_configure = move || {
+            if let Some(window) = weak_cfg.upgrade() {
+                let _ = WidgetExt::activate_action(&window, "win.configure-renderer", None);
+            }
+        };
+
         let widget = crate::ui::board::build_page(
             &perspective.name,
             &columns,
@@ -696,6 +705,7 @@ impl AtriumWindow {
             worker,
             on_click,
             on_drop,
+            on_configure,
         );
         self.imp().board_host.set_child(Some(&widget));
         Ok(())
