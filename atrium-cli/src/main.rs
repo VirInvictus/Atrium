@@ -1514,32 +1514,90 @@ fn resolve_perspective_exact(conn: &Connection, name: &str) -> CliResult<atrium_
         .ok_or_else(|| CliError::Args(format!("no perspective named: {name}")))
 }
 
-/// Build a renderer + renderer_config pair from the create flags.
-fn build_renderer_config(args: &PerspectiveArgs) -> CliResult<(String, Option<String>)> {
-    match args.renderer.as_deref() {
-        Some("board") => {
-            let columns = parse_columns(args.columns.as_deref())?;
+/// Resolve the `--axis` flag to a [`BoardAxis`], falling back to
+/// `default` when the flag is absent. The string is validated at
+/// argv-parse time, so an unknown value here is a logic error.
+fn parse_axis_flag(
+    raw: Option<&str>,
+    default: atrium_core::BoardAxis,
+) -> CliResult<atrium_core::BoardAxis> {
+    match raw {
+        None => Ok(default),
+        Some("tag") => Ok(atrium_core::BoardAxis::Tag),
+        Some("status") => Ok(atrium_core::BoardAxis::Status),
+        Some(other) => Err(CliError::Args(format!(
+            "--axis must be 'tag' or 'status', got {other}"
+        ))),
+    }
+}
+
+/// Build a [`BoardConfig`] for `axis` from the raw `--columns` value.
+/// Tag boards split on commas; status boards use the Org `#+TODO:`
+/// pipe convention (`TODO, NEXT | DONE, CANCELLED`).
+fn board_config_for_axis(
+    axis: atrium_core::BoardAxis,
+    columns_raw: Option<&str>,
+) -> CliResult<atrium_core::BoardConfig> {
+    match axis {
+        atrium_core::BoardAxis::Tag => {
+            let columns = parse_columns(columns_raw)?;
             if columns.is_empty() {
                 return Err(CliError::Args(
                     "--renderer board requires --columns 'a,b,c'".into(),
                 ));
             }
-            let cfg = atrium_core::BoardConfig {
-                axis: atrium_core::BoardAxis::Tag,
+            Ok(atrium_core::BoardConfig {
+                axis,
                 columns,
-            };
-            let json = cfg
-                .to_json()
-                .map_err(|e| CliError::Args(format!("renderer config serialisation: {e}")))?;
-            Ok(("board".into(), Some(json)))
+                done_columns: Vec::new(),
+            })
+        }
+        atrium_core::BoardAxis::Status => {
+            let (columns, done_columns) =
+                atrium_core::parse_status_columns(columns_raw.unwrap_or(""));
+            if columns.is_empty() {
+                return Err(CliError::Args(
+                    "--renderer board --axis status requires --columns 'TODO, NEXT | DONE'".into(),
+                ));
+            }
+            Ok(atrium_core::BoardConfig {
+                axis,
+                columns,
+                done_columns,
+            })
+        }
+    }
+}
+
+/// Serialise a board config to the `(renderer, Some(config_json))`
+/// pair the write path expects.
+fn board_renderer_pair(cfg: &atrium_core::BoardConfig) -> CliResult<(String, Option<String>)> {
+    let json = cfg
+        .to_json()
+        .map_err(|e| CliError::Args(format!("renderer config serialisation: {e}")))?;
+    Ok(("board".into(), Some(json)))
+}
+
+/// Build a renderer + renderer_config pair from the create flags.
+fn build_renderer_config(args: &PerspectiveArgs) -> CliResult<(String, Option<String>)> {
+    match args.renderer.as_deref() {
+        Some("board") => {
+            let axis = parse_axis_flag(args.axis.as_deref(), atrium_core::BoardAxis::Tag)?;
+            let cfg = board_config_for_axis(axis, args.columns.as_deref())?;
+            board_renderer_pair(&cfg)
         }
         Some("list") | None => {
             // No renderer specified, or list — list takes no config.
-            // Reject `--columns` without `--renderer board` so the
-            // user doesn't think they configured something.
+            // Reject `--columns` / `--axis` without `--renderer board`
+            // so the user doesn't think they configured something.
             if args.columns.is_some() {
                 return Err(CliError::Args(
                     "--columns is only meaningful with --renderer board".into(),
+                ));
+            }
+            if args.axis.is_some() {
+                return Err(CliError::Args(
+                    "--axis is only meaningful with --renderer board".into(),
                 ));
             }
             Ok(("list".into(), None))
@@ -1552,8 +1610,9 @@ fn build_renderer_config(args: &PerspectiveArgs) -> CliResult<(String, Option<St
 
 /// Synthesise the renderer + renderer_config tuple for `edit`. If
 /// `--renderer` is explicit, behave like `create`. If only
-/// `--columns` is set, update the existing board's columns
-/// in-place (error if the perspective isn't a board).
+/// `--columns` / `--axis` is set, update the existing board in-place
+/// (error if the perspective isn't a board); the axis is inherited
+/// from the stored config unless `--axis` overrides it.
 fn synthesise_renderer_for_edit(
     perspective: &atrium_core::Perspective,
     args: &PerspectiveArgs,
@@ -1562,27 +1621,23 @@ fn synthesise_renderer_for_edit(
         // Explicit renderer flag — same logic as create.
         return build_renderer_config(args);
     }
-    // No --renderer; --columns alone → must be editing a board.
+    // No --renderer; --columns / --axis alone → editing a board.
     if !perspective.renderer.eq_ignore_ascii_case("board") {
         return Err(CliError::Args(format!(
             "perspective '{}' is renderer={}; pass --renderer board to convert it",
             perspective.name, perspective.renderer
         )));
     }
-    let columns = parse_columns(args.columns.as_deref())?;
-    if columns.is_empty() {
-        return Err(CliError::Args(
-            "--columns must contain at least one entry".into(),
-        ));
-    }
-    let cfg = atrium_core::BoardConfig {
-        axis: atrium_core::BoardAxis::Tag,
-        columns,
-    };
-    let json = cfg
-        .to_json()
-        .map_err(|e| CliError::Args(format!("renderer config serialisation: {e}")))?;
-    Ok(("board".into(), Some(json)))
+    // Inherit the axis from the existing config unless overridden.
+    let existing_axis = perspective
+        .renderer_config
+        .as_deref()
+        .and_then(|j| atrium_core::BoardConfig::from_json(j).ok())
+        .map(|c| c.axis)
+        .unwrap_or(atrium_core::BoardAxis::Tag);
+    let axis = parse_axis_flag(args.axis.as_deref(), existing_axis)?;
+    let cfg = board_config_for_axis(axis, args.columns.as_deref())?;
+    board_renderer_pair(&cfg)
 }
 
 /// Parse a `--columns "a,b,c"` flag into a column-name list.
@@ -1960,6 +2015,17 @@ fn run_edit(
                 .parse()
                 .map_err(|_| CliError::Args(format!("--deadline-warn: not an integer: {s}")))?;
             update = update.deadline_warn_days_value(Some(n));
+        }
+    }
+    if let Some(s) = edit.keyword.as_deref() {
+        if s.eq_ignore_ascii_case("none")
+            || s.eq_ignore_ascii_case("TODO")
+            || s.eq_ignore_ascii_case("DONE")
+        {
+            // Canonical keywords carry no custom label — clear to NULL.
+            update = update.orig_keyword(None);
+        } else {
+            update = update.orig_keyword(Some(s.to_string()));
         }
     }
 

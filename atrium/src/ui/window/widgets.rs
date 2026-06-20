@@ -255,68 +255,198 @@ pub(super) async fn prompt_for_text(
     }
 }
 
-/// v0.6.2 — perspective renderer configuration dialog. Pick `List`
-/// or `Board`; when `Board`, edit the comma-separated column list
-/// in a single text entry. Returns `(renderer, config_json)` on
-/// confirm, `None` on cancel. The config_json is `None` for List
-/// or for an empty Board (no columns picked yet); `Some(json)` for
-/// a Board with at least one column.
-pub(super) async fn prompt_configure_renderer_dialog(
-    parent: &impl IsA<gtk::Widget>,
+/// The board axis the user picked in a renderer dialog, or `None`
+/// for the List renderer. Shared by the two renderer dialogs so the
+/// radio → config translation lives in one place.
+#[derive(Clone, Copy)]
+enum RendererChoice {
+    List,
+    Board(atrium_core::BoardAxis),
+}
+
+/// Translate a renderer dialog's radio + columns-entry state into a
+/// `(renderer, config_json)` pair. Tag boards split on commas; status
+/// boards use the Org `#+TODO:` pipe convention. An empty column set
+/// falls back to List, since the kanban can't render a config the
+/// worker's `Renderer::from_columns` would reject.
+fn renderer_pair_from_choice(
+    choice: RendererChoice,
+    columns_text: &str,
+) -> (String, Option<String>) {
+    let axis = match choice {
+        RendererChoice::List => return ("list".into(), None),
+        RendererChoice::Board(axis) => axis,
+    };
+    let (columns, done_columns) = match axis {
+        atrium_core::BoardAxis::Tag => {
+            let cols: Vec<String> = columns_text
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            (cols, Vec::new())
+        }
+        atrium_core::BoardAxis::Status => atrium_core::parse_status_columns(columns_text),
+    };
+    if columns.is_empty() {
+        return ("list".into(), None);
+    }
+    let cfg = atrium_core::BoardConfig {
+        axis,
+        columns,
+        done_columns,
+    };
+    ("board".into(), cfg.to_json().ok())
+}
+
+/// Inspect a perspective's stored renderer config for the existing
+/// axis (if it's a board) and the entry text to prefill — columns
+/// joined for a tag board, the pipe convention for a status board.
+fn existing_board_state(
     perspective: &atrium_core::Perspective,
-) -> Option<(String, Option<String>)> {
-    // Existing values for sane defaults.
-    let is_board = perspective.renderer.eq_ignore_ascii_case("board");
-    let existing_cols: Vec<String> = perspective
+) -> (Option<atrium_core::BoardAxis>, String) {
+    let cfg = perspective
         .renderer_config
         .as_deref()
-        .and_then(|json| atrium_core::BoardConfig::from_json(json).ok())
-        .map(|cfg| cfg.columns)
-        .unwrap_or_default();
-    let existing_cols_text = existing_cols.join(", ");
+        .and_then(|json| atrium_core::BoardConfig::from_json(json).ok());
+    let is_board = perspective.renderer.eq_ignore_ascii_case("board");
+    match cfg {
+        Some(cfg) if is_board && cfg.axis == atrium_core::BoardAxis::Status => (
+            Some(atrium_core::BoardAxis::Status),
+            atrium_core::format_status_columns(&cfg),
+        ),
+        Some(cfg) if is_board => (Some(atrium_core::BoardAxis::Tag), cfg.columns.join(", ")),
+        _ => (None, String::new()),
+    }
+}
 
-    // Form layout — a vertical Box holding the two radio toggles
-    // and the columns entry. The entry's sensitive-state is bound
-    // to the Board radio.
-    let form = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(12)
-        .build();
+/// The static hint text + placeholder for the columns entry under a
+/// given board axis.
+fn columns_hint(axis: atrium_core::BoardAxis) -> (&'static str, &'static str) {
+    match axis {
+        atrium_core::BoardAxis::Tag => {
+            ("Columns (comma-separated tag names):", "todo, doing, done")
+        }
+        atrium_core::BoardAxis::Status => (
+            "Columns (Org #+TODO: keywords; “|” before done states):",
+            "TODO, NEXT, WAITING | DONE, CANCELLED",
+        ),
+    }
+}
+
+/// Build the List / Board-by-tag / Board-by-status radio group plus
+/// the columns entry, wired so the entry's sensitivity + hint track
+/// the active radio. Returns the three radios and the entry; the
+/// caller reads their final state. Appends everything to `form`.
+fn build_renderer_form(
+    form: &gtk::Box,
+    existing_axis: Option<atrium_core::BoardAxis>,
+    existing_cols_text: &str,
+) -> (
+    gtk::CheckButton,
+    gtk::CheckButton,
+    gtk::CheckButton,
+    gtk::Entry,
+) {
+    let is_tag = existing_axis == Some(atrium_core::BoardAxis::Tag);
+    let is_status = existing_axis == Some(atrium_core::BoardAxis::Status);
 
     let list_radio = gtk::CheckButton::builder()
         .label("List \u{2014} flat task list (default)")
-        .active(!is_board)
+        .active(existing_axis.is_none())
         .build();
-    let board_radio = gtk::CheckButton::builder()
+    let tag_radio = gtk::CheckButton::builder()
         .label("Board \u{2014} columns by tag")
-        .active(is_board)
+        .active(is_tag)
         .build();
-    board_radio.set_group(Some(&list_radio));
+    let status_radio = gtk::CheckButton::builder()
+        .label("Board \u{2014} columns by status (Org keywords)")
+        .active(is_status)
+        .build();
+    tag_radio.set_group(Some(&list_radio));
+    status_radio.set_group(Some(&list_radio));
     form.append(&list_radio);
-    form.append(&board_radio);
+    form.append(&tag_radio);
+    form.append(&status_radio);
 
-    // Columns entry, only sensitive when Board is selected. Comma-
-    // separated for now; an editable list-row UI is a polish item.
+    // Initial hint follows the active axis (tag is the board default).
+    let initial_axis = existing_axis.unwrap_or(atrium_core::BoardAxis::Tag);
+    let (initial_label, initial_placeholder) = columns_hint(initial_axis);
+
     let columns_label = gtk::Label::builder()
-        .label("Columns (comma-separated tag names):")
+        .label(initial_label)
         .halign(gtk::Align::Start)
         .build();
     columns_label.add_css_class("dim-label");
     form.append(&columns_label);
 
     let columns_entry = gtk::Entry::builder()
-        .placeholder_text("todo, doing, done")
-        .text(&existing_cols_text)
+        .placeholder_text(initial_placeholder)
+        .text(existing_cols_text)
         .activates_default(true)
         .build();
-    columns_entry.set_sensitive(is_board);
+    columns_entry.set_sensitive(existing_axis.is_some());
     form.append(&columns_entry);
 
-    // Wire the radios → entry sensitivity.
-    let entry_clone = columns_entry.clone();
-    board_radio.connect_active_notify(move |btn| {
-        entry_clone.set_sensitive(btn.is_active());
+    // Each board radio, on becoming active, enables the entry and
+    // swaps in its axis-specific hint; the List radio disables it.
+    for (radio, axis) in [
+        (&tag_radio, atrium_core::BoardAxis::Tag),
+        (&status_radio, atrium_core::BoardAxis::Status),
+    ] {
+        let entry = columns_entry.clone();
+        let label = columns_label.clone();
+        radio.connect_active_notify(move |btn| {
+            if btn.is_active() {
+                let (hint, placeholder) = columns_hint(axis);
+                entry.set_sensitive(true);
+                label.set_text(hint);
+                entry.set_placeholder_text(Some(placeholder));
+            }
+        });
+    }
+    let entry_for_list = columns_entry.clone();
+    list_radio.connect_active_notify(move |btn| {
+        if btn.is_active() {
+            entry_for_list.set_sensitive(false);
+        }
     });
+
+    (list_radio, tag_radio, status_radio, columns_entry)
+}
+
+/// Read the active board axis out of the three renderer radios.
+fn choice_from_radios(
+    tag_radio: &gtk::CheckButton,
+    status_radio: &gtk::CheckButton,
+) -> RendererChoice {
+    if status_radio.is_active() {
+        RendererChoice::Board(atrium_core::BoardAxis::Status)
+    } else if tag_radio.is_active() {
+        RendererChoice::Board(atrium_core::BoardAxis::Tag)
+    } else {
+        RendererChoice::List
+    }
+}
+
+/// v0.6.2 — perspective renderer configuration dialog. Pick `List`,
+/// `Board` by tag, or `Board` by status; for a board, edit the
+/// columns in a single text entry (comma-separated tags, or Org
+/// `#+TODO:` keywords for the status axis). Returns `(renderer,
+/// config_json)` on confirm, `None` on cancel. The config_json is
+/// `None` for List or an empty board; `Some(json)` otherwise.
+pub(super) async fn prompt_configure_renderer_dialog(
+    parent: &impl IsA<gtk::Widget>,
+    perspective: &atrium_core::Perspective,
+) -> Option<(String, Option<String>)> {
+    let (existing_axis, existing_cols_text) = existing_board_state(perspective);
+
+    let form = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .build();
+    let (_list_radio, tag_radio, status_radio, columns_entry) =
+        build_renderer_form(&form, existing_axis, &existing_cols_text);
 
     let dialog = adw::AlertDialog::new(
         Some(&format!("Configure renderer for “{}”", perspective.name)),
@@ -333,30 +463,8 @@ pub(super) async fn prompt_configure_renderer_dialog(
     if response.as_str() != "ok" {
         return None;
     }
-    if board_radio.is_active() {
-        let raw = columns_entry.text().to_string();
-        let columns: Vec<String> = raw
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        if columns.is_empty() {
-            // No columns picked — store as Board with NULL config so
-            // the kanban renders only the trailing "Other" bucket.
-            // The caller's `Renderer::from_columns` rejects NULL on
-            // Board, so we instead fall back to List in that case.
-            return Some(("list".into(), None));
-        }
-        let cfg = atrium_core::BoardConfig {
-            axis: atrium_core::BoardAxis::Tag,
-            columns,
-        };
-        let json = cfg.to_json().ok();
-        Some(("board".into(), json))
-    } else {
-        // List renderer needs no config — clear renderer_config.
-        Some(("list".into(), None))
-    }
+    let choice = choice_from_radios(&tag_radio, &status_radio);
+    Some(renderer_pair_from_choice(choice, &columns_entry.text()))
 }
 
 /// v0.7.3 — captured fields from the perspective editor dialog.
@@ -384,23 +492,12 @@ pub(super) async fn prompt_edit_perspective(
     parent: &impl IsA<gtk::Widget>,
     existing: Option<&atrium_core::Perspective>,
 ) -> Option<EditedPerspectiveFields> {
-    let (existing_name, existing_filter, is_board, existing_cols_text) = match existing {
+    let (existing_name, existing_filter, existing_axis, existing_cols_text) = match existing {
         Some(p) => {
-            let is_board = p.renderer.eq_ignore_ascii_case("board");
-            let cols: Vec<String> = p
-                .renderer_config
-                .as_deref()
-                .and_then(|json| atrium_core::BoardConfig::from_json(json).ok())
-                .map(|cfg| cfg.columns)
-                .unwrap_or_default();
-            (
-                p.name.clone(),
-                p.filter_expr.clone(),
-                is_board,
-                cols.join(", "),
-            )
+            let (axis, cols_text) = existing_board_state(p);
+            (p.name.clone(), p.filter_expr.clone(), axis, cols_text)
         }
-        None => (String::new(), String::new(), false, String::new()),
+        None => (String::new(), String::new(), None, String::new()),
     };
 
     let form = gtk::Box::builder()
@@ -440,36 +537,8 @@ pub(super) async fn prompt_edit_perspective(
     renderer_label.add_css_class("dim-label");
     form.append(&renderer_label);
 
-    let list_radio = gtk::CheckButton::builder()
-        .label("List \u{2014} flat task list (default)")
-        .active(!is_board)
-        .build();
-    let board_radio = gtk::CheckButton::builder()
-        .label("Board \u{2014} columns by tag")
-        .active(is_board)
-        .build();
-    board_radio.set_group(Some(&list_radio));
-    form.append(&list_radio);
-    form.append(&board_radio);
-
-    let columns_label = gtk::Label::builder()
-        .label("Columns (comma-separated tag names):")
-        .halign(gtk::Align::Start)
-        .build();
-    columns_label.add_css_class("dim-label");
-    form.append(&columns_label);
-
-    let columns_entry = gtk::Entry::builder()
-        .placeholder_text("todo, doing, done")
-        .text(&existing_cols_text)
-        .build();
-    columns_entry.set_sensitive(is_board);
-    form.append(&columns_entry);
-
-    let entry_clone = columns_entry.clone();
-    board_radio.connect_active_notify(move |btn| {
-        entry_clone.set_sensitive(btn.is_active());
-    });
+    let (_list_radio, tag_radio, status_radio, columns_entry) =
+        build_renderer_form(&form, existing_axis, &existing_cols_text);
 
     let heading = if existing.is_some() {
         format!("Edit “{}”", existing_name)
@@ -498,25 +567,8 @@ pub(super) async fn prompt_edit_perspective(
         return None;
     }
 
-    let (renderer, renderer_config) = if board_radio.is_active() {
-        let raw = columns_entry.text().to_string();
-        let columns: Vec<String> = raw
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        if columns.is_empty() {
-            ("list".into(), None)
-        } else {
-            let cfg = atrium_core::BoardConfig {
-                axis: atrium_core::BoardAxis::Tag,
-                columns,
-            };
-            ("board".into(), cfg.to_json().ok())
-        }
-    } else {
-        ("list".into(), None)
-    };
+    let choice = choice_from_radios(&tag_radio, &status_radio);
+    let (renderer, renderer_config) = renderer_pair_from_choice(choice, &columns_entry.text());
 
     Some(EditedPerspectiveFields {
         name,

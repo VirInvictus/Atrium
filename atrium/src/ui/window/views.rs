@@ -508,12 +508,19 @@ impl AtriumWindow {
             );
         };
 
-        // v0.6.3 — drag-drop between columns. Each card on the
-        // board is a drop target; on a drop we recompute the task's
-        // tag set with `atrium_core::move_to_column` and dispatch
-        // ensure_tag + set_task_tags through the worker. The pool
-        // and worker are re-fetched per drop so the closure stays
-        // a plain Fn (no captured borrows of cell-borrowed maps).
+        // v0.6.3 — drag-drop between columns. Each card on the board
+        // is a drop target. The effect depends on the board axis:
+        //
+        // - **Tag axis:** recompute the task's tag set with
+        //   `move_to_column` and dispatch ensure_tag + set_task_tags.
+        // - **Status axis (v0.38.0):** translate the drop into a real
+        //   state change via `status_move` — set `orig_keyword`, and
+        //   flip completion through `toggle_complete` (full checkbox
+        //   semantics, so a recurring task rolls forward) when the
+        //   destination column's completion differs from the task's.
+        //
+        // The pool and worker are re-fetched per drop so the closure
+        // stays a plain Fn (no captured borrows of cell-borrowed maps).
         let cfg_for_drop = cfg.clone();
         let weak_drop = self.downgrade();
         let on_drop = move |task_id: i64, dest: crate::ui::board::DropDestination| {
@@ -526,33 +533,83 @@ impl AtriumWindow {
             let Some(pool) = window.read_pool() else {
                 return;
             };
-            let map = pool
-                .with(atrium_core::db::read::tag_names_per_task)
-                .unwrap_or_default();
-            let current = map.get(&task_id).cloned().unwrap_or_default();
             let dest_str: Option<String> = match dest {
                 crate::ui::board::DropDestination::Column(n) => Some(n),
                 crate::ui::board::DropDestination::Other => None,
             };
-            let new_names =
-                atrium_core::move_to_column(&current, &cfg_for_drop, dest_str.as_deref());
-            // Skip the worker round-trip when nothing actually
-            // changed (drop on the same column the task is in).
-            if tag_lists_equal_case_insensitive(&current, &new_names) {
-                return;
-            }
-            glib::MainContext::default().spawn_local(async move {
-                let mut ids: Vec<i64> = Vec::with_capacity(new_names.len());
-                for name in new_names {
-                    match worker.ensure_tag(name).await {
-                        Ok(t) => ids.push(t.id),
-                        Err(e) => warn!(?e, "kanban move ensure_tag failed"),
+            match cfg_for_drop.axis {
+                atrium_core::BoardAxis::Tag => {
+                    let map = pool
+                        .with(atrium_core::db::read::tag_names_per_task)
+                        .unwrap_or_default();
+                    let current = map.get(&task_id).cloned().unwrap_or_default();
+                    let new_names =
+                        atrium_core::move_to_column(&current, &cfg_for_drop, dest_str.as_deref());
+                    // Skip the worker round-trip when nothing actually
+                    // changed (drop on the same column the task is in).
+                    if tag_lists_equal_case_insensitive(&current, &new_names) {
+                        return;
                     }
+                    glib::MainContext::default().spawn_local(async move {
+                        let mut ids: Vec<i64> = Vec::with_capacity(new_names.len());
+                        for name in new_names {
+                            match worker.ensure_tag(name).await {
+                                Ok(t) => ids.push(t.id),
+                                Err(e) => warn!(?e, "kanban move ensure_tag failed"),
+                            }
+                        }
+                        if let Err(e) = worker.set_task_tags(task_id, ids).await {
+                            error!(?e, task_id, "kanban move set_task_tags failed");
+                        }
+                    });
                 }
-                if let Err(e) = worker.set_task_tags(task_id, ids).await {
-                    error!(?e, task_id, "kanban move set_task_tags failed");
+                atrium_core::BoardAxis::Status => {
+                    let Some(task) = pool
+                        .with(|conn| atrium_core::db::read::task_by_id(conn, task_id))
+                        .ok()
+                        .flatten()
+                    else {
+                        return;
+                    };
+                    let current_completed = task.completed_at.is_some();
+                    let current_keyword = atrium_core::status_keyword(&task);
+                    let change = atrium_core::status_move(
+                        &cfg_for_drop,
+                        dest_str.as_deref(),
+                        current_completed,
+                    );
+                    // The keyword the task would land on after the move,
+                    // for the no-op check.
+                    let new_keyword = change.orig_keyword.clone().unwrap_or_else(|| {
+                        if change.completed {
+                            "DONE".into()
+                        } else {
+                            "TODO".into()
+                        }
+                    });
+                    if new_keyword.eq_ignore_ascii_case(&current_keyword)
+                        && change.completed == current_completed
+                    {
+                        return;
+                    }
+                    glib::MainContext::default().spawn_local(async move {
+                        let update =
+                            atrium_core::TaskUpdate::new(task_id).orig_keyword(change.orig_keyword);
+                        if let Err(e) = worker.update_task(update).await {
+                            error!(?e, task_id, "kanban status move update_task failed");
+                            return;
+                        }
+                        // Flip completion only when it actually changes,
+                        // so we don't double-toggle a row that's already
+                        // in the destination's completion state.
+                        if change.completed != current_completed
+                            && let Err(e) = worker.toggle_complete(task_id).await
+                        {
+                            error!(?e, task_id, "kanban status move toggle_complete failed");
+                        }
+                    });
                 }
-            });
+            }
         };
 
         let widget = crate::ui::board::build_page(

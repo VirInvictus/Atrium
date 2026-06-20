@@ -1,5 +1,18 @@
 # Atrium — Patch Notes
 
+## v0.38.0 (2026-06-20): status-axis kanban boards
+
+Kanban boards gain a second grouping axis. The original tag axis groups by tag and a drag rewrites synthetic tags; dragging to a "Done" column just added a `done` tag and left the task uncompleted, so the board and the rest of the app disagreed. The new **status axis** groups by Org TODO-sequence keyword and makes the drag mean something: a card's column is its actual state, and moving it changes that state.
+
+What changed:
+
+- **`atrium-core::render` — status axis.** `BoardAxis::Status` buckets each task by its keyword (`orig_keyword`, falling back to canonical `TODO`/`DONE`). New `status_keyword`, `status_move` (returns the keyword + completion change a drag implies), and `parse_status_columns` / `format_status_columns` (the Org `#+TODO:` pipe convention, `TODO, NEXT | DONE, CANCELLED`). `BoardConfig` gains an optional `done_columns`; it is omitted from the JSON for tag boards, so every pre-v0.38.0 config is byte-identical and parses unchanged.
+- **GUI.** The "Configure renderer…" and perspective-editor dialogs grow a third radio, "Board — columns by status (Org keywords)", with axis-aware hint text. Dragging a card on a status board sets `orig_keyword` and, for a done-column, completes the task through the normal completion path (so a repeating task rolls forward exactly as it would on a checkbox tick).
+- **CLI.** `perspective create/edit` accept `--axis tag|status`; `kanban NAME` renders status boards. New `edit ID --keyword KW|none` sets or clears a non-canonical keyword, so the status board is fully driveable from the shell (the standing CLI-testability commitment).
+- **No schema change.** `orig_keyword` and `completed_at` have been in the schema since 0007 / 0001; this is pure engine + UI + CLI work.
+
+Tests: 20 new (17 in `render`, 3 in the CLI parser); workspace 1005 unit tests, all green.
+
 ## v0.37.4 (2026-05-28): README rewrite for professionalism
 
 The README had accreted into a release log: a version-by-version "Current release" wall, a full phase-ledger Status table, and a `(v0.X.0)` tag on nearly every feature row and CLI entry. That belongs in the roadmap and these patch notes, not on the front page. This rewrite refocuses it on users and developers, with no code, schema, or behaviour change.

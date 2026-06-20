@@ -75,6 +75,9 @@ WRITE SUBCOMMANDS:
                       `--untag`) removes it, `--clear-tags` empties
                       the set. Compose freely:
                       `--clear-tags --tag work` replaces the set.
+                      `--keyword KW` sets a non-canonical Org TODO
+                      keyword (NEXT / WAITING / …) for status-axis
+                      kanban; `--keyword none` clears it.
                       Field semantics are diff-only — only the flags
                       you pass change.
     complete ID       toggle a task's completion (same as the GTK
@@ -97,13 +100,19 @@ WRITE SUBCOMMANDS:
     perspective <SUB> NAME [FLAGS]
                       saved-perspective write side. SUB is one of:
                         create     --filter EXPR [--icon NAME]
-                                   [--renderer list|board] [--columns 'a,b,c']
+                                   [--renderer list|board] [--axis tag|status]
+                                   [--columns 'a,b,c']
                         edit       [--rename NEW] [--filter EXPR]
                                    [--icon NAME|none]
-                                   [--renderer list|board] [--columns 'a,b,c']
+                                   [--renderer list|board] [--axis tag|status]
+                                   [--columns 'a,b,c']
                         delete     (case-insensitive exact-name match
                                    for safety; substring is read-only).
-                      The columns flag is comma-separated tag names.
+                      For --axis tag (default) the columns flag is
+                      comma-separated tag names. For --axis status the
+                      columns are TODO-sequence keywords in the Org
+                      '#+TODO:' pipe convention: everything right of the
+                      '|' is a done-column, e.g. 'TODO, NEXT | DONE'.
 
 EXAMPLES:
     atrium-cli list today
@@ -127,6 +136,7 @@ EXAMPLES:
     atrium-cli list tags --json | jq '.[] | .name'
     atrium-cli perspective create 'Q3 plans' --filter 'project:\"Q3 plans\"' --icon view-grid-symbolic
     atrium-cli perspective edit 'Q3 plans' --renderer board --columns 'todo,doing,done'
+    atrium-cli perspective edit 'Q3 plans' --renderer board --axis status --columns 'TODO, NEXT | DONE'
     atrium-cli perspective edit 'Q3 plans' --renderer list   # back to flat
     atrium-cli perspective delete 'Q3 plans'
     atrium-cli import org ~/Tasks/Errands.org
@@ -432,8 +442,15 @@ pub struct PerspectiveArgs {
     pub renderer: Option<String>,
     /// `create`/`edit`: comma-separated column list. Only meaningful
     /// when `renderer == Some("board")` or when editing an existing
-    /// board's columns. Empty string is rejected.
+    /// board's columns. Empty string is rejected. For `--axis status`
+    /// the value uses the Org `#+TODO:` pipe convention, e.g.
+    /// `'TODO, NEXT | DONE, CANCELLED'`.
     pub columns: Option<String>,
+    /// `create`/`edit`: `Some("tag")` or `Some("status")`. Selects
+    /// the board grouping axis; only meaningful with `--renderer
+    /// board`. Defaults to `tag` on create, or the existing board's
+    /// axis when editing columns in place.
+    pub axis: Option<String>,
 }
 
 /// Tri-state for the icon flag: `None` means leave alone (no flag
@@ -482,6 +499,11 @@ pub struct EditArgs {
     /// `None` = leave alone, `Some("none")` = clear back to the
     /// global default, otherwise the integer days as text.
     pub deadline_warn: Option<String>,
+    /// v0.38.0 — non-canonical Org TODO keyword (`NEXT`, `WAITING`,
+    /// …). `None` = leave alone, `Some("none")` = clear back to
+    /// canonical TODO/DONE, otherwise the keyword verbatim. Drives the
+    /// status-axis kanban from the shell.
+    pub keyword: Option<String>,
     /// Tag names to ensure are attached after the field update. Ran
     /// against the current tag set: anything in `tags_add` that
     /// isn't already attached is added; anything already attached
@@ -1058,6 +1080,12 @@ fn parse_edit(rest: &[String], args: &mut Args) -> Result<EditArgs, String> {
                 edit.deadline_warn = Some(v.clone());
                 i += 1;
             }
+            "--keyword" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--keyword requires a value or 'none'")?;
+                edit.keyword = Some(v.clone());
+                i += 1;
+            }
             "--tag" | "--add-tag" => {
                 i += 1;
                 let v = rest.get(i).ok_or("--tag requires a value")?;
@@ -1401,6 +1429,16 @@ fn parse_perspective_args(
                 i += 1;
                 let v = rest.get(i).ok_or("--columns requires a value")?;
                 p.columns = Some(v.clone());
+                i += 1;
+            }
+            "--axis" => {
+                i += 1;
+                let v = rest.get(i).ok_or("--axis requires tag or status")?;
+                let lower = v.to_ascii_lowercase();
+                if lower != "tag" && lower != "status" {
+                    return Err(format!("--axis must be 'tag' or 'status', got {v}"));
+                }
+                p.axis = Some(lower);
                 i += 1;
             }
             // Global format/db flags can appear anywhere.

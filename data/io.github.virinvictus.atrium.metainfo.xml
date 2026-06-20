@@ -90,6 +90,19 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.38.0" date="2026-06-20">
+      <description>
+        <p>Kanban boards gain a second grouping axis. Alongside the
+           original tag-based columns, a board can now group by status
+           (Org TODO-sequence keyword). On a status board, dragging a
+           card changes the task's real state instead of rewriting
+           synthetic tags: moving a card to a done column completes the
+           task, just like ticking its checkbox. Configurable from the
+           renderer dialogs and from the command line
+           (<code>--axis status</code>), with a new
+           <code>edit --keyword</code> flag. No schema change.</p>
+      </description>
+    </release>
     <release version="0.37.4" date="2026-05-28">
       <description>
         <p>A focused rewrite of the project README for clarity. The

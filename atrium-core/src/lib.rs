@@ -40,7 +40,8 @@ pub use error::{CoreError, DbError, DomainError};
 pub use links::{BodyLink, parse_body_links};
 pub use paths::{APP_ID, cache_dir, data_dir, db_path};
 pub use render::{
-    BoardAxis, BoardConfig, Column, OTHER_COLUMN_LABEL, Renderer, RendererError, group_into_board,
-    move_to_column,
+    BoardAxis, BoardConfig, Column, OTHER_COLUMN_LABEL, Renderer, RendererError, StatusChange,
+    format_status_columns, group_into_board, move_to_column, parse_status_columns, status_keyword,
+    status_move,
 };
 pub use repeat::{RepeatMode, RepeatRule};

@@ -7,10 +7,10 @@
 //! the same coverage.
 
 use crate::args::{
-    parse, AddArgs, ClockSub, EditArgs, EditIcon, EditParent, EditProject, Format, PerspectiveArgs,
-    PerspectiveSub, Subcommand, TargetSpec, TaskTemplateSub, TemplateSub,
+    AddArgs, ClockSub, EditArgs, EditIcon, EditParent, EditProject, Format, PerspectiveArgs,
+    PerspectiveSub, Subcommand, TargetSpec, TaskTemplateSub, TemplateSub, parse,
 };
-use crate::output::{format_row, format_rows, format_rows_human, row_to_json, rows_to_json, Row};
+use crate::output::{Row, format_row, format_rows, format_rows_human, row_to_json, rows_to_json};
 
 fn s(args: &[&str]) -> Vec<String> {
     args.iter().map(std::string::ToString::to_string).collect()
@@ -544,6 +544,21 @@ fn parse_edit_estimated_accepts_none_keyword() {
 }
 
 #[test]
+fn parse_edit_keyword_sets_and_clears() {
+    let a = parse(&s(&["edit", "42", "--keyword", "WAITING"])).unwrap();
+    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert_eq!(edit.keyword, Some("WAITING".into()));
+
+    let a = parse(&s(&["edit", "42", "--keyword", "none"])).unwrap();
+    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert_eq!(edit.keyword, Some("none".into()));
+}
+
+#[test]
 fn parse_edit_modify_alias() {
     let a = parse(&s(&["modify", "42", "--inbox"])).unwrap();
     assert!(matches!(
@@ -940,6 +955,52 @@ fn parse_perspective_create_with_board_renderer_and_columns() {
     };
     assert_eq!(args.renderer.as_deref(), Some("board"));
     assert_eq!(args.columns.as_deref(), Some("todo,doing,done"));
+}
+
+#[test]
+fn parse_perspective_create_with_status_axis() {
+    let a = parse(&s(&[
+        "perspective",
+        "create",
+        "Q3",
+        "--filter",
+        "is:open",
+        "--renderer",
+        "board",
+        "--axis",
+        "status",
+        "--columns",
+        "TODO, NEXT | DONE, CANCELLED",
+    ]))
+    .unwrap();
+    let Some(Subcommand::Perspective(PerspectiveSub::Create { name: _, args })) = a.subcommand
+    else {
+        panic!("expected Perspective::Create");
+    };
+    assert_eq!(args.renderer.as_deref(), Some("board"));
+    assert_eq!(args.axis.as_deref(), Some("status"));
+    assert_eq!(
+        args.columns.as_deref(),
+        Some("TODO, NEXT | DONE, CANCELLED")
+    );
+}
+
+#[test]
+fn parse_perspective_rejects_invalid_axis() {
+    let err = parse(&s(&[
+        "perspective",
+        "create",
+        "Q3",
+        "--filter",
+        "x",
+        "--renderer",
+        "board",
+        "--axis",
+        "project",
+    ]))
+    .unwrap_err();
+    assert!(err.contains("tag"));
+    assert!(err.contains("status"));
 }
 
 #[test]
@@ -1372,9 +1433,9 @@ fn parse_export_vtodo_round_trips() {
 
 mod sql_parity {
     use atrium_core::db::{self, read};
-    use atrium_search::{evaluate, EvalContext};
+    use atrium_search::{EvalContext, evaluate};
     use chrono::NaiveDate;
-    use rusqlite::{params, Connection};
+    use rusqlite::{Connection, params};
     use std::collections::{HashMap, HashSet};
     use std::path::Path;
 

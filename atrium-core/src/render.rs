@@ -51,17 +51,35 @@ pub enum Renderer {
 /// { "axis": "tag", "columns": ["todo", "doing", "done"] }
 /// ```
 ///
-/// `axis` is fixed to `"tag"` for v0.5.4. The schema reserves room
-/// for future axes (`"project"`, `"area"`, `"status"`); rejecting
-/// unknown axes at parse time keeps the GUI from silently doing the
-/// wrong thing on a config it doesn't understand.
+/// for a tag-axis board, and for a status-axis board (v0.38.0):
+///
+/// ```json
+/// { "axis": "status",
+///   "columns": ["TODO", "NEXT", "WAITING", "DONE", "CANCELLED"],
+///   "done_columns": ["DONE", "CANCELLED"] }
+/// ```
+///
+/// `axis = "tag"` buckets by tag name; `axis = "status"` buckets by
+/// the task's Org TODO-sequence keyword (`task.orig_keyword`, falling
+/// back to canonical `TODO`/`DONE`). Rejecting unknown axes at parse
+/// time keeps the GUI from silently doing the wrong thing on a config
+/// it doesn't understand.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BoardConfig {
     pub axis: BoardAxis,
-    /// Column values in display order. For `axis = "tag"`, each
-    /// entry is a tag name (case-insensitive). Trailing whitespace
-    /// is stripped at parse time; empty strings are rejected.
+    /// Column values in display order. For `axis = "tag"`, each entry
+    /// is a tag name (case-insensitive). For `axis = "status"`, each
+    /// entry is a TODO-sequence keyword. Trailing whitespace is
+    /// stripped at parse time; empty strings are rejected.
     pub columns: Vec<String>,
+    /// Status-axis only: which of `columns` represent a *completed*
+    /// state (right of the Org `#+TODO:` pipe). Dropping a card on
+    /// one of these completes the task. Empty for tag-axis boards;
+    /// the canonical `DONE` keyword is always treated as done even
+    /// when absent here. `skip_serializing_if` keeps existing
+    /// tag-board JSON byte-identical.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub done_columns: Vec<String>,
 }
 
 impl BoardConfig {
@@ -88,7 +106,13 @@ impl BoardConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BoardAxis {
+    /// Bucket by tag name. Drag rewrites the task's tag set.
     Tag,
+    /// Bucket by Org TODO-sequence keyword (`task.orig_keyword`,
+    /// falling back to canonical `TODO`/`DONE`). Drag changes real
+    /// state — completing the task when the destination is a
+    /// done-column. (v0.38.0)
+    Status,
 }
 
 /// Errors surfaced when parsing `renderer_config` JSON or building
@@ -218,6 +242,133 @@ pub fn move_to_column(
     result
 }
 
+/// The status-axis keyword a task currently lives under. Uses the
+/// non-canonical Org keyword when present (`WAITING`, `NEXT`, …);
+/// otherwise canonical `DONE` for a completed task, `TODO` for an
+/// open one. Mirrors the Org writer's "orig_keyword first, else
+/// TODO/DONE" lookup so the board and the vault agree.
+pub fn status_keyword(task: &Task) -> String {
+    match task.orig_keyword.as_deref() {
+        Some(k) if !k.trim().is_empty() => k.to_string(),
+        _ => {
+            if task.completed_at.is_some() {
+                "DONE".to_string()
+            } else {
+                "TODO".to_string()
+            }
+        }
+    }
+}
+
+/// True when `col` is a completed-state column for `cfg` — either
+/// listed in `done_columns` (right of the Org `#+TODO:` pipe) or the
+/// canonical `DONE` keyword, which is always a done-column.
+fn is_done_column(cfg: &BoardConfig, col: &str) -> bool {
+    col.eq_ignore_ascii_case("DONE") || cfg.done_columns.iter().any(|d| d.eq_ignore_ascii_case(col))
+}
+
+/// Collapse a destination keyword to the value Atrium should store in
+/// `task.orig_keyword`. The canonical `TODO`/`DONE` keywords carry no
+/// custom label, so they map to `None` (the schema default); any
+/// other keyword is stored verbatim.
+fn keyword_for_storage(col: &str) -> Option<String> {
+    if col.eq_ignore_ascii_case("TODO") || col.eq_ignore_ascii_case("DONE") {
+        None
+    } else {
+        Some(col.to_string())
+    }
+}
+
+/// The state change a status-axis drag implies. The GUI/CLI translate
+/// this into worker calls: set `orig_keyword` via `update_task`, and
+/// flip completion via `toggle_complete` when `completed` differs from
+/// the task's current state (so a recurring task rolls forward exactly
+/// as it would on a checkbox tick).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusChange {
+    /// New `orig_keyword` value (`None` = canonical `TODO`/`DONE`).
+    pub orig_keyword: Option<String>,
+    /// Desired completion state after the move.
+    pub completed: bool,
+}
+
+/// Compute the [`StatusChange`] for dragging a task to `destination`
+/// on a status-axis board. `destination = Some(keyword)` drops into a
+/// configured column; `None` drops into the trailing "Other" bucket.
+///
+/// - **Open column:** set the keyword, leave the task open.
+/// - **Done column:** set the keyword (or clear it for canonical
+///   `DONE`) and complete the task.
+/// - **Other:** clear `orig_keyword` to canonical; completion is left
+///   unchanged (there's no meaningful "no status" completion flip).
+///
+/// `current_completed` is the task's present completion state, used
+/// only for the Other case.
+pub fn status_move(
+    cfg: &BoardConfig,
+    destination: Option<&str>,
+    current_completed: bool,
+) -> StatusChange {
+    match destination {
+        None => StatusChange {
+            orig_keyword: None,
+            completed: current_completed,
+        },
+        Some(col) => StatusChange {
+            orig_keyword: keyword_for_storage(col),
+            completed: is_done_column(cfg, col),
+        },
+    }
+}
+
+/// Parse a status-axis column spec written in the Org `#+TODO:` pipe
+/// convention — `TODO, NEXT, WAITING | DONE, CANCELLED`. Columns are
+/// comma-separated within each side; surrounding whitespace is
+/// trimmed and empty entries dropped. Everything right of the first
+/// `|` is a done-column. No pipe → every column is open. Returns
+/// `(columns, done_columns)` ready to drop into a [`BoardConfig`].
+pub fn parse_status_columns(input: &str) -> (Vec<String>, Vec<String>) {
+    let (open_part, done_part) = match input.split_once('|') {
+        Some((l, r)) => (l, r),
+        None => (input, ""),
+    };
+    let split = |s: &str| -> Vec<String> {
+        s.split(',')
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect()
+    };
+    let open = split(open_part);
+    let done = split(done_part);
+    let mut columns = open;
+    columns.extend(done.iter().cloned());
+    (columns, done)
+}
+
+/// Inverse of [`parse_status_columns`]: render a config's columns back
+/// into the pipe convention for an editing dialog's text entry. Open
+/// columns first, then ` | `, then the done-columns. Omits the pipe
+/// when there are no done-columns.
+pub fn format_status_columns(cfg: &BoardConfig) -> String {
+    let done_lc: Vec<String> = cfg
+        .done_columns
+        .iter()
+        .map(|d| d.to_ascii_lowercase())
+        .collect();
+    let open: Vec<&str> = cfg
+        .columns
+        .iter()
+        .filter(|c| !done_lc.contains(&c.to_ascii_lowercase()))
+        .map(|c| c.as_str())
+        .collect();
+    if cfg.done_columns.is_empty() {
+        open.join(", ")
+    } else {
+        let done: Vec<&str> = cfg.done_columns.iter().map(|c| c.as_str()).collect();
+        format!("{} | {}", open.join(", "), done.join(", "))
+    }
+}
+
 /// Group `tasks` into kanban columns per `cfg`. The trailing
 /// `"Other"` column holds anything that didn't match a configured
 /// column; its presence is unconditional so the user always sees
@@ -261,6 +412,12 @@ pub fn group_into_board<'a>(
                     .iter()
                     .position(|col| task_tags.iter().any(|t| t == col))
             }
+            BoardAxis::Status => {
+                // A task always has exactly one status, so leftmost
+                // matching is just "find the column equal to it".
+                let status = status_keyword(task).to_ascii_lowercase();
+                lc_columns.iter().position(|col| *col == status)
+            }
         };
         match bucket {
             Some(idx) => columns[idx].tasks.push(task),
@@ -280,6 +437,17 @@ mod tests {
         BoardConfig {
             axis: BoardAxis::Tag,
             columns: columns.iter().map(|s| (*s).to_string()).collect(),
+            done_columns: Vec::new(),
+        }
+    }
+
+    /// Status-axis config helper: `columns` are keyword names,
+    /// `done` are the ones that mean completed.
+    fn status_cfg(columns: &[&str], done: &[&str]) -> BoardConfig {
+        BoardConfig {
+            axis: BoardAxis::Status,
+            columns: columns.iter().map(|s| (*s).to_string()).collect(),
+            done_columns: done.iter().map(|s| (*s).to_string()).collect(),
         }
     }
 
@@ -456,6 +624,7 @@ mod tests {
         let original = BoardConfig {
             axis: BoardAxis::Tag,
             columns: vec!["todo".into(), "doing".into(), "done".into()],
+            done_columns: Vec::new(),
         };
         let json = original.to_json().unwrap();
         let parsed = BoardConfig::from_json(&json).unwrap();
@@ -470,6 +639,7 @@ mod tests {
         let cfg = BoardConfig {
             axis: BoardAxis::Tag,
             columns: vec!["todo".into()],
+            done_columns: Vec::new(),
         };
         let json = cfg.to_json().unwrap();
         assert_eq!(json, r#"{"axis":"tag","columns":["todo"]}"#);
@@ -573,5 +743,191 @@ mod tests {
         let cols = group_into_board(&tasks, &cfg(&["todo", "doing"]), &map);
         assert_eq!(cols.len(), 3);
         assert!(cols.iter().all(|c| c.tasks.is_empty()));
+    }
+
+    // ── status axis ────────────────────────────────────
+
+    fn open_task(id: i64) -> Task {
+        dummy_task(id)
+    }
+
+    fn completed_task(id: i64) -> Task {
+        let mut t = dummy_task(id);
+        t.completed_at = Some(chrono::Utc::now());
+        t
+    }
+
+    fn keyworded_task(id: i64, keyword: &str) -> Task {
+        let mut t = dummy_task(id);
+        t.orig_keyword = Some(keyword.to_string());
+        t
+    }
+
+    #[test]
+    fn status_keyword_falls_back_to_canonical() {
+        // Open task, no keyword → TODO.
+        assert_eq!(status_keyword(&open_task(1)), "TODO");
+        // Completed task, no keyword → DONE.
+        assert_eq!(status_keyword(&completed_task(2)), "DONE");
+        // Non-canonical keyword wins over completion-derived fallback.
+        assert_eq!(status_keyword(&keyworded_task(3, "WAITING")), "WAITING");
+    }
+
+    #[test]
+    fn status_keyword_ignores_blank_keyword() {
+        let mut t = dummy_task(1);
+        t.orig_keyword = Some("   ".into());
+        assert_eq!(status_keyword(&t), "TODO");
+    }
+
+    #[test]
+    fn status_axis_buckets_by_keyword() {
+        let tasks = vec![
+            keyworded_task(1, "NEXT"),
+            keyworded_task(2, "WAITING"),
+            open_task(3),      // no keyword, open → TODO
+            completed_task(4), // no keyword, done → DONE
+        ];
+        let map = HashMap::new(); // status axis ignores the tag map
+        let cfg = status_cfg(&["TODO", "NEXT", "WAITING", "DONE"], &["DONE"]);
+        let cols = group_into_board(&tasks, &cfg, &map);
+        assert_eq!(cols.len(), 5); // four configured + Other
+        assert_eq!(cols[0].label, "TODO");
+        assert_eq!(cols[0].tasks[0].id, 3);
+        assert_eq!(cols[1].tasks[0].id, 1); // NEXT
+        assert_eq!(cols[2].tasks[0].id, 2); // WAITING
+        assert_eq!(cols[3].tasks[0].id, 4); // DONE
+        assert!(cols[4].tasks.is_empty()); // Other
+    }
+
+    #[test]
+    fn status_axis_unconfigured_keyword_lands_in_other() {
+        // CANCELLED isn't a configured column.
+        let tasks = vec![keyworded_task(1, "CANCELLED")];
+        let cfg = status_cfg(&["TODO", "DONE"], &["DONE"]);
+        let cols = group_into_board(&tasks, &cfg, &HashMap::new());
+        assert_eq!(cols[0].tasks.len(), 0);
+        assert_eq!(cols[1].tasks.len(), 0);
+        assert_eq!(cols[2].label, OTHER_COLUMN_LABEL);
+        assert_eq!(cols[2].tasks[0].id, 1);
+    }
+
+    #[test]
+    fn status_axis_keyword_match_is_case_insensitive() {
+        let tasks = vec![keyworded_task(1, "waiting")];
+        let cfg = status_cfg(&["TODO", "WAITING"], &[]);
+        let cols = group_into_board(&tasks, &cfg, &HashMap::new());
+        assert_eq!(cols[1].tasks[0].id, 1);
+    }
+
+    #[test]
+    fn status_move_to_open_column_sets_keyword_keeps_open() {
+        let cfg = status_cfg(&["TODO", "WAITING", "DONE"], &["DONE"]);
+        let change = status_move(&cfg, Some("WAITING"), false);
+        assert_eq!(change.orig_keyword.as_deref(), Some("WAITING"));
+        assert!(!change.completed);
+    }
+
+    #[test]
+    fn status_move_to_done_column_completes() {
+        let cfg = status_cfg(&["TODO", "DONE", "CANCELLED"], &["DONE", "CANCELLED"]);
+        // Custom done keyword: stored verbatim, task completed.
+        let change = status_move(&cfg, Some("CANCELLED"), false);
+        assert_eq!(change.orig_keyword.as_deref(), Some("CANCELLED"));
+        assert!(change.completed);
+    }
+
+    #[test]
+    fn status_move_canonical_done_clears_keyword() {
+        // Canonical DONE → no custom label, but still completes. It's
+        // a done-column even though done_columns is empty.
+        let cfg = status_cfg(&["TODO", "DOING", "DONE"], &[]);
+        let change = status_move(&cfg, Some("DONE"), false);
+        assert_eq!(change.orig_keyword, None);
+        assert!(change.completed);
+    }
+
+    #[test]
+    fn status_move_canonical_todo_clears_keyword_and_reopens() {
+        let cfg = status_cfg(&["TODO", "DONE"], &["DONE"]);
+        // Was completed; dragged back to TODO.
+        let change = status_move(&cfg, Some("TODO"), true);
+        assert_eq!(change.orig_keyword, None);
+        assert!(!change.completed);
+    }
+
+    #[test]
+    fn status_move_to_other_clears_keyword_keeps_completion() {
+        let cfg = status_cfg(&["TODO", "DONE"], &["DONE"]);
+        let change = status_move(&cfg, None, true);
+        assert_eq!(change.orig_keyword, None);
+        assert!(change.completed); // unchanged
+    }
+
+    #[test]
+    fn parse_status_columns_splits_on_pipe() {
+        let (cols, done) = parse_status_columns("TODO, NEXT, WAITING | DONE, CANCELLED");
+        assert_eq!(cols, vec!["TODO", "NEXT", "WAITING", "DONE", "CANCELLED"]);
+        assert_eq!(done, vec!["DONE", "CANCELLED"]);
+    }
+
+    #[test]
+    fn parse_status_columns_without_pipe_has_no_done() {
+        let (cols, done) = parse_status_columns("TODO, DOING, DONE");
+        assert_eq!(cols, vec!["TODO", "DOING", "DONE"]);
+        assert!(done.is_empty());
+    }
+
+    #[test]
+    fn parse_status_columns_trims_and_drops_empties() {
+        let (cols, done) = parse_status_columns("  TODO ,, DOING  |  DONE , ");
+        assert_eq!(cols, vec!["TODO", "DOING", "DONE"]);
+        assert_eq!(done, vec!["DONE"]);
+    }
+
+    #[test]
+    fn format_status_columns_round_trips_through_parse() {
+        let (cols, done) = parse_status_columns("TODO, NEXT | DONE, CANCELLED");
+        let cfg = BoardConfig {
+            axis: BoardAxis::Status,
+            columns: cols,
+            done_columns: done,
+        };
+        let text = format_status_columns(&cfg);
+        assert_eq!(text, "TODO, NEXT | DONE, CANCELLED");
+        // And the reparse matches.
+        let (cols2, done2) = parse_status_columns(&text);
+        assert_eq!(cols2, cfg.columns);
+        assert_eq!(done2, cfg.done_columns);
+    }
+
+    #[test]
+    fn format_status_columns_omits_pipe_when_no_done() {
+        let cfg = status_cfg(&["TODO", "DOING", "DONE"], &[]);
+        assert_eq!(format_status_columns(&cfg), "TODO, DOING, DONE");
+    }
+
+    #[test]
+    fn status_board_config_round_trips_through_json() {
+        let original = BoardConfig {
+            axis: BoardAxis::Status,
+            columns: vec!["TODO".into(), "DONE".into(), "CANCELLED".into()],
+            done_columns: vec!["DONE".into(), "CANCELLED".into()],
+        };
+        let json = original.to_json().unwrap();
+        assert_eq!(
+            json,
+            r#"{"axis":"status","columns":["TODO","DONE","CANCELLED"],"done_columns":["DONE","CANCELLED"]}"#
+        );
+        assert_eq!(BoardConfig::from_json(&json).unwrap(), original);
+    }
+
+    #[test]
+    fn legacy_tag_config_without_done_columns_still_parses() {
+        // Pre-v0.38.0 board configs have no `done_columns` key.
+        let json = r#"{"axis":"tag","columns":["todo","doing"]}"#;
+        let cfg = BoardConfig::from_json(json).unwrap();
+        assert_eq!(cfg.axis, BoardAxis::Tag);
+        assert!(cfg.done_columns.is_empty());
     }
 }
