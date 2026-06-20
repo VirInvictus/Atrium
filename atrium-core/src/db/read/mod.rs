@@ -64,7 +64,11 @@ pub fn next_pending_reminder(
     conn: &Connection,
     after: DateTime<Utc>,
 ) -> Result<Option<(i64, DateTime<Utc>)>, DbError> {
-    let after_str = after.format("%Y-%m-%dT%H:%M:%fZ").to_string();
+    // Bind `after` as a DateTime so rusqlite serialises it exactly the
+    // way it serialised the stored `reminder_at` on write. The old code
+    // hand-formatted the bound string with a divergent shape (a `Z`
+    // suffix vs rusqlite's `+00:00`, and it even dropped the seconds
+    // field), which made the boundary comparison unreliable.
     let row = conn
         .query_row(
             "SELECT id, reminder_at FROM task \
@@ -72,7 +76,7 @@ pub fn next_pending_reminder(
                AND completed_at IS NULL \
                AND reminder_at > ?1 \
              ORDER BY reminder_at ASC LIMIT 1",
-            params![after_str],
+            params![after],
             |r| Ok((r.get::<_, i64>(0)?, r.get::<_, DateTime<Utc>>(1)?)),
         )
         .optional()?;
@@ -801,7 +805,19 @@ pub(super) fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         extra_properties: row
             .get::<_, Option<String>>("extra_properties")?
             .as_deref()
-            .map(|s| serde_json::from_str(s).unwrap_or_default())
+            .map(|s| {
+                serde_json::from_str(s).unwrap_or_else(|e| {
+                    // A corrupt blob here would silently drop every
+                    // unmodeled :PROPERTIES: value — the exact Org
+                    // round-trip data the v0.24.0 column exists to
+                    // preserve. Surface it instead of vanishing it.
+                    tracing::warn!(
+                        error = %e,
+                        "task.extra_properties is not valid JSON; dropping it for this read"
+                    );
+                    Default::default()
+                })
+            })
             .unwrap_or_default(),
         position: row.get("position")?,
         created_at: row.get("created_at")?,
@@ -1083,16 +1099,19 @@ mod tests {
         let conn = fresh_conn();
         // Reminder timestamps: A two hours from "now", B 30
         // mins, C one hour but completed, D in the past.
-        insert_task_with_reminder(&conn, "a", "A", Some("2030-01-01T12:00:00Z"), None);
-        insert_task_with_reminder(&conn, "b", "B", Some("2030-01-01T10:30:00Z"), None);
+        // Stored in rusqlite's DateTime form (`+00:00`), matching what
+        // the worker writes — so the boundary comparison is exercised
+        // against the real on-disk format, not a hand-built `Z` shape.
+        insert_task_with_reminder(&conn, "a", "A", Some("2030-01-01T12:00:00+00:00"), None);
+        insert_task_with_reminder(&conn, "b", "B", Some("2030-01-01T10:30:00+00:00"), None);
         insert_task_with_reminder(
             &conn,
             "c",
             "C",
-            Some("2030-01-01T11:00:00Z"),
-            Some("2030-01-01T09:00:00Z"),
+            Some("2030-01-01T11:00:00+00:00"),
+            Some("2030-01-01T09:00:00+00:00"),
         );
-        insert_task_with_reminder(&conn, "d", "D", Some("2020-01-01T00:00:00Z"), None);
+        insert_task_with_reminder(&conn, "d", "D", Some("2020-01-01T00:00:00+00:00"), None);
         // Cutoff: 2030-01-01 10:00 — D is in the past relative
         // to it (skipped); B (10:30) is the soonest.
         let cutoff: DateTime<Utc> = "2030-01-01T10:00:00Z".parse().unwrap();
@@ -1116,12 +1135,36 @@ mod tests {
             &conn,
             "done",
             "Done",
-            Some("2030-01-01T10:30:00Z"),
-            Some("2030-01-01T09:00:00Z"),
+            Some("2030-01-01T10:30:00+00:00"),
+            Some("2030-01-01T09:00:00+00:00"),
         );
-        insert_task_with_reminder(&conn, "past", "Past", Some("2020-01-01T00:00:00Z"), None);
+        insert_task_with_reminder(
+            &conn,
+            "past",
+            "Past",
+            Some("2020-01-01T00:00:00+00:00"),
+            None,
+        );
         let cutoff: DateTime<Utc> = "2030-01-01T10:00:00Z".parse().unwrap();
         assert!(next_pending_reminder(&conn, cutoff).unwrap().is_none());
+    }
+
+    #[test]
+    fn malformed_extra_properties_defaults_to_empty_without_panic() {
+        // A corrupt extra_properties blob must not crash the read path;
+        // it degrades to an empty map (and logs a warning).
+        let conn = fresh_conn();
+        insert_task(&conn, "a", "t", None, None, None, None);
+        conn.execute(
+            "UPDATE task SET extra_properties = '{not valid json' WHERE uuid = 'a'",
+            [],
+        )
+        .unwrap();
+        let id: i64 = conn
+            .query_row("SELECT id FROM task WHERE uuid = 'a'", [], |r| r.get(0))
+            .unwrap();
+        let task = task_by_id(&conn, id).unwrap().unwrap();
+        assert!(task.extra_properties.is_empty());
     }
 
     #[test]

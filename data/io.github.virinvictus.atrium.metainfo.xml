@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.38.1" date="2026-06-20">
+      <description>
+        <p>Correctness fixes from an audit pass. The "add a
+           prerequisite" and "link to another task" pickers are now
+           operable by keyboard, not just the mouse. A corrupt custom
+           property blob no longer silently discards Org metadata on
+           read. The reminder-scheduling query now compares timestamps
+           reliably. And the Simple-mode task editor no longer shows the
+           Builder-only "Defer until" field.</p>
+      </description>
+    </release>
     <release version="0.38.0" date="2026-06-20">
       <description>
         <p>Kanban boards gain a second grouping axis. Alongside the

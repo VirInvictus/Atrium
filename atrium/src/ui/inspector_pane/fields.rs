@@ -286,16 +286,17 @@ pub(super) fn populate_link_picker_rows(
         let title = task.title.clone();
         let buffer = buffer.clone();
         let popover = popover.clone();
-        let click = gtk::GestureClick::new();
-        click.connect_released(move |_, _, _, _| {
+        row.set_activatable(true);
+        // connect_activated (not a GestureClick) so a task link can be
+        // inserted by keyboard — Enter/Space on the focused row — not
+        // just the mouse. The row lives in a gtk::ListBox.
+        row.connect_activated(move |_| {
             let link_text = format!("[[id:{uuid}][{title}]]");
             // Insert at the cursor's position.
             let mut iter = buffer.iter_at_mark(&buffer.get_insert());
             buffer.insert(&mut iter, &link_text);
             popover.popdown();
         });
-        row.add_controller(click);
-        row.set_activatable(true);
         list.append(&row);
     }
     // Cap at 50 rows for the picker — typing a couple of letters

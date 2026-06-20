@@ -1,5 +1,14 @@
 # Atrium — Patch Notes
 
+## v0.38.1 (2026-06-20): correctness fixes (audit Tier A)
+
+First slice of an audit-driven foundation pass. Four correctness fixes, no new features:
+
+- **Keyboard-dead pickers fixed.** The Builder Inspector's "Add a prerequisite" picker and the Notes "Link to another task" picker wired their click through a `GestureClick`, so Enter/Space on a focused row did nothing: a keyboard user could not add a dependency or insert a task link at all. Both now use `connect_activated`, which fires on click and keyboard alike (the rows live in a `gtk::ListBox`).
+- **Silent Org data loss surfaced.** A corrupt `task.extra_properties` blob silently became an empty map on read, discarding the unmodeled `:PROPERTIES:` values that column exists to preserve. It now logs a warning before degrading, and a regression test pins the no-panic path.
+- **Reminder boundary query fixed.** `next_pending_reminder` hand-formatted its comparison bound with a divergent shape (a `Z` suffix where rusqlite writes `+00:00`, and it dropped the seconds field entirely), making the "soonest reminder after now" comparison unreliable. It now binds the `DateTime` directly so both sides use rusqlite's serialization; the test fixtures use the real on-disk format.
+- **Simple-mode defer leak closed.** The Simple Inspector showed a "Defer until" row, but `defer_until` is a Builder-only field (spec §3.1 / §4: "hidden in Simple"). Removed from the Simple dialog; the Builder Inspector pane still exposes it and the stored value is untouched.
+
 ## v0.38.0 (2026-06-20): status-axis kanban boards
 
 Kanban boards gain a second grouping axis. The original tag axis groups by tag and a drag rewrites synthetic tags; dragging to a "Done" column just added a `done` tag and left the task uncompleted, so the board and the rest of the app disagreed. The new **status axis** groups by Org TODO-sequence keyword and makes the drag mean something: a card's column is its actual state, and moving it changes that state.

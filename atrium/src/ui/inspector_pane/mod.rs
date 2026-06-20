@@ -1059,8 +1059,10 @@ where
                 let worker_add = worker.clone();
                 let popover = popover.clone();
                 let append_row = append_row.clone();
-                let click = gtk::GestureClick::new();
-                click.connect_released(move |_, _, _, _| {
+                // connect_activated (not a GestureClick) so the picker is
+                // operable by keyboard — Enter/Space on the focused row —
+                // not just the mouse. The row lives in a gtk::ListBox.
+                row.connect_activated(move |_| {
                     let worker = worker_add.clone();
                     let popover = popover.clone();
                     let append_row = append_row.clone();
@@ -1076,7 +1078,6 @@ where
                     });
                     popover.popdown();
                 });
-                row.add_controller(click);
                 list.append(&row);
             }
         }
