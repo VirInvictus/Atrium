@@ -145,6 +145,12 @@ const SHORTCUTS_XML: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
                 <property name="accelerator">&lt;Primary&gt;i</property>
               </object>
             </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title">Move focused task up / down (position-ordered lists)</property>
+                <property name="accelerator">&lt;Alt&gt;Up &lt;Alt&gt;Down</property>
+              </object>
+            </child>
           </object>
         </child>
 

@@ -1,5 +1,11 @@
 # Atrium — Patch Notes
 
+## v0.40.1 (2026-06-20): keyboard reorder (audit Tier D, part 5)
+
+- **`Alt+Up` / `Alt+Down` move the focused task** up or down — a keyboard alternative to drag-to-reorder, on position-ordered lists (Inbox, Anytime, Someday, project and area pages). On a date-sorted list it declines with the same toast a drag would. Reuses the existing reorder math, so the behavior matches drag exactly. Documented in the shortcuts dialog and keymap.
+
+This closes the planned Tier D pass (v0.39.0 → v0.40.1: time-view consolidation, interaction consistency, discoverability, in-row reschedule, keyboard reorder). One larger accessibility item remains tracked but deliberately deferred: full keyboard navigation *within* the custom pages (Agenda, Forecast strip, kanban board, calendar grid) needs those rows wrapped in proper focusable list containers, which is its own careful refactor rather than a bolt-on (Tab-focusing dozens of bare rows would make tabbing tedious and non-idiomatic).
+
 ## v0.40.0 (2026-06-20): in-row quick reschedule (audit Tier D, part 4)
 
 The audit's biggest single smoothness gap was that rescheduling a task always cost an editor round-trip: open the Inspector, change the date, apply. The most common action, "push this to tomorrow," was three steps.

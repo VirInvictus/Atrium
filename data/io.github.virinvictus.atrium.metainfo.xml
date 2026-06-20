@@ -90,6 +90,13 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.40.1" date="2026-06-20">
+      <description>
+        <p>Keyboard reorder. Alt+Up and Alt+Down move the focused task
+           up or down without the mouse, a keyboard alternative to
+           drag-to-reorder on the lists where manual ordering applies.</p>
+      </description>
+    </release>
     <release version="0.40.0" date="2026-06-20">
       <description>
         <p>Quick rescheduling. A task's right-click menu now has a

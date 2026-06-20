@@ -198,6 +198,24 @@ impl AtriumWindow {
         ));
         self.add_action(&reschedule);
 
+        // Tier D (v0.40.x) — Alt+Up / Alt+Down keyboard-reorder the
+        // focused task (a keyboard alternative to drag-reorder). No-op
+        // (with a toast) on date-sorted lists, same as a drag.
+        let move_up = gio::SimpleAction::new("move-task-up", None);
+        move_up.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.move_focused_task(true)
+        ));
+        self.add_action(&move_up);
+        let move_down = gio::SimpleAction::new("move-task-down", None);
+        move_down.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.move_focused_task(false)
+        ));
+        self.add_action(&move_down);
+
         // Phase 7g — Ctrl+T (or row right-click) opens the tag
         // editor for the focused / first-selected task.
         let edit_tags = gio::SimpleAction::new("edit-tags-focused", None);

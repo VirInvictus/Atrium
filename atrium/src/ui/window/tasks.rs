@@ -293,6 +293,57 @@ impl AtriumWindow {
         });
     }
 
+    /// Tier D (v0.40.x) — keyboard alternative to drag-reorder. Moves
+    /// the focused task one slot up (`up = true`) or down past its
+    /// neighbour by reusing [`handle_reorder`]; on a date-sorted list
+    /// `handle_reorder` declines with the same toast a drag would get.
+    /// Bound to `Alt+Up` / `Alt+Down`.
+    pub(super) fn move_focused_task(&self, up: bool) {
+        let Some(focused) = self.focused_task_id() else {
+            return;
+        };
+        let Some(store) = self.imp().store.borrow().clone() else {
+            return;
+        };
+        let n = store.n_items();
+        let mut idx: Option<u32> = None;
+        for i in 0..n {
+            if let Some(obj) = store
+                .item(i)
+                .and_downcast::<crate::ui::task_object::AtriumTask>()
+                && obj.id() == focused
+            {
+                idx = Some(i);
+                break;
+            }
+        }
+        let Some(idx) = idx else { return };
+        // Clamp at the ends — nothing to move past.
+        let neighbour_idx = if up {
+            if idx == 0 {
+                return;
+            }
+            idx - 1
+        } else {
+            if idx + 1 >= n {
+                return;
+            }
+            idx + 1
+        };
+        let Some(neighbour) = store
+            .item(neighbour_idx)
+            .and_downcast::<crate::ui::task_object::AtriumTask>()
+        else {
+            return;
+        };
+        let bias = if up {
+            crate::ui::task_list::DropBias::Above
+        } else {
+            crate::ui::task_list::DropBias::Below
+        };
+        self.handle_reorder(focused, neighbour.id(), bias);
+    }
+
     /// Subtasks (v0.23.0) — Shift+drop reparents: make `src_id` a child
     /// of `new_parent_id`. The worker enforces the same-project rule and
     /// rejects cycles; on rejection we surface a toast rather than fail
