@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.39.1" date="2026-06-20">
+      <description>
+        <p>Interaction consistency. Clicking a task in the calendar's
+           week strip now opens that task, like everywhere else.
+           Dragging to reorder a date-sorted list (Today, Upcoming,
+           Logbook), which has no effect there, now explains itself with
+           a brief message instead of doing nothing.</p>
+      </description>
+    </release>
     <release version="0.39.0" date="2026-06-20">
       <description>
         <p>The Agenda and Forecast views are now one. Instead of two

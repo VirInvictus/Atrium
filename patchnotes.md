@@ -1,5 +1,14 @@
 # Atrium — Patch Notes
 
+## v0.39.1 (2026-06-20): interaction consistency (audit Tier D, part 2)
+
+Two interaction dead-ends from the audit:
+
+- **Calendar week-strip rows open their task.** In the narrow-window week strip, task titles were bare labels: a click bubbled to the day card's peek popover instead of opening the task you clicked. Each row now opens that task directly (consistent with Agenda and Forecast rows), claiming the event so an empty-area click still peeks the day.
+- **Date-sorted lists no longer swallow a reorder drag.** Dragging to reorder on a date-sorted list (Today, Upcoming, Logbook) had no persistent meaning and failed silently. It now surfaces a toast ("This list is sorted by date...") so the drag isn't a mystery, matching the Shift-drag reparent path that already toasts on rejection.
+
+(Drag-to-reschedule remains on the Forecast "Strip" layout and the Calendar; the Agenda "Bands" layout stays read-on-click by design, since the Strip is the interactive lens of the same merged view.)
+
 ## v0.39.0 (2026-06-20): merged time-view (audit Tier D, part 1)
 
 The audit found the app's biggest coherence problem was the "when" dimension: four surfaces (Upcoming, Agenda, Forecast, Calendar) all answer "what's coming up," they didn't explain how they differ, and Agenda and Forecast overlapped most (both lead with Overdue then near-term). This consolidates them.

@@ -641,6 +641,19 @@ where
                 .css_classes(["caption"])
                 .build();
             attach_task_drag_source(&row, task.id);
+            // v0.39.x (Tier D) — a click on the task row opens *that*
+            // task, consistent with Agenda / Forecast rows. Claiming
+            // the event stops it bubbling to the card's day-peek
+            // gesture, so a row click opens the task and an empty-area
+            // click still peeks the day.
+            let row_click = gtk::GestureClick::new();
+            let task_id = task.id;
+            let on_click = on_row_click.clone();
+            row_click.connect_released(move |g, _, _, _| {
+                g.set_state(gtk::EventSequenceState::Claimed);
+                on_click(task_id);
+            });
+            row.add_controller(row_click);
             card.append(&row);
         }
     }

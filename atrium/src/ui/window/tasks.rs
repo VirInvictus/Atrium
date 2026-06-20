@@ -212,6 +212,16 @@ impl AtriumWindow {
                 | ActiveList::Area(_)
         ) {
             tracing::debug!(active = ?self.active_list(), "reorder: not a position-ordered view, ignoring");
+            // Tier D — don't fail silently. On a date-sorted list the
+            // order follows the dates, so a drag-to-reorder has no
+            // persistent meaning; tell the user instead of swallowing
+            // the drop. Only when it's a genuine reorder attempt (not a
+            // task dropped back onto itself).
+            if src_id != dest_id {
+                self.show_toast(
+                    "This list is sorted by date — drag to reorder isn't available here.",
+                );
+            }
             return;
         }
 
