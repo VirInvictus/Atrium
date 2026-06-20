@@ -427,6 +427,14 @@ impl AtriumWindow {
     /// it. Used after `rebuild_dynamic_sidebar` to preserve the
     /// user's selection across rebuilds.
     pub(super) fn select_sidebar_row_for(&self, active: ActiveList) {
+        // v0.39.0 — Forecast is the Agenda view's Builder-only "Strip"
+        // layout, reached via the in-page toggle rather than its own
+        // sidebar row. Highlight the Agenda row for it.
+        let active = if active == ActiveList::Forecast {
+            ActiveList::Agenda
+        } else {
+            active
+        };
         let targets = self.imp().sidebar_targets.borrow();
         for (i, t) in targets.iter().enumerate() {
             if t.as_ref() == Some(&active)

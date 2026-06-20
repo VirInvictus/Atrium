@@ -23,7 +23,7 @@ The canonical written reference for every keyboard shortcut Atrium binds. The in
 | `Ctrl+5` | Someday |
 | `Ctrl+6` | Logbook |
 
-All six canonical lists shipped at v0.1.0; the v0.6.x sidebar reorder (v0.6.7 / v0.6.16) joined Agenda + Forecast + Review to the top tier alongside them but those derived pages don't have their own number accels — reach them via the sidebar.
+All six canonical lists shipped at v0.1.0; the v0.6.x sidebar reorder (v0.6.7 / v0.6.16) joined Agenda + Review to the top tier alongside them but those derived pages don't have their own number accels — reach them via the sidebar. (v0.39.0 merged the former separate Forecast entry into the Agenda view's Builder-only Bands/Strip layout toggle.)
 
 ## List actions
 

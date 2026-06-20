@@ -90,6 +90,18 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.39.0" date="2026-06-20">
+      <description>
+        <p>The Agenda and Forecast views are now one. Instead of two
+           separate sidebar entries that both showed "what's coming
+           up," there is a single Agenda view with a Bands / Strip
+           layout toggle in Builder Mode: Bands is the chronological
+           agenda, Strip is the 30-day forecast with drag-to-reschedule.
+           Simple Mode shows just the calm Bands layout. This trims the
+           sidebar's overlapping time-views without losing any
+           capability.</p>
+      </description>
+    </release>
     <release version="0.38.3" date="2026-06-20">
       <description>
         <p>Accessibility improvements. The keyboard focus ring is

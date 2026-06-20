@@ -41,7 +41,7 @@ The four source traditions fail in opposite ways. Things makes you outgrow it (n
 The Simple/Builder decision is a UI-layer toggle that adjusts:
 
 - Which fields the task editor exposes
-- Which navigation views are visible (Forecast and Review are Builder-only)
+- Which navigation views are visible (Review and Calendar are Builder-only; the Agenda view's Strip layout is Builder-only, v0.39.0)
 - Which menu items appear
 - The default density of list rows
 
@@ -433,7 +433,7 @@ AdwApplicationWindow
 
 Adds, all wired end-to-end as of v0.2.0:
 
-- **Forecast** — calendar-axis layout of next 30 days, drag-to-reschedule (Phase 12).
+- **Forecast** — calendar-axis layout of next 30 days, drag-to-reschedule (Phase 12). As of v0.39.0 this is no longer a standalone sidebar entry: it is the **Strip** layout of the merged Agenda view (see Agenda below), reachable via a Builder-only Bands/Strip toggle.
 - **Calendar Month View** — paper-calendar grid (7×N) for users who think in calendar pages. Sibling lens to Forecast (linear strip) and Agenda (chronological bands) — same data, different mental model. Day cells show count badge + up to 3 inline task titles + "+N more" overflow popover; today highlighted; out-of-month leading / trailing days muted. Prev / Today / Next / month-picker nav; `Ctrl+Shift+M` opens; Page Up / Page Down step months. Drag-to-reschedule between days; single-click peeks the day's tasks in a popover; double-click drills into a `scheduled:YYYY-MM-DD` search. Below 600 px the grid collapses to a vertical week strip (Phase 12.5, v0.11.0).
 - **Review** — projects with stale `last_reviewed_at` surface here, oldest first; per-card *Mark Reviewed* button stamps the timestamp (Phase 13).
 - **Perspectives** — saved filter expressions stored as `perspective` rows, surfaced in the sidebar above Areas. *Save Search as Perspective…* in the primary menu captures the current search bar query (Phase 14, v0.1.17). v0.6.7 reorganisation moved the Perspectives section out from under a "Builder" header to its current spot between the top-tier group and Areas. v0.6.2 added a *Configure renderer…* dialog on the Perspective row's right-click menu — switches a perspective between the default `'list'` renderer and the `'board'` (kanban) renderer (§4.6).
@@ -445,7 +445,7 @@ Adds, all wired end-to-end as of v0.2.0:
 
 **Mode-agnostic additions (Slice D2 + v0.6.7 reorganisation):**
 
-- **Agenda (v0.6.4).** Org-mode-style "everything you should think about right now" canonical page. Five chronological sections — Overdue / Today / Tomorrow / This Week / Next Week — that classify open tasks by their most-imminent date. Tasks without a time anchor or scheduled past Next Week don't appear. Surfaces in *both* Simple and Builder modes (it's a pure read view with no Builder-only concepts). Sidebar entry sits in the top tier alongside Inbox / Today / etc. with a warning-red accent on its alarm-clock icon.
+- **Agenda (v0.6.4; merged time-view as of v0.39.0).** Org-mode-style "everything you should think about right now" canonical page. Five chronological sections — Overdue / Today / Tomorrow / This Week / Next Week — that classify open tasks by their most-imminent date. Tasks without a time anchor or scheduled past Next Week don't appear. Surfaces in *both* Simple and Builder modes (it's a pure read view with no Builder-only concepts). Sidebar entry sits in the top tier alongside Inbox / Today / etc. with a warning-red accent on its alarm-clock icon. **v0.39.0** absorbed the former standalone Forecast entry: in Builder Mode the Agenda page carries a centered **Bands / Strip** layout toggle, where Bands is this chronological view and Strip is the 30-day Forecast projection (drag-to-reschedule). The toggle switches `ActiveList` between `Agenda` and `Forecast` against the same data; Strip is Builder-only, so Simple Mode shows only the Bands layout with no toggle. This consolidates the four overlapping "when" surfaces (Upcoming, Agenda, Forecast, Calendar) down the sidebar to two time-entries (Agenda, Calendar) plus the Upcoming canonical list.
 
 The widget tree is the same; Inspector and Forecast / Agenda / Review are added as sibling content pages, the sidebar gains a Perspectives section + the kanban board page where applicable, and the task editor's collapsed/expanded fieldset grows. **No DB work happens on mode switch.** Verified by `tests/mode_flip_snapshot.rs`.
 

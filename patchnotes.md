@@ -1,5 +1,15 @@
 # Atrium — Patch Notes
 
+## v0.39.0 (2026-06-20): merged time-view (audit Tier D, part 1)
+
+The audit found the app's biggest coherence problem was the "when" dimension: four surfaces (Upcoming, Agenda, Forecast, Calendar) all answer "what's coming up," they didn't explain how they differ, and Agenda and Forecast overlapped most (both lead with Overdue then near-term). This consolidates them.
+
+- **Agenda and Forecast are now one sidebar entry.** The standalone Forecast row is gone; the Agenda view carries a centered **Bands / Strip** layout toggle in Builder Mode. Bands is the chronological Agenda (Overdue / Today / Tomorrow / This Week / Next Week); Strip is the 30-day Forecast projection with drag-to-reschedule. Same data, two lenses, one entry.
+- **Simple Mode stays calm.** The Strip layout is Builder-only, so Simple Mode shows just the Bands layout with no toggle (exactly the Agenda it had before, now the only time-view entry besides Calendar and the Upcoming list). Flipping from a Strip view to Simple lands on Bands, not a bounce to Today.
+- The Builder sidebar's top tier drops from five entries to four (Agenda, Calendar, Review, Logbook). No data, schema, or task-classification change: both page builders and the Org-agenda parity test are reused untouched; the toggle just switches which one renders.
+
+This is the first of the Tier D UX pass; interaction unification, in-row quick edit, discoverability polish, and keyboard navigation of the custom pages follow.
+
 ## v0.38.3 (2026-06-20): accessibility (audit Tier C)
 
 Third slice of the audit-driven foundation pass. Accessibility fixes:

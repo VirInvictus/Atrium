@@ -928,22 +928,24 @@ pub(super) fn canonical_accent_class(active: &ActiveList) -> Option<&'static str
 }
 
 /// v0.6.7 — non-canonical rows that join the top tier (alongside
-/// Inbox / Today / etc.). v0.6.16 reordered the trailing block:
+/// Inbox / Today / etc.). v0.6.16 reordered the trailing block;
+/// v0.39.0 merged the former separate Forecast entry into Agenda:
 ///
 /// - Agenda: mode-agnostic now-picture across days. Right after
 ///   Someday so the active-lists block hands off into "broader
-///   now" cleanly.
-/// - Forecast / Review: Builder-only — calendar projection and
+///   now" cleanly. In Builder Mode the Agenda page carries a
+///   Bands/Strip layout toggle (Strip = the former Forecast
+///   30-day projection), so Forecast no longer needs its own row.
+/// - Calendar / Review: Builder-only — paper-calendar lens and
 ///   project review queue. Sit between Agenda and Logbook so
 ///   the Builder-mode block reads as a contiguous group.
 /// - Logbook: completed past. Always last so the sidebar's top
 ///   tier ends on "what's done" rather than interrupting the
 ///   future-facing flow.
 pub(super) fn top_tier_extras(builder: bool) -> Vec<(ActiveList, &'static str)> {
-    let mut out: Vec<(ActiveList, &'static str)> = Vec::with_capacity(5);
+    let mut out: Vec<(ActiveList, &'static str)> = Vec::with_capacity(4);
     out.push((ActiveList::Agenda, "Agenda"));
     if builder {
-        out.push((ActiveList::Forecast, "Forecast"));
         out.push((ActiveList::Calendar, "Calendar"));
         out.push((ActiveList::Review, "Review"));
     }

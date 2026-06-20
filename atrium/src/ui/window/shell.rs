@@ -341,17 +341,22 @@ impl AtriumWindow {
 
         // If the active list became invalid (a Builder-only view
         // is selected and we just flipped back to Simple), fall back
-        // to Today so the Simple Mode user isn't stranded on a hidden
-        // sidebar row.
-        let active = self.active_list();
-        let invalid_in_simple = !builder
-            && matches!(
-                active,
-                ActiveList::Forecast | ActiveList::Review | ActiveList::Perspective(_)
-            );
-        if invalid_in_simple {
-            self.set_active_list(ActiveList::Today);
-            self.select_sidebar_row_for(ActiveList::Today);
+        // so the Simple Mode user isn't stranded on a hidden sidebar
+        // row. v0.39.0 — Forecast is now the Agenda view's Builder-only
+        // "Strip" layout, so flipping to Simple lands on Agenda (the
+        // same surface, Bands layout) rather than bouncing to Today.
+        if !builder {
+            match self.active_list() {
+                ActiveList::Forecast => {
+                    self.set_active_list(ActiveList::Agenda);
+                    self.select_sidebar_row_for(ActiveList::Agenda);
+                }
+                ActiveList::Review | ActiveList::Perspective(_) => {
+                    self.set_active_list(ActiveList::Today);
+                    self.select_sidebar_row_for(ActiveList::Today);
+                }
+                _ => {}
+            }
         }
     }
 

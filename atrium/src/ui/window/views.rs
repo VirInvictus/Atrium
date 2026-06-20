@@ -51,7 +51,82 @@ impl AtriumWindow {
             self.worker(),
             on_click,
         );
-        self.imp().forecast_host.set_child(Some(&widget));
+        let hosted = self.wrap_with_agenda_toggle(widget.upcast());
+        self.imp().forecast_host.set_child(Some(&hosted));
+    }
+
+    /// v0.39.0 — Builder-only Bands/Strip layout toggle for the merged
+    /// Agenda view. "Bands" is the chronological Agenda layout
+    /// (`ActiveList::Agenda`); "Strip" is the 30-day Forecast layout
+    /// (`ActiveList::Forecast`). Returns `None` in Simple Mode — the
+    /// Strip is a Builder-only layout, so Simple sees only the Bands
+    /// page with no toggle.
+    fn build_agenda_layout_toggle(&self) -> Option<gtk::Widget> {
+        if !self.imp().current_mode_is_builder.get() {
+            return None;
+        }
+        let on_strip = matches!(self.active_list(), ActiveList::Forecast);
+
+        let bands = gtk::ToggleButton::builder()
+            .label("Bands")
+            .active(!on_strip)
+            .build();
+        let strip = gtk::ToggleButton::builder()
+            .label("Strip")
+            .active(on_strip)
+            .build();
+        strip.set_group(Some(&bands));
+        bands.update_property(&[gtk::accessible::Property::Label("Agenda bands layout")]);
+        strip.update_property(&[gtk::accessible::Property::Label(
+            "Forecast strip layout (30-day)",
+        )]);
+
+        let weak_b = self.downgrade();
+        bands.connect_toggled(move |btn| {
+            // Only the newly-activated button acts; set_active_list is a
+            // no-op when already on that view, so the programmatic
+            // .active() above can't loop.
+            if btn.is_active()
+                && let Some(win) = weak_b.upgrade()
+            {
+                win.set_active_list(ActiveList::Agenda);
+            }
+        });
+        let weak_s = self.downgrade();
+        strip.connect_toggled(move |btn| {
+            if btn.is_active()
+                && let Some(win) = weak_s.upgrade()
+            {
+                win.set_active_list(ActiveList::Forecast);
+            }
+        });
+
+        let bar = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .halign(gtk::Align::Center)
+            .margin_top(8)
+            .margin_bottom(2)
+            .build();
+        bar.add_css_class("linked");
+        bar.append(&bands);
+        bar.append(&strip);
+        Some(bar.upcast())
+    }
+
+    /// Wrap an Agenda/Forecast page widget with the Builder-only
+    /// layout toggle. In Simple Mode (no toggle) the page is returned
+    /// unwrapped.
+    fn wrap_with_agenda_toggle(&self, content: gtk::Widget) -> gtk::Widget {
+        match self.build_agenda_layout_toggle() {
+            Some(toggle) => {
+                let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                vbox.append(&toggle);
+                content.set_vexpand(true);
+                vbox.append(&content);
+                vbox.upcast()
+            }
+            None => content,
+        }
     }
 
     /// Phase 13 → v0.7.2 — rebuild the Review page. Renders two
@@ -233,7 +308,8 @@ impl AtriumWindow {
         };
         let widget =
             crate::ui::agenda::build_page(today, &tasks, &project_titles, &tag_pills, on_click);
-        self.imp().agenda_host.set_child(Some(&widget));
+        let hosted = self.wrap_with_agenda_toggle(widget);
+        self.imp().agenda_host.set_child(Some(&hosted));
     }
 
     /// Phase 12.5 — open the Calendar Month View. No-op in Simple

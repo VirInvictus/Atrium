@@ -146,19 +146,16 @@ fn top_tier_extras_simple_mode_has_agenda_and_logbook() {
 }
 
 #[test]
-fn top_tier_extras_builder_mode_inserts_forecast_calendar_and_review() {
+fn top_tier_extras_builder_mode_inserts_calendar_and_review() {
     let extras = top_tier_extras(true);
-    // Logbook is the trailing bookend; Forecast / Calendar /
-    // Review sit between Agenda and Logbook in that order
-    // (Calendar slots between Forecast and Review per Phase
-    // 12.5's design — paper-calendar lens lives next to the
-    // 30-day strip).
-    assert_eq!(extras.len(), 5);
+    // v0.39.0 — Forecast merged into Agenda as a Builder-only Strip
+    // layout (no own row). Builder top tier is now Agenda / Calendar /
+    // Review between the bookends, with Logbook trailing.
+    assert_eq!(extras.len(), 4);
     assert_eq!(extras[0].0, ActiveList::Agenda);
-    assert_eq!(extras[1].0, ActiveList::Forecast);
-    assert_eq!(extras[2].0, ActiveList::Calendar);
-    assert_eq!(extras[3].0, ActiveList::Review);
-    assert_eq!(extras[4].0, ActiveList::Logbook);
+    assert_eq!(extras[1].0, ActiveList::Calendar);
+    assert_eq!(extras[2].0, ActiveList::Review);
+    assert_eq!(extras[3].0, ActiveList::Logbook);
 }
 
 #[test]
