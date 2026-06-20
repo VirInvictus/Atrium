@@ -234,6 +234,27 @@ impl WorkerHandle {
         rx.await.map_err(|_| DbError::WorkerClosed)?
     }
 
+    /// v0.41.0 — record that a reminder fired for `(task_id,
+    /// reminder_at)`. The reminder service awaits this after firing a
+    /// notification, before re-querying, so the same reminder isn't
+    /// returned (and re-fired) on the next poll.
+    pub async fn mark_reminder_fired(
+        &self,
+        task_id: i64,
+        reminder_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::MarkReminderFired {
+                task_id,
+                reminder_at,
+                responder,
+            })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
     pub async fn delete_project(&self, id: i64) -> Result<(), DbError> {
         let (responder, rx) = oneshot::channel();
         self.cmd_tx
@@ -925,6 +946,17 @@ impl Worker {
                 if let Ok(t) = &result {
                     self.emit_task_updated(t);
                 }
+                let _ = responder.send(result);
+            }
+            Command::MarkReminderFired {
+                task_id,
+                reminder_at,
+                responder,
+            } => {
+                // Side-table write only — no task row change, so no
+                // TaskChanges (the UI doesn't track reminder-fired
+                // state; the reminder service is the sole consumer).
+                let result = self.mark_reminder_fired(task_id, reminder_at);
                 let _ = responder.send(result);
             }
             Command::DeleteProject { id, responder } => {
@@ -1913,6 +1945,25 @@ impl Worker {
             return Err(DbError::NotFound);
         }
         read::task_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
+    }
+
+    /// v0.41.0 — record that a reminder fired for `(task_id,
+    /// reminder_at)` in the `task_reminder_fired` side table. One row
+    /// per task (INSERT OR REPLACE on the `task_id` PK); storing the
+    /// `reminder_at` that fired re-arms the reminder if the user later
+    /// moves it to a new time (the read query joins on `reminder_at`).
+    /// Side-table only, so `task.modified_at` is untouched.
+    fn mark_reminder_fired(
+        &mut self,
+        task_id: i64,
+        reminder_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO task_reminder_fired (task_id, reminder_at) \
+             VALUES (?1, ?2)",
+            params![task_id, reminder_at],
+        )?;
+        Ok(())
     }
 
     fn delete_project(&mut self, id: i64) -> Result<(), DbError> {

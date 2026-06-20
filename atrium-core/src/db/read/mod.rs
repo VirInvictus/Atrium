@@ -66,30 +66,31 @@ pub fn task_by_id(conn: &Connection, id: i64) -> Result<Option<Task>, DbError> {
     }
 }
 
-/// v0.20.0 — Phase 19.5 reminder service queue. Returns the
-/// soonest open task whose `reminder_at` is strictly after
-/// `after`. The reminder service uses this to set its sleep
-/// timer; re-queries on every TaskChanges so a freshly-set
-/// reminder takes effect without a service restart. Returns
-/// `(task_id, reminder_at)` or `None` when no pending reminder
-/// exists.
-pub fn next_pending_reminder(
-    conn: &Connection,
-    after: DateTime<Utc>,
-) -> Result<Option<(i64, DateTime<Utc>)>, DbError> {
-    // Bind `after` as a DateTime so rusqlite serialises it exactly the
-    // way it serialised the stored `reminder_at` on write. The old code
-    // hand-formatted the bound string with a divergent shape (a `Z`
-    // suffix vs rusqlite's `+00:00`, and it even dropped the seconds
-    // field), which made the boundary comparison unreliable.
+/// v0.20.0 / v0.41.0 — Phase 19.5 reminder service queue. Returns the
+/// soonest open task with an **unfired** reminder, *past or future*.
+/// The service sleeps until a future one; an overdue one (due while
+/// Atrium was closed, or while notifications were off) is returned so
+/// the service can fire it on catch-up. "Unfired" = no
+/// `task_reminder_fired` row matching the task's current `reminder_at`,
+/// so moving a reminder to a new time re-arms it (the old fired row no
+/// longer matches). Re-queries on every TaskChanges. Returns
+/// `(task_id, reminder_at)` or `None` when nothing is pending.
+///
+/// Before v0.41.0 this took an `after` cutoff and only ever returned
+/// *future* reminders — which is why anything due while the app was
+/// closed was silently missed. The `task_reminder_fired` side table
+/// (migration 0018) is what lets us drop the cutoff without re-firing.
+pub fn next_pending_reminder(conn: &Connection) -> Result<Option<(i64, DateTime<Utc>)>, DbError> {
     let row = conn
         .query_row(
-            "SELECT id, reminder_at FROM task \
-             WHERE reminder_at IS NOT NULL \
-               AND completed_at IS NULL \
-               AND reminder_at > ?1 \
-             ORDER BY reminder_at ASC LIMIT 1",
-            params![after],
+            "SELECT t.id, t.reminder_at FROM task t \
+             LEFT JOIN task_reminder_fired f \
+               ON f.task_id = t.id AND f.reminder_at = t.reminder_at \
+             WHERE t.reminder_at IS NOT NULL \
+               AND t.completed_at IS NULL \
+               AND f.task_id IS NULL \
+             ORDER BY t.reminder_at ASC LIMIT 1",
+            [],
             |r| Ok((r.get::<_, i64>(0)?, r.get::<_, DateTime<Utc>>(1)?)),
         )
         .optional()?;
@@ -1120,43 +1121,74 @@ mod tests {
         assert_eq!(counts.today, 1);
     }
 
-    // v0.20.0 — Phase 19.5 next_pending_reminder ordering.
+    fn title_of(conn: &Connection, id: i64) -> String {
+        conn.query_row("SELECT title FROM task WHERE id = ?1", params![id], |r| {
+            r.get(0)
+        })
+        .unwrap()
+    }
+
+    fn mark_fired(conn: &Connection, uuid: &str, reminder_at: &str) {
+        conn.execute(
+            "INSERT OR REPLACE INTO task_reminder_fired (task_id, reminder_at) \
+             SELECT id, ?2 FROM task WHERE uuid = ?1",
+            params![uuid, reminder_at],
+        )
+        .unwrap();
+    }
+
+    // v0.41.0 — next_pending_reminder returns the soonest UNFIRED
+    // reminder, past or future (catch-up), excluding completed tasks.
     #[test]
-    fn next_pending_reminder_returns_soonest_open_task() {
+    fn next_pending_reminder_returns_soonest_unfired_including_past() {
         let conn = fresh_conn();
-        // Reminder timestamps: A two hours from "now", B 30
-        // mins, C one hour but completed, D in the past.
-        // Stored in rusqlite's DateTime form (`+00:00`), matching what
-        // the worker writes — so the boundary comparison is exercised
-        // against the real on-disk format, not a hand-built `Z` shape.
         insert_task_with_reminder(&conn, "a", "A", Some("2030-01-01T12:00:00+00:00"), None);
         insert_task_with_reminder(&conn, "b", "B", Some("2030-01-01T10:30:00+00:00"), None);
+        // Completed → excluded even though its reminder is older.
         insert_task_with_reminder(
             &conn,
             "c",
             "C",
-            Some("2030-01-01T11:00:00+00:00"),
-            Some("2030-01-01T09:00:00+00:00"),
+            Some("2025-01-01T09:00:00+00:00"),
+            Some("2025-01-02T09:00:00+00:00"),
         );
+        // A past reminder on an OPEN task — must be returned (catch-up);
+        // the pre-v0.41.0 query would have skipped it as "already past".
         insert_task_with_reminder(&conn, "d", "D", Some("2020-01-01T00:00:00+00:00"), None);
-        // Cutoff: 2030-01-01 10:00 — D is in the past relative
-        // to it (skipped); B (10:30) is the soonest.
-        let cutoff: DateTime<Utc> = "2030-01-01T10:00:00Z".parse().unwrap();
-        let result = next_pending_reminder(&conn, cutoff).unwrap();
-        let (task_id, when) = result.expect("expected B as next reminder");
-        let title: String = conn
-            .query_row(
-                "SELECT title FROM task WHERE id = ?1",
-                params![task_id],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(title, "B");
-        assert_eq!(when.format("%H:%M").to_string(), "10:30");
+
+        let (id, _) = next_pending_reminder(&conn)
+            .unwrap()
+            .expect("a pending reminder");
+        assert_eq!(title_of(&conn, id), "D");
     }
 
     #[test]
-    fn next_pending_reminder_returns_none_when_all_past_or_completed() {
+    fn next_pending_reminder_skips_fired_then_re_arms_on_change() {
+        let conn = fresh_conn();
+        insert_task_with_reminder(&conn, "a", "A", Some("2020-01-01T00:00:00+00:00"), None);
+        insert_task_with_reminder(&conn, "b", "B", Some("2030-01-01T10:30:00+00:00"), None);
+        // Fire A's current reminder → B becomes the soonest unfired.
+        mark_fired(&conn, "a", "2020-01-01T00:00:00+00:00");
+        let (id, _) = next_pending_reminder(&conn).unwrap().unwrap();
+        assert_eq!(title_of(&conn, id), "B");
+
+        // Re-arm A by moving its reminder to a new time. The fired row
+        // still records the OLD time, so it no longer matches and A is
+        // pending again (and now soonest).
+        let a_id: i64 = conn
+            .query_row("SELECT id FROM task WHERE uuid='a'", [], |r| r.get(0))
+            .unwrap();
+        conn.execute(
+            "UPDATE task SET reminder_at='2019-01-01T00:00:00+00:00' WHERE id=?1",
+            params![a_id],
+        )
+        .unwrap();
+        let (id2, _) = next_pending_reminder(&conn).unwrap().unwrap();
+        assert_eq!(title_of(&conn, id2), "A");
+    }
+
+    #[test]
+    fn next_pending_reminder_none_when_all_fired_or_completed() {
         let conn = fresh_conn();
         insert_task_with_reminder(
             &conn,
@@ -1167,13 +1199,13 @@ mod tests {
         );
         insert_task_with_reminder(
             &conn,
-            "past",
-            "Past",
+            "fired",
+            "Fired",
             Some("2020-01-01T00:00:00+00:00"),
             None,
         );
-        let cutoff: DateTime<Utc> = "2030-01-01T10:00:00Z".parse().unwrap();
-        assert!(next_pending_reminder(&conn, cutoff).unwrap().is_none());
+        mark_fired(&conn, "fired", "2020-01-01T00:00:00+00:00");
+        assert!(next_pending_reminder(&conn).unwrap().is_none());
     }
 
     #[test]

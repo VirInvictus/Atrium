@@ -1,5 +1,17 @@
 # Atrium — Patch Notes
 
+## v0.41.0 (2026-06-20): reminders you can trust (catch-up)
+
+Reminders weren't trustworthy. The v0.20.0 service only ever looked *forward* (for a reminder strictly after "now"), to avoid a re-fire loop. The cost: a reminder that came due while Atrium was closed, or while the master notifications toggle was off, was silently missed forever. That's not a reminder system you can rely on.
+
+The fix is durable fired-state tracking, which makes catch-up safe:
+
+- **Overdue reminders fire on launch.** A reminder due while the app was closed now fires the next time you open Atrium, instead of vanishing.
+- **Toggling notifications off no longer swallows reminders.** A reminder that comes due while notifications are off stays pending and catches up the moment you turn them back on (the service watches the toggle and wakes immediately).
+- **No re-firing.** A new `task_reminder_fired` side table (migration 0018, schema version 18) records each fire by `(task_id, reminder_at)`, so the service fires each reminder exactly once. Moving a reminder to a new time re-arms it (the recorded time no longer matches).
+
+Design notes: the fired-state is a side table, not a column on `task`, specifically so recording a fire doesn't bump `task.modified_at` (which would pollute `sort:modified` and churn the Org vault on every reminder). The query dropped its `after` cutoff entirely. Upgrading is safe: existing past reminders are backfilled as already-handled, so the upgrade doesn't blast you with a burst of historical reminders, while future reminders stay armed. Still deferred (needs the `atriumd` daemon): reminders firing while Atrium is *not running* at all. Workspace 1012 unit tests.
+
 ## v0.40.1 (2026-06-20): keyboard reorder (audit Tier D, part 5)
 
 - **`Alt+Up` / `Alt+Down` move the focused task** up or down — a keyboard alternative to drag-to-reorder, on position-ordered lists (Inbox, Anytime, Someday, project and area pages). On a date-sorted list it declines with the same toast a drag would. Reuses the existing reorder math, so the behavior matches drag exactly. Documented in the shortcuts dialog and keymap.

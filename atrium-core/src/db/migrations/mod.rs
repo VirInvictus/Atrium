@@ -71,6 +71,11 @@ use crate::error::DbError;
 /// (distinct from the single-line `quick_entry_template`); the
 /// item table's index-based `parent_index` carries a nested task
 /// tree with no task ids, resolved at instantiate time.
+/// Version 18 (v0.41.0, Phase 19.5 follow-up) adds
+/// `task_reminder_fired`, a side table recording that a reminder
+/// fired for a `(task, reminder_at)` pair so the service can fire
+/// overdue reminders on launch without re-firing, and so toggling
+/// notifications off no longer permanently swallows one.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
@@ -89,6 +94,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (15, include_str!("0015_area_default_review_interval.sql")),
     (16, include_str!("0016_task_dependency.sql")),
     (17, include_str!("0017_task_template.sql")),
+    (18, include_str!("0018_task_reminder_fired.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

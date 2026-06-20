@@ -143,11 +143,12 @@ fn connect_activate(app: &adw::Application, debug: bool) {
 
         match boot_data_layer() {
             Ok(booted) => {
-                win.attach_data_layer(booted.handle, booted.pool.clone());
+                win.attach_data_layer(booted.handle.clone(), booted.pool.clone());
                 // v0.20.0 — Phase 19.5 reminder service. Spawn
                 // before `bridge_task_changes` so the bridge can
-                // wake the service on each batch.
-                let reminders = reminders::spawn(booted.pool, app.clone().upcast());
+                // wake the service on each batch. v0.41.0 — takes the
+                // worker handle to record fires (catch-up).
+                let reminders = reminders::spawn(booted.pool, booted.handle, app.clone().upcast());
                 win.attach_reminder_service(reminders);
                 bridge_task_changes(booted.task_changes_rx, &win);
                 bridge_library_changes(booted.library_changes_rx, &win);

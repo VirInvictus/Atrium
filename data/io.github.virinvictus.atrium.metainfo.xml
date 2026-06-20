@@ -90,6 +90,16 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.41.0" date="2026-06-20">
+      <description>
+        <p>Reminders you can trust. A reminder that came due while
+           Atrium was closed now fires the next time you open the app,
+           instead of being silently missed. Turning notifications off
+           no longer permanently swallows a reminder either: it catches
+           up when you turn them back on. Each reminder still fires
+           exactly once.</p>
+      </description>
+    </release>
     <release version="0.40.1" date="2026-06-20">
       <description>
         <p>Keyboard reorder. Alt+Up and Alt+Down move the focused task

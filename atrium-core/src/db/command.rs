@@ -116,6 +116,16 @@ pub enum Command {
         id: i64,
         responder: oneshot::Sender<Result<Task, DbError>>,
     },
+    /// v0.41.0 — record that a reminder fired for `(task_id,
+    /// reminder_at)` so the reminder service won't re-fire it and
+    /// overdue reminders catch up on launch. Writes the
+    /// `task_reminder_fired` side table only (no task row change),
+    /// so it emits no `TaskChanges`.
+    MarkReminderFired {
+        task_id: i64,
+        reminder_at: chrono::DateTime<chrono::Utc>,
+        responder: oneshot::Sender<Result<(), DbError>>,
+    },
     DeleteProject {
         id: i64,
         responder: oneshot::Sender<Result<(), DbError>>,
@@ -269,6 +279,7 @@ impl Command {
             Self::ArchiveProject { .. } => "ArchiveProject",
             Self::MarkReviewed { .. } => "MarkReviewed",
             Self::MarkTaskReviewed { .. } => "MarkTaskReviewed",
+            Self::MarkReminderFired { .. } => "MarkReminderFired",
             Self::DeleteProject { .. } => "DeleteProject",
             Self::CreateTag { .. } => "CreateTag",
             Self::UpdateTag { .. } => "UpdateTag",
