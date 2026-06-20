@@ -13,7 +13,7 @@ use rusqlite::{Connection, params};
 use crate::domain::Task;
 use crate::error::DbError;
 
-use super::{TASK_COLUMNS, task_from_row};
+use super::{TASK_COLUMNS_T, task_from_row};
 
 /// Wire-level value for the SQL fast-path's bound parameters.
 /// Mirrors `atrium_search::SqlValue` so binaries don't have to
@@ -59,11 +59,7 @@ pub fn list_tasks_matching(
     params: &[SqlBindValue],
 ) -> Result<Vec<Task>, DbError> {
     let bound: Vec<rusqlite::types::Value> = params.iter().map(SqlBindValue::to_rusqlite).collect();
-    let task_cols = TASK_COLUMNS
-        .split(", ")
-        .map(|c| format!("t.{c}"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let task_cols = TASK_COLUMNS_T.as_str();
     let sql = format!("SELECT {task_cols} FROM task t WHERE {where_sql} ORDER BY t.position");
     // Plain `prepare` rather than `prepare_cached` — the WHERE
     // fragment varies per query, so caching would unboundedly grow
@@ -92,11 +88,7 @@ pub fn search_tasks(conn: &Connection, query: &str) -> Result<Vec<Task>, DbError
     }
     let phrase = format!("\"{}\"", cleaned.trim());
 
-    let task_cols = TASK_COLUMNS
-        .split(", ")
-        .map(|c| format!("t.{c}"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let task_cols = TASK_COLUMNS_T.as_str();
     let sql = format!(
         "SELECT {task_cols} FROM task t \
          JOIN task_fts ON task_fts.rowid = t.id \

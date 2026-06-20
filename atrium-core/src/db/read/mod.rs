@@ -30,6 +30,7 @@ pub use templates::{
 };
 
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -41,6 +42,18 @@ pub(super) const TASK_COLUMNS: &str = "id, uuid, title, note, project_id, parent
     scheduled_for, deadline, defer_until, estimated_minutes, completed_at, \
     repeat_rule, repeat_mode, last_reviewed_at, orig_keyword, deadline_warn_days, \
     scheduled_time, reminder_at, extra_properties, position, created_at, modified_at";
+
+/// `TASK_COLUMNS` with every column prefixed `t.`, for the queries that
+/// alias the task table as `t` and join it against another table. The
+/// split/map/join was previously recomputed on every list-refresh query
+/// at five call sites; this computes it once.
+pub(super) static TASK_COLUMNS_T: LazyLock<String> = LazyLock::new(|| {
+    TASK_COLUMNS
+        .split(", ")
+        .map(|c| format!("t.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+});
 
 /// Fetch a single task by primary key.
 pub fn task_by_id(conn: &Connection, id: i64) -> Result<Option<Task>, DbError> {
@@ -358,11 +371,7 @@ pub fn list_area(conn: &Connection, area_id: i64) -> Result<Vec<Task>, DbError> 
          JOIN project p ON t.project_id = p.id \
          WHERE p.area_id = ?1 AND t.completed_at IS NULL \
          ORDER BY p.position, t.position",
-        TASK_COLUMNS
-            .split(", ")
-            .map(|c| format!("t.{c}"))
-            .collect::<Vec<_>>()
-            .join(", ")
+        &*TASK_COLUMNS_T
     );
     let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(params![area_id], task_from_row)?;
@@ -576,11 +585,7 @@ pub fn blocked_task_ids(conn: &Connection) -> Result<HashSet<i64>, DbError> {
 /// prerequisites so the caller can show the full picture; filter on
 /// `completed_at` if only open blockers matter.
 pub fn list_prerequisites(conn: &Connection, task_id: i64) -> Result<Vec<Task>, DbError> {
-    let cols = TASK_COLUMNS
-        .split(", ")
-        .map(|c| format!("t.{c}"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let cols = TASK_COLUMNS_T.as_str();
     let sql = format!(
         "SELECT {cols} FROM task t \
          JOIN task_dependency d ON d.blocked_by_id = t.id \
@@ -651,11 +656,7 @@ pub fn list_tasks_with_tag(conn: &Connection, tag_id: i64) -> Result<Vec<Task>, 
          JOIN task_tag tt ON tt.task_id = t.id \
          WHERE tt.tag_id = ?1 AND t.completed_at IS NULL \
          ORDER BY t.position",
-        TASK_COLUMNS
-            .split(", ")
-            .map(|c| format!("t.{c}"))
-            .collect::<Vec<_>>()
-            .join(", ")
+        &*TASK_COLUMNS_T
     );
     let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(params![tag_id], task_from_row)?;
@@ -682,6 +683,32 @@ pub fn tag_names_per_task(conn: &Connection) -> Result<HashMap<i64, Vec<String>>
          ORDER BY tt.task_id, tag.name",
     )?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+    let mut out: HashMap<i64, Vec<String>> = HashMap::new();
+    for row in rows {
+        let (task_id, name) = row?;
+        out.entry(task_id).or_default().push(name);
+    }
+    Ok(out)
+}
+
+/// v0.38.2 — project-scoped variant of [`tag_names_per_task`]. Joins
+/// through `task.project_id` and filters to one project so a caller
+/// that only diffs a single project (the vault watcher, on every
+/// `.org` save) doesn't scan the whole `task_tag` table per event.
+pub fn tag_names_for_project(
+    conn: &Connection,
+    project_id: i64,
+) -> Result<HashMap<i64, Vec<String>>, DbError> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT tt.task_id, tag.name FROM task_tag tt \
+         JOIN tag ON tag.id = tt.tag_id \
+         JOIN task ON task.id = tt.task_id \
+         WHERE task.project_id = ?1 \
+         ORDER BY tt.task_id, tag.name",
+    )?;
+    let rows = stmt.query_map([project_id], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+    })?;
     let mut out: HashMap<i64, Vec<String>> = HashMap::new();
     for row in rows {
         let (task_id, name) = row?;
@@ -1165,6 +1192,45 @@ mod tests {
             .unwrap();
         let task = task_by_id(&conn, id).unwrap().unwrap();
         assert!(task.extra_properties.is_empty());
+    }
+
+    #[test]
+    fn tag_names_for_project_scopes_to_one_project() {
+        let conn = fresh_conn();
+        let p1 = insert_project(&conn, "p1", "One", None, None);
+        let p2 = insert_project(&conn, "p2", "Two", None, None);
+        conn.execute(
+            "INSERT INTO task (uuid, title, project_id, position) VALUES ('a','A',?,1)",
+            params![p1],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO task (uuid, title, project_id, position) VALUES ('c','C',?,1)",
+            params![p2],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO tag (uuid, name) VALUES ('t','work')", [])
+            .unwrap();
+        let ta: i64 = conn
+            .query_row("SELECT id FROM task WHERE uuid='a'", [], |r| r.get(0))
+            .unwrap();
+        let tc: i64 = conn
+            .query_row("SELECT id FROM task WHERE uuid='c'", [], |r| r.get(0))
+            .unwrap();
+        let tag: i64 = conn
+            .query_row("SELECT id FROM tag WHERE name='work'", [], |r| r.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO task_tag (task_id, tag_id) VALUES (?,?), (?,?)",
+            params![ta, tag, tc, tag],
+        )
+        .unwrap();
+
+        let map = tag_names_for_project(&conn, p1).unwrap();
+        // Only project p1's task appears; p2's tagged task is excluded.
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get(&ta).unwrap(), &vec!["work".to_string()]);
+        assert!(!map.contains_key(&tc));
     }
 
     #[test]

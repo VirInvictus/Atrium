@@ -1,5 +1,14 @@
 # Atrium — Patch Notes
 
+## v0.38.2 (2026-06-20): performance tightening (audit Tier B)
+
+Second slice of the audit-driven foundation pass. Behavior-preserving:
+
+- **Vault watcher no longer scans the whole tag table per save.** `diff_and_apply` (run on every external `.org` edit) snapshotted the entire `task_tag` table via `tag_names_per_task`, then used only the one project's tasks. A new project-scoped `tag_names_for_project` joins through `task.project_id`, so a single Emacs save costs a project-sized read, not a library-sized one. This is the one finding that genuinely threatened the §8 budget at 10K+ tasks with a live vault.
+- **Column-list churn removed.** Five read queries that alias `task t` rebuilt the `t.`-prefixed column list with a `split / map / collect / join` on every call. Hoisted to a single `LazyLock<String>` (`TASK_COLUMNS_T`) computed once; the SQL produced is byte-identical.
+
+Two regression tests added (project-scoped tag read; the corrupt-blob path from Tier A).
+
 ## v0.38.1 (2026-06-20): correctness fixes (audit Tier A)
 
 First slice of an audit-driven foundation pass. Four correctness fixes, no new features:

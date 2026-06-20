@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.38.2" date="2026-06-20">
+      <description>
+        <p>Performance tightening. Editing tasks in an external Org-mode
+           vault no longer scans the whole library's tags on every file
+           save, which keeps large vault-backed libraries responsive.
+           Internal query-building was de-duplicated. No behaviour
+           change.</p>
+      </description>
+    </release>
     <release version="0.38.1" date="2026-06-20">
       <description>
         <p>Correctness fixes from an audit pass. The "add a

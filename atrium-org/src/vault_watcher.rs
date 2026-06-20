@@ -305,11 +305,13 @@ impl VaultWatcher {
         // Resolve or create the project this file maps to.
         let project_id = self.resolve_or_create_project(path, &parsed).await?;
 
-        // Snapshot current DB state for this project + the global
-        // tag map so we can diff tag sets per task.
+        // Snapshot current DB state for this project plus its tasks'
+        // tag map so we can diff tag sets per task. Scoped to this
+        // project (not the whole task_tag table) so a single .org save
+        // doesn't scan every tag in the library on every event.
         let (db_tasks, db_tag_names) = self.pool.with(|conn| {
             let tasks = atrium_core::db::read::list_all_in_project(conn, project_id)?;
-            let tag_names = atrium_core::db::read::tag_names_per_task(conn)?;
+            let tag_names = atrium_core::db::read::tag_names_for_project(conn, project_id)?;
             Ok::<_, DbError>((tasks, tag_names))
         })?;
 
