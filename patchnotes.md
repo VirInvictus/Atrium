@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## v0.41.1 (2026-06-20): roadmap intro cleanup
+
+Docs only. The roadmap's opening paragraph had accreted into a version-by-version changelog wall (every release from v0.20.0 onward narrated inline). That history is what `patchnotes.md` is for; the roadmap should orient, not log. Replaced it with a short summary of the phase arc, the current release, and what remains for 1.0, pointing here for the release-by-release detail. No code or behavior change.
+
 ## v0.41.0 (2026-06-20): reminders you can trust (catch-up)
 
 Reminders weren't trustworthy. The v0.20.0 service only ever looked *forward* (for a reminder strictly after "now"), to avoid a re-fire loop. The cost: a reminder that came due while Atrium was closed, or while the master notifications toggle was off, was silently missed forever. That's not a reminder system you can rely on.
