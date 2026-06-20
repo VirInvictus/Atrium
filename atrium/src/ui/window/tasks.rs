@@ -320,6 +320,27 @@ impl AtriumWindow {
         });
     }
 
+    /// Tier D (v0.39.3) — quick reschedule a task from the row context
+    /// menu's Schedule submenu, collapsing the open-editor-then-set
+    /// round-trip to one pick. `when` is one of today / tomorrow /
+    /// weekend / nextweek / someday / clear.
+    pub(super) fn quick_reschedule(&self, id: i64, when: &str) {
+        let today = chrono::Local::now().date_naive();
+        let Some(target) = parse_quick_schedule(when, today) else {
+            warn!(when, "quick_reschedule: unrecognised keyword");
+            return;
+        };
+        let Some(worker) = self.worker() else { return };
+        glib::MainContext::default().spawn_local(async move {
+            if let Err(e) = worker
+                .update_task(TaskUpdate::new(id).schedule(target))
+                .await
+            {
+                error!(?e, id, "quick_reschedule update_task failed");
+            }
+        });
+    }
+
     /// Create with the given title — fired by the bottom-of-list entry.
     /// Phase 6b: parses inline `#tag` / `@today` / `@yyyy-mm-dd` /
     /// `@deadline yyyy-mm-dd` syntax via `quickentry::parser` and
@@ -726,5 +747,100 @@ impl AtriumWindow {
         if let Some(id) = self.focused_task_id() {
             self.open_inspector_for(id);
         }
+    }
+}
+
+/// Map a quick-reschedule keyword (from the row context menu's Schedule
+/// submenu) to a schedule value. `None` = unrecognised keyword;
+/// `Some(None)` = clear the schedule; `Some(Some(sf))` = set it. Pure
+/// so the date math is unit-testable.
+pub(crate) fn parse_quick_schedule(
+    when: &str,
+    today: chrono::NaiveDate,
+) -> Option<Option<atrium_core::ScheduledFor>> {
+    use atrium_core::ScheduledFor;
+    use chrono::{Datelike, Duration, Weekday};
+    let sf = match when {
+        "today" => ScheduledFor::Date(today),
+        "tomorrow" => ScheduledFor::Date(today + Duration::days(1)),
+        "weekend" => {
+            // This week's Saturday (today if it already is Saturday).
+            let days = (Weekday::Sat.num_days_from_monday() as i64
+                - today.weekday().num_days_from_monday() as i64)
+                .rem_euclid(7);
+            ScheduledFor::Date(today + Duration::days(days))
+        }
+        "nextweek" => {
+            // Monday of next week.
+            let from_mon = today.weekday().num_days_from_monday() as i64;
+            ScheduledFor::Date(today + Duration::days(7 - from_mon))
+        }
+        "someday" => ScheduledFor::Someday,
+        "clear" => return Some(None),
+        _ => return None,
+    };
+    Some(Some(sf))
+}
+
+#[cfg(test)]
+mod quick_schedule_tests {
+    use super::parse_quick_schedule;
+    use atrium_core::ScheduledFor;
+    use chrono::NaiveDate;
+
+    fn d(y: i32, m: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, day).unwrap()
+    }
+
+    #[test]
+    fn today_and_tomorrow() {
+        let today = d(2026, 6, 17); // a Wednesday
+        assert_eq!(
+            parse_quick_schedule("today", today),
+            Some(Some(ScheduledFor::Date(d(2026, 6, 17))))
+        );
+        assert_eq!(
+            parse_quick_schedule("tomorrow", today),
+            Some(Some(ScheduledFor::Date(d(2026, 6, 18))))
+        );
+    }
+
+    #[test]
+    fn weekend_is_this_saturday() {
+        // Wed 2026-06-17 → Sat 2026-06-20.
+        assert_eq!(
+            parse_quick_schedule("weekend", d(2026, 6, 17)),
+            Some(Some(ScheduledFor::Date(d(2026, 6, 20))))
+        );
+        // On Saturday, "weekend" is today.
+        assert_eq!(
+            parse_quick_schedule("weekend", d(2026, 6, 20)),
+            Some(Some(ScheduledFor::Date(d(2026, 6, 20))))
+        );
+    }
+
+    #[test]
+    fn nextweek_is_next_monday() {
+        // Wed 2026-06-17 → Mon 2026-06-22.
+        assert_eq!(
+            parse_quick_schedule("nextweek", d(2026, 6, 17)),
+            Some(Some(ScheduledFor::Date(d(2026, 6, 22))))
+        );
+        // On Monday 2026-06-15 → next Monday 2026-06-22.
+        assert_eq!(
+            parse_quick_schedule("nextweek", d(2026, 6, 15)),
+            Some(Some(ScheduledFor::Date(d(2026, 6, 22))))
+        );
+    }
+
+    #[test]
+    fn someday_and_clear_and_unknown() {
+        let today = d(2026, 6, 17);
+        assert_eq!(
+            parse_quick_schedule("someday", today),
+            Some(Some(ScheduledFor::Someday))
+        );
+        assert_eq!(parse_quick_schedule("clear", today), Some(None));
+        assert_eq!(parse_quick_schedule("bogus", today), None);
     }
 }

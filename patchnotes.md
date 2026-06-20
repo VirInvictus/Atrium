@@ -1,5 +1,14 @@
 # Atrium — Patch Notes
 
+## v0.40.0 (2026-06-20): in-row quick reschedule (audit Tier D, part 4)
+
+The audit's biggest single smoothness gap was that rescheduling a task always cost an editor round-trip: open the Inspector, change the date, apply. The most common action, "push this to tomorrow," was three steps.
+
+- **The task row's right-click menu gains a Schedule submenu**: Today, Tomorrow, This Weekend, Next Week, Someday, Clear Schedule. One pick reschedules the task in place via a new `win.reschedule` action, no editor.
+- The keyword-to-date mapping (`parse_quick_schedule`) is a pure, unit-tested helper (weekend = this week's Saturday; next week = next Monday), so the date math is verified independently of the GUI.
+
+Because the menu is also keyboard-reachable (Menu key / Shift+F10 on a focused row), this doubles as a keyboard path to rescheduling. (Tag quick-edit already has Ctrl+T.) Workspace test count 1007 → 1011.
+
 ## v0.39.2 (2026-06-20): discoverability polish (audit Tier D, part 3)
 
 Surfacing features the audit found buried:

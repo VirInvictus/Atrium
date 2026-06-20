@@ -473,6 +473,8 @@ A global GTK shortcut (default `Ctrl+Alt+Space`) opens a small modal that:
 
 The same parser (`atrium-core::quick_entry`) drives the inline-rename surface in the GTK task list — F2 / right-click → Rename / double-click into edit. Renames take a fast path identical to pre-v0.13 behaviour when the new title contains no inline-syntax tokens; when tokens are present the title's parsed scalars set in a single `update_task` and tag side effects merge into the task's existing set (rename never removes a free-form tag, but `!N` does swap one priority tag for another since priority is single-valued).
 
+The task row's right-click menu carries *Edit Details…* (Inspector), *Edit Tags…*, and a **Schedule** submenu — Today / Tomorrow / This Weekend / Next Week / Someday / Clear — that reschedules in one pick via the `win.reschedule` action (target `(task_id, keyword)`) instead of an editor round-trip (v0.40.0, Tier D). The keyword-to-date mapping is the pure, unit-tested `parse_quick_schedule`.
+
 If Atrium is closed, the shortcut launches it and posts the task. A post-1.0 `atriumd` (user systemd) will add true zero-launch capture.
 
 ---

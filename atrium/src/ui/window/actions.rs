@@ -179,6 +179,25 @@ impl AtriumWindow {
         ));
         self.add_action(&edit_details_for);
 
+        // Tier D (v0.39.3) — quick reschedule from the row context
+        // menu's Schedule submenu. Target is `(task_id, keyword)` where
+        // keyword is today / tomorrow / weekend / nextweek / someday /
+        // clear. Collapses the open-editor-then-set-date round-trip to
+        // a single right-click → pick.
+        let reschedule =
+            gio::SimpleAction::new("reschedule", Some(&<(i64, String)>::static_variant_type()));
+        reschedule.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, parameter| {
+                let Some((id, when)) = parameter.and_then(|p| p.get::<(i64, String)>()) else {
+                    return;
+                };
+                win.quick_reschedule(id, &when);
+            }
+        ));
+        self.add_action(&reschedule);
+
         // Phase 7g — Ctrl+T (or row right-click) opens the tag
         // editor for the focused / first-selected task.
         let edit_tags = gio::SimpleAction::new("edit-tags-focused", None);

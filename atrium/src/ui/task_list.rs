@@ -882,6 +882,27 @@ where
         edit_tags_item
             .set_action_and_target_value(Some("win.edit-tags-for"), Some(&task_id.to_variant()));
         menu_model.append_item(&edit_tags_item);
+        // Tier D (v0.39.3) — quick reschedule submenu so the most common
+        // action (push a task to a new day) is right-click → pick rather
+        // than a full editor round-trip. Each item fires `win.reschedule`
+        // with a `(task_id, keyword)` target.
+        let schedule_menu = gio::Menu::new();
+        for (label, key) in [
+            ("Today", "today"),
+            ("Tomorrow", "tomorrow"),
+            ("This Weekend", "weekend"),
+            ("Next Week", "nextweek"),
+            ("Someday", "someday"),
+            ("Clear Schedule", "clear"),
+        ] {
+            let item = gio::MenuItem::new(Some(label), None);
+            item.set_action_and_target_value(
+                Some("win.reschedule"),
+                Some(&(task_id, key).to_variant()),
+            );
+            schedule_menu.append_item(&item);
+        }
+        menu_model.append_submenu(Some("Schedule"), &schedule_menu);
         let popover = gtk::PopoverMenu::from_model(Some(&menu_model));
         popover.set_has_arrow(false);
         popover.set_parent(&row);

@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.40.0" date="2026-06-20">
+      <description>
+        <p>Quick rescheduling. A task's right-click menu now has a
+           Schedule submenu (Today, Tomorrow, This Weekend, Next Week,
+           Someday, Clear), so pushing a task to a new day is one pick
+           instead of opening the full editor. The menu is also
+           keyboard-reachable.</p>
+      </description>
+    </release>
     <release version="0.39.2" date="2026-06-20">
       <description>
         <p>Discoverability polish. Kanban boards gained a Configure
