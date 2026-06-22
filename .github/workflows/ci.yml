@@ -11,18 +11,25 @@ env:
 jobs:
   check:
     name: fmt + clippy + test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
+    # Atrium requires gtk4 >= 4.16; Ubuntu runners ship 4.14, so the build
+    # aborts in gdk4-sys. Fedora carries a new-enough GTK and matches the
+    # project's actual target environment.
+    container: fedora:latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install GTK4 / libadwaita / SQLite
+      - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-4-dev \
-            libadwaita-1-dev \
-            libsqlite3-dev \
-            pkg-config
+          dnf install -y \
+            gcc \
+            git \
+            pkgconf-pkg-config \
+            glib2-devel \
+            gtk4-devel \
+            libadwaita-devel \
+            sqlite-devel \
+            xorg-x11-server-Xvfb
+
+      - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -38,4 +45,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: cargo test
-        run: cargo test --workspace
+        # The GTK binary crate's tests call gtk::init(), which needs a display.
+        env:
+          GDK_BACKEND: x11
+        run: xvfb-run -a cargo test --workspace
