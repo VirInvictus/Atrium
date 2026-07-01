@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.43.0" date="2026-07-01">
+      <description>
+        <p>Richer kanban cards. A board card now shows a done/total
+           progress cookie (subtasks and checklist items folded together)
+           and an amber Blocked pill when a task is waiting on a
+           prerequisite, matching what the regular task list already
+           shows.</p>
+      </description>
+    </release>
     <release version="0.42.0" date="2026-07-01">
       <description>
         <p>Bulk editing. Select several tasks and move them all to a

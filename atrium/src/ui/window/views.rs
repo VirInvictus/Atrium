@@ -564,6 +564,20 @@ impl AtriumWindow {
         let tag_pills: crate::ui::task_list::TagPillMap = pool
             .with(atrium_core::db::read::tag_info_per_task)
             .unwrap_or_default();
+
+        // v0.43.0 — richer cards. Blocked-state set + per-task statistics
+        // cookie ([done/total], subtasks folded with body checkboxes),
+        // reusing the same resolver the list rows use so board and list
+        // agree. Computed only over the filtered set the board renders.
+        let blocked_ids = pool
+            .with(atrium_core::db::read::blocked_task_ids)
+            .unwrap_or_default();
+        let cookie_for = self.build_cookie_resolver();
+        let subtask_cookies: HashMap<i64, String> = filtered
+            .iter()
+            .map(|t| (t.id, cookie_for(t.id, &t.note)))
+            .collect();
+
         let worker = self.worker();
 
         // Click → open the task in the Inspector. Reuses the
@@ -702,6 +716,8 @@ impl AtriumWindow {
             &columns,
             &tag_pills,
             &project_titles,
+            &subtask_cookies,
+            &blocked_ids,
             worker,
             on_click,
             on_drop,

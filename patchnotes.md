@@ -1,5 +1,18 @@
 # Atrium — Patch Notes
 
+## v0.43.0 (2026-07-01): richer kanban cards (kanban maturity, part 1)
+
+First part of the kanban maturity mini-phase that came out of the UI/UX audit. The audit found Atrium's board cards thin next to Focalboard, Vikunja, Planify, and Super Productivity: title, dates, project, and tags, but none of the at-a-glance status the list rows already carry.
+
+Board cards now show two of those signals on the title line, reusing the exact list-row logic so the two surfaces agree:
+
+- A statistics cookie `[done/total]`, folding subtask completion with body-checkbox counts through the shared `build_cookie_resolver` (the same string the list rows show). Shown only when a task actually has children or a checklist.
+- An amber "Blocked" pill for a task with an open prerequisite, from `read::blocked_task_ids`, styled with the same `.atrium-task-blocked` class the list uses.
+
+Priority already rendered on cards as a `priority-N` tag pill (the list treats it the same way), so no separate priority badge was added.
+
+No schema change. The column model stays a projection of task fields (tag or Org status); first-class buckets remain declined for Org round-trip fidelity.
+
 ## v0.42.0 (2026-07-01): bulk editing
 
 Multi-select had only ever grown to complete and delete. Every comparison app in the Linux task-manager landscape (Planify, Vikunja, Super Productivity, and friends) treats bulk field edits as table stakes, and they were the single highest value-to-effort gap surfaced by a UI/UX audit against that ecosystem. This closes it.

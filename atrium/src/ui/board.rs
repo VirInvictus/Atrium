@@ -19,14 +19,17 @@
 //! - **Click any row** still opens the Inspector via the supplied
 //!   callback (mirroring `win.edit-details-for(i64)`).
 //!
-//! Drag-drop between columns and a board-renderer editing UI are
-//! the next slices.
+//! v0.43.0 enriches the card: a statistics cookie ([done/total],
+//! folding subtasks with body checkboxes via the shared
+//! `build_cookie_resolver`) and an amber "Blocked" pill (from
+//! `read::blocked_task_ids`) now sit on the title line, matching what
+//! the regular list rows already show.
 //!
 //! The grouping logic lives in `atrium_core::render::group_into_board`
 //! — the GUI is a thin adapter on top of the same engine the
 //! `atrium-cli kanban` subcommand uses.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use adw::prelude::*;
 use atrium_core::{Column, ScheduledFor, Task, WorkerHandle};
@@ -68,6 +71,8 @@ pub fn build_page<F, D, C>(
     columns: &[Column<'_>],
     tag_pills: &TagPillMap,
     project_titles: &HashMap<i64, String>,
+    subtask_cookies: &HashMap<i64, String>,
+    blocked_ids: &HashSet<i64>,
     worker: Option<WorkerHandle>,
     on_row_click: F,
     on_drop: D,
@@ -139,6 +144,8 @@ where
             col,
             tag_pills,
             project_titles,
+            subtask_cookies,
+            blocked_ids,
             worker.clone(),
             on_row_click.clone(),
             on_drop.clone(),
@@ -157,10 +164,13 @@ where
     outer.upcast()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_column<F, D>(
     col: &Column<'_>,
     tag_pills: &TagPillMap,
     project_titles: &HashMap<i64, String>,
+    subtask_cookies: &HashMap<i64, String>,
+    blocked_ids: &HashSet<i64>,
     worker: Option<WorkerHandle>,
     on_row_click: F,
     on_drop: D,
@@ -233,6 +243,8 @@ where
                 t,
                 tag_pills,
                 project_titles,
+                subtask_cookies,
+                blocked_ids,
                 worker.clone(),
                 on_row_click.clone(),
             ));
@@ -275,6 +287,8 @@ fn build_row<F: Fn(i64) + 'static>(
     task: &Task,
     tag_pills: &TagPillMap,
     project_titles: &HashMap<i64, String>,
+    subtask_cookies: &HashMap<i64, String>,
+    blocked_ids: &HashSet<i64>,
     worker: Option<WorkerHandle>,
     on_row_click: F,
 ) -> gtk::Widget {
@@ -327,6 +341,27 @@ fn build_row<F: Fn(i64) + 'static>(
         title.add_css_class("dim-label");
     }
     top.append(&title);
+
+    // v0.43.0 — statistics cookie [done/total], reusing the same
+    // string the list rows show (subtask + body-checkbox counts folded
+    // together upstream in `build_cookie_resolver`). Only shown when the
+    // task actually has a non-empty cookie.
+    if let Some(cookie) = subtask_cookies.get(&task.id).filter(|c| !c.is_empty()) {
+        let cookie_label = gtk::Label::builder().label(cookie).build();
+        cookie_label.add_css_class("atrium-task-cookie");
+        cookie_label.add_css_class("dim-label");
+        top.append(&cookie_label);
+    }
+
+    // v0.43.0 — "Blocked" pill for tasks with an open prerequisite,
+    // reusing the list's amber `.atrium-task-blocked` style so the board
+    // and list agree on what "blocked" looks like.
+    if blocked_ids.contains(&task.id) {
+        let blocked_pill = gtk::Label::builder().label("Blocked").build();
+        blocked_pill.add_css_class("atrium-task-blocked");
+        top.append(&blocked_pill);
+    }
+
     row.append(&top);
 
     // Metadata line — project, date chip, tag pills. Only built
