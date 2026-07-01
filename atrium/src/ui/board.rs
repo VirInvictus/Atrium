@@ -25,6 +25,10 @@
 //! `read::blocked_task_ids`) now sit on the title line, matching what
 //! the regular list rows already show.
 //!
+//! v0.44.0 adds per-column WIP limits (count/limit header, over-limit
+//! flagged red) and v0.45.0 a per-column "Add card" entry that creates a
+//! task stamped with the column's tag or status.
+//!
 //! The grouping logic lives in `atrium_core::render::group_into_board`
 //! — the GUI is a thin adapter on top of the same engine the
 //! `atrium-cli kanban` subcommand uses.
@@ -66,7 +70,7 @@ pub enum DropDestination {
 // three callbacks (row click, drop, configure). Splitting into a
 // struct would only move the same fields around.
 #[allow(clippy::too_many_arguments)]
-pub fn build_page<F, D, C>(
+pub fn build_page<F, D, C, A>(
     perspective_name: &str,
     columns: &[Column<'_>],
     tag_pills: &TagPillMap,
@@ -78,11 +82,13 @@ pub fn build_page<F, D, C>(
     on_row_click: F,
     on_drop: D,
     on_configure: C,
+    on_add: A,
 ) -> gtk::Widget
 where
     F: Fn(i64) + 'static + Clone,
     D: Fn(i64, DropDestination) + 'static + Clone,
     C: Fn() + 'static,
+    A: Fn(DropDestination, String) + 'static + Clone,
 {
     let outer = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -156,6 +162,7 @@ where
             worker.clone(),
             on_row_click.clone(),
             on_drop.clone(),
+            on_add.clone(),
         ));
     }
 
@@ -172,7 +179,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn build_column<F, D>(
+fn build_column<F, D, A>(
     col: &Column<'_>,
     tag_pills: &TagPillMap,
     project_titles: &HashMap<i64, String>,
@@ -182,11 +189,21 @@ fn build_column<F, D>(
     worker: Option<WorkerHandle>,
     on_row_click: F,
     on_drop: D,
+    on_add: A,
 ) -> gtk::Widget
 where
     F: Fn(i64) + 'static + Clone,
     D: Fn(i64, DropDestination) + 'static + Clone,
+    A: Fn(DropDestination, String) + 'static + Clone,
 {
+    // This column's drop/add destination — a configured column carries
+    // its label verbatim; the trailing bucket is `Other`. Shared by the
+    // drop target and the per-column "Add card" entry.
+    let destination = if col.label == atrium_core::OTHER_COLUMN_LABEL {
+        DropDestination::Other
+    } else {
+        DropDestination::Column(col.label.clone())
+    };
     let card = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(8)
@@ -282,14 +299,31 @@ where
 
     card.append(&body_scroller);
 
+    // v0.45.0 — per-column "Add card" entry. Enter creates a task in
+    // this column via the on_add callback (which stamps the column's
+    // tag or status). Inline `#tag` / `@date` / `!N` syntax still works.
+    let add_entry = gtk::Entry::builder()
+        .placeholder_text("Add card\u{2026}")
+        .margin_start(6)
+        .margin_end(6)
+        .margin_bottom(8)
+        .build();
+    add_entry.add_css_class("atrium-board-add-card");
+    let add_dest = destination.clone();
+    let add_cb = on_add.clone();
+    add_entry.connect_activate(move |e| {
+        let text = e.text().trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        add_cb(add_dest.clone(), text);
+        e.set_text("");
+    });
+    card.append(&add_entry);
+
     // v0.6.3 — drop target for drag-drop between columns. Each card
     // accepts an i64 task id; the on_drop callback is responsible
     // for the tag-set rewrite via the worker.
-    let destination = if col.label == atrium_core::OTHER_COLUMN_LABEL {
-        DropDestination::Other
-    } else {
-        DropDestination::Column(col.label.clone())
-    };
     let drop_target = gtk::DropTarget::new(i64::static_type(), gdk::DragAction::MOVE);
     let drop_cb = on_drop.clone();
     drop_target.connect_drop(move |_, value, _, _| {

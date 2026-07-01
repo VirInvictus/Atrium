@@ -455,6 +455,87 @@ impl AtriumWindow {
         });
     }
 
+    /// v0.45.0 — create a card directly in a board column, from the
+    /// per-column "Add card" entry. Reuses the inline parser (so `#tag`
+    /// / `@date` / `!N` still work) and then stamps the column's
+    /// membership onto the new task: a tag-axis board adds the column
+    /// tag; a status-axis board sets the column keyword (and completion
+    /// for a done-column) via `status_move`. A drop on the trailing
+    /// "Other" column adds no membership. A board is a perspective
+    /// (a filter, not a project), so new cards land in Inbox plus the
+    /// column membership; a card that doesn't match the perspective's
+    /// filter simply won't reappear on the board.
+    pub(super) fn create_card_in_column(
+        &self,
+        cfg: &atrium_core::BoardConfig,
+        dest: crate::ui::board::DropDestination,
+        raw_input: String,
+    ) {
+        let Some(worker) = self.worker() else { return };
+        let parsed = atrium_inline::parse(&raw_input);
+        let mut projected_tags = parsed.projected_tag_names();
+        if parsed.title.is_empty() && projected_tags.is_empty() {
+            return;
+        }
+        let dest_str: Option<String> = match dest {
+            crate::ui::board::DropDestination::Column(n) => Some(n),
+            crate::ui::board::DropDestination::Other => None,
+        };
+
+        // Column membership depends on the axis.
+        let mut orig_keyword: Option<String> = None;
+        let mut completed_at = None;
+        match cfg.axis {
+            atrium_core::BoardAxis::Tag => {
+                if let Some(name) = &dest_str
+                    && !projected_tags.iter().any(|t| t.eq_ignore_ascii_case(name))
+                {
+                    projected_tags.push(name.clone());
+                }
+            }
+            atrium_core::BoardAxis::Status => {
+                let change = atrium_core::status_move(cfg, dest_str.as_deref(), false);
+                orig_keyword = change.orig_keyword;
+                if change.completed {
+                    completed_at = Some(chrono::Utc::now());
+                }
+            }
+        }
+
+        let title = parsed.title;
+        let scheduled = parsed.scheduled_for;
+        let deadline = parsed.deadline;
+        glib::MainContext::default().spawn_local(async move {
+            let new = NewTask {
+                title,
+                scheduled_for: scheduled,
+                deadline,
+                orig_keyword,
+                completed_at,
+                ..NewTask::default()
+            };
+            match worker.create_task(new).await {
+                Ok(task) => {
+                    if !projected_tags.is_empty() {
+                        let mut tag_ids = Vec::with_capacity(projected_tags.len());
+                        for name in projected_tags {
+                            match worker.ensure_tag(name).await {
+                                Ok(t) => tag_ids.push(t.id),
+                                Err(e) => warn!(?e, "board add ensure_tag failed"),
+                            }
+                        }
+                        if !tag_ids.is_empty()
+                            && let Err(e) = worker.set_task_tags(task.id, tag_ids).await
+                        {
+                            error!(?e, task_id = task.id, "board add set_task_tags failed");
+                        }
+                    }
+                }
+                Err(e) => error!(?e, "board add create_task failed"),
+            }
+        });
+    }
+
     /// Delete handler — operates on the focused list row. Captures
     /// the full task state + tag attachments before delete so the
     /// undo toast can recreate the row. Cascade-deleted subtasks are

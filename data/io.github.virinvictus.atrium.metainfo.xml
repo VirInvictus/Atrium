@@ -90,6 +90,14 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.45.0" date="2026-07-01">
+      <description>
+        <p>Add cards on the board. Each kanban column now has an inline
+           "Add card" entry; a new task is created already in that column
+           (its tag or status set for you), and the usual #tag / @date
+           shortcuts work while typing.</p>
+      </description>
+    </release>
     <release version="0.44.0" date="2026-07-01">
       <description>
         <p>Kanban WIP limits. A board column can carry a

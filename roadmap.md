@@ -1,6 +1,6 @@
 # Atrium — Roadmap
 
-What's done, what's next, what's deferred. Atrium is sequenced as a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. **Current release: v0.44.0.**
+What's done, what's next, what's deferred. Atrium is sequenced as a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. **Current release: v0.45.0.**
 
 Phases 0 through 19.5 have shipped: Simple and Builder modes, the two-way Org vault, Calibre-style search, the full importer set (Org, Todoist, VTODO, Taskwarrior, todo.txt), and the Phase 18.5 / 19.5 power features. **Phase 20 (the 1.0 endgame) is in flight**; what remains is localisation scaffolding, Flathub readiness, AppStream screenshots, a final icon pass, and the `v1.0.0` tag (localisation and Flathub are deferred to a sandbox session that needs Brandon's build environment). The one open Phase 19.5 item is the read-only Evolution Data Server calendar overlay, gated on a `libecal` / `zbus` dependency sign-off.
 
@@ -87,7 +87,7 @@ A UI/UX audit benchmarked Atrium against the open-source todo/kanban ecosystem (
 - **Kanban maturity mini-phase** *(in progress, pre-1.0)*: keep the projection column model (columns stay tag/status-derived for clean Org round-trip; no first-class buckets). Four sub-slices, smallest first:
   - [x] 2a richer board cards *(v0.43.0)*: `[done/total]` cookie + amber "Blocked" pill, reusing the list-row logic; priority already shows as a `priority-N` pill.
   - [x] 2b per-column WIP limits *(v0.44.0)*: `name:limit` column suffix → `BoardConfig.limits` (`skip_serializing_if` keeps old configs byte-identical); header shows `count/limit`, over-limit flagged red. Advisory, never blocks a drop.
-  - [ ] 2c in-place "+ Add card" per column (tag-axis adds the column tag, status-axis sets the keyword).
+  - [x] 2c in-place "+ Add card" per column *(v0.45.0)*: per-column entry → `create_card_in_column` stamps the tag (tag axis) or keyword/completion (status axis, via `status_move`); reuses the inline parser.
   - [ ] 2d persisted intra-column ordering via an additive `board_card_position(perspective_id, column_key, task_id, position)` side table, using the existing integer-position renumber idiom.
 
 ### Quick wins (grab anytime)

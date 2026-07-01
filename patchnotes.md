@@ -1,5 +1,19 @@
 # Atrium — Patch Notes
 
+## v0.45.0 (2026-07-01): add cards on the board (kanban maturity, part 3)
+
+Third part of the kanban maturity mini-phase. Until now a board could only *show* tasks that its perspective filter already matched; there was no way to add a card straight to a column. Every comparison board app (Focalboard, Vikunja, Super Productivity, Planify sections) has an inline per-column add, and now Atrium does too.
+
+Each column carries an "Add card…" entry at its foot. Enter creates a task stamped with that column's membership:
+
+- Tag-axis board: the column's tag is added.
+- Status-axis board: the column's keyword is set (and, for a done-column, the task is created completed) via the same `status_move` logic a drag uses.
+- The trailing "Other" column adds no membership.
+
+The entry runs the same inline parser as Quick Entry, so `#tag`, `@today`, `@deadline`, and `!N` all work in a new card. A board is a perspective (a filter, not a project), so new cards land in Inbox plus the column membership; if a card doesn't match the perspective's filter it simply won't reappear on the board.
+
+No schema change.
+
 ## v0.44.0 (2026-07-01): per-column WIP limits (kanban maturity, part 2)
 
 Second part of the kanban maturity mini-phase. Kanban's whole point is limiting work in progress, and Vikunja is the only comparison app that models a per-column cap; Atrium had none.

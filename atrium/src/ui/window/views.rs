@@ -711,6 +711,17 @@ impl AtriumWindow {
             }
         };
 
+        // v0.45.0 — per-column "Add card" entry creates a task stamped
+        // with the column's membership (tag or status), reusing the
+        // inline parser. cfg is cloned so the closure stays a plain Fn.
+        let cfg_for_add = cfg.clone();
+        let weak_add = self.downgrade();
+        let on_add = move |dest: crate::ui::board::DropDestination, text: String| {
+            if let Some(window) = weak_add.upgrade() {
+                window.create_card_in_column(&cfg_for_add, dest, text);
+            }
+        };
+
         let widget = crate::ui::board::build_page(
             &perspective.name,
             &columns,
@@ -723,6 +734,7 @@ impl AtriumWindow {
             on_click,
             on_drop,
             on_configure,
+            on_add,
         );
         self.imp().board_host.set_child(Some(&widget));
         Ok(())
