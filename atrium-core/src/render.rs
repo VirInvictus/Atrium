@@ -28,7 +28,7 @@
 //! - **Case-insensitive tag matching.** `Todo` and `todo` are the
 //!   same column; mirrors the rest of the search engine's tag rules.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +64,10 @@ pub enum Renderer {
 /// back to canonical `TODO`/`DONE`). Rejecting unknown axes at parse
 /// time keeps the GUI from silently doing the wrong thing on a config
 /// it doesn't understand.
+///
+/// An optional `"limits"` object (v0.44.0) carries per-column WIP caps,
+/// e.g. `"limits": {"doing": 2}`; omitted when empty so pre-v0.44.0
+/// configs stay byte-identical.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BoardConfig {
     pub axis: BoardAxis,
@@ -80,9 +84,26 @@ pub struct BoardConfig {
     /// tag-board JSON byte-identical.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub done_columns: Vec<String>,
+    /// v0.44.0 — optional per-column WIP limit, keyed by column name
+    /// (case-insensitive on lookup). A column with `count > limit` is
+    /// flagged in the UI as over its work-in-progress cap. Purely
+    /// advisory: over-limit is surfaced, never enforced (dropping onto
+    /// a full column still works). `skip_serializing_if` keeps pre-v0.44.0
+    /// configs byte-identical.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub limits: BTreeMap<String, u32>,
 }
 
 impl BoardConfig {
+    /// The WIP limit configured for `column`, matched case-insensitively
+    /// against the `limits` keys. `None` when the column has no limit.
+    pub fn limit_for(&self, column: &str) -> Option<u32> {
+        self.limits
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(column))
+            .map(|(_, v)| *v)
+    }
+
     /// Serialise to the JSON shape the schema stores in
     /// `perspective.renderer_config`. Centralising this here keeps
     /// the GUI / CLI from having to import `serde_json` or hand-roll
@@ -328,21 +349,91 @@ pub fn status_move(
 /// `|` is a done-column. No pipe → every column is open. Returns
 /// `(columns, done_columns)` ready to drop into a [`BoardConfig`].
 pub fn parse_status_columns(input: &str) -> (Vec<String>, Vec<String>) {
+    let (cols, done, _limits) = parse_status_columns_with_limits(input);
+    (cols, done)
+}
+
+/// Split a single column entry into `(name, limit)`. A trailing
+/// `:<digits>` sets a WIP limit (`doing:2`); otherwise the whole trimmed
+/// string is the name. A name that legitimately ends in `:<non-digits>`
+/// (a colon in a tag name) is preserved as-is, so this is safe to run
+/// over every column spec. (v0.44.0)
+fn split_column_limit(entry: &str) -> (String, Option<u32>) {
+    let trimmed = entry.trim();
+    if let Some((name, num)) = trimmed.rsplit_once(':')
+        && !num.is_empty()
+        && num.chars().all(|c| c.is_ascii_digit())
+        && let Ok(limit) = num.parse::<u32>()
+    {
+        return (name.trim().to_string(), Some(limit));
+    }
+    (trimmed.to_string(), None)
+}
+
+/// Parse a tag-axis columns spec: comma-separated `name` or
+/// `name:limit` entries. Returns display-ordered column names plus a
+/// limit map keyed by column name (only for entries that carry a
+/// `:limit` suffix). (v0.44.0)
+pub fn parse_tag_columns(input: &str) -> (Vec<String>, BTreeMap<String, u32>) {
+    let mut columns = Vec::new();
+    let mut limits = BTreeMap::new();
+    for raw in input.split(',') {
+        let (name, limit) = split_column_limit(raw);
+        if name.is_empty() {
+            continue;
+        }
+        if let Some(l) = limit {
+            limits.insert(name.clone(), l);
+        }
+        columns.push(name);
+    }
+    (columns, limits)
+}
+
+/// Status-axis variant of [`parse_status_columns`] that also extracts
+/// per-column WIP limits from `name:limit` suffixes on either side of
+/// the `|`. Returns `(columns, done_columns, limits)`. (v0.44.0)
+pub fn parse_status_columns_with_limits(
+    input: &str,
+) -> (Vec<String>, Vec<String>, BTreeMap<String, u32>) {
     let (open_part, done_part) = match input.split_once('|') {
         Some((l, r)) => (l, r),
         None => (input, ""),
     };
-    let split = |s: &str| -> Vec<String> {
+    let mut limits = BTreeMap::new();
+    let mut split = |s: &str| -> Vec<String> {
         s.split(',')
-            .map(|t| t.trim().to_string())
-            .filter(|t| !t.is_empty())
+            .filter_map(|raw| {
+                let (name, limit) = split_column_limit(raw);
+                if name.is_empty() {
+                    return None;
+                }
+                if let Some(l) = limit {
+                    limits.insert(name.clone(), l);
+                }
+                Some(name)
+            })
             .collect()
     };
     let open = split(open_part);
     let done = split(done_part);
     let mut columns = open;
     columns.extend(done.iter().cloned());
-    (columns, done)
+    (columns, done, limits)
+}
+
+/// Format a tag-axis config's columns back into the comma-separated
+/// entry text, appending `:limit` where a column carries one, so an
+/// edit dialog round-trips limits. (v0.44.0)
+pub fn format_tag_columns(cfg: &BoardConfig) -> String {
+    cfg.columns
+        .iter()
+        .map(|c| match cfg.limit_for(c) {
+            Some(l) => format!("{c}:{l}"),
+            None => c.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Inverse of [`parse_status_columns`]: render a config's columns back
@@ -355,16 +446,25 @@ pub fn format_status_columns(cfg: &BoardConfig) -> String {
         .iter()
         .map(|d| d.to_ascii_lowercase())
         .collect();
-    let open: Vec<&str> = cfg
+    // Append `:limit` where a column carries one so an edit dialog
+    // round-trips the WIP limits (v0.44.0). No-limit columns render
+    // exactly as before.
+    let fmt = |name: &str| -> String {
+        match cfg.limit_for(name) {
+            Some(l) => format!("{name}:{l}"),
+            None => name.to_string(),
+        }
+    };
+    let open: Vec<String> = cfg
         .columns
         .iter()
         .filter(|c| !done_lc.contains(&c.to_ascii_lowercase()))
-        .map(|c| c.as_str())
+        .map(|c| fmt(c))
         .collect();
     if cfg.done_columns.is_empty() {
         open.join(", ")
     } else {
-        let done: Vec<&str> = cfg.done_columns.iter().map(|c| c.as_str()).collect();
+        let done: Vec<String> = cfg.done_columns.iter().map(|c| fmt(c)).collect();
         format!("{} | {}", open.join(", "), done.join(", "))
     }
 }
@@ -438,6 +538,7 @@ mod tests {
             axis: BoardAxis::Tag,
             columns: columns.iter().map(|s| (*s).to_string()).collect(),
             done_columns: Vec::new(),
+            limits: BTreeMap::new(),
         }
     }
 
@@ -448,6 +549,7 @@ mod tests {
             axis: BoardAxis::Status,
             columns: columns.iter().map(|s| (*s).to_string()).collect(),
             done_columns: done.iter().map(|s| (*s).to_string()).collect(),
+            limits: BTreeMap::new(),
         }
     }
 
@@ -625,6 +727,7 @@ mod tests {
             axis: BoardAxis::Tag,
             columns: vec!["todo".into(), "doing".into(), "done".into()],
             done_columns: Vec::new(),
+            limits: BTreeMap::new(),
         };
         let json = original.to_json().unwrap();
         let parsed = BoardConfig::from_json(&json).unwrap();
@@ -640,6 +743,7 @@ mod tests {
             axis: BoardAxis::Tag,
             columns: vec!["todo".into()],
             done_columns: Vec::new(),
+            limits: BTreeMap::new(),
         };
         let json = cfg.to_json().unwrap();
         assert_eq!(json, r#"{"axis":"tag","columns":["todo"]}"#);
@@ -892,6 +996,7 @@ mod tests {
             axis: BoardAxis::Status,
             columns: cols,
             done_columns: done,
+            limits: BTreeMap::new(),
         };
         let text = format_status_columns(&cfg);
         assert_eq!(text, "TODO, NEXT | DONE, CANCELLED");
@@ -913,6 +1018,7 @@ mod tests {
             axis: BoardAxis::Status,
             columns: vec!["TODO".into(), "DONE".into(), "CANCELLED".into()],
             done_columns: vec!["DONE".into(), "CANCELLED".into()],
+            limits: BTreeMap::new(),
         };
         let json = original.to_json().unwrap();
         assert_eq!(
@@ -929,5 +1035,102 @@ mod tests {
         let cfg = BoardConfig::from_json(json).unwrap();
         assert_eq!(cfg.axis, BoardAxis::Tag);
         assert!(cfg.done_columns.is_empty());
+    }
+
+    // ── WIP limits (v0.44.0) ───────────────────────────
+
+    #[test]
+    fn parse_tag_columns_extracts_limits() {
+        let (cols, limits) = parse_tag_columns("todo, doing:2, done");
+        assert_eq!(cols, vec!["todo", "doing", "done"]);
+        assert_eq!(limits.get("doing"), Some(&2));
+        assert_eq!(limits.len(), 1); // todo / done carry none
+    }
+
+    #[test]
+    fn parse_tag_columns_preserves_colon_in_name_without_digit_suffix() {
+        // A colon followed by non-digits is part of the name, not a limit.
+        let (cols, limits) = parse_tag_columns("area:home, doing:3");
+        assert_eq!(cols, vec!["area:home", "doing"]);
+        assert!(!limits.contains_key("area:home"));
+        assert_eq!(limits.get("doing"), Some(&3));
+    }
+
+    #[test]
+    fn parse_status_columns_with_limits_reads_both_sides() {
+        let (cols, done, limits) =
+            parse_status_columns_with_limits("TODO, NEXT:3 | DONE:5, CANCELLED");
+        assert_eq!(cols, vec!["TODO", "NEXT", "DONE", "CANCELLED"]);
+        assert_eq!(done, vec!["DONE", "CANCELLED"]);
+        assert_eq!(limits.get("NEXT"), Some(&3));
+        assert_eq!(limits.get("DONE"), Some(&5));
+    }
+
+    #[test]
+    fn parse_status_columns_still_drops_limits_for_old_callers() {
+        // The 2-tuple wrapper strips the `:N` so column names stay clean.
+        let (cols, done) = parse_status_columns("TODO, NEXT:3 | DONE");
+        assert_eq!(cols, vec!["TODO", "NEXT", "DONE"]);
+        assert_eq!(done, vec!["DONE"]);
+    }
+
+    #[test]
+    fn limit_for_is_case_insensitive() {
+        let (cols, limits) = parse_tag_columns("Doing:2");
+        let cfg = BoardConfig {
+            axis: BoardAxis::Tag,
+            columns: cols,
+            done_columns: Vec::new(),
+            limits,
+        };
+        assert_eq!(cfg.limit_for("doing"), Some(2));
+        assert_eq!(cfg.limit_for("DOING"), Some(2));
+        assert_eq!(cfg.limit_for("todo"), None);
+    }
+
+    #[test]
+    fn format_tag_columns_round_trips_limits() {
+        let (cols, limits) = parse_tag_columns("todo, doing:2, done");
+        let cfg = BoardConfig {
+            axis: BoardAxis::Tag,
+            columns: cols,
+            done_columns: Vec::new(),
+            limits,
+        };
+        assert_eq!(format_tag_columns(&cfg), "todo, doing:2, done");
+    }
+
+    #[test]
+    fn format_status_columns_round_trips_limits() {
+        let (cols, done, limits) = parse_status_columns_with_limits("TODO, NEXT:3 | DONE");
+        let cfg = BoardConfig {
+            axis: BoardAxis::Status,
+            columns: cols,
+            done_columns: done,
+            limits,
+        };
+        assert_eq!(format_status_columns(&cfg), "TODO, NEXT:3 | DONE");
+    }
+
+    #[test]
+    fn limits_round_trip_through_json_and_skip_when_empty() {
+        // With limits: they serialise and parse back.
+        let (cols, limits) = parse_tag_columns("todo, doing:2");
+        let cfg = BoardConfig {
+            axis: BoardAxis::Tag,
+            columns: cols,
+            done_columns: Vec::new(),
+            limits,
+        };
+        let json = cfg.to_json().unwrap();
+        assert!(json.contains("\"limits\""));
+        assert_eq!(BoardConfig::from_json(&json).unwrap(), cfg);
+
+        // Without limits: the key is skipped, so pre-v0.44.0 configs stay
+        // byte-identical and old JSON parses to an empty map.
+        let legacy = r#"{"axis":"tag","columns":["todo","doing"]}"#;
+        let parsed = BoardConfig::from_json(legacy).unwrap();
+        assert!(parsed.limits.is_empty());
+        assert_eq!(parsed.to_json().unwrap(), legacy);
     }
 }

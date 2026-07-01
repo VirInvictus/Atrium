@@ -1543,7 +1543,8 @@ fn board_config_for_axis(
 ) -> CliResult<atrium_core::BoardConfig> {
     match axis {
         atrium_core::BoardAxis::Tag => {
-            let columns = parse_columns(columns_raw)?;
+            // v0.43.0 — a `name:limit` suffix per column sets a WIP limit.
+            let (columns, limits) = atrium_core::parse_tag_columns(columns_raw.unwrap_or(""));
             if columns.is_empty() {
                 return Err(CliError::Args(
                     "--renderer board requires --columns 'a,b,c'".into(),
@@ -1553,11 +1554,12 @@ fn board_config_for_axis(
                 axis,
                 columns,
                 done_columns: Vec::new(),
+                limits,
             })
         }
         atrium_core::BoardAxis::Status => {
-            let (columns, done_columns) =
-                atrium_core::parse_status_columns(columns_raw.unwrap_or(""));
+            let (columns, done_columns, limits) =
+                atrium_core::parse_status_columns_with_limits(columns_raw.unwrap_or(""));
             if columns.is_empty() {
                 return Err(CliError::Args(
                     "--renderer board --axis status requires --columns 'TODO, NEXT | DONE'".into(),
@@ -1567,6 +1569,7 @@ fn board_config_for_axis(
                 axis,
                 columns,
                 done_columns,
+                limits,
             })
         }
     }
@@ -1641,20 +1644,6 @@ fn synthesise_renderer_for_edit(
     let axis = parse_axis_flag(args.axis.as_deref(), existing_axis)?;
     let cfg = board_config_for_axis(axis, args.columns.as_deref())?;
     board_renderer_pair(&cfg)
-}
-
-/// Parse a `--columns "a,b,c"` flag into a column-name list.
-/// Empty entries (consecutive commas) are dropped; surrounding
-/// whitespace is trimmed.
-fn parse_columns(raw: Option<&str>) -> CliResult<Vec<String>> {
-    let Some(raw) = raw else {
-        return Ok(Vec::new());
-    };
-    Ok(raw
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect())
 }
 
 /// Print a single perspective row after a write. Re-uses the

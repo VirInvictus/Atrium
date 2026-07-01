@@ -29,7 +29,7 @@
 //! — the GUI is a thin adapter on top of the same engine the
 //! `atrium-cli kanban` subcommand uses.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use adw::prelude::*;
 use atrium_core::{Column, ScheduledFor, Task, WorkerHandle};
@@ -73,6 +73,7 @@ pub fn build_page<F, D, C>(
     project_titles: &HashMap<i64, String>,
     subtask_cookies: &HashMap<i64, String>,
     blocked_ids: &HashSet<i64>,
+    limits: &BTreeMap<String, u32>,
     worker: Option<WorkerHandle>,
     on_row_click: F,
     on_drop: D,
@@ -140,12 +141,18 @@ where
         .build();
 
     for col in columns {
+        // Case-insensitive limit lookup, matching the core's `limit_for`.
+        let limit = limits
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(&col.label))
+            .map(|(_, v)| *v);
         row.append(&build_column(
             col,
             tag_pills,
             project_titles,
             subtask_cookies,
             blocked_ids,
+            limit,
             worker.clone(),
             on_row_click.clone(),
             on_drop.clone(),
@@ -171,6 +178,7 @@ fn build_column<F, D>(
     project_titles: &HashMap<i64, String>,
     subtask_cookies: &HashMap<i64, String>,
     blocked_ids: &HashSet<i64>,
+    limit: Option<u32>,
     worker: Option<WorkerHandle>,
     on_row_click: F,
     on_drop: D,
@@ -207,12 +215,25 @@ where
     label.add_css_class("heading");
     header.append(&label);
 
+    // v0.44.0 — WIP limit display. With a limit set, show `count/limit`
+    // and flag the column when it's over its cap (advisory only; drops
+    // onto a full column still work).
+    let count_text = match limit {
+        Some(l) => format!("{}/{}", col.tasks.len(), l),
+        None => format!("{}", col.tasks.len()),
+    };
     let count = gtk::Label::builder()
-        .label(format!("{}", col.tasks.len()))
+        .label(count_text)
         .halign(gtk::Align::End)
         .build();
     count.add_css_class("dim-label");
     count.add_css_class("numeric");
+    if let Some(l) = limit
+        && col.tasks.len() as u32 > l
+    {
+        count.remove_css_class("dim-label");
+        count.add_css_class("atrium-board-over-limit");
+    }
     header.append(&count);
 
     card.append(&header);

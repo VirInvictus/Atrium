@@ -1,5 +1,20 @@
 # Atrium — Patch Notes
 
+## v0.44.0 (2026-07-01): per-column WIP limits (kanban maturity, part 2)
+
+Second part of the kanban maturity mini-phase. Kanban's whole point is limiting work in progress, and Vikunja is the only comparison app that models a per-column cap; Atrium had none.
+
+A board column can now carry a WIP limit. The column header shows `count/limit`, and the count turns red and bold when the column is over its cap. The limit is advisory: dropping a card onto a full column still works. It just makes the overflow visible.
+
+Limits are set with a compact `name:limit` suffix on any column, in the same places columns are already configured:
+
+- GUI: the Configure board dialog's columns entry, e.g. `todo, doing:2, done` (tag axis) or `TODO, NEXT:3 | DONE` (status axis).
+- CLI: `atrium-cli perspective edit NAME --renderer board --columns 'todo, doing:2, done'`.
+
+Under the hood the limit map lives in the board's `renderer_config` JSON (`"limits": {"doing": 2}`), `skip_serializing_if`-empty so every pre-v0.44.0 board config stays byte-identical. A trailing `:non-digits` is left alone, so a tag name that contains a colon is safe. Editing a board round-trips the limits back into the columns entry.
+
+No schema change. The column model stays a projection of task fields.
+
 ## v0.43.0 (2026-07-01): richer kanban cards (kanban maturity, part 1)
 
 First part of the kanban maturity mini-phase that came out of the UI/UX audit. The audit found Atrium's board cards thin next to Focalboard, Vikunja, Planify, and Super Productivity: title, dates, project, and tags, but none of the at-a-glance status the list rows already carry.

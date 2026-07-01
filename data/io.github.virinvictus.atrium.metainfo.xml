@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.44.0" date="2026-07-01">
+      <description>
+        <p>Kanban WIP limits. A board column can carry a
+           work-in-progress cap: the header shows count over limit and
+           turns red when the column is over. Set it with a name:limit
+           suffix on a column (for example doing:2). Advisory only, never
+           blocks a drop.</p>
+      </description>
+    </release>
     <release version="0.43.0" date="2026-07-01">
       <description>
         <p>Richer kanban cards. A board card now shows a done/total

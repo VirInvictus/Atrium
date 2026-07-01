@@ -718,6 +718,7 @@ impl AtriumWindow {
             &project_titles,
             &subtask_cookies,
             &blocked_ids,
+            &cfg.limits,
             worker,
             on_click,
             on_drop,

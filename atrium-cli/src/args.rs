@@ -116,6 +116,9 @@ WRITE SUBCOMMANDS:
                       columns are TODO-sequence keywords in the Org
                       '#+TODO:' pipe convention: everything right of the
                       '|' is a done-column, e.g. 'TODO, NEXT | DONE'.
+                      Append ':N' to any column for a WIP limit
+                      (e.g. 'todo, doing:2, done'); the board flags the
+                      column when it goes over. Advisory, never enforced.
 
 EXAMPLES:
     atrium-cli list today

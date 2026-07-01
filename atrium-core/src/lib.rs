@@ -41,7 +41,8 @@ pub use links::{BodyLink, parse_body_links};
 pub use paths::{APP_ID, cache_dir, data_dir, db_path};
 pub use render::{
     BoardAxis, BoardConfig, Column, OTHER_COLUMN_LABEL, Renderer, RendererError, StatusChange,
-    format_status_columns, group_into_board, move_to_column, parse_status_columns, status_keyword,
+    format_status_columns, format_tag_columns, group_into_board, move_to_column,
+    parse_status_columns, parse_status_columns_with_limits, parse_tag_columns, status_keyword,
     status_move,
 };
 pub use repeat::{RepeatMode, RepeatRule};

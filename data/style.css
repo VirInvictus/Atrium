@@ -518,6 +518,13 @@ window.atrium-debug-pane {
   border-bottom: 1px solid alpha(@borders, 0.35);
   padding-bottom: 6px;
 }
+/* v0.44.0 — WIP limit exceeded. The column count reads `n/limit` and
+ * turns error-coloured + bold when n > limit. Advisory only; the drop
+ * is never blocked. */
+.atrium-board-over-limit {
+  color: @error_color;
+  font-weight: bold;
+}
 /* v0.6.6 — board rows: no transition timing on the hover state.
  * The transition was animating background-color over 120ms, which
  * during a drag (cursor crosses many rows) produces continuous

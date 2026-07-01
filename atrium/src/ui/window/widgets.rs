@@ -287,16 +287,16 @@ fn renderer_pair_from_choice(
         RendererChoice::List => return ("list".into(), None),
         RendererChoice::Board(axis) => axis,
     };
-    let (columns, done_columns) = match axis {
+    // v0.43.0 — both axes accept a `name:limit` suffix per column for
+    // WIP limits; the core parsers extract the limit map.
+    let (columns, done_columns, limits) = match axis {
         atrium_core::BoardAxis::Tag => {
-            let cols: Vec<String> = columns_text
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            (cols, Vec::new())
+            let (cols, limits) = atrium_core::parse_tag_columns(columns_text);
+            (cols, Vec::new(), limits)
         }
-        atrium_core::BoardAxis::Status => atrium_core::parse_status_columns(columns_text),
+        atrium_core::BoardAxis::Status => {
+            atrium_core::parse_status_columns_with_limits(columns_text)
+        }
     };
     if columns.is_empty() {
         return ("list".into(), None);
@@ -305,6 +305,7 @@ fn renderer_pair_from_choice(
         axis,
         columns,
         done_columns,
+        limits,
     };
     ("board".into(), cfg.to_json().ok())
 }
@@ -325,7 +326,10 @@ fn existing_board_state(
             Some(atrium_core::BoardAxis::Status),
             atrium_core::format_status_columns(&cfg),
         ),
-        Some(cfg) if is_board => (Some(atrium_core::BoardAxis::Tag), cfg.columns.join(", ")),
+        Some(cfg) if is_board => (
+            Some(atrium_core::BoardAxis::Tag),
+            atrium_core::format_tag_columns(&cfg),
+        ),
         _ => (None, String::new()),
     }
 }
@@ -334,12 +338,13 @@ fn existing_board_state(
 /// given board axis.
 fn columns_hint(axis: atrium_core::BoardAxis) -> (&'static str, &'static str) {
     match axis {
-        atrium_core::BoardAxis::Tag => {
-            ("Columns (comma-separated tag names):", "todo, doing, done")
-        }
+        atrium_core::BoardAxis::Tag => (
+            "Columns (comma-separated; append :N for a WIP limit):",
+            "todo, doing:2, done",
+        ),
         atrium_core::BoardAxis::Status => (
-            "Columns (Org #+TODO: keywords; “|” before done states):",
-            "TODO, NEXT, WAITING | DONE, CANCELLED",
+            "Columns (Org #+TODO: keywords; “|” before done; :N sets a WIP limit):",
+            "TODO, NEXT:3, WAITING | DONE, CANCELLED",
         ),
     }
 }
