@@ -555,7 +555,26 @@ impl AtriumWindow {
                 }
             }
         }
-        let columns = atrium_core::group_into_board(&filtered, &cfg, &tag_map);
+        let mut columns = atrium_core::group_into_board(&filtered, &cfg, &tag_map);
+        // v0.46.0 — apply the persisted intra-column order, then snapshot
+        // each column's ordered ids so the drop handler can compute a new
+        // order without re-reading.
+        let positions = pool
+            .with(|c| atrium_core::db::read::board_card_positions(c, perspective.id))
+            .unwrap_or_default();
+        for col in &mut columns {
+            atrium_core::order_column_tasks(&mut col.tasks, &col.label, &positions);
+        }
+        let column_orders: std::collections::HashMap<String, Vec<i64>> = columns
+            .iter()
+            .map(|c| {
+                (
+                    c.label.to_ascii_lowercase(),
+                    c.tasks.iter().map(|t| t.id).collect(),
+                )
+            })
+            .collect();
+        let perspective_id = perspective.id;
 
         // Tag pills + worker handle for the row's secondary metadata
         // line and interactive checkbox. The pill map carries the
@@ -612,8 +631,11 @@ impl AtriumWindow {
         // The pool and worker are re-fetched per drop so the closure
         // stays a plain Fn (no captured borrows of cell-borrowed maps).
         let cfg_for_drop = cfg.clone();
+        let orders_for_drop = column_orders.clone();
         let weak_drop = self.downgrade();
-        let on_drop = move |task_id: i64, dest: crate::ui::board::DropDestination| {
+        let on_drop = move |dragged_id: i64,
+                            dest: crate::ui::board::DropDestination,
+                            before_id: Option<i64>| {
             let Some(window) = weak_drop.upgrade() else {
                 return;
             };
@@ -623,83 +645,106 @@ impl AtriumWindow {
             let Some(pool) = window.read_pool() else {
                 return;
             };
-            let dest_str: Option<String> = match dest {
-                crate::ui::board::DropDestination::Column(n) => Some(n),
+            let dest_str: Option<String> = match &dest {
+                crate::ui::board::DropDestination::Column(n) => Some(n.clone()),
                 crate::ui::board::DropDestination::Other => None,
             };
-            match cfg_for_drop.axis {
-                atrium_core::BoardAxis::Tag => {
-                    let map = pool
-                        .with(atrium_core::db::read::tag_names_per_task)
-                        .unwrap_or_default();
-                    let current = map.get(&task_id).cloned().unwrap_or_default();
-                    let new_names =
-                        atrium_core::move_to_column(&current, &cfg_for_drop, dest_str.as_deref());
-                    // Skip the worker round-trip when nothing actually
-                    // changed (drop on the same column the task is in).
-                    if tag_lists_equal_case_insensitive(&current, &new_names) {
-                        return;
-                    }
-                    glib::MainContext::default().spawn_local(async move {
-                        let mut ids: Vec<i64> = Vec::with_capacity(new_names.len());
-                        for name in new_names {
-                            match worker.ensure_tag(name).await {
-                                Ok(t) => ids.push(t.id),
-                                Err(e) => warn!(?e, "kanban move ensure_tag failed"),
+            // Position-store key for the destination column (lowercased;
+            // the trailing bucket keys on the "Other" label).
+            let dest_key = match &dest {
+                crate::ui::board::DropDestination::Column(n) => n.to_ascii_lowercase(),
+                crate::ui::board::DropDestination::Other => {
+                    atrium_core::OTHER_COLUMN_LABEL.to_ascii_lowercase()
+                }
+            };
+            // Which column is the card in now (per the render snapshot)?
+            let source_key = orders_for_drop
+                .iter()
+                .find(|(_, ids)| ids.contains(&dragged_id))
+                .map(|(k, _)| k.clone());
+            let same_column = source_key.as_deref() == Some(dest_key.as_str());
+
+            // Compute the destination column's new ordered id list: drop
+            // the dragged id if present, then insert it before `before_id`
+            // (or append when the drop landed on empty column space).
+            let mut new_order: Vec<i64> =
+                orders_for_drop.get(&dest_key).cloned().unwrap_or_default();
+            new_order.retain(|&id| id != dragged_id);
+            match before_id.and_then(|bid| new_order.iter().position(|&id| id == bid)) {
+                Some(idx) => new_order.insert(idx, dragged_id),
+                None => new_order.push(dragged_id),
+            }
+
+            let cfg_axis = cfg_for_drop.axis;
+            let cfg_for_async = cfg_for_drop.clone();
+            glib::MainContext::default().spawn_local(async move {
+                // 1. Cross-column drops change the card's membership (tag
+                //    set or status), exactly as a column-level drop always
+                //    has. Same-column drops only reorder.
+                if !same_column {
+                    match cfg_axis {
+                        atrium_core::BoardAxis::Tag => {
+                            let map = pool
+                                .with(atrium_core::db::read::tag_names_per_task)
+                                .unwrap_or_default();
+                            let current = map.get(&dragged_id).cloned().unwrap_or_default();
+                            let new_names = atrium_core::move_to_column(
+                                &current,
+                                &cfg_for_async,
+                                dest_str.as_deref(),
+                            );
+                            if !tag_lists_equal_case_insensitive(&current, &new_names) {
+                                let mut ids: Vec<i64> = Vec::with_capacity(new_names.len());
+                                for name in new_names {
+                                    match worker.ensure_tag(name).await {
+                                        Ok(t) => ids.push(t.id),
+                                        Err(e) => warn!(?e, "kanban move ensure_tag failed"),
+                                    }
+                                }
+                                if let Err(e) = worker.set_task_tags(dragged_id, ids).await {
+                                    error!(?e, dragged_id, "kanban move set_task_tags failed");
+                                }
                             }
                         }
-                        if let Err(e) = worker.set_task_tags(task_id, ids).await {
-                            error!(?e, task_id, "kanban move set_task_tags failed");
+                        atrium_core::BoardAxis::Status => {
+                            if let Some(task) = pool
+                                .with(|conn| atrium_core::db::read::task_by_id(conn, dragged_id))
+                                .ok()
+                                .flatten()
+                            {
+                                let current_completed = task.completed_at.is_some();
+                                let change = atrium_core::status_move(
+                                    &cfg_for_async,
+                                    dest_str.as_deref(),
+                                    current_completed,
+                                );
+                                let update = atrium_core::TaskUpdate::new(dragged_id)
+                                    .orig_keyword(change.orig_keyword);
+                                if let Err(e) = worker.update_task(update).await {
+                                    error!(?e, dragged_id, "kanban status move update_task failed");
+                                } else if change.completed != current_completed
+                                    && let Err(e) = worker.toggle_complete(dragged_id).await
+                                {
+                                    error!(
+                                        ?e,
+                                        dragged_id, "kanban status move toggle_complete failed"
+                                    );
+                                }
+                            }
                         }
-                    });
-                }
-                atrium_core::BoardAxis::Status => {
-                    let Some(task) = pool
-                        .with(|conn| atrium_core::db::read::task_by_id(conn, task_id))
-                        .ok()
-                        .flatten()
-                    else {
-                        return;
-                    };
-                    let current_completed = task.completed_at.is_some();
-                    let current_keyword = atrium_core::status_keyword(&task);
-                    let change = atrium_core::status_move(
-                        &cfg_for_drop,
-                        dest_str.as_deref(),
-                        current_completed,
-                    );
-                    // The keyword the task would land on after the move,
-                    // for the no-op check.
-                    let new_keyword = change.orig_keyword.clone().unwrap_or_else(|| {
-                        if change.completed {
-                            "DONE".into()
-                        } else {
-                            "TODO".into()
-                        }
-                    });
-                    if new_keyword.eq_ignore_ascii_case(&current_keyword)
-                        && change.completed == current_completed
-                    {
-                        return;
                     }
-                    glib::MainContext::default().spawn_local(async move {
-                        let update =
-                            atrium_core::TaskUpdate::new(task_id).orig_keyword(change.orig_keyword);
-                        if let Err(e) = worker.update_task(update).await {
-                            error!(?e, task_id, "kanban status move update_task failed");
-                            return;
-                        }
-                        // Flip completion only when it actually changes,
-                        // so we don't double-toggle a row that's already
-                        // in the destination's completion state.
-                        if change.completed != current_completed
-                            && let Err(e) = worker.toggle_complete(task_id).await
-                        {
-                            error!(?e, task_id, "kanban status move toggle_complete failed");
-                        }
-                    });
                 }
-            }
+                // 2. Persist the destination column's new intra-column
+                //    order (side-table write, no TaskChanges delta).
+                if let Err(e) = worker
+                    .reorder_board_column(perspective_id, dest_key, new_order)
+                    .await
+                {
+                    error!(?e, perspective_id, "kanban reorder_board_column failed");
+                }
+                // 3. Re-render the board in the new order.
+                window.refresh_active_list();
+            });
         };
 
         // Configure button → the existing win.configure-renderer

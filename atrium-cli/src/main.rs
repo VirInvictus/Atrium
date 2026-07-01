@@ -449,7 +449,12 @@ fn run_kanban(conn: &Connection, name: &str, format: Format) -> CliResult<()> {
         sort_tasks(&mut tasks, &parsed.sorts, &ctx_data);
     }
     let tag_names = read::tag_names_per_task(conn).unwrap_or_default();
-    let columns = atrium_core::group_into_board(&tasks, &cfg, &tag_names);
+    let mut columns = atrium_core::group_into_board(&tasks, &cfg, &tag_names);
+    // v0.46.0 — honour any persisted intra-column order.
+    let positions = read::board_card_positions(conn, perspective.id).unwrap_or_default();
+    for col in &mut columns {
+        atrium_core::order_column_tasks(&mut col.tasks, &col.label, &positions);
+    }
     print_board(&perspective.name, &columns, &ctx_data, format);
     Ok(())
 }
@@ -1407,6 +1412,11 @@ fn run_perspective(
         PerspectiveSub::Delete { name } => {
             run_perspective_delete(runtime, handle, read_conn, &name, format)
         }
+        PerspectiveSub::Reorder {
+            name,
+            column,
+            order,
+        } => run_perspective_reorder(runtime, handle, read_conn, &name, &column, &order, format),
     }
 }
 
@@ -1501,6 +1511,38 @@ fn run_perspective_delete(
         .block_on(async { handle.delete_perspective(perspective.id).await })
         .map_err(CliError::from)?;
     print_perspective_after_write(&perspective, format);
+    Ok(())
+}
+
+/// v0.46.0 — `perspective reorder NAME --column KEY --order id,id,id`.
+/// Persists a board column's intra-column card order (the CLI parity for
+/// the GUI drag-to-reorder). `order` is the full column top-to-bottom.
+fn run_perspective_reorder(
+    runtime: &tokio::runtime::Runtime,
+    handle: &atrium_core::WorkerHandle,
+    read_conn: &Connection,
+    name: &str,
+    column: &str,
+    order: &[i64],
+    format: Format,
+) -> CliResult<()> {
+    let perspective = resolve_perspective_exact(read_conn, name)?;
+    runtime
+        .block_on(async {
+            handle
+                .reorder_board_column(perspective.id, column.to_string(), order.to_vec())
+                .await
+        })
+        .map_err(CliError::from)?;
+    if !matches!(format, Format::Json) {
+        println!(
+            "Reordered {} card{} in column '{}' of perspective '{}'.",
+            order.len(),
+            if order.len() == 1 { "" } else { "s" },
+            column,
+            perspective.name
+        );
+    }
     Ok(())
 }
 

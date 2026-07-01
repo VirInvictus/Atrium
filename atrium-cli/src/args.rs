@@ -111,6 +111,10 @@ WRITE SUBCOMMANDS:
                                    [--columns 'a,b,c']
                         delete     (case-insensitive exact-name match
                                    for safety; substring is read-only).
+                        reorder    --column KEY --order id,id,id
+                                   (persist a board column's card order;
+                                   KEY is the tag/keyword; order is the
+                                   full column top-to-bottom).
                       For --axis tag (default) the columns flag is
                       comma-separated tag names. For --axis status the
                       columns are TODO-sequence keywords in the Org
@@ -345,9 +349,25 @@ pub enum ExportSource {
 /// argument shape; parsing happens in `parse_perspective`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PerspectiveSub {
-    Create { name: String, args: PerspectiveArgs },
-    Edit { name: String, args: PerspectiveArgs },
-    Delete { name: String },
+    Create {
+        name: String,
+        args: PerspectiveArgs,
+    },
+    Edit {
+        name: String,
+        args: PerspectiveArgs,
+    },
+    Delete {
+        name: String,
+    },
+    /// v0.46.0 — persist a board column's intra-column card order.
+    /// `column` is the column value (tag name or status keyword);
+    /// `order` is the full column in the desired top-to-bottom order.
+    Reorder {
+        name: String,
+        column: String,
+        order: Vec<i64>,
+    },
 }
 
 /// v0.16.0 — sub-subcommand of `vault sequences`. The set
@@ -1394,8 +1414,57 @@ fn parse_perspective(rest: &[String], args: &mut Args) -> Result<Subcommand, Str
             }
             Ok(Subcommand::Perspective(PerspectiveSub::Delete { name }))
         }
+        "reorder" => {
+            // perspective reorder NAME --column KEY --order id,id,id
+            let mut name_words: Vec<&str> = Vec::new();
+            let mut column: Option<String> = None;
+            let mut order: Option<Vec<i64>> = None;
+            let mut k = 0;
+            while k < body.len() {
+                match body[k].as_str() {
+                    "--column" => {
+                        k += 1;
+                        column = Some(body.get(k).ok_or("--column requires a value")?.clone());
+                    }
+                    "--order" => {
+                        k += 1;
+                        let raw = body
+                            .get(k)
+                            .ok_or("--order requires a comma-separated id list")?;
+                        let mut ids = Vec::new();
+                        for tok in raw.split(',') {
+                            let t = tok.trim();
+                            if t.is_empty() {
+                                continue;
+                            }
+                            ids.push(
+                                t.parse::<i64>()
+                                    .map_err(|_| format!("--order: invalid id: {t}"))?,
+                            );
+                        }
+                        order = Some(ids);
+                    }
+                    flag if flag.starts_with("--") => {
+                        return Err(format!("perspective reorder: unknown flag {flag}"));
+                    }
+                    word => name_words.push(word),
+                }
+                k += 1;
+            }
+            let name = name_words.join(" ");
+            if name.is_empty() {
+                return Err("perspective reorder requires a name".into());
+            }
+            let column = column.ok_or("perspective reorder requires --column KEY")?;
+            let order = order.ok_or("perspective reorder requires --order id,id,id")?;
+            Ok(Subcommand::Perspective(PerspectiveSub::Reorder {
+                name,
+                column,
+                order,
+            }))
+        }
         other => Err(format!(
-            "perspective: unknown sub-subcommand: {other} (expected create / edit / delete)"
+            "perspective: unknown sub-subcommand: {other} (expected create / edit / delete / reorder)"
         )),
     }
 }

@@ -248,6 +248,20 @@ esac
 "${CLI[@]}" perspective edit 'CLI Smoke Persp' --columns 'a,b,c,d' \
   >/dev/null \
   || fail "atrium-cli perspective edit (columns-only) failed"
+
+# v0.46.0 — persist an intra-column order (the tag-0 tasks land in the
+# "Other" column since none carry a/b/c/d), then confirm the board still
+# renders (order_column_tasks reads board_card_position on the next read).
+REORDER_IDS="$("${CLI[@]}" search 'is:open AND tag:tag-0' \
+  | awk -F'\t' '$1 ~ /^[0-9]+$/ { print $1 }' | head -2 | paste -sd, -)"
+if [[ -n "$REORDER_IDS" ]]; then
+  "${CLI[@]}" perspective reorder 'CLI Smoke Persp' --column Other --order "$REORDER_IDS" \
+    >/dev/null \
+    || fail "atrium-cli perspective reorder failed"
+  "${CLI[@]}" kanban 'CLI Smoke Persp' >/dev/null \
+    || fail "atrium-cli kanban after reorder failed"
+fi
+
 "${CLI[@]}" perspective edit 'CLI Smoke Persp' --renderer list \
   >/dev/null \
   || fail "atrium-cli perspective edit (back-to-list) failed"

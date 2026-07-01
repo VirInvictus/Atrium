@@ -528,6 +528,27 @@ pub fn group_into_board<'a>(
     columns
 }
 
+/// v0.46.0 — apply a persisted intra-column order to one column's tasks.
+/// `positions` maps `(lowercased column_key, task_id)` → position (as
+/// returned by `read::board_card_positions`). Tasks with a stored
+/// position sort to the front in ascending order; tasks without one keep
+/// their incoming (caller-sorted) order at the end. Stable, so it never
+/// shuffles equal keys. Pure, so the ordering is unit-testable without a
+/// GUI or a database.
+pub fn order_column_tasks(
+    tasks: &mut [&Task],
+    column_key: &str,
+    positions: &HashMap<(String, i64), i64>,
+) {
+    let key = column_key.to_ascii_lowercase();
+    tasks.sort_by_key(|t| {
+        positions
+            .get(&(key.clone(), t.id))
+            .copied()
+            .unwrap_or(i64::MAX)
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1110,6 +1131,37 @@ mod tests {
             limits,
         };
         assert_eq!(format_status_columns(&cfg), "TODO, NEXT:3 | DONE");
+    }
+
+    // ── intra-column ordering (v0.46.0) ────────────────
+
+    #[test]
+    fn order_column_tasks_sorts_by_stored_position_then_input_order() {
+        let t1 = dummy_task(1);
+        let t2 = dummy_task(2);
+        let t3 = dummy_task(3);
+        let t4 = dummy_task(4);
+        // Incoming (caller-sorted) order: 1, 2, 3, 4.
+        let mut tasks: Vec<&Task> = vec![&t1, &t2, &t3, &t4];
+        // Stored order for column "doing": task 3 first, task 1 second.
+        // Tasks 2 and 4 have no stored position.
+        let mut positions = HashMap::new();
+        positions.insert(("doing".to_string(), 3), 0);
+        positions.insert(("doing".to_string(), 1), 1);
+        order_column_tasks(&mut tasks, "Doing", &positions); // case-insensitive key
+        let ids: Vec<i64> = tasks.iter().map(|t| t.id).collect();
+        // Positioned first (3, 1), then the rest in input order (2, 4).
+        assert_eq!(ids, vec![3, 1, 2, 4]);
+    }
+
+    #[test]
+    fn order_column_tasks_noop_when_no_positions() {
+        let t1 = dummy_task(1);
+        let t2 = dummy_task(2);
+        let mut tasks: Vec<&Task> = vec![&t2, &t1];
+        order_column_tasks(&mut tasks, "todo", &HashMap::new());
+        let ids: Vec<i64> = tasks.iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![2, 1]); // unchanged
     }
 
     #[test]

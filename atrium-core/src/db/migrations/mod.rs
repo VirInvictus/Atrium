@@ -95,6 +95,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (16, include_str!("0016_task_dependency.sql")),
     (17, include_str!("0017_task_template.sql")),
     (18, include_str!("0018_task_reminder_fired.sql")),
+    (19, include_str!("0019_board_card_position.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

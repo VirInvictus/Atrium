@@ -580,6 +580,32 @@ pub fn blocked_task_ids(conn: &Connection) -> Result<HashSet<i64>, DbError> {
         .map_err(Into::into)
 }
 
+/// v0.46.0 — persisted kanban intra-column order for one perspective's
+/// board. Returns a map from `(column_key, task_id)` → `position`. The
+/// `column_key` is stored lowercased (the writer normalises it), so a
+/// caller looks up with a lowercased column value to stay consistent
+/// with the case-insensitive column matching used elsewhere.
+pub fn board_card_positions(
+    conn: &Connection,
+    perspective_id: i64,
+) -> Result<HashMap<(String, i64), i64>, DbError> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT column_key, task_id, position FROM board_card_position WHERE perspective_id = ?1",
+    )?;
+    let rows = stmt.query_map(params![perspective_id], |r| {
+        Ok((
+            (r.get::<_, String>(0)?, r.get::<_, i64>(1)?),
+            r.get::<_, i64>(2)?,
+        ))
+    })?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let ((key, task_id), position) = row?;
+        map.insert((key, task_id), position);
+    }
+    Ok(map)
+}
+
 /// The prerequisite tasks blocking `task_id` (its `blocked_by_id`
 /// edges), ordered by position. Feeds the Builder Inspector's
 /// "Blocked by" group and the CLI `info` view. Includes completed

@@ -126,6 +126,16 @@ pub enum Command {
         reminder_at: chrono::DateTime<chrono::Utc>,
         responder: oneshot::Sender<Result<(), DbError>>,
     },
+    /// v0.46.0 — persist a kanban column's intra-column card order.
+    /// Replaces every stored position for `(perspective_id, column_key)`
+    /// with `ordered_ids` renumbered 0..N. Side-table write only (no
+    /// `TaskChanges`); the caller refreshes the board itself.
+    ReorderBoardColumn {
+        perspective_id: i64,
+        column_key: String,
+        ordered_ids: Vec<i64>,
+        responder: oneshot::Sender<Result<(), DbError>>,
+    },
     DeleteProject {
         id: i64,
         responder: oneshot::Sender<Result<(), DbError>>,
@@ -280,6 +290,7 @@ impl Command {
             Self::MarkReviewed { .. } => "MarkReviewed",
             Self::MarkTaskReviewed { .. } => "MarkTaskReviewed",
             Self::MarkReminderFired { .. } => "MarkReminderFired",
+            Self::ReorderBoardColumn { .. } => "ReorderBoardColumn",
             Self::DeleteProject { .. } => "DeleteProject",
             Self::CreateTag { .. } => "CreateTag",
             Self::UpdateTag { .. } => "UpdateTag",

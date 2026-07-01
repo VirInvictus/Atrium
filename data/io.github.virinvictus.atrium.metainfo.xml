@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.46.0" date="2026-07-01">
+      <description>
+        <p>Reorder cards on the board. Dragging a card up or down within
+           its column now sticks; drop it on another card to place it
+           just above. The order is remembered per board. This completes
+           the kanban improvements: richer cards, WIP limits, add-in-place,
+           and now manual ordering.</p>
+      </description>
+    </release>
     <release version="0.45.0" date="2026-07-01">
       <description>
         <p>Add cards on the board. Each kanban column now has an inline

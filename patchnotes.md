@@ -1,5 +1,17 @@
 # Atrium — Patch Notes
 
+## v0.46.0 (2026-07-01): persisted card order (kanban maturity, part 4)
+
+Final part of the kanban maturity mini-phase. Until now, cards within a column fell in whatever order the perspective's sort produced; dragging a card up or down inside its column didn't stick. Now it does.
+
+Dragging a card onto another card drops it immediately above that card; dropping on empty column space appends it. The order is per (perspective, column), so the same task ordered differently in two boards is fine. A cross-column drag still rewrites the card's tag or status (unchanged), and now also lands it at the drop position.
+
+Schema: migration `0019_board_card_position.sql` (schema version 18 → 19) adds a `board_card_position(perspective_id, column_key, task_id, position)` side table, FK-cascaded on both the perspective and the task. It is a *view-order* table, not a bucket entity: columns stay a projection of task fields (tag or Org status), so the board still round-trips cleanly to the Org vault (the order simply carries no Org meaning, like reminders). Positions are plain integers renumbered on each reorder, matching the list-reorder idiom; no fractional-rank machinery, since Atrium is single-writer and offline.
+
+The order applies everywhere the board renders (GUI and `atrium-cli kanban`). CLI parity for setting it: `atrium-cli perspective reorder NAME --column KEY --order id,id,id`.
+
+**The kanban maturity mini-phase (v0.43.0 → v0.46.0) is complete:** richer cards, WIP limits, per-column add, and persisted ordering, all while keeping the projection column model (no first-class buckets).
+
 ## v0.45.0 (2026-07-01): add cards on the board (kanban maturity, part 3)
 
 Third part of the kanban maturity mini-phase. Until now a board could only *show* tasks that its perspective filter already matched; there was no way to add a card straight to a column. Every comparison board app (Focalboard, Vikunja, Super Productivity, Planify sections) has an inline per-column add, and now Atrium does too.

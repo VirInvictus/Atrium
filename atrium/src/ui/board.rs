@@ -86,7 +86,7 @@ pub fn build_page<F, D, C, A>(
 ) -> gtk::Widget
 where
     F: Fn(i64) + 'static + Clone,
-    D: Fn(i64, DropDestination) + 'static + Clone,
+    D: Fn(i64, DropDestination, Option<i64>) + 'static + Clone,
     C: Fn() + 'static,
     A: Fn(DropDestination, String) + 'static + Clone,
 {
@@ -193,7 +193,7 @@ fn build_column<F, D, A>(
 ) -> gtk::Widget
 where
     F: Fn(i64) + 'static + Clone,
-    D: Fn(i64, DropDestination) + 'static + Clone,
+    D: Fn(i64, DropDestination, Option<i64>) + 'static + Clone,
     A: Fn(DropDestination, String) + 'static + Clone,
 {
     // This column's drop/add destination — a configured column carries
@@ -285,6 +285,8 @@ where
                 blocked_ids,
                 worker.clone(),
                 on_row_click.clone(),
+                destination.clone(),
+                on_drop.clone(),
             ));
         }
     }
@@ -324,13 +326,16 @@ where
     // v0.6.3 — drop target for drag-drop between columns. Each card
     // accepts an i64 task id; the on_drop callback is responsible
     // for the tag-set rewrite via the worker.
+    // Column-level drop = append to the end of this column (no specific
+    // card underneath the pointer). Per-card drop targets (build_row)
+    // handle "insert before this card" for intra-column ordering.
     let drop_target = gtk::DropTarget::new(i64::static_type(), gdk::DragAction::MOVE);
     let drop_cb = on_drop.clone();
     drop_target.connect_drop(move |_, value, _, _| {
         let Ok(task_id) = value.get::<i64>() else {
             return false;
         };
-        drop_cb(task_id, destination.clone());
+        drop_cb(task_id, destination.clone(), None);
         true
     });
     card.add_controller(drop_target);
@@ -338,7 +343,8 @@ where
     card.upcast()
 }
 
-fn build_row<F: Fn(i64) + 'static>(
+#[allow(clippy::too_many_arguments)]
+fn build_row<F, D>(
     task: &Task,
     tag_pills: &TagPillMap,
     project_titles: &HashMap<i64, String>,
@@ -346,7 +352,13 @@ fn build_row<F: Fn(i64) + 'static>(
     blocked_ids: &HashSet<i64>,
     worker: Option<WorkerHandle>,
     on_row_click: F,
-) -> gtk::Widget {
+    destination: DropDestination,
+    on_drop: D,
+) -> gtk::Widget
+where
+    F: Fn(i64) + 'static,
+    D: Fn(i64, DropDestination, Option<i64>) + 'static,
+{
     // Rows are drag *sources* only; the matching drop target lives
     // on the parent column card so the destination is unambiguous.
     let row = gtk::Box::builder()
@@ -458,6 +470,25 @@ fn build_row<F: Fn(i64) + 'static>(
         move |_, _, _| Some(gdk::ContentProvider::for_value(&task_id.to_value()))
     ));
     row.add_controller(drag);
+
+    // v0.46.0 — per-card drop target. Dropping another card here inserts
+    // it immediately before this card: intra-column reorder when the two
+    // share a column, or a cross-column move landing at this position.
+    // Dropping a card on itself is a no-op. Fires before the column-level
+    // target (child controller wins), so a drop on empty column space
+    // still appends via the column target.
+    let card_drop = gtk::DropTarget::new(i64::static_type(), gdk::DragAction::MOVE);
+    card_drop.connect_drop(move |_, value, _, _| {
+        let Ok(dragged) = value.get::<i64>() else {
+            return false;
+        };
+        if dragged == task_id {
+            return true;
+        }
+        on_drop(dragged, destination.clone(), Some(task_id));
+        true
+    });
+    row.add_controller(card_drop);
 
     row.upcast()
 }

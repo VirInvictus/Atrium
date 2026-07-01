@@ -110,7 +110,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 18);
+        assert_eq!(v, 19);
     }
 
     #[test]
@@ -122,7 +122,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 18);
+        assert_eq!(v, 19);
     }
 
     #[test]
@@ -145,6 +145,8 @@ mod tests {
             tables,
             vec![
                 "area",
+                // v0.46.0 — kanban maturity 2d: persisted intra-column order.
+                "board_card_position",
                 "heading",
                 "perspective",
                 "project",
@@ -375,7 +377,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 18);
+        assert_eq!(v, 19);
         drop(conn);
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_file(tmp.with_extension("db-shm"));

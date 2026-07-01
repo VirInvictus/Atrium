@@ -307,6 +307,28 @@ impl WorkerHandle {
         rx.await.map_err(|_| DbError::WorkerClosed)?
     }
 
+    /// v0.46.0 — persist a kanban column's intra-column card order.
+    /// `ordered_ids` is the full column in display order; it's stored
+    /// renumbered 0..N. `column_key` is normalised to lowercase.
+    pub async fn reorder_board_column(
+        &self,
+        perspective_id: i64,
+        column_key: String,
+        ordered_ids: Vec<i64>,
+    ) -> Result<(), DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::ReorderBoardColumn {
+                perspective_id,
+                column_key,
+                ordered_ids,
+                responder,
+            })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
     /// Idempotent "find tag by name or create it" — handy for the
     /// inline `#tag` parser.
     pub async fn ensure_tag(&self, name: String) -> Result<Tag, DbError> {
@@ -957,6 +979,18 @@ impl Worker {
                 // TaskChanges (the UI doesn't track reminder-fired
                 // state; the reminder service is the sole consumer).
                 let result = self.mark_reminder_fired(task_id, reminder_at);
+                let _ = responder.send(result);
+            }
+            Command::ReorderBoardColumn {
+                perspective_id,
+                column_key,
+                ordered_ids,
+                responder,
+            } => {
+                // Side-table write only — no task row changes, so no
+                // TaskChanges. The GUI refreshes the board itself after
+                // the await (via refresh_active_list).
+                let result = self.reorder_board_column(perspective_id, &column_key, &ordered_ids);
                 let _ = responder.send(result);
             }
             Command::DeleteProject { id, responder } => {
@@ -1963,6 +1997,36 @@ impl Worker {
              VALUES (?1, ?2)",
             params![task_id, reminder_at],
         )?;
+        Ok(())
+    }
+
+    /// v0.46.0 — replace a kanban column's stored order with
+    /// `ordered_ids` renumbered 0..N, inside one transaction.
+    /// `column_key` is normalised to lowercase so lookups (which also
+    /// lowercase) match regardless of the configured column's case.
+    fn reorder_board_column(
+        &mut self,
+        perspective_id: i64,
+        column_key: &str,
+        ordered_ids: &[i64],
+    ) -> Result<(), DbError> {
+        let key = column_key.to_ascii_lowercase();
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "DELETE FROM board_card_position WHERE perspective_id = ?1 AND column_key = ?2",
+            params![perspective_id, key],
+        )?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO board_card_position \
+                 (perspective_id, column_key, task_id, position) \
+                 VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            for (idx, task_id) in ordered_ids.iter().enumerate() {
+                stmt.execute(params![perspective_id, key, task_id, idx as i64])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
