@@ -458,10 +458,10 @@ fn parse_edit_with_no_flags_is_noop_shape() {
     // unchanged row so users can use it as a "show single task"
     // alternative to `info`.
     let a = parse(&s(&["edit", "42"])).unwrap();
-    let Some(Subcommand::Edit { id, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
-    assert_eq!(id, 42);
+    assert_eq!(ids, vec![42]);
     assert_eq!(edit, EditArgs::default());
 }
 
@@ -482,7 +482,7 @@ fn parse_edit_title_and_note() {
         "before 6pm",
     ]))
     .unwrap();
-    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids: _, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
     assert_eq!(edit.title, Some("Buy milk and eggs".into()));
@@ -492,7 +492,7 @@ fn parse_edit_title_and_note() {
 #[test]
 fn parse_edit_project_named() {
     let a = parse(&s(&["edit", "42", "--project", "Q3 plans"])).unwrap();
-    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids: _, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
     assert_eq!(edit.project, Some(EditProject::Named("Q3 plans".into())));
@@ -502,7 +502,7 @@ fn parse_edit_project_named() {
 fn parse_edit_inbox_via_project_keyword() {
     // --project inbox routes to EditProject::Inbox, same as --inbox.
     let a = parse(&s(&["edit", "42", "--project", "inbox"])).unwrap();
-    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids: _, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
     assert_eq!(edit.project, Some(EditProject::Inbox));
@@ -511,7 +511,7 @@ fn parse_edit_inbox_via_project_keyword() {
 #[test]
 fn parse_edit_inbox_via_short_flag() {
     let a = parse(&s(&["edit", "42", "--inbox"])).unwrap();
-    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids: _, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
     assert_eq!(edit.project, Some(EditProject::Inbox));
@@ -520,7 +520,7 @@ fn parse_edit_inbox_via_short_flag() {
 #[test]
 fn parse_edit_clear_field_via_none_keyword() {
     let a = parse(&s(&["edit", "42", "--due", "none"])).unwrap();
-    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids: _, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
     assert_eq!(edit.due, Some("none".into()));
@@ -537,7 +537,7 @@ fn parse_edit_estimated_validates_integer() {
 #[test]
 fn parse_edit_estimated_accepts_none_keyword() {
     let a = parse(&s(&["edit", "42", "--estimated", "none"])).unwrap();
-    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids: _, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
     assert_eq!(edit.estimated, Some("none".into()));
@@ -546,13 +546,13 @@ fn parse_edit_estimated_accepts_none_keyword() {
 #[test]
 fn parse_edit_keyword_sets_and_clears() {
     let a = parse(&s(&["edit", "42", "--keyword", "WAITING"])).unwrap();
-    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids: _, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
     assert_eq!(edit.keyword, Some("WAITING".into()));
 
     let a = parse(&s(&["edit", "42", "--keyword", "none"])).unwrap();
-    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids: _, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
     assert_eq!(edit.keyword, Some("none".into()));
@@ -563,8 +563,20 @@ fn parse_edit_modify_alias() {
     let a = parse(&s(&["modify", "42", "--inbox"])).unwrap();
     assert!(matches!(
         a.subcommand,
-        Some(Subcommand::Edit { id: 42, .. })
+        Some(Subcommand::Edit { ids, .. }) if ids == vec![42]
     ));
+}
+
+#[test]
+fn parse_edit_multiple_ids() {
+    // v0.42.0 — bulk edit: several leading ids, then flags. All ids
+    // collect; the flag parsing begins at the first non-integer token.
+    let a = parse(&s(&["edit", "42", "7", "13", "--project", "Work"])).unwrap();
+    let Some(Subcommand::Edit { ids, edit }) = a.subcommand else {
+        panic!("expected Edit");
+    };
+    assert_eq!(ids, vec![42, 7, 13]);
+    assert!(edit.project.is_some());
 }
 
 #[test]
@@ -576,7 +588,7 @@ fn parse_edit_with_format_flag() {
 #[test]
 fn parse_edit_tag_add_repeatable() {
     let a = parse(&s(&["edit", "42", "--tag", "urgent", "--tag", "work"])).unwrap();
-    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids: _, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
     assert_eq!(edit.tags_add, vec!["urgent".to_string(), "work".into()]);
@@ -596,7 +608,7 @@ fn parse_edit_remove_tag_repeatable() {
         "urgent",
     ]))
     .unwrap();
-    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids: _, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
     assert_eq!(edit.tags_remove, vec!["stale".to_string(), "urgent".into()]);
@@ -606,7 +618,7 @@ fn parse_edit_remove_tag_repeatable() {
 #[test]
 fn parse_edit_clear_tags_flag() {
     let a = parse(&s(&["edit", "42", "--clear-tags"])).unwrap();
-    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids: _, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
     assert!(edit.clear_tags);
@@ -617,7 +629,7 @@ fn parse_edit_clear_tags_flag() {
 fn parse_edit_replace_tags_via_clear_then_add() {
     // The "replace whole set" idiom: --clear-tags --tag X.
     let a = parse(&s(&["edit", "42", "--clear-tags", "--tag", "newtag"])).unwrap();
-    let Some(Subcommand::Edit { id: _, edit }) = a.subcommand else {
+    let Some(Subcommand::Edit { ids: _, edit }) = a.subcommand else {
         panic!("expected Edit");
     };
     assert!(edit.clear_tags);

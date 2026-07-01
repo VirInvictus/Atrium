@@ -166,8 +166,16 @@ case "$CAPTURED_ID" in
 esac
 
 # Seed a second regression-smoke row so the bulk path has >1 match.
-"${CLI[@]}" add 'CLI bulk smoke 2' --tag regression-smoke >/dev/null \
-  || fail "atrium-cli add (bulk seed) failed"
+BULK2_ROW="$("${CLI[@]}" add 'CLI bulk smoke 2' --tag regression-smoke)"
+BULK2_ID="$(printf '%s' "$BULK2_ROW" | cut -f1)"
+case "$BULK2_ID" in
+  ''|*[!0-9]*) fail "atrium-cli add (bulk seed) did not return a numeric id: $BULK2_ROW" ;;
+esac
+
+# v0.42.0 — multi-id edit (the CLI parity for GUI bulk edit) applies
+# the same change to several tasks in one invocation.
+"${CLI[@]}" edit "$CAPTURED_ID" "$BULK2_ID" --scheduled today >/dev/null \
+  || fail "atrium-cli multi-id edit failed for ids=$CAPTURED_ID,$BULK2_ID"
 
 # Bulk dry-run: delete --where without --force must exit status 2
 # (matched, but did not delete) and leave the rows intact.

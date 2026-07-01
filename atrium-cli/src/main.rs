@@ -147,8 +147,11 @@ fn run(args: args::Args) -> ExitCode {
         Subcommand::Capture { line } => with_writer(&db_path, |rt, handle, conn| {
             run_capture(rt, handle, conn, &line, args.format)
         }),
-        Subcommand::Edit { id, edit } => with_writer(&db_path, |rt, handle, conn| {
-            run_edit(rt, handle, conn, id, edit, args.format)
+        Subcommand::Edit { ids, edit } => with_writer(&db_path, |rt, handle, conn| {
+            for id in &ids {
+                run_edit(rt, handle, conn, *id, &edit, args.format)?;
+            }
+            Ok(())
         }),
         Subcommand::Complete { target } => with_writer(&db_path, |rt, handle, conn| {
             run_complete(rt, handle, conn, target, args.format)
@@ -1942,7 +1945,7 @@ fn run_edit(
     handle: &atrium_core::WorkerHandle,
     read_conn: &Connection,
     id: i64,
-    edit: EditArgs,
+    edit: &EditArgs,
     format: Format,
 ) -> CliResult<()> {
     // Verify the task exists upfront — gives a cleaner error than
@@ -2041,7 +2044,7 @@ fn run_edit(
     };
 
     if edit.touches_tags() {
-        apply_tag_diff(handle, read_conn, task.id, &edit, runtime)?;
+        apply_tag_diff(handle, read_conn, task.id, edit, runtime)?;
     }
 
     // Re-read so the row reflects post-tag state, plus a fresh

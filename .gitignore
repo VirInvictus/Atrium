@@ -29,6 +29,9 @@ data/gschemas.compiled
 # Memory-diagnostic capture file produced by `--debug` runs.
 debug-memory.log
 
+# Comparison / reference clones for the UI/UX audit (not part of the project).
+/.repos
+
 # Editor / OS detritus
 .DS_Store
 *.swp

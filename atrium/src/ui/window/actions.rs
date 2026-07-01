@@ -107,6 +107,58 @@ impl AtriumWindow {
         ));
         self.add_action(&bulk_clear);
 
+        // v0.42.0 — bulk edit surfaces beyond complete/delete. Each
+        // reuses the same worker calls the single-task paths use, so
+        // the capability stays CLI-testable (`atrium-cli edit ID…`).
+        let bulk_move = gio::SimpleAction::new("bulk-move", None);
+        bulk_move.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.bulk_move_selection()
+        ));
+        self.add_action(&bulk_move);
+
+        let bulk_tag = gio::SimpleAction::new("bulk-tag", None);
+        bulk_tag.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.bulk_tag_selection()
+        ));
+        self.add_action(&bulk_tag);
+
+        let bulk_reschedule =
+            gio::SimpleAction::new("bulk-reschedule", Some(&String::static_variant_type()));
+        bulk_reschedule.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, param| {
+                if let Some(when) = param.and_then(|v| v.get::<String>()) {
+                    win.bulk_reschedule_selection(&when);
+                }
+            }
+        ));
+        self.add_action(&bulk_reschedule);
+
+        // Build the selection bar's Schedule menu in code (same keyword
+        // set as the per-row Schedule submenu), then hang it off the
+        // `bulk_schedule_button` MenuButton.
+        let schedule_menu = gio::Menu::new();
+        for (label, key) in [
+            ("Today", "today"),
+            ("Tomorrow", "tomorrow"),
+            ("This Weekend", "weekend"),
+            ("Next Week", "nextweek"),
+            ("Someday", "someday"),
+            ("Clear Schedule", "clear"),
+        ] {
+            let item = gio::MenuItem::new(Some(label), None);
+            item.set_action_and_target_value(Some("win.bulk-reschedule"), Some(&key.to_variant()));
+            schedule_menu.append_item(&item);
+        }
+        self.imp()
+            .bulk_schedule_button
+            .set_menu_model(Some(&schedule_menu));
+
         let select_all = gio::SimpleAction::new("select-all", None);
         select_all.connect_activate(clone!(
             #[weak(rename_to = win)]

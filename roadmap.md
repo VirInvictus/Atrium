@@ -1,6 +1,6 @@
 # Atrium — Roadmap
 
-What's done, what's next, what's deferred. Atrium is sequenced as a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. **Current release: v0.41.1.**
+What's done, what's next, what's deferred. Atrium is sequenced as a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. **Current release: v0.42.0.**
 
 Phases 0 through 19.5 have shipped: Simple and Builder modes, the two-way Org vault, Calibre-style search, the full importer set (Org, Todoist, VTODO, Taskwarrior, todo.txt), and the Phase 18.5 / 19.5 power features. **Phase 20 (the 1.0 endgame) is in flight**; what remains is localisation scaffolding, Flathub readiness, AppStream screenshots, a final icon pass, and the `v1.0.0` tag (localisation and Flathub are deferred to a sandbox session that needs Brandon's build environment). The one open Phase 19.5 item is the read-only Evolution Data Server calendar overlay, gated on a `libecal` / `zbus` dependency sign-off.
 
@@ -78,6 +78,13 @@ See the Phase 19.5 section. Recommended order: first-run / onboarding, then back
 ### Tier 4 (the 1.0 endgame; Phase 20)
 
 See the Phase 20 section: `atriumd` capture daemon (also closes the Phase 6c zero-launch carryover), localisation scaffolding, the `mdbook` docs site, AppStream screenshots, Flathub submission, the 50K-task perf regression suite, accessibility round 2. Hold until Tiers 1 to 3 make the app feature-complete.
+
+### UI/UX audit follow-ups (2026-07)
+
+A UI/UX audit benchmarked Atrium against the open-source todo/kanban ecosystem (Planify, Errands, Endeavour, GTG, Vikunja, Focalboard, Super Productivity). Most audited "gaps" turned out already shipped; the two real ones were bulk editing and kanban depth.
+
+- [x] **Bulk editing** *(shipped v0.42.0)*: the multi-select selection bar gained Move… / Tag… / Schedule with coalesced undo, plus multi-id `atrium-cli edit`. No schema change. See §5.2.
+- [ ] **Kanban maturity mini-phase** *(post-1.0, planned)*: keep the projection column model (columns stay tag/status-derived for clean Org round-trip; no first-class buckets). Four sub-slices, smallest first: (2a) richer board cards (subtask cookie, blocked pill, priority, reusing list-row widgets); (2b) per-column WIP limits in `BoardConfig` JSON (`skip_serializing_if` keeps old configs byte-identical, mirroring `done_columns`); (2c) in-place "+ Add card" per column (tag-axis adds the column tag, status-axis sets the keyword); (2d) persisted intra-column ordering via an additive `board_card_position(perspective_id, column_key, task_id, position)` side table, using the existing integer-position renumber idiom. Do not pull this into Phase 20.
 
 ### Quick wins (grab anytime)
 

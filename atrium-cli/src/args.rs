@@ -64,9 +64,12 @@ WRITE SUBCOMMANDS:
                       / `@someday` / `@yyyy-mm-dd` / `@deadline ...`
                       syntax exactly like the GUI's bottom-of-list
                       entry and Quick Entry modal. Drops to Inbox.
-    edit ID [FLAGS]   modify an existing task. Flags accept the same
-                      vocabulary as `add`; pass `none` to clear a
-                      field (`--due none`, `--scheduled none`, etc.).
+    edit ID [ID...] [FLAGS]
+                      modify one or more existing tasks. Pass several
+                      ids to apply the same changes across a selection
+                      (the GUI multi-select bulk-edit shape). Flags
+                      accept the same vocabulary as `add`; pass `none`
+                      to clear a field (`--due none`, `--scheduled none`, etc.).
                       Use `--inbox` to move a task back to Inbox.
                       `--parent ID` reparents as a subtask; `--parent
                       none` promotes back to top level.
@@ -129,6 +132,8 @@ EXAMPLES:
     atrium-cli edit 42 --inbox            # move back to Inbox
     atrium-cli edit 42 --tag urgent --remove-tag stale
     atrium-cli edit 42 --clear-tags --tag work    # replace whole set
+    atrium-cli edit 42 7 13 --project 'Q3 plans'  # bulk move a selection
+    atrium-cli edit 42 7 13 --scheduled today     # bulk reschedule
     atrium-cli complete 42
     atrium-cli complete --where 'is:overdue AND tag:work'
     atrium-cli delete --where 'is:done AND completed:<lastmonth'   # dry run
@@ -200,7 +205,7 @@ pub enum Subcommand {
         line: String,
     },
     Edit {
-        id: i64,
+        ids: Vec<i64>,
         edit: EditArgs,
     },
     /// Toggle completion. `target` is either a single task id or a
@@ -732,13 +737,28 @@ pub fn parse(raw: &[String]) -> Result<Args, String> {
             Subcommand::Capture { line }
         }
         "edit" | "modify" => {
+            // One or more leading task ids, then flags. Multiple ids
+            // apply the same field changes across a selection (the GUI
+            // multi-select bulk-edit shape). The first id is required;
+            // additional ids collect until the first non-integer token
+            // (a flag).
             let id_str = raw.get(i).ok_or("edit requires a task id")?;
-            i += 1;
-            let id: i64 = id_str
+            let first: i64 = id_str
                 .parse()
                 .map_err(|_| format!("invalid task id: {id_str}"))?;
+            i += 1;
+            let mut ids = vec![first];
+            while let Some(tok) = raw.get(i) {
+                match tok.parse::<i64>() {
+                    Ok(n) => {
+                        ids.push(n);
+                        i += 1;
+                    }
+                    Err(_) => break,
+                }
+            }
             let edit = parse_edit(&raw[i..], &mut args)?;
-            Subcommand::Edit { id, edit }
+            Subcommand::Edit { ids, edit }
         }
         "complete" | "done" | "toggle" => {
             let (target, _force) = parse_target_and_flags(&raw[i..], false, &mut args)?;

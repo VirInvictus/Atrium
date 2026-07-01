@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.42.0" date="2026-07-01">
+      <description>
+        <p>Bulk editing. Select several tasks and move them all to a
+           project, add or remove a tag across the lot, or reschedule
+           them in one action, each with a single undo. The command line
+           gains the same reach: one edit command now accepts several
+           task ids.</p>
+      </description>
+    </release>
     <release version="0.41.0" date="2026-06-20">
       <description>
         <p>Reminders you can trust. A reminder that came due while

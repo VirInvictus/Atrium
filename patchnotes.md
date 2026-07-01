@@ -1,5 +1,21 @@
 # Atrium — Patch Notes
 
+## v0.42.0 (2026-07-01): bulk editing
+
+Multi-select had only ever grown to complete and delete. Every comparison app in the Linux task-manager landscape (Planify, Vikunja, Super Productivity, and friends) treats bulk field edits as table stakes, and they were the single highest value-to-effort gap surfaced by a UI/UX audit against that ecosystem. This closes it.
+
+The selection bar (revealed when two or more tasks are selected) gains three actions alongside Complete and Delete:
+
+- **Move…** picks a project (or Inbox) and moves the whole selection there.
+- **Tag…** adds or removes one tag across every selected task; tasks already in the target state are skipped so the operation is a clean no-op where nothing changes.
+- **Schedule** is a menu of the same quick-schedule keywords as the per-row Schedule submenu (Today / Tomorrow / This Weekend / Next Week / Someday / Clear).
+
+Each of the three shows a single coalesced undo toast that reverses the whole batch (restoring each task's prior project, tag set, or schedule), rather than spamming one toast per task. All three reuse the existing single-task worker calls (`update_task`, `ensure_tag` + `set_task_tags`) and the pure `parse_quick_schedule` mapping, so there is no new schema and no behavior change to the underlying operations.
+
+The CLI keeps parity so the capability stays shell-reachable per the architectural commitment: `edit` now accepts several leading task ids and applies the same field changes to each (`atrium-cli edit 42 7 13 --project 'Q3 plans'`). The single-id form is unchanged.
+
+No schema change.
+
 ## v0.41.1 (2026-06-20): roadmap intro cleanup
 
 Docs only. The roadmap's opening paragraph had accreted into a version-by-version changelog wall (every release from v0.20.0 onward narrated inline). That history is what `patchnotes.md` is for; the roadmap should orient, not log. Replaced it with a short summary of the phase arc, the current release, and what remains for 1.0, pointing here for the release-by-release detail. No code or behavior change.

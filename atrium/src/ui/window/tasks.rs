@@ -667,6 +667,232 @@ impl AtriumWindow {
         self.clear_selection();
     }
 
+    /// v0.42.0 — bulk move the multi-selection to a project (or Inbox).
+    /// Mirrors the single-task `edit ID --project` path, looped over the
+    /// selection, with a single coalesced undo toast that restores each
+    /// task's prior project.
+    pub fn bulk_move_selection(&self) {
+        let ids = self.selected_task_ids();
+        if ids.is_empty() {
+            return;
+        }
+        let Some(pool) = self.read_pool() else { return };
+        let projects = pool
+            .with(atrium_core::db::read::list_projects)
+            .unwrap_or_default();
+        // Dropdown option 0 is Inbox (no project); the rest map to
+        // `projects` in order.
+        let mut labels: Vec<String> = Vec::with_capacity(projects.len() + 1);
+        labels.push("Inbox (no project)".to_string());
+        labels.extend(projects.iter().map(|p| p.title.clone()));
+        let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
+        let model = gtk::StringList::new(&label_refs);
+        let dropdown = gtk::DropDown::builder().model(&model).build();
+        let dialog = adw::AlertDialog::new(
+            Some("Move to Project"),
+            Some("Move the selected tasks to a project."),
+        );
+        dialog.set_extra_child(Some(&dropdown));
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("ok", "Move");
+        dialog.set_default_response(Some("ok"));
+        dialog.set_close_response("cancel");
+        dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+
+        let target_ids: Vec<Option<i64>> = std::iter::once(None)
+            .chain(projects.iter().map(|p| Some(p.id)))
+            .collect();
+        let win = self.clone();
+        glib::MainContext::default().spawn_local(async move {
+            if dialog.choose_future(&win).await.as_str() != "ok" {
+                return;
+            }
+            let Some(&target) = target_ids.get(dropdown.selected() as usize) else {
+                return;
+            };
+            let Some(worker) = win.worker() else { return };
+            let Some(pool) = win.read_pool() else { return };
+            let prior: Vec<(i64, Option<i64>)> = ids
+                .iter()
+                .filter_map(|&id| {
+                    pool.with(|c| atrium_core::db::read::task_by_id(c, id))
+                        .ok()
+                        .flatten()
+                        .map(|t| (id, t.project_id))
+                })
+                .collect();
+            let count = prior.len();
+            for (id, _) in &prior {
+                if let Err(e) = worker
+                    .update_task(TaskUpdate::new(*id).project(target))
+                    .await
+                {
+                    error!(?e, id = *id, "bulk move update_task failed");
+                }
+            }
+            let worker_undo = worker.clone();
+            win.show_undo_toast(
+                &format!("Moved {count} task{}", if count == 1 { "" } else { "s" }),
+                move || {
+                    let worker = worker_undo;
+                    glib::MainContext::default().spawn_local(async move {
+                        for (id, old) in prior {
+                            let _ = worker.update_task(TaskUpdate::new(id).project(old)).await;
+                        }
+                    });
+                },
+            );
+            win.clear_selection();
+        });
+    }
+
+    /// v0.42.0 — bulk add or remove a tag across the multi-selection.
+    /// Reuses `ensure_tag` + `set_task_tags`; the undo toast restores
+    /// each task's prior tag set. Tasks already in the target state are
+    /// skipped so undo only touches rows that actually changed.
+    pub fn bulk_tag_selection(&self) {
+        let ids = self.selected_task_ids();
+        if ids.is_empty() {
+            return;
+        }
+        let entry = gtk::Entry::builder()
+            .placeholder_text("Tag name")
+            .activates_default(true)
+            .build();
+        let dialog = adw::AlertDialog::new(
+            Some("Tag Tasks"),
+            Some("Add or remove a tag across the selected tasks."),
+        );
+        dialog.set_extra_child(Some(&entry));
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("remove", "Remove");
+        dialog.add_response("add", "Add");
+        dialog.set_default_response(Some("add"));
+        dialog.set_close_response("cancel");
+        dialog.set_response_appearance("add", adw::ResponseAppearance::Suggested);
+        dialog.set_response_appearance("remove", adw::ResponseAppearance::Destructive);
+
+        let win = self.clone();
+        glib::MainContext::default().spawn_local(async move {
+            let resp = dialog.choose_future(&win).await;
+            let resp = resp.as_str();
+            if resp != "add" && resp != "remove" {
+                return;
+            }
+            let name = entry.text().trim().to_string();
+            if name.is_empty() {
+                return;
+            }
+            let adding = resp == "add";
+            let Some(worker) = win.worker() else { return };
+            let Some(pool) = win.read_pool() else { return };
+            let tag = match worker.ensure_tag(name).await {
+                Ok(t) => t,
+                Err(e) => {
+                    error!(?e, "bulk tag ensure_tag failed");
+                    return;
+                }
+            };
+            // Snapshot prior sets and apply the delta only where it
+            // changes something.
+            let mut prior: Vec<(i64, Vec<i64>)> = Vec::new();
+            for &id in &ids {
+                let current = pool
+                    .with(|c| atrium_core::db::read::tag_ids_for_task(c, id))
+                    .unwrap_or_default();
+                let has = current.contains(&tag.id);
+                let mut next = current.clone();
+                if adding && !has {
+                    next.push(tag.id);
+                } else if !adding && has {
+                    next.retain(|&t| t != tag.id);
+                } else {
+                    continue;
+                }
+                if let Err(e) = worker.set_task_tags(id, next).await {
+                    error!(?e, id, "bulk set_task_tags failed");
+                    continue;
+                }
+                prior.push((id, current));
+            }
+            if prior.is_empty() {
+                win.clear_selection();
+                return;
+            }
+            let count = prior.len();
+            let verb = if adding { "Tagged" } else { "Untagged" };
+            let worker_undo = worker.clone();
+            win.show_undo_toast(
+                &format!("{verb} {count} task{}", if count == 1 { "" } else { "s" }),
+                move || {
+                    let worker = worker_undo;
+                    glib::MainContext::default().spawn_local(async move {
+                        for (id, old) in prior {
+                            let _ = worker.set_task_tags(id, old).await;
+                        }
+                    });
+                },
+            );
+            win.clear_selection();
+        });
+    }
+
+    /// v0.42.0 — bulk reschedule the multi-selection. Reuses the same
+    /// `parse_quick_schedule` keyword mapping as the per-row Schedule
+    /// submenu; the undo toast restores each task's prior schedule.
+    pub fn bulk_reschedule_selection(&self, when: &str) {
+        let ids = self.selected_task_ids();
+        if ids.is_empty() {
+            return;
+        }
+        let today = chrono::Local::now().date_naive();
+        let Some(target) = parse_quick_schedule(when, today) else {
+            warn!(when, "bulk_reschedule: unrecognised keyword");
+            return;
+        };
+        let Some(worker) = self.worker() else { return };
+        let Some(pool) = self.read_pool() else { return };
+        let prior: Vec<(i64, Option<atrium_core::ScheduledFor>)> = ids
+            .iter()
+            .filter_map(|&id| {
+                pool.with(|c| atrium_core::db::read::task_by_id(c, id))
+                    .ok()
+                    .flatten()
+                    .map(|t| (id, t.scheduled_for))
+            })
+            .collect();
+        let count = prior.len();
+        let win_weak = self.downgrade();
+        glib::MainContext::default().spawn_local(async move {
+            for (id, _) in &prior {
+                if let Err(e) = worker
+                    .update_task(TaskUpdate::new(*id).schedule(target))
+                    .await
+                {
+                    error!(?e, id = *id, "bulk reschedule update_task failed");
+                }
+            }
+            if let Some(win) = win_weak.upgrade() {
+                let worker_undo = worker.clone();
+                win.show_undo_toast(
+                    &format!(
+                        "Rescheduled {count} task{}",
+                        if count == 1 { "" } else { "s" }
+                    ),
+                    move || {
+                        let worker = worker_undo;
+                        glib::MainContext::default().spawn_local(async move {
+                            for (id, old) in prior {
+                                let _ = worker.update_task(TaskUpdate::new(id).schedule(old)).await;
+                            }
+                        });
+                    },
+                );
+                win.clear_selection();
+            }
+        });
+    }
+
     pub fn clear_selection(&self) {
         let Some(model) = self.imp().task_list_view.model() else {
             return;

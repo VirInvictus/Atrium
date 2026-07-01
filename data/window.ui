@@ -435,6 +435,26 @@
                                             </child>
                                             <child>
                                               <object class="GtkButton">
+                                                <property name="label" translatable="yes">Move…</property>
+                                                <property name="action-name">win.bulk-move</property>
+                                                <property name="tooltip-text" translatable="yes">Move the selected tasks to a project</property>
+                                              </object>
+                                            </child>
+                                            <child>
+                                              <object class="GtkButton">
+                                                <property name="label" translatable="yes">Tag…</property>
+                                                <property name="action-name">win.bulk-tag</property>
+                                                <property name="tooltip-text" translatable="yes">Add or remove a tag across the selected tasks</property>
+                                              </object>
+                                            </child>
+                                            <child>
+                                              <object class="GtkMenuButton" id="bulk_schedule_button">
+                                                <property name="label" translatable="yes">Schedule</property>
+                                                <property name="tooltip-text" translatable="yes">Reschedule the selected tasks</property>
+                                              </object>
+                                            </child>
+                                            <child>
+                                              <object class="GtkButton">
                                                 <property name="label" translatable="yes">Complete</property>
                                                 <property name="action-name">win.bulk-complete</property>
                                               </object>

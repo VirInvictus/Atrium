@@ -61,6 +61,8 @@ mod imp {
         #[template_child]
         pub menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
+        pub bulk_schedule_button: TemplateChild<gtk::MenuButton>,
+        #[template_child]
         pub sidebar_list: TemplateChild<gtk::ListBox>,
         #[template_child]
         pub sidebar_filter: TemplateChild<gtk::SearchEntry>,
