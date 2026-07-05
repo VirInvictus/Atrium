@@ -1,5 +1,13 @@
 # Atrium — Patch Notes
 
+## v0.46.2 (2026-07-05): serialize the vault-watcher tests to finish the deflake
+
+v0.46.1 replaced the fixed sleeps with adaptive polling, but CI still went red: a different multi-step test (`external_deadline_warning_suffix_round_trips_through_db`) flaked. The cause was not the poll ceiling. The default test harness runs the 13 vault-watcher integration tests in parallel, each spawning a multi-threaded runtime plus a `notify` watcher thread and a worker thread, all leaning on wall-clock debounce timers. On a small CI runner those ~65 threads starve each other badly enough that one test's watcher round-trip gets clobbered mid-flight by another's lagging self-write, so a value that had just been cleared reappears. Raising the ceiling did not help, because the state was actively being reverted rather than merely arriving late.
+
+The fix is to stop the tests from fighting over the CPU: a file-level `tokio::sync::Mutex` serializes them so each runs with the machine to itself. Individually every round-trip settles in well under a second, so the wall-clock cost is small (the file still runs in about 1.5 s unloaded), and the adaptive polling from v0.46.1 stays as the fast, self-timing wait. Reproduced the original flake locally by pinning the binary to two cores against sixteen busy processes (it failed within a few runs), then confirmed 20 consecutive green runs under the same starvation after serializing. `tokio::sync::Mutex` does not poison, so a panicking test still releases the lock for the rest.
+
+Test-only change, like v0.46.1: no schema, no behaviour, no public surface touched.
+
 ## v0.46.1 (2026-07-05): deflaked the vault-watcher integration tests
 
 CI failed on the push after v0.46.0 even though the commit only touched the README. The cause was flaky timing, not a real regression: the `atrium-org` vault-watcher integration tests wrote a `.org` file "from outside," then waited a fixed `sleep(700ms)` for the whole async chain to settle (inotify event, 200 ms watcher debounce, DB diff, worker write, writer debounce, file rewrite) before asserting. On a loaded runner that chain occasionally overran the budget, so the assertion fired on state that had not yet arrived. Two tests lost the lottery that run; all ~20 wait points shared the risk.

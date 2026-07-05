@@ -90,6 +90,16 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.46.2" date="2026-07-05">
+      <description>
+        <p>Follow-up to the v0.46.1 test-reliability fix. Making the
+           vault-watcher tests poll for the expected state was not enough
+           on its own: the test harness runs them in parallel, and on a
+           small CI runner they starved each other badly enough to still
+           flake. They now run one at a time, so each has the machine to
+           itself and stays deterministic. No behaviour change.</p>
+      </description>
+    </release>
     <release version="0.46.1" date="2026-07-05">
       <description>
         <p>Test-suite reliability fix. The vault-watcher integration tests

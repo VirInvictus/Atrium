@@ -74,9 +74,25 @@ async fn wait_for_event(
     }
 }
 
-/// Generous ceiling for a single watcher round-trip. ~7x the old
-/// fixed 700 ms budget; only a real hang gets anywhere near it.
-const SETTLE: Duration = Duration::from_secs(5);
+/// Generous backstop ceiling for a single watcher round-trip. With the
+/// tests serialized (below) each round-trip settles in well under a
+/// second even on a small runner; this only bites on a genuine hang.
+const SETTLE: Duration = Duration::from_secs(10);
+
+/// Each test in this file spawns a multi-threaded tokio runtime plus a
+/// `notify` watcher thread and a worker thread, and leans on wall-clock
+/// debounce timers (200 ms watcher, ~100 ms writer). Run in parallel by
+/// the default harness on a CPU-starved CI runner, they steal each
+/// other's cores badly enough that a watcher round-trip can be clobbered
+/// mid-flight by a lagging self-write, flaking the multi-step tests.
+/// Serialize the whole file so each test runs with the machine to
+/// itself; `tokio::sync::Mutex` does not poison, so a panicking test
+/// still releases the lock for the rest.
+static TEST_SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn serialize() -> tokio::sync::MutexGuard<'static, ()> {
+    TEST_SERIAL.lock().await
+}
 
 fn fresh_setup(label: &str) -> (rusqlite::Connection, PathBuf, ReadPool) {
     let dir = std::env::temp_dir().join(format!(
@@ -147,6 +163,7 @@ async fn seed_with_initial_write(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn external_add_creates_db_task() {
+    let _serial = serialize().await;
     let (conn, vault, pool) = fresh_setup("ext-add");
     let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
 
@@ -198,6 +215,7 @@ async fn external_add_creates_db_task() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn external_edit_completes_db_task() {
+    let _serial = serialize().await;
     let (conn, vault, pool) = fresh_setup("ext-edit");
     let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
 
@@ -240,6 +258,7 @@ async fn external_edit_completes_db_task() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn external_add_under_subheading_creates_db_task() {
+    let _serial = serialize().await;
     // Regression for the flatten_one early-return: TODOs nested
     // under a non-keyword heading must still flow into the DB.
     // The import path already handled this; the watcher used to
@@ -285,6 +304,7 @@ async fn external_add_under_subheading_creates_db_task() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn external_delete_removes_db_task() {
+    let _serial = serialize().await;
     let (conn, vault, pool) = fresh_setup("ext-delete");
     let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
 
@@ -361,6 +381,7 @@ async fn external_delete_removes_db_task() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn spawn_vault_loop_surfaces_parse_failure_event() {
+    let _serial = serialize().await;
     // Drive the full GUI shape: spawn_vault_loop builds the writer
     // half + event channel; the worker spawns with the vault hook;
     // VaultLoopHandle::attach_watcher finishes the wiring. A
@@ -465,6 +486,7 @@ async fn spawn_vault_loop_surfaces_parse_failure_event() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn malformed_file_pauses_then_recovers() {
+    let _serial = serialize().await;
     // Spec §7.3.3 rule 5: parse failure pauses sync for that
     // file; recovery resumes it. The watcher emits ParseFailed
     // once per pause transition (no spam on repeated bad
@@ -564,6 +586,7 @@ async fn malformed_file_pauses_then_recovers() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn external_custom_keyword_round_trips_through_orig_keyword() {
+    let _serial = serialize().await;
     // Spec §7.3.3 rule 1: non-canonical Org keywords (WAITING,
     // IN-PROGRESS, BLOCKED, etc.) must survive a round-trip
     // verbatim via task.orig_keyword. The importer always
@@ -650,6 +673,7 @@ async fn external_custom_keyword_round_trips_through_orig_keyword() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_atrium_and_external_edit_preserves_user_content_as_bak() {
+    let _serial = serialize().await;
     // Spec §7.3.3 rule 5 end-to-end: GUI mutates DB while a user
     // is also saving the same vault file in Doom Emacs. The
     // writer's pre-flush conflict check catches the divergent
@@ -775,6 +799,7 @@ async fn concurrent_atrium_and_external_edit_preserves_user_content_as_bak() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn external_file_removal_preserves_tasks_and_toasts() {
+    let _serial = serialize().await;
     // Spec §3.5: DB canonical, vault projected. When a user
     // `rm`s a vault file, Atrium's tasks must NOT auto-delete —
     // a stray rm shouldn't destroy a hundred rows. The watcher
@@ -859,6 +884,7 @@ async fn external_file_removal_preserves_tasks_and_toasts() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rrule_divergence_on_cookie_only_edit_rewrites_to_canonical() {
+    let _serial = serialize().await;
     // Spec §7.3.3 rule 3: :RRULE: is canonical, the SCHEDULED
     // cookie is best-fit projection. When the user edits only
     // the cookie in Emacs (e.g. +1w → +2w) without touching
@@ -979,6 +1005,7 @@ async fn rrule_divergence_on_cookie_only_edit_rewrites_to_canonical() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn external_rrule_property_edit_syncs_to_db() {
+    let _serial = serialize().await;
     // Counterpart to the divergence test: when the user edits
     // the :RRULE: property in Emacs without touching the cookie,
     // the watcher syncs the new rule to DB. The cookie is
@@ -1073,6 +1100,7 @@ async fn external_rrule_property_edit_syncs_to_db() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn external_deadline_warning_suffix_round_trips_through_db() {
+    let _serial = serialize().await;
     // v0.14.0 — Phase 18.5 Tier-1: external Emacs edits to the
     // DEADLINE warning suffix (`-Nd` / `--Nd`) flow back through
     // the watcher into `task.deadline_warn_days`. The writer
@@ -1193,6 +1221,7 @@ async fn external_deadline_warning_suffix_round_trips_through_db() {
 
 #[tokio::test]
 async fn external_custom_property_drawer_round_trips_through_db() {
+    let _serial = serialize().await;
     // v0.24.0 — Post-v0.22.0 Tier 1. An external Emacs edit
     // that adds unmodeled `:KEY: value` lines to a task's
     // `:PROPERTIES:` drawer flows back into the DB column,
