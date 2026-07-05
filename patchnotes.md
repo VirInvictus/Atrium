@@ -1,5 +1,13 @@
 # Atrium — Patch Notes
 
+## v0.46.1 (2026-07-05): deflaked the vault-watcher integration tests
+
+CI failed on the push after v0.46.0 even though the commit only touched the README. The cause was flaky timing, not a real regression: the `atrium-org` vault-watcher integration tests wrote a `.org` file "from outside," then waited a fixed `sleep(700ms)` for the whole async chain to settle (inotify event, 200 ms watcher debounce, DB diff, worker write, writer debounce, file rewrite) before asserting. On a loaded runner that chain occasionally overran the budget, so the assertion fired on state that had not yet arrived. Two tests lost the lottery that run; all ~20 wait points shared the risk.
+
+The waits are now adaptive. Two small test helpers, `wait_until` (polls a post-condition every 25 ms) and `wait_for_event` (polls the vault event channel), replace the fixed sleeps and return as soon as the real end-state is observed, up to a generous 5-second ceiling. A fast machine returns in a poll or two; a slow one just waits longer; only a genuine hang reaches the ceiling and lets the descriptive assertion fire. Each site now polls the actual outcome it cares about (a task landing in the DB, the writer's file rewrite carrying the new `:ID:`, a `ParseFailed` / `ConflictBackup` / `FileRemoved` event), and where a keyword or property flip has to be matched by `:ID:`, the wait holds until the writer's rewrite lands so the match is deterministic. Two pure absence checks (no re-toast while paused; teardown settle) keep a fixed window by design, since there is no positive condition to poll.
+
+Test-only change: no schema, no behaviour, no public surface touched. The full file runs in about 1.5 s (down from ~5.7 s) and stays green under a fully pegged 16-core load.
+
 ## v0.46.0 (2026-07-01): persisted card order (kanban maturity, part 4)
 
 Final part of the kanban maturity mini-phase. Until now, cards within a column fell in whatever order the perspective's sort produced; dragging a card up or down inside its column didn't stick. Now it does.

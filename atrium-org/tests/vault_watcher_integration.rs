@@ -26,6 +26,58 @@ use atrium_core::db::read_pool::ReadPool;
 use atrium_core::{NewProject, NewTask, spawn_worker_with_vault};
 use atrium_org::VaultEvent;
 
+/// Adaptive replacement for the old fixed `sleep(700ms)` waits.
+///
+/// The watcher chain (inotify event → 200 ms debounce → DB diff →
+/// worker write → writer debounce → file rewrite) usually settles
+/// well under a second, but a loaded CI runner can overshoot a
+/// fixed budget and fail an assertion on state that simply hadn't
+/// arrived yet. Polling the real post-condition instead makes the
+/// wait self-timing: a fast machine returns in a poll or two, a
+/// slow one waits a little longer, and only a genuine hang hits
+/// the (generous) ceiling and lets the caller's assertion fire
+/// with its descriptive message.
+async fn wait_until(timeout: Duration, mut cond: impl FnMut() -> bool) -> bool {
+    let start = std::time::Instant::now();
+    loop {
+        if cond() {
+            return true;
+        }
+        if start.elapsed() >= timeout {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+/// Poll the vault event channel until an event matching `pred`
+/// arrives, or `timeout` elapses. Returns the matched event (owned)
+/// so callers can inspect its payload. Non-matching events drained
+/// along the way are discarded, mirroring the old drain-and-flag
+/// loops.
+async fn wait_for_event(
+    timeout: Duration,
+    events_rx: &mut tokio::sync::mpsc::UnboundedReceiver<VaultEvent>,
+    mut pred: impl FnMut(&VaultEvent) -> bool,
+) -> Option<VaultEvent> {
+    let start = std::time::Instant::now();
+    loop {
+        while let Ok(ev) = events_rx.try_recv() {
+            if pred(&ev) {
+                return Some(ev);
+            }
+        }
+        if start.elapsed() >= timeout {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+/// Generous ceiling for a single watcher round-trip. ~7x the old
+/// fixed 700 ms budget; only a real hang gets anywhere near it.
+const SETTLE: Duration = Duration::from_secs(5);
+
 fn fresh_setup(label: &str) -> (rusqlite::Connection, PathBuf, ReadPool) {
     let dir = std::env::temp_dir().join(format!(
         "atrium-watcher-int-{}-{}",
@@ -80,7 +132,7 @@ async fn seed_with_initial_write(
         .unwrap();
 
     // Wait for the writer's initial flush.
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    wait_until(SETTLE, || vault.join("Errands.org").exists()).await;
     assert!(
         vault.join("Errands.org").exists(),
         "expected initial vault file at Errands.org"
@@ -107,8 +159,14 @@ async fn external_add_creates_db_task() {
 
     // Wait for: inotify event → 200 ms watcher debounce → diff →
     // create_task → 100 ms writer debounce → file rewrite → :ID:
-    // appears on the new headline.
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    // appears on the new headline. The rewritten file carrying all
+    // three :ID:s is the last thing to happen, so poll on it.
+    wait_until(SETTLE, || {
+        std::fs::read_to_string(&project_path)
+            .map(|t| t.matches(":ID:").count() == 3)
+            .unwrap_or(false)
+    })
+    .await;
 
     // Assert: DB now has two tasks in the project.
     let tasks = pool
@@ -152,7 +210,16 @@ async fn external_edit_completes_db_task() {
     );
     std::fs::write(&project_path, edited).unwrap();
 
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+            .map(|tasks| {
+                tasks
+                    .iter()
+                    .any(|t| t.title == "Buy milk" && t.completed_at.is_some())
+            })
+            .unwrap_or(false)
+    })
+    .await;
 
     // Assert: the DB task is now completed (completed_at set).
     let tasks = pool
@@ -186,7 +253,12 @@ async fn external_add_under_subheading_creates_db_task() {
     let appended = format!("{existing}\n* Backlog\n** TODO Real task under heading\n");
     std::fs::write(&project_path, appended).unwrap();
 
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+            .map(|tasks| tasks.iter().any(|t| t.title == "Real task under heading"))
+            .unwrap_or(false)
+    })
+    .await;
 
     let tasks = pool
         .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
@@ -225,12 +297,19 @@ async fn external_delete_removes_db_task() {
         })
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    // Wait for the writer to flush "Buy bread" into the file before
+    // we splice it back out; otherwise the removal below is a no-op.
+    let project_path = vault.join("Errands.org");
+    wait_until(SETTLE, || {
+        std::fs::read_to_string(&project_path)
+            .map(|t| t.contains("Buy bread"))
+            .unwrap_or(false)
+    })
+    .await;
 
     // Now remove the "Buy bread" headline (and its :PROPERTIES:
     // drawer) from the file by hand. This is the trickier case
     // because we have to splice the file, not just append.
-    let project_path = vault.join("Errands.org");
     let text = std::fs::read_to_string(&project_path).unwrap();
     let lines: Vec<&str> = text.lines().collect();
     let mut keep: Vec<&str> = Vec::with_capacity(lines.len());
@@ -255,7 +334,12 @@ async fn external_delete_removes_db_task() {
     let edited = format!("{}\n", keep.join("\n"));
     std::fs::write(&project_path, edited).unwrap();
 
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+            .map(|tasks| tasks.iter().all(|t| t.title != "Buy bread"))
+            .unwrap_or(false)
+    })
+    .await;
 
     // Assert: the DB only has "Buy milk" left.
     let tasks = pool
@@ -312,7 +396,7 @@ async fn spawn_vault_loop_surfaces_parse_failure_event() {
         })
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    wait_until(SETTLE, || scratch.join("Events.org").exists()).await;
     let _watcher = vault_loop.attach_watcher(handle.clone()).unwrap();
 
     // Drop a malformed .org file into the vault. Org's structure
@@ -343,7 +427,15 @@ async fn spawn_vault_loop_surfaces_parse_failure_event() {
     let appended = format!("{existing}\n* TODO via the loop\n");
     std::fs::write(&project_path, appended).unwrap();
 
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    // Wait for the positive outcome (task lands in DB); by the time
+    // that settles the watcher has had its chance to (wrongly) emit
+    // a ParseFailed, so the absence check below is meaningful.
+    wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::list_all_in_project(conn, project.id))
+            .map(|tasks| tasks.iter().any(|t| t.title == "via the loop"))
+            .unwrap_or(false)
+    })
+    .await;
 
     // No ParseFailed should have fired for a clean file.
     let mut saw_parse_failed = false;
@@ -406,7 +498,7 @@ async fn malformed_file_pauses_then_recovers() {
         })
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    wait_until(SETTLE, || scratch.join("Pausable.org").exists()).await;
     let _watcher = vault_loop.attach_watcher(handle.clone()).unwrap();
 
     let project_path = scratch.join("Pausable.org");
@@ -423,22 +515,22 @@ async fn malformed_file_pauses_then_recovers() {
     std::fs::remove_file(&project_path).unwrap();
     std::fs::create_dir(&project_path).unwrap();
 
-    tokio::time::sleep(Duration::from_millis(700)).await;
-
-    // Drain events; expect at least one ParseFailed.
-    let mut saw_failed = false;
-    while let Ok(event) = events_rx.try_recv() {
-        if matches!(event, atrium_org::VaultEvent::ParseFailed { .. }) {
-            saw_failed = true;
-        }
-    }
+    // Expect at least one ParseFailed.
+    let saw_failed = wait_for_event(SETTLE, &mut events_rx, |e| {
+        matches!(e, atrium_org::VaultEvent::ParseFailed { .. })
+    })
+    .await
+    .is_some();
     assert!(
         saw_failed,
         "first malformed write should surface a ParseFailed event"
     );
 
     // Touch the directory again — should NOT produce a second
-    // ParseFailed (still paused).
+    // ParseFailed (still paused). This is a pure absence check with
+    // no positive companion to poll on, so it keeps a fixed settle
+    // window: give the watcher time to (wrongly) re-toast, then
+    // confirm it didn't.
     std::fs::write(project_path.join("placeholder"), "").unwrap();
     tokio::time::sleep(Duration::from_millis(700)).await;
     let mut saw_failed_again = false;
@@ -455,14 +547,12 @@ async fn malformed_file_pauses_then_recovers() {
     // Recover: remove the directory, write a valid file.
     std::fs::remove_dir_all(&project_path).unwrap();
     std::fs::write(&project_path, "* TODO recovered\n").unwrap();
-    tokio::time::sleep(Duration::from_millis(700)).await;
 
-    let mut saw_recovered = false;
-    while let Ok(event) = events_rx.try_recv() {
-        if matches!(event, atrium_org::VaultEvent::ParseRecovered { .. }) {
-            saw_recovered = true;
-        }
-    }
+    let saw_recovered = wait_for_event(SETTLE, &mut events_rx, |e| {
+        matches!(e, atrium_org::VaultEvent::ParseRecovered { .. })
+    })
+    .await
+    .is_some();
     assert!(
         saw_recovered,
         "clean parse after a pause should emit ParseRecovered"
@@ -489,7 +579,16 @@ async fn external_custom_keyword_round_trips_through_orig_keyword() {
     let appended = format!("{existing}\n* WAITING Vendor reply\n");
     std::fs::write(&project_path, appended).unwrap();
 
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    // Wait past the DB create for the writer's rewrite: the file
+    // must carry the new task's :ID: (3 total: project + 2 tasks)
+    // before the keyword flip below, which the watcher matches by
+    // :ID:.
+    wait_until(SETTLE, || {
+        std::fs::read_to_string(&project_path)
+            .map(|t| t.matches(":ID:").count() == 3)
+            .unwrap_or(false)
+    })
+    .await;
 
     let tasks = pool
         .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
@@ -521,7 +620,16 @@ async fn external_custom_keyword_round_trips_through_orig_keyword() {
     // Now flip the keyword in the file: WAITING → IN-PROGRESS.
     let edited = final_text.replace("* WAITING Vendor reply", "* IN-PROGRESS Vendor reply");
     std::fs::write(&project_path, edited).unwrap();
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+            .map(|tasks| {
+                tasks.iter().any(|t| {
+                    t.title == "Vendor reply" && t.orig_keyword.as_deref() == Some("IN-PROGRESS")
+                })
+            })
+            .unwrap_or(false)
+    })
+    .await;
 
     let tasks2 = pool
         .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
@@ -576,7 +684,7 @@ async fn concurrent_atrium_and_external_edit_preserves_user_content_as_bak() {
         })
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    wait_until(SETTLE, || scratch.join("Race.org").exists()).await;
     let _watcher = vault_loop.attach_watcher(handle.clone()).unwrap();
 
     let project_path = scratch.join("Race.org");
@@ -596,8 +704,24 @@ async fn concurrent_atrium_and_external_edit_preserves_user_content_as_bak() {
         .unwrap();
 
     // Let both halves settle: writer flush (~100 ms debounce +
-    // 50 ms tick) + watcher debounce (200 ms) + any retries.
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    // 50 ms tick) + watcher debounce (200 ms) + any retries. Poll
+    // on the two observable end-states: the user's edit backed up
+    // to a `.atrium.bak.*` sibling, and the main file holding the
+    // DB rename.
+    wait_until(SETTLE, || {
+        let bak = std::fs::read_dir(&scratch).ok().is_some_and(|rd| {
+            rd.filter_map(std::result::Result::ok).any(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("Race.org.atrium.bak.")
+            })
+        });
+        let main_renamed = std::fs::read_to_string(&project_path)
+            .map(|t| t.contains(&new_title))
+            .unwrap_or(false);
+        bak && main_renamed
+    })
+    .await;
 
     // Assert 1: a `.atrium.bak.*` sibling preserves the user's
     // content.
@@ -624,12 +748,11 @@ async fn concurrent_atrium_and_external_edit_preserves_user_content_as_bak() {
     );
 
     // Assert 3: at least one ConflictBackup event surfaced.
-    let mut saw_conflict = false;
-    while let Ok(event) = events_rx.try_recv() {
-        if matches!(event, atrium_org::VaultEvent::ConflictBackup { .. }) {
-            saw_conflict = true;
-        }
-    }
+    let saw_conflict = wait_for_event(SETTLE, &mut events_rx, |e| {
+        matches!(e, atrium_org::VaultEvent::ConflictBackup { .. })
+    })
+    .await
+    .is_some();
     assert!(
         saw_conflict,
         "ConflictBackup event must surface for the GUI to toast"
@@ -695,7 +818,7 @@ async fn external_file_removal_preserves_tasks_and_toasts() {
         })
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    wait_until(SETTLE, || scratch.join("Vanish.org").exists()).await;
     let _watcher = vault_loop.attach_watcher(handle.clone()).unwrap();
 
     let project_path = scratch.join("Vanish.org");
@@ -706,7 +829,17 @@ async fn external_file_removal_preserves_tasks_and_toasts() {
 
     // The user rm's the file.
     std::fs::remove_file(&project_path).unwrap();
-    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    // FileRemoved event surfaced.
+    let saw_removed = wait_for_event(SETTLE, &mut events_rx, |e| {
+        matches!(e, atrium_org::VaultEvent::FileRemoved { .. })
+    })
+    .await
+    .is_some();
+    assert!(
+        saw_removed,
+        "FileRemoved event must surface for the GUI to toast"
+    );
 
     // The task must still be in DB.
     let tasks = pool
@@ -718,18 +851,6 @@ async fn external_file_removal_preserves_tasks_and_toasts() {
         "task must survive a vault file rm; saw: {tasks:?}"
     );
     assert_eq!(tasks[0].title, "Survives");
-
-    // FileRemoved event surfaced.
-    let mut saw_removed = false;
-    while let Ok(event) = events_rx.try_recv() {
-        if matches!(event, atrium_org::VaultEvent::FileRemoved { .. }) {
-            saw_removed = true;
-        }
-    }
-    assert!(
-        saw_removed,
-        "FileRemoved event must surface for the GUI to toast"
-    );
 
     let _ = project_id; // silence unused-variable warning from helper
     drop(handle);
@@ -775,8 +896,13 @@ async fn rrule_divergence_on_cookie_only_edit_rewrites_to_canonical() {
         .await
         .unwrap();
 
-    tokio::time::sleep(Duration::from_millis(250)).await;
     let project_path = scratch.join("Repeats.org");
+    wait_until(SETTLE, || {
+        std::fs::read_to_string(&project_path)
+            .map(|t| t.contains("SCHEDULED: <2026-05-11 Mon ++1w>"))
+            .unwrap_or(false)
+    })
+    .await;
     let written = std::fs::read_to_string(&project_path).unwrap();
     assert!(
         written.contains("SCHEDULED: <2026-05-11 Mon ++1w>"),
@@ -798,29 +924,33 @@ async fn rrule_divergence_on_cookie_only_edit_rewrites_to_canonical() {
     assert!(edited != written, "the replace must take effect");
     std::fs::write(&project_path, edited).unwrap();
 
-    tokio::time::sleep(Duration::from_millis(800)).await;
-
     // RruleDiverged event surfaced.
-    let mut diverged: Option<(String, String, String)> = None;
-    while let Ok(event) = events_rx.try_recv() {
-        if let atrium_org::VaultEvent::RruleDiverged {
+    let diverged = wait_for_event(SETTLE, &mut events_rx, |e| {
+        matches!(e, atrium_org::VaultEvent::RruleDiverged { .. })
+    })
+    .await;
+    let (title, cookie, rrule) = match diverged {
+        Some(atrium_org::VaultEvent::RruleDiverged {
             title,
             cookie,
             rrule,
             ..
-        } = event
-        {
-            diverged = Some((title, cookie, rrule));
-        }
-    }
-    let (title, cookie, rrule) =
-        diverged.expect("cookie-only edit should produce a RruleDiverged event");
+        }) => (title, cookie, rrule),
+        _ => panic!("cookie-only edit should produce a RruleDiverged event"),
+    };
     assert_eq!(title, "Weekly");
     assert_eq!(cookie, "++2w");
     assert!(rrule.contains("FREQ=WEEKLY"));
 
     // File rewritten — cookie back to ++1w (canonical from
-    // :RRULE: FREQ=WEEKLY).
+    // :RRULE: FREQ=WEEKLY). The rewrite follows divergence
+    // detection, so poll for it.
+    wait_until(SETTLE, || {
+        std::fs::read_to_string(&project_path)
+            .map(|t| t.contains("SCHEDULED: <2026-05-11 Mon ++1w>") && !t.contains("++2w"))
+            .unwrap_or(false)
+    })
+    .await;
     let rewritten = std::fs::read_to_string(&project_path).unwrap();
     assert!(
         rewritten.contains("SCHEDULED: <2026-05-11 Mon ++1w>"),
@@ -885,17 +1015,34 @@ async fn external_rrule_property_edit_syncs_to_db() {
         })
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    let project_path = scratch.join("RuleSync.org");
+    wait_until(SETTLE, || {
+        std::fs::read_to_string(&project_path)
+            .map(|t| t.contains(":RRULE: FREQ=WEEKLY"))
+            .unwrap_or(false)
+    })
+    .await;
     let _watcher = vault_loop.attach_watcher(handle.clone()).unwrap();
 
-    let project_path = scratch.join("RuleSync.org");
     let written = std::fs::read_to_string(&project_path).unwrap();
 
     // User adds BYDAY=MO,WE to :RRULE:; cookie unchanged.
     let edited = written.replace(":RRULE: FREQ=WEEKLY", ":RRULE: FREQ=WEEKLY;BYDAY=MO,WE");
     assert!(edited != written);
     std::fs::write(&project_path, edited).unwrap();
-    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // Wait for the positive outcome (new rule synced to DB); by
+    // then the watcher has had its chance to (wrongly) diverge.
+    wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::list_all_in_project(conn, project.id))
+            .map(|tasks| {
+                tasks
+                    .iter()
+                    .any(|t| t.repeat_rule.as_deref() == Some("FREQ=WEEKLY;BYDAY=MO,WE"))
+            })
+            .unwrap_or(false)
+    })
+    .await;
 
     // No RruleDiverged event — the cookie is still consistent
     // with the new rule (cookie can't express BYDAY anyway).
@@ -942,7 +1089,15 @@ async fn external_deadline_warning_suffix_round_trips_through_db() {
     let appended = format!("{existing}\n* TODO File taxes\nDEADLINE: <2026-04-15 Wed -7d>\n");
     std::fs::write(&project_path, appended).unwrap();
 
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    // Wait past the DB create for the writer's rewrite (file carries
+    // all three :ID:s: project + 2 tasks) so the flip below is
+    // matched by :ID:.
+    wait_until(SETTLE, || {
+        std::fs::read_to_string(&project_path)
+            .map(|t| t.matches(":ID:").count() == 3)
+            .unwrap_or(false)
+    })
+    .await;
 
     let tasks = pool
         .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
@@ -972,7 +1127,14 @@ async fn external_deadline_warning_suffix_round_trips_through_db() {
     let edited = after_first.replace("-7d", "--14d");
     std::fs::write(&project_path, edited).unwrap();
 
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    // Poll on the writer's canonicalised re-emit (`-14d`, no
+    // `--14d`), which follows the DB sync to 14.
+    wait_until(SETTLE, || {
+        std::fs::read_to_string(&project_path)
+            .map(|t| t.contains("-14d") && !t.contains("--14d"))
+            .unwrap_or(false)
+    })
+    .await;
 
     let tasks2 = pool
         .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
@@ -1002,7 +1164,16 @@ async fn external_deadline_warning_suffix_round_trips_through_db() {
     let cleared = final_text.replace(" -14d", "");
     std::fs::write(&project_path, cleared).unwrap();
 
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+            .map(|tasks| {
+                tasks
+                    .iter()
+                    .any(|t| t.title == "File taxes" && t.deadline_warn_days.is_none())
+            })
+            .unwrap_or(false)
+    })
+    .await;
 
     let tasks3 = pool
         .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
@@ -1039,7 +1210,14 @@ async fn external_custom_property_drawer_round_trips_through_db() {
     );
     std::fs::write(&project_path, appended).unwrap();
 
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    // Wait past the DB create for the writer's rewrite (all three
+    // :ID:s present) so the edit below is matched by :ID:.
+    wait_until(SETTLE, || {
+        std::fs::read_to_string(&project_path)
+            .map(|t| t.matches(":ID:").count() == 3)
+            .unwrap_or(false)
+    })
+    .await;
 
     let tasks = pool
         .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
@@ -1075,7 +1253,18 @@ async fn external_custom_property_drawer_round_trips_through_db() {
         .replace(":URL: https://example.com/x\n", "");
     std::fs::write(&project_path, edited).unwrap();
 
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+            .map(|tasks| {
+                tasks.iter().any(|t| {
+                    t.title == "Acme retainer"
+                        && t.extra_properties.get("CLIENT").map(String::as_str) == Some("BetaCo")
+                        && !t.extra_properties.contains_key("URL")
+                })
+            })
+            .unwrap_or(false)
+    })
+    .await;
 
     let tasks2 = pool
         .with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
