@@ -360,7 +360,9 @@ Two additive migrations across the Tier-1 set: `task_clock_entry` table (CLOCK),
 ---
 
 ## Phase 21: Hyprland-Leaning Design — Tiling-First Polish (post-1.0)
-*Brandon moved his desktop from GNOME Shell to Hyprland (a Wayland tiling compositor). Atrium stays GTK4 / libadwaita and stays a first-class GNOME Shell citizen; this phase makes it stop assuming GNOME Shell is the only compositor it will ever run under. Every item is additive: nothing here may regress Simple or Builder Mode for GNOME Shell users, no GNOME-specific integration is removed, and CSD stays the window-chrome model. This is a design audit informed by reading the actual GTK code, not a generic tiling-WM checklist; each item below cites the file it's grounded in.*
+*Brandon moved his desktop from GNOME Shell to Hyprland (a Wayland tiling compositor). This phase makes Atrium stop assuming GNOME Shell is the only compositor it will ever run under. Every item is additive: nothing here may regress Simple or Builder Mode for GNOME Shell users, no GNOME-specific integration is removed, and CSD stays the window-chrome model within this phase. This is a design audit informed by reading the actual GTK code, not a generic tiling-WM checklist; each item below cites the file it's grounded in.*
+
+*Direction note (Brandon, 2026-07-09): the portfolio goal has since moved past "runs politely under Hyprland" to "fully belongs on Hyprland," which means dropping libadwaita while keeping GTK4. That work is Phase 22, gated on the Colophon pilot. This phase's audit items stay valid regardless (they are toolkit-agnostic geometry, keyboard, and portal work) and become part of Phase 22's verification tail if the two phases end up running together; only this phase's keep-adwaita guardrails are superseded.*
 
 ### Tiling-first geometry
 
@@ -409,10 +411,20 @@ Zero. This entire phase is UI/window-management/desktop-integration work; no mig
 
 - **No Hyprland-specific config file shipped** (no bundled `hyprland.conf` snippet as an installed asset). A documented example window rule (Quick Entry scratchpad) is fine; owning a slice of Brandon's compositor config is not this project's job.
 - **No compositor-detection branching in the code.** Every fix here (breakpoints, keyboard coverage, portal-routed dialogs, notification-daemon-agnostic notifications) is a correctness improvement that benefits GNOME Shell users too; there is no `if running_under_hyprland` code path anywhere, and there shouldn't be.
-- **No SSD support, no dropping CSD.** Covered above; restated here because it's the one item most likely to get proposed and rejected if someone reads "tiling WM" as "remove decorations."
+- **No SSD support, no dropping CSD within this phase.** Covered above; restated here because it's the one item most likely to get proposed and rejected if someone reads "tiling WM" as "remove decorations." Phase 22 revisits the decoration posture wholesale as part of the de-adwaita move; until that phase runs, this guardrail holds.
 - **No global-shortcut / capture-daemon work.** That's the already-deferred `atriumd` item under Phase 20; this phase documents `atrium-cli add` as a stopgap, it doesn't build the daemon.
 
 ---
+
+## Phase 22: De-adwaita — Hyprland-Native Design System (post-1.0, gated on the Colophon pilot)
+
+*Portfolio direction change (Brandon, 2026-07-09): the goal moved from "runs politely under Hyprland" (Phase 21's frame) to "fully belongs on Hyprland." Concretely: drop libadwaita, keep GTK4. GTK4 is Wayland-native and stays; libadwaita (the GNOME stylesheet, the adaptive widgets, the GNOME design language) is replaced with plain GTK4 widgets and an application stylesheet Atrium owns outright, styled flat and tiling-first rather than GNOME HIG. Colophon pilots the move (its roadmap, Phase 6) because it is the smallest shipped GTK app in the portfolio; Atrium follows once the pilot's patterns (widget replacements, generated owned stylesheet, portal-based dark/light without `adw::StyleManager`) are proven. Nothing here starts before the Phase 20 1.0 endgame ships and the pilot lands. "Never break userspace" binds in full: no feature regression in either mode, and the app keeps working under GNOME; the look stops being GNOME's, not the compatibility.*
+
+- [ ] **Go/no-go and sequencing against the pilot.** Review what Colophon's Phase 6 actually proved (and what it cost) before committing Atrium's much larger surface. Atrium is the portfolio's heaviest adwaita consumer: the standardised dialog primitives (`adw::Dialog` for Inspector/tag editor, non-modal `adw::Window` for Quick Entry/Memory Watch, per CLAUDE.md), two split views (`AdwNavigationSplitView` Lists, `AdwOverlaySplitView` Inspector), toasts, banners, the `AdwPreferencesDialog` family, and `AdwStyleManager` theming. First deliverable is a full `adw::` inventory with a mapped replacement per type, the Colophon migration table as the template.
+- [ ] **Design decisions land in spec first.** Decoration posture (headerbar cargo, whether window buttons render at all), split-view replacements with tiling-honest panes instead of adaptive collapse, the dialog-primitive convention's plain-GTK successor, and dark/light via a direct `org.freedesktop.portal.Settings` read (gio D-Bus, no new dependency) instead of `adw::StyleManager`.
+- [ ] **The owned stylesheet.** Author Atrium's application sheet (flat, square, hard borders, denser spacing; Kanagawa Dragon and the bundled-font typography unchanged), replacing the adwaita stylesheet classes in use. Reuse Colophon's generated-sheet machinery where it transfers.
+- [ ] **Packaging follow-through.** Evaluate the Flatpak runtime move (GNOME runtime → freedesktop) once libadwaita is gone; Flathub metadata/screenshots refresh rides along. App-id and `.desktop` lockstep (Phase 21's verified invariant) must survive untouched.
+- [ ] **Verification tail.** Phase 21's geometry/keyboard/portal audit items re-run against the migrated shell; they are the acceptance criteria for calling this phase done.
 
 ## Beyond 1.0
 
