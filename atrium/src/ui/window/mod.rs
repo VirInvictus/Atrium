@@ -53,11 +53,11 @@ mod imp {
     #[template(file = "../../../../data/window.ui")]
     pub struct AtriumWindow {
         #[template_child]
-        pub overlay_split: TemplateChild<adw::OverlaySplitView>,
+        pub overlay_split: TemplateChild<gtk::Paned>,
         #[template_child]
         pub inspector_pane_host: TemplateChild<gtk::Box>,
         #[template_child]
-        pub split_view: TemplateChild<adw::NavigationSplitView>,
+        pub split_view: TemplateChild<gtk::Paned>,
         #[template_child]
         pub menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
@@ -71,8 +71,6 @@ mod imp {
         /// `app.new-project` to bootstrap the first project.
         #[template_child]
         pub sidebar_empty_hint: TemplateChild<gtk::Revealer>,
-        #[template_child]
-        pub content_page: TemplateChild<adw::NavigationPage>,
         #[template_child]
         pub content_stack: TemplateChild<gtk::Stack>,
         #[template_child]

@@ -1,5 +1,13 @@
 # Atrium — Patch Notes
 
+## v0.58.0 (2026-07-17): de-adwaita ladder C6 — the split views
+
+The two-pane window layout moves off Adwaita's split views onto plain `GtkPaned`. The outer `AdwOverlaySplitView` (which held the Builder inspector pane on the right) and the inner `AdwNavigationSplitView` (Lists sidebar beside the content) both become `GtkPaned`, wired through the `start-child` / `end-child` properties. The two `AdwNavigationPage` wrappers that Adwaita required are unwrapped (their titles were already suppressed), and the now-unused `content_page` template child is dropped along with the redundant `set_title` call it fed. The inspector still appears only in Builder Mode, now by toggling the pane host's visibility rather than an Adwaita show-sidebar flag.
+
+The visible difference: the dividers are draggable. Adwaita's split views managed their sidebar widths and collapsed to an overlay on narrow windows; the plain paned gives a resizable divider instead. The hand-rolled narrow-collapse (hiding or revealing a pane below a width threshold) is deliberately deferred to the Phase 21 tiling-geometry pass, because a good collapse needs a reveal affordance and hands-on verification at real tile sizes on a tiling compositor — exactly what that phase is for. Shipping the divider now keeps the app fully usable at normal window sizes without guessing the collapse behaviour blind.
+
+This is a core-window-layout change, so while it is statically verified (the `window.ui` template is well-formed, the template-child bindings match, and `fmt` / `clippy -D warnings` / the 1028-test suite are green), the runtime template inflation and the rendered geometry are a GUI surface that wants a launch on Brandon's display. Remaining adwaita: the window and dialog shells (C8), the Preferences window (C7), the stylesheet (C9), then the toolkit drop (C10).
+
 ## v0.57.0 (2026-07-17): de-adwaita ladder C5d — the bin hosts (C5 complete)
 
 The last C5 step, closing out the whole list-widget rung. The seven `adw::Bin` single-child hosts (the inspector pane's sidebar host, and the Forecast / Review / Logbook / board / Agenda / Calendar stack-page hosts) become plain `GtkBox` in `data/window.ui` and `TemplateChild<gtk::Box>` in the window's template struct. A small `rows::set_box_child` helper (remove-then-append) replaces `adw::Bin::set_child` at the roughly thirteen call sites in `views.rs` and the inspector pane's `install`.

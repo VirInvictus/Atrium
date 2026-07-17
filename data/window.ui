@@ -31,36 +31,35 @@
         </child>
 
         <property name="content">
-          <object class="AdwOverlaySplitView" id="overlay_split">
-            <!-- Phase 10 — Builder Mode wraps the NavigationSplitView in an
-                 OverlaySplitView whose right-side sidebar holds the Inspector
-                 pane. show-sidebar=false at startup; AtriumWindow::apply_mode
-                 toggles it based on the GSettings `mode` key. The pane
-                 collapses on small windows so the overlay sheet behaviour
-                 takes over. -->
-            <property name="sidebar-position">end</property>
-            <property name="show-sidebar">false</property>
-            <property name="min-sidebar-width">320</property>
-            <property name="max-sidebar-width">480</property>
-            <property name="sidebar-width-fraction">0.32</property>
+          <object class="GtkPaned" id="overlay_split">
+            <!-- Phase 22 C6 — was AdwOverlaySplitView. The inspector pane is
+                 the end (right) child; AtriumWindow::apply_mode shows it only
+                 in Builder Mode by toggling inspector_pane_host's visibility.
+                 The adaptive narrow-collapse (adwaita's overlay behaviour) is
+                 deferred to the Phase 21 geometry audit. -->
+            <property name="orientation">horizontal</property>
+            <property name="position">760</property>
+            <property name="resize-end-child">false</property>
+            <property name="shrink-end-child">false</property>
 
-            <property name="sidebar">
+            <property name="end-child">
               <object class="GtkBox" id="inspector_pane_host">
+                <property name="visible">false</property>
                 <!-- Populated by inspector_pane::install at startup; the
-                     content swaps between an empty AdwStatusPage (no task
+                     content swaps between an empty placeholder (no task
                      selected) and a per-task editor (task selected). -->
               </object>
             </property>
 
-            <property name="content">
-          <object class="AdwNavigationSplitView" id="split_view">
-            <property name="min-sidebar-width">220</property>
-            <property name="max-sidebar-width">320</property>
+            <property name="start-child">
+          <object class="GtkPaned" id="split_view">
+            <!-- Phase 22 C6 — was AdwNavigationSplitView (Lists | content). -->
+            <property name="orientation">horizontal</property>
+            <property name="position">260</property>
+            <property name="resize-start-child">false</property>
+            <property name="shrink-start-child">false</property>
 
-            <property name="sidebar">
-              <object class="AdwNavigationPage">
-                <property name="title" translatable="yes">Lists</property>
-                <property name="child">
+            <property name="start-child">
                   <object class="AdwToolbarView">
                     <!-- v0.7.1 — class scopes the sidebar's flat
                          atmospheric tint (.atrium-sidebar-pane in
@@ -177,14 +176,9 @@
                       </object>
                     </property>
                   </object>
-                </property>
-              </object>
             </property>
 
-            <property name="content">
-              <object class="AdwNavigationPage" id="content_page">
-                <property name="title" translatable="yes">Today</property>
-                <property name="child">
+            <property name="end-child">
                   <object class="AdwToolbarView">
                     <child type="top">
                       <object class="AdwHeaderBar">
@@ -671,8 +665,6 @@
                       </object>
                     </property>
                   </object>
-                </property>
-              </object>
             </property>
           </object>
         </property>

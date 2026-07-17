@@ -317,12 +317,9 @@ impl AtriumWindow {
         // observe the new mode immediately.
         self.imp().current_mode_is_builder.set(builder);
 
-        // Right-side Inspector pane. Three independent levers all
-        // resolve the same way (`builder`) — belt-and-suspenders
-        // because v0.1.4 user testing surfaced a case where the
-        // OverlaySplitView's show-sidebar didn't fully hide the
-        // pane on its own.
-        self.imp().overlay_split.set_show_sidebar(builder);
+        // Right-side Inspector pane (Phase 22 C6: the overlay_split is now a
+        // plain GtkPaned, so hiding the end-child host is the whole story —
+        // no adwaita show-sidebar toggle to coordinate).
         self.imp().inspector_pane_host.set_visible(builder);
         if !builder && let Some(pane) = self.imp().inspector_pane.borrow().clone() {
             // Don't keep a stale per-task editor around when
@@ -477,7 +474,9 @@ impl AtriumWindow {
         }
         self.imp().active_list.replace(active.clone());
         let view_title = self.title_for(active.clone());
-        self.imp().content_page.set_title(&view_title);
+        // (Phase 22 C6: the content_page AdwNavigationPage is gone; the page
+        // title shows through the magazine-strip page_title_label, and the
+        // window-manager title is set below.)
         // v0.6.11 — surface the active view in the window title so
         // it reads "Atrium · Today" / "Atrium · Inbox" / etc. The
         // window-level title shows in window managers, alt-tab

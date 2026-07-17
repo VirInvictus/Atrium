@@ -90,6 +90,16 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.58.0" date="2026-07-17">
+      <description translate="no">
+        <p>The two-pane window layout (the Lists sidebar beside the
+           content, and the Builder inspector pane on the right) moves
+           from the GNOME toolkit's split views to a plain resizable
+           divider. Same layout; the divider is now draggable. The
+           small-window collapse behaviour is being reworked as part of
+           the tiling-window polish pass.</p>
+      </description>
+    </release>
     <release version="0.57.0" date="2026-07-17">
       <description translate="no">
         <p>Internal cleanup finishing the list-widget migration: the
