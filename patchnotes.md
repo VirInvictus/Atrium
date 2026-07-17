@@ -1,5 +1,11 @@
 # Atrium — Patch Notes
 
+## v0.63.0 (2026-07-17): comprehensive owned stylesheet (self-contained, C10-ready)
+
+The owned sheet grows from a thin layer into a comprehensive one, so Atrium looks the same with or without a system GTK theme underneath — and, crucially, after libadwaita is dropped at C10, when there is no rich substrate left to lean on. `theme.rs` now styles the full widget vocabulary Atrium uses (window, header bars, panes, list rows and the sidebar, buttons and all their variants, entries and spin buttons, dropdowns, circular checkboxes and radios, switches, scales, popovers and their menus, tooltips, scrollbars, separators, selection, the focus ring) in the gently-rounded Kanagawa Dragon language, and it carries the adwaita utility classes Atrium leans on across the binary (`.title-1`…`.title-4`, `.large-title`, `.heading`, `.caption`, `.caption-heading`, `.dim-label`, `.success`, `.warning`, `.error`, `.accent`, `.numeric`) so those keep working once libadwaita is gone. Font families stay in `data/style.css` (the owned sheet carries no `font-family` rule; a test enforces it), which continues to layer its per-surface tweaks on top.
+
+This makes the app's look genuinely owned rather than dependent on the user's GTK theme, which is both the point of the de-adwaita move and a prerequisite for the toolkit cut. Stylesheet-only.
+
 ## v0.62.2 (2026-07-17): checkboxes back to circles
 
 The task-completion checkbox uses the `.selection-mode` style, which renders as a circle (the Things-3 / Reminders idiom). The C9 sheet's generic `check` rule had squared it off, which was the most conspicuously blocky thing on screen. The owned sheet now draws checkboxes as clean circles regardless of what theme sits underneath: a thin outline when open, a filled dragonYellow disc when done. Stylesheet-only.

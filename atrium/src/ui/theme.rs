@@ -83,9 +83,13 @@ const TEMPLATE: &str = "\
 @define-color purple_3 %SW_PURPLE%;
 @define-color purple_2 %SW_PURPLE%;
 
-/* ── Base widgets (the adwaita sheet's flat/square replacement) ── */
+/* ── Base widgets — the owned flat-but-rounded replacement for the
+   adwaita / GTK-default widget styling. Comprehensive on purpose: Atrium
+   must look the same with or without a system GTK theme underneath, and
+   after libadwaita is gone (C10). data/style.css layers its per-surface
+   tweaks on top (same priority, loaded later, so its specifics win). */
 window, .background { background-color: %BG_WINDOW%; color: %FG%; }
-window.csd, decoration { border-radius: 0; box-shadow: none; }
+window.csd, decoration { box-shadow: none; }
 
 headerbar {
   background-color: %BG_HEADER%;
@@ -139,18 +143,22 @@ button {
 }
 button:hover { background-color: %GRID%; }
 button:active, button:checked { background-color: %ACCENT%; color: %ON_ACCENT%; border-color: %ACCENT%; }
+button:disabled { opacity: 0.5; }
 button.flat {
   background-color: transparent;
   background-image: none;
   border-color: transparent;
   box-shadow: none;
 }
-button.circular { border-radius: 999px; }
+button.circular { border-radius: 999px; padding: 4px; }
 button.flat:hover, button.circular:hover { background-color: alpha(%FG%, 0.10); }
 button.suggested-action { background-color: %ACCENT%; color: %ON_ACCENT%; border-color: %ACCENT%; }
 button.suggested-action:hover { background-color: %WARN%; border-color: %WARN%; }
 button.destructive-action { background-color: %ERR%; color: %ON_ACCENT%; border-color: %ERR%; }
 button.pill { border-radius: 999px; padding: 5px 16px; }
+.linked > button:not(:first-child) { border-left-width: 0; }
+.toolbar { padding: 4px 6px; }
+.osd { background-color: alpha(%BG_WINDOW%, 0.85); color: %FG%; border-radius: 12px; }
 
 entry, spinbutton, .entry {
   background-color: %BG_VIEW%;
@@ -161,24 +169,28 @@ entry, spinbutton, .entry {
   box-shadow: none;
   transition: border-color 120ms ease;
 }
-entry:focus-within { border-color: %ACCENT%; }
+entry:focus-within, spinbutton:focus-within { border-color: %ACCENT%; }
+entry > image { color: %FG_DIM%; }
+spinbutton > button { border-width: 0; border-radius: 6px; background-color: transparent; }
+spinbutton > button:hover { background-color: %GRID%; }
+dropdown > button { background-color: %BG_CARD%; }
 
 /* Checkboxes render as clean circles (the Things-3 / Reminders idiom, and
    what the .selection-mode task checkbox wants). An outline when open, a
-   filled dragonYellow disc when done. Owned here so it does not depend on
-   whatever theme sits underneath. */
-checkbutton check, check, .selection-mode check {
+   filled dragonYellow disc when done. Radios are already round. Owned here
+   so it does not depend on whatever theme sits underneath. */
+checkbutton check, check, radio, .selection-mode check {
   border-radius: 999px;
   border: 2px solid alpha(%FG%, 0.40);
   background-color: transparent;
   background-image: none;
   box-shadow: none;
-  min-width: 20px;
-  min-height: 20px;
+  min-width: 18px;
+  min-height: 18px;
   transition: background-color 120ms ease, border-color 120ms ease;
 }
-check:hover, .selection-mode check:hover { border-color: %ACCENT%; }
-check:checked, .selection-mode check:checked {
+check:hover, radio:hover, .selection-mode check:hover { border-color: %ACCENT%; }
+check:checked, radio:checked, .selection-mode check:checked {
   background-color: %ACCENT%;
   color: %ON_ACCENT%;
   border-color: %ACCENT%;
@@ -191,26 +203,73 @@ switch {
   min-width: 40px;
 }
 switch:checked { background-color: %ACCENT%; border-color: %ACCENT%; }
-switch > slider { border-radius: 999px; background-color: %FG%; margin: 2px; }
+switch > slider {
+  border-radius: 999px;
+  background-color: %FG%;
+  margin: 2px;
+  min-width: 18px;
+  min-height: 18px;
+}
 
-scale > trough { background-color: %GRID%; border-radius: 999px; }
+scale { padding: 4px 0; }
+scale > trough { background-color: %GRID%; border-radius: 999px; min-height: 4px; }
 scale > trough > highlight { background-color: %ACCENT%; border-radius: 999px; }
-scale > trough > slider { border-radius: 999px; background-color: %FG%; }
+scale > trough > slider { border-radius: 999px; background-color: %FG%; min-width: 14px; min-height: 14px; }
 
+popover > arrow { background-color: %BG_CARD%; border: 1px solid %GRID%; }
 popover > contents, .popover > contents {
   background-color: %BG_CARD%;
   color: %FG%;
   border: 1px solid %GRID%;
   border-radius: 12px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.38);
+  padding: 6px;
+}
+popover.menu modelbutton { border-radius: 6px; padding: 5px 8px; }
+modelbutton:hover { background-color: %ACCENT%; color: %ON_ACCENT%; }
+popover.menu separator, menu separator { background-color: %GRID%; min-height: 1px; margin: 4px 2px; }
+
+tooltip, tooltip.background {
+  background-color: %BG_HEADER%;
+  color: %FG%;
+  border: 1px solid %GRID%;
+  border-radius: 8px;
+  box-shadow: none;
+  padding: 4px 8px;
 }
 
+scrollbar { background-color: transparent; }
+scrollbar slider { background-color: %GRID%; border-radius: 999px; min-width: 6px; min-height: 6px; }
+scrollbar slider:hover { background-color: %FG_DIM%; }
+
+separator { background-color: %GRID%; min-width: 1px; min-height: 1px; }
+selection { background-color: alpha(%ACCENT%, 0.35); color: %FG%; }
+
+/* Adwaita utility classes Atrium leans on across the binary (weight / size /
+   colour only; font-family stays in data/style.css). They vanish when
+   libadwaita is dropped at C10, so the owned sheet carries them. */
+.title-1 { font-weight: 800; font-size: 170%; }
+.title-2 { font-weight: 800; font-size: 140%; }
+.title-3 { font-weight: 700; font-size: 120%; }
+.title-4 { font-weight: 700; font-size: 105%; }
+.large-title { font-weight: 300; font-size: 200%; }
+.heading { font-weight: 700; }
+.caption { font-size: 82%; }
+.caption-heading { font-weight: 700; font-size: 82%; }
 .dim-label { color: %FG_DIM%; }
+.success { color: %OK%; }
+.warning { color: %WARN%; }
+.error { color: %ERR%; }
+.accent { color: %ACCENT%; }
+.numeric { font-feature-settings: 'tnum'; }
 
 /* The single, deliberately scoped focus ring. spec §3.7 forbids a
    universal star-selector focus ring (it lit up every row and label
    in Colophon's sheet), so this names its targets explicitly. */
-button:focus-visible, entry:focus-visible, .atrium-swatch:focus-visible {
+button:focus-visible, entry:focus-visible, spinbutton:focus-visible,
+switch:focus-visible, checkbutton:focus-visible, check:focus-visible,
+radio:focus-visible, dropdown:focus-visible, scale:focus-visible,
+.atrium-swatch:focus-visible {
   outline: 2px solid %ACCENT%;
   outline-offset: -1px;
 }
@@ -291,12 +350,19 @@ mod tests {
 
     #[test]
     fn no_unreplaced_tokens_remain() {
-        // A stray `%NAME%` means a token was added to the template but not to
-        // `sheet`'s replace chain. No bare `%` appears in the template.
-        assert!(
-            !sheet().contains('%'),
-            "an unreplaced %TOKEN% survived into the sheet"
-        );
+        // A token is `%UPPERCASE…%`; a stray one means it was added to the
+        // template but not to `sheet`'s replace chain. CSS percentages like
+        // `font-size: 170%` are a `%` after a digit and are fine — so flag
+        // only a `%` immediately followed by an ASCII uppercase letter.
+        let sheet = sheet();
+        let bytes = sheet.as_bytes();
+        for i in 0..bytes.len().saturating_sub(1) {
+            assert!(
+                !(bytes[i] == b'%' && bytes[i + 1].is_ascii_uppercase()),
+                "unreplaced token near: {}",
+                &sheet[i..(i + 12).min(sheet.len())]
+            );
+        }
     }
 
     #[test]
@@ -329,7 +395,9 @@ mod tests {
     #[test]
     fn carries_no_font_family_rule() {
         // Typography stays in data/style.css (the three bundled families).
-        assert_eq!(sheet().matches("font-family").count(), 0);
+        // Match the property (`font-family:`), not the bare word — a CSS
+        // comment in the template mentions font-family in prose.
+        assert_eq!(sheet().matches("font-family:").count(), 0);
     }
 
     #[test]

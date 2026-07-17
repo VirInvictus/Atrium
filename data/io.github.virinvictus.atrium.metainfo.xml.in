@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.63.0" date="2026-07-17">
+      <description translate="no">
+        <p>Grows Atrium's owned stylesheet into a comprehensive one, so the
+           app looks the same with or without a system GTK theme underneath.
+           It now styles the full widget set in the rounded Kanagawa Dragon
+           language and carries the utility classes it needs, making the
+           look genuinely self-contained ahead of dropping libadwaita.</p>
+      </description>
+    </release>
     <release version="0.62.2" date="2026-07-17">
       <description translate="no">
         <p>Draws task checkboxes as clean circles again (a thin ring when
