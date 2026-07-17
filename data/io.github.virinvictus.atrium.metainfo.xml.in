@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.50.0" date="2026-07-17">
+      <description translate="no">
+        <p>First step of the move to a flat, tiling-first look on plain
+           GTK4. The About window is rebuilt on the standard toolkit,
+           and the app's styling now takes precedence over a system-wide
+           GTK theme so Atrium looks the way it intends regardless of the
+           desktop's theme. No change to any feature.</p>
+      </description>
+    </release>
     <release version="0.49.0" date="2026-07-17">
       <description translate="no">
         <p>New application icon. The placeholder "A" is redrawn on the

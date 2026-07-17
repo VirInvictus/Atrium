@@ -1,5 +1,17 @@
 # Atrium — Patch Notes
 
+## v0.50.0 (2026-07-17): de-adwaita ladder C1 — foundations + the stylesheet-priority fix
+
+The first rung of the Phase 22 sub-phase ladder (roadmap C1). Deliberately small and low-risk: no visual change, no schema, no feature touched.
+
+**About dialog → `gtk::AboutDialog`.** The in-window `adw::AboutDialog` sheet becomes a plain-GTK toplevel. The mapping is faithful bar two adwaita-only niceties: the acknowledgement section ("Built on the shoulders of") and the bundled-fonts legal section both become `add_credit_section` entries, and since `gtk::AboutDialog` has no `issue_url` field the tracker rides the website label instead. Contents are otherwise unchanged: version, MIT license, the influences (Things 3, OmniFocus, Org-mode, NetNewsWire), the three bundled typefaces under SIL OFL 1.1. `onboarding.rs` and the icon references are untouched.
+
+**Stylesheet priority fix.** Atrium loaded its stylesheet at `STYLE_PROVIDER_PRIORITY_APPLICATION` (600), below `PRIORITY_USER` (800). A user's themed `~/.config/gtk-4.0/gtk.css` therefore outranked Atrium and silently half-overrode its styling — most visibly, a system-wide Kanagawa GTK theme bleeding into the app. The provider now installs at `STYLE_PROVIDER_PRIORITY_USER + 1`, keeping Atrium's own sheet authoritative (this was the "Colophon discovery"; Conservatory carries the same fix). It is also the future home of the owned generated sheet that lands at C9.
+
+**What's deferred.** The keyboard-shortcuts window stays as-is this rung. It is already a plain `gtk::ShortcutsWindow` with no adwaita to remove, and the `GtkShortcuts*` deprecation only warns at the `v4_18` feature gate while Atrium pins `v4_16`. Hand-rolling a replacement now — before the owned-rows module arrives at C5 — would be throwaway work, so it rides C5 (or a later `v4_18` bump) instead. Recorded on the roadmap so it isn't lost.
+
+Verification: `cargo fmt --check`, `cargo clippy --all-targets -D warnings`, and the workspace build are clean. The About dialog and `Ctrl+?` are GUI surfaces exercised on launch; a hands-on pass rides Brandon's display.
+
 ## v0.49.0 (2026-07-17): new application icon
 
 The day-one placeholder is replaced. The icon comment had said "Replace before 1.0" since v0.0.0, and with the de-adwaita re-theme now landing before the tag, the icon is drawn in the palette it will actually keep.

@@ -170,10 +170,17 @@ pub fn apply_bundled_stylesheet() {
     provider.load_from_path(&path);
 
     if let Some(display) = gdk::Display::default() {
+        // One step above USER priority, not APPLICATION: a themed
+        // ~/.config/gtk-4.0/gtk.css loads at USER (800) and outranks
+        // APPLICATION (600), so a system-wide theme (e.g. a Kanagawa
+        // gtk.css) silently half-overrides Atrium's own styling — the
+        // Colophon discovery, Phase 22 C1. USER + 1 keeps Atrium's
+        // sheet authoritative over it. (This is the future home of the
+        // owned generated sheet in C9.)
         gtk::style_context_add_provider_for_display(
             &display,
             &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            gtk::STYLE_PROVIDER_PRIORITY_USER + 1,
         );
         info!(path = %path.display(), "stylesheet applied");
     } else {
