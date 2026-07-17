@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## v0.65.0 (2026-07-17): tiling-forward layout, part 1 — the list width cap returns
+
+First piece of the tiling-forward responsive layout. An owned `AtriumClamp` widget (a plain-GTK4 `AdwClamp` successor) caps the task list at a centered 960px column on wide windows, so the rows stay a calm Things-3 paper column instead of stretching edge-to-edge on a wide tile. It wraps the list's scroller rather than the list itself, so the `GtkListView` keeps native scrolling and row virtualisation (no need to reimplement `GtkScrollable`). This reinstates the cap that Phase 22 C8 dropped with the `AdwClamp`. Part 2 (the adaptive staged collapse: the inspector, then the Lists sidebar, folding to an overlay reveal as the window narrows to a tile) follows next.
+
 ## v0.64.0 (2026-07-17): de-adwaita ladder C10 — libadwaita dropped (the toolkit cut)
 
 The last rung. libadwaita is gone from the dependency tree; Atrium is plain GTK4 with its own owned stylesheet. `adw::Application` becomes `gtk::Application`; the boot-time and Preferences theme apply, which drove `adw::StyleManager` / `adw::ColorScheme`, now sets GtkSettings' prefer-dark hint (Atrium ships the dark Kanagawa Dragon sheet, so dark and auto both render dark; a true light Lotus palette is post-1.0 work). Every `use adw::prelude::*` / `adw::subclass::prelude::*` becomes its GTK equivalent, the `libadwaita` workspace dependency is removed, and CI drops the `libadwaita-devel` build package. `cargo tree` shows zero libadwaita.

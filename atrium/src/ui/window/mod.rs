@@ -309,6 +309,9 @@ mod imp {
         type ParentType = gtk::ApplicationWindow;
 
         fn class_init(klass: &mut Self::Class) {
+            // Register the custom `AtriumClamp` type before the template that
+            // names it inflates (it wraps the task list for the width cap).
+            crate::ui::clamp::Clamp::ensure_registered();
             klass.bind_template();
         }
 

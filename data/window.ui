@@ -584,26 +584,32 @@
                                       </object>
                                     </child>
                                     <child>
-                                      <!-- v0.5.0 (Slice B1) capped the list width so
-                                           the rows don't stretch into runway on wide
-                                           windows — Things-3-style paper-list calm.
-                                           Phase 22 C8 dropped the AdwClamp that used
-                                           to do it (max 960); the plain-GTK width cap
-                                           returns with the owned stylesheet in C9. For
-                                           now the list fills the pane. -->
-                                      <object class="GtkScrolledWindow">
-                                        <property name="hscrollbar-policy">never</property>
+                                      <!-- v0.5.0 (Slice B1) capped the list width so the
+                                           rows don't stretch into runway on wide windows —
+                                           Things-3-style paper-list calm. Phase 22 C8
+                                           dropped the AdwClamp; the owned AtriumClamp
+                                           (max 960) reinstates it as part of the
+                                           tiling-forward layout work. It wraps the
+                                           ScrolledWindow so the ListView keeps native
+                                           scrolling + row virtualisation. -->
+                                      <object class="AtriumClamp">
                                         <property name="vexpand">true</property>
-                                        <property name="child">
-                                          <object class="GtkListView" id="task_list_view">
-                                            <property name="show-separators">true</property>
-                                            <property name="single-click-activate">false</property>
-                                            <property name="margin-top">12</property>
-                                            <style>
-                                              <class name="atrium-task-listview"/>
-                                            </style>
+                                        <child>
+                                          <object class="GtkScrolledWindow">
+                                            <property name="hscrollbar-policy">never</property>
+                                            <property name="vexpand">true</property>
+                                            <property name="child">
+                                              <object class="GtkListView" id="task_list_view">
+                                                <property name="show-separators">true</property>
+                                                <property name="single-click-activate">false</property>
+                                                <property name="margin-top">12</property>
+                                                <style>
+                                                  <class name="atrium-task-listview"/>
+                                                </style>
+                                              </object>
+                                            </property>
                                           </object>
-                                        </property>
+                                        </child>
                                       </object>
                                     </child>
                                     <child>
