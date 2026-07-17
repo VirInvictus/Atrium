@@ -90,6 +90,14 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.59.1" date="2026-07-17">
+      <description translate="no">
+        <p>Documentation: records the decision, ahead of the window-shell
+           rework, to hide the title-bar window buttons on the tiling-first
+           design (the compositor and Ctrl+Q handle closing). No code
+           change.</p>
+      </description>
+    </release>
     <release version="0.59.0" date="2026-07-17">
       <description translate="no">
         <p>The Preferences window is rebuilt on plain GTK4: a page list

@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## v0.59.1 (2026-07-17): spec — decoration posture for the shell cut
+
+A documentation patch, recording a design decision ahead of the C8 window-shell rework so it lands in spec first (per the roadmap). Atrium's tiling-first posture hides the title-bar window-control buttons: the compositor owns close / maximize / minimize, `Ctrl+Q` quits, and the headerbars keep only their functional controls. This matches the portfolio (Hermitage's Hyprland-native phases, Viaduct v3.0.0). Spec §3.7 updated; no code change.
+
 ## v0.59.0 (2026-07-17): de-adwaita ladder C7 — the Preferences window
 
 The Preferences surface moves off `AdwPreferencesDialog` onto a plain modal `gtk::Window`. A `GtkStackSidebar` lists the four pages (General, Capture, Notifications, Backups) beside a `GtkStack` holding them, each an owned `rows::page`. The mode and theme dropdowns, the high-legibility and notification and weekly-backup switches, and the Quick Entry shortcut entry all convert to the owned combo / switch / entry rows; the vault-path row is hand-built (a label, a filling entry, and the folder-picker button) since it pairs an entry with a trailing button. Escape closes the window, and it opens transient over the main window.
