@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.57.0" date="2026-07-17">
+      <description translate="no">
+        <p>Internal cleanup finishing the list-widget migration: the
+           container hosts for the Forecast, Review, Logbook, board,
+           Agenda, and Calendar pages, and for the inspector pane, move
+           off the GNOME toolkit's bin to a plain GTK container. No
+           visible change.</p>
+      </description>
+    </release>
     <release version="0.56.0" date="2026-07-17">
       <description translate="no">
         <p>The Builder-mode inspector pane — the app's deepest editing

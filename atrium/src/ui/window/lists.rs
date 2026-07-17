@@ -90,7 +90,7 @@ impl AtriumWindow {
             // v0.6.0 (Slice D1 GUI) — perspective whose
             // `renderer = "board"` renders as a kanban instead of
             // a flat list. We branch *before* the list path: the
-            // board page has its own host AdwBin in the content
+            // board page has its own host box in the content
             // stack, no shared GtkListView state.
             let perspective_snapshot = self.imp().perspective_meta.borrow().get(id).cloned();
             if let Some(p) = perspective_snapshot

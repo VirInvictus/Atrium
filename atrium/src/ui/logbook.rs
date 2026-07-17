@@ -18,7 +18,7 @@
 //! The grouping function lives at module level so it's pure-Rust
 //! testable; the GTK build path is just the renderer on top.
 //!
-//! `build_page` mounts into the window's `logbook_host` AdwBin via
+//! `build_page` mounts into the window's `logbook_host` host box via
 //! `refresh_logbook_page` in `window.rs`.
 
 use std::collections::HashMap;

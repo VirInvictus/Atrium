@@ -55,7 +55,7 @@ mod imp {
         #[template_child]
         pub overlay_split: TemplateChild<adw::OverlaySplitView>,
         #[template_child]
-        pub inspector_pane_host: TemplateChild<adw::Bin>,
+        pub inspector_pane_host: TemplateChild<gtk::Box>,
         #[template_child]
         pub split_view: TemplateChild<adw::NavigationSplitView>,
         #[template_child]
@@ -85,31 +85,31 @@ mod imp {
         #[template_child]
         pub content_status_host: TemplateChild<gtk::Box>,
         #[template_child]
-        pub forecast_host: TemplateChild<adw::Bin>,
+        pub forecast_host: TemplateChild<gtk::Box>,
         #[template_child]
-        pub review_host: TemplateChild<adw::Bin>,
+        pub review_host: TemplateChild<gtk::Box>,
         /// v0.6.0 (Slice C2) — Logbook page host. Window mounts the
         /// day-band layout from `logbook::build_page` here whenever
         /// `ActiveList::Logbook` is selected.
         #[template_child]
-        pub logbook_host: TemplateChild<adw::Bin>,
+        pub logbook_host: TemplateChild<gtk::Box>,
         /// v0.6.0 (Slice D1 GUI) — kanban board page host. Window
         /// mounts the column layout from `board::build_page` here
         /// whenever the active Perspective has `renderer = "board"`.
         #[template_child]
-        pub board_host: TemplateChild<adw::Bin>,
+        pub board_host: TemplateChild<gtk::Box>,
         /// v0.6.4 (Slice D2) — Agenda canonical page host. Window
         /// mounts the chronological-section layout from
         /// `agenda::build_page` here whenever `ActiveList::Agenda`
         /// is selected.
         #[template_child]
-        pub agenda_host: TemplateChild<adw::Bin>,
+        pub agenda_host: TemplateChild<gtk::Box>,
         /// Phase 12.5 (v0.11.0) — Calendar Month View host.
         /// Window mounts the 7×N grid from `calendar::build_page`
         /// here whenever `ActiveList::Calendar` is selected.
         /// Builder-only.
         #[template_child]
-        pub calendar_host: TemplateChild<adw::Bin>,
+        pub calendar_host: TemplateChild<gtk::Box>,
         // v0.7.0 — magazine-spread page title strip that lives
         // between the header bar and the content stack. Bound in
         // set_active_list (big label = view title, subtitle =

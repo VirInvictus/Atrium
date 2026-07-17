@@ -21,14 +21,13 @@
 //!   them (11 and 15). "No new logic — just exposure" per the
 //!   roadmap Phase 10 tagline.
 //!
-//! The pane host (`AdwBin id="inspector_pane_host"`) is declared in
+//! The pane host (`GtkBox id="inspector_pane_host"`) is declared in
 //! `data/window.ui`; `install` mounts the body widget into it on
 //! window startup. `set_task` swaps the contents.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use adw::prelude::*;
 use atrium_core::db::read_pool::ReadPool;
 use atrium_core::{
     Project, RepeatMode, RepeatRule, ScheduledFor, Task, TaskClockEntry, TaskUpdate, WorkerHandle,
@@ -39,6 +38,7 @@ use gtk::gio;
 use gtk::glib;
 use gtk::glib::clone;
 use gtk::pango;
+use gtk::prelude::*;
 use tracing::error;
 
 use crate::i18n::gettext;
@@ -74,12 +74,12 @@ pub struct InspectorPane {
 }
 
 impl InspectorPane {
-    /// Build the pane and mount it into `host` (the `AdwBin` declared
+    /// Build the pane and mount it into `host` (the `host box` declared
     /// in window.ui). `on_edit_tags` is invoked when the user hits
     /// the "Edit Tags…" button — same hand-off as the dialog
     /// Inspector.
     pub fn install<F, N, P>(
-        host: &adw::Bin,
+        host: &gtk::Box,
         worker: WorkerHandle,
         on_edit_tags: F,
         on_navigate_uuid: N,
@@ -120,7 +120,7 @@ impl InspectorPane {
         stack.add_named(editor_host.widget(), Some("editor"));
         stack.set_visible_child_name("empty");
 
-        host.set_child(Some(&stack));
+        crate::ui::rows::set_box_child(host, Some(&stack));
 
         Rc::new(Self {
             stack,

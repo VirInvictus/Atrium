@@ -8,14 +8,14 @@ use super::*;
 
 impl AtriumWindow {
     /// Phase 12 — rebuild the Forecast page from the read pool
-    /// and mount it into the `forecast_host` AdwBin. Called from
+    /// and mount it into the `forecast_host` host box. Called from
     /// `refresh_active_list` when the active view becomes
     /// Forecast, and from `apply_task_changes` if the active view
     /// is currently Forecast (so a drag-to-reschedule, completion
     /// toggle, or worker-driven mutation refreshes the cards).
     pub(super) fn refresh_forecast_page(&self) {
         let Some(pool) = self.read_pool() else {
-            self.imp().forecast_host.set_child(None::<&gtk::Widget>);
+            crate::ui::rows::set_box_child(&self.imp().forecast_host, None::<&gtk::Widget>);
             return;
         };
         let today = Local::now().date_naive();
@@ -54,7 +54,7 @@ impl AtriumWindow {
             on_click,
         );
         let hosted = self.wrap_with_agenda_toggle(widget.upcast());
-        self.imp().forecast_host.set_child(Some(&hosted));
+        crate::ui::rows::set_box_child(&self.imp().forecast_host, Some(&hosted));
     }
 
     /// v0.39.0 — Builder-only Bands/Strip layout toggle for the merged
@@ -146,7 +146,7 @@ impl AtriumWindow {
     /// completions in the weekly walk drop their row immediately.
     pub(super) fn refresh_review_page(&self) {
         let Some(pool) = self.read_pool() else {
-            self.imp().review_host.set_child(None::<&gtk::Widget>);
+            crate::ui::rows::set_box_child(&self.imp().review_host, None::<&gtk::Widget>);
             return;
         };
         let today = Local::now().date_naive();
@@ -238,12 +238,12 @@ impl AtriumWindow {
             on_click,
             on_mark_reviewed,
         );
-        self.imp().review_host.set_child(Some(&widget));
+        crate::ui::rows::set_box_child(&self.imp().review_host, Some(&widget));
     }
 
     /// v0.6.0 (Slice C2) — rebuild the Logbook page with day-band
     /// grouping (Today / Yesterday / Last 7 Days / Older) and mount
-    /// it into the `logbook_host` AdwBin. Replaces the flat list
+    /// it into the `logbook_host` host box. Replaces the flat list
     /// rendering Logbook used to share with Inbox / Today / etc.
     /// Called when the active list becomes Logbook, and from
     /// `apply_task_changes` if the active list is Logbook (so a
@@ -251,7 +251,7 @@ impl AtriumWindow {
     /// task into the Today band immediately).
     pub(super) fn refresh_logbook_page(&self) {
         let Some(pool) = self.read_pool() else {
-            self.imp().logbook_host.set_child(None::<&gtk::Widget>);
+            crate::ui::rows::set_box_child(&self.imp().logbook_host, None::<&gtk::Widget>);
             return;
         };
         let today = Local::now().date_naive();
@@ -278,7 +278,7 @@ impl AtriumWindow {
             &area_titles,
             &tag_pills,
         );
-        self.imp().logbook_host.set_child(Some(&widget));
+        crate::ui::rows::set_box_child(&self.imp().logbook_host, Some(&widget));
     }
 
     /// v0.6.4 (Slice D2) — rebuild the Agenda canonical page. Loads
@@ -287,7 +287,7 @@ impl AtriumWindow {
     /// Week, and mounts the resulting widget into `agenda_host`.
     pub(super) fn refresh_agenda_page(&self) {
         let Some(pool) = self.read_pool() else {
-            self.imp().agenda_host.set_child(None::<&gtk::Widget>);
+            crate::ui::rows::set_box_child(&self.imp().agenda_host, None::<&gtk::Widget>);
             return;
         };
         let today = Local::now().date_naive();
@@ -316,7 +316,7 @@ impl AtriumWindow {
         let widget =
             crate::ui::agenda::build_page(today, &tasks, &project_titles, &tag_pills, on_click);
         let hosted = self.wrap_with_agenda_toggle(widget);
-        self.imp().agenda_host.set_child(Some(&hosted));
+        crate::ui::rows::set_box_child(&self.imp().agenda_host, Some(&hosted));
     }
 
     /// Phase 12.5 — open the Calendar Month View. No-op in Simple
@@ -390,7 +390,7 @@ impl AtriumWindow {
     /// the nav helpers above when the user pages months.
     pub(super) fn refresh_calendar_page(&self) {
         let Some(pool) = self.read_pool() else {
-            self.imp().calendar_host.set_child(None::<&gtk::Widget>);
+            crate::ui::rows::set_box_child(&self.imp().calendar_host, None::<&gtk::Widget>);
             return;
         };
         let today = Local::now().date_naive();
@@ -471,7 +471,7 @@ impl AtriumWindow {
                 on_day_drill,
             },
         );
-        self.imp().calendar_host.set_child(Some(&widget));
+        crate::ui::rows::set_box_child(&self.imp().calendar_host, Some(&widget));
     }
 
     /// v0.6.0 (Slice D1 GUI) — rebuild the kanban board page for a
@@ -493,7 +493,7 @@ impl AtriumWindow {
             atrium_core::Renderer::List => return Ok(()),
         };
         let Some(pool) = self.read_pool() else {
-            self.imp().board_host.set_child(None::<&gtk::Widget>);
+            crate::ui::rows::set_box_child(&self.imp().board_host, None::<&gtk::Widget>);
             return Ok(());
         };
         // Same load shape as the list-renderer perspective path —
@@ -788,7 +788,7 @@ impl AtriumWindow {
             on_configure,
             on_add,
         );
-        self.imp().board_host.set_child(Some(&widget));
+        crate::ui::rows::set_box_child(&self.imp().board_host, Some(&widget));
         Ok(())
     }
 

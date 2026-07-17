@@ -284,11 +284,19 @@ impl Bin {
     /// Replace the (single) child. `None` clears it. Mirrors
     /// `adw::Bin::set_child`.
     pub fn set_child(&self, child: Option<&impl IsA<gtk::Widget>>) {
-        while let Some(existing) = self.root.first_child() {
-            self.root.remove(&existing);
-        }
-        if let Some(child) = child {
-            self.root.append(child);
-        }
+        set_box_child(&self.root, child);
+    }
+}
+
+/// Replace the single child of a `gtk::Box` used as a bin-style host (the
+/// `adw::Bin::set_child` analogue for the `.ui`-template stack-page hosts,
+/// which must be real GObjects and so are `GtkBox`, not [`Bin`]). `None`
+/// clears it.
+pub fn set_box_child(host: &gtk::Box, child: Option<&impl IsA<gtk::Widget>>) {
+    while let Some(existing) = host.first_child() {
+        host.remove(&existing);
+    }
+    if let Some(child) = child {
+        host.append(child);
     }
 }

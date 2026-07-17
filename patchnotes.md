@@ -1,5 +1,13 @@
 # Atrium — Patch Notes
 
+## v0.57.0 (2026-07-17): de-adwaita ladder C5d — the bin hosts (C5 complete)
+
+The last C5 step, closing out the whole list-widget rung. The seven `adw::Bin` single-child hosts (the inspector pane's sidebar host, and the Forecast / Review / Logbook / board / Agenda / Calendar stack-page hosts) become plain `GtkBox` in `data/window.ui` and `TemplateChild<gtk::Box>` in the window's template struct. A small `rows::set_box_child` helper (remove-then-append) replaces `adw::Bin::set_child` at the roughly thirteen call sites in `views.rs` and the inspector pane's `install`.
+
+With the hosts converted, the inspector pane no longer names a single adwaita type, so its prelude drops from `adw::prelude` to `gtk::prelude`. No visible change: each host still holds exactly one child that the window swaps as the active view or selection changes.
+
+That completes C5, the largest rung of the de-adwaita ladder: the entire `adw` list-row and container-host family (`ActionRow`, `PreferencesGroup`, `PreferencesPage`, `ComboRow`, `EntryRow`, `SwitchRow`, `SpinRow`, `Bin`) is gone from the import dialog, both inspectors, and the page hosts, all rebuilt on the owned `rows` module. `fmt`, `clippy -D warnings`, and the 1028-test suite are green. What remains adwaita: the split views (C6), the Preferences window (C7), the window/dialog shells (C8), the stylesheet (C9), and then the toolkit drop (C10).
+
 ## v0.56.0 (2026-07-17): de-adwaita ladder C5c — the Builder inspector pane
 
 The heaviest rung: the Builder-mode inspector pane (`inspector_pane/mod.rs` + `fields.rs`, about 2,220 lines) moves off the entire `adw` row family. This is the app's deepest editing surface, and every field converts while keeping its live autosave.

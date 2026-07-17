@@ -59,7 +59,7 @@ pub enum DropDestination {
 /// Build the board page widget. Returns a horizontally-scrolling
 /// container with one column per configured kanban column plus the
 /// trailing `Other` bucket. The window mounts this into the
-/// `board_host` AdwBin in the content stack.
+/// `board_host` host box in the content stack.
 ///
 /// `tag_pills` and `project_titles` are read-only references the
 /// rows borrow when building their secondary metadata line. `worker`

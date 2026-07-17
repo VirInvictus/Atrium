@@ -219,7 +219,7 @@ impl AtriumWindow {
         });
     }
 
-    /// Mount the Inspector pane into the AdwBin host declared in
+    /// Mount the Inspector pane into the host box host declared in
     /// `data/window.ui`. Edit Tags hand-off routes through the
     /// existing tag-editor open path.
     pub(super) fn install_inspector_pane(&self, worker: WorkerHandle) {
