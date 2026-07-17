@@ -90,6 +90,14 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.62.1" date="2026-07-17">
+      <description translate="no">
+        <p>Softens the new Kanagawa look: gently rounded controls, cards,
+           popovers, and toasts, rounded checkboxes and switches, and a
+           soft shadow on floating panels, in place of the initial flat
+           square styling. Colours unchanged.</p>
+      </description>
+    </release>
     <release version="0.62.0" date="2026-07-17">
       <description translate="no">
         <p>De-adwaita ladder C9 — the visual flip. An owned Kanagawa Dragon

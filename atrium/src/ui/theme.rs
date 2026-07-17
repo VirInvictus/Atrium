@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: MIT
 //! The owned application stylesheet (Phase 22 C9): Kanagawa Dragon baked
 //! into one generated sheet, replacing libadwaita's named-colour palette
-//! and flipping the base widgets to the spec §3.7 design language — flat,
-//! square, hard 1px hairlines, denser than the GNOME HIG.
+//! and restyling the base widgets to Atrium's design language (spec §3.7):
+//! flat and calm, but gently rounded (controls ~8px, cards / popovers /
+//! toasts ~12px, switches and pills fully round), with a soft drop shadow
+//! on floating panels. The square, brutalist stance of the sibling
+//! de-adwaita apps was softened here after seeing it live — Atrium is a
+//! Things-3-style surface, not a utilitarian tool, so it carries rounding.
 //!
 //! Two jobs:
 //!
@@ -102,20 +106,24 @@ paned > separator {
 }
 
 listview, list, columnview { background-color: %BG_VIEW%; color: %FG%; }
-row { border-radius: 0; }
-row.activatable:hover { background-color: alpha(currentColor, 0.06); }
-row:selected { background-color: alpha(%ACCENT%, 0.30); color: %FG%; }
-.navigation-sidebar { background-color: %BG_VIEW%; }
-.navigation-sidebar > row { padding: 4px 8px; border-radius: 0; }
+row { border-radius: 8px; }
+row.activatable:hover { background-color: alpha(currentColor, 0.05); }
+row:selected { background-color: alpha(%ACCENT%, 0.26); color: %FG%; }
+.navigation-sidebar { background-color: %BG_VIEW%; padding: 2px 6px; }
+.navigation-sidebar > row {
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin: 1px 0;
+}
 
 .card, list.boxed-list {
   background-color: %BG_CARD%;
   color: %FG%;
   border: 1px solid %GRID%;
-  border-radius: 0;
-  box-shadow: none;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
 }
-list.boxed-list > row { border-bottom: 1px solid %GRID%; }
+list.boxed-list > row { border-bottom: 1px solid alpha(%GRID%, 0.6); }
 list.boxed-list > row:last-child { border-bottom: none; }
 
 button {
@@ -123,60 +131,68 @@ button {
   background-image: none;
   color: %FG%;
   border: 1px solid %GRID%;
-  border-radius: 0;
+  border-radius: 8px;
   box-shadow: none;
   min-height: 24px;
-  padding: 2px 10px;
+  padding: 3px 12px;
+  transition: background-color 120ms ease, border-color 120ms ease;
 }
 button:hover { background-color: %GRID%; }
 button:active, button:checked { background-color: %ACCENT%; color: %ON_ACCENT%; border-color: %ACCENT%; }
-button.flat, button.circular {
+button.flat {
   background-color: transparent;
   background-image: none;
   border-color: transparent;
   box-shadow: none;
 }
-button.flat:hover, button.circular:hover { background-color: %GRID%; }
+button.circular { border-radius: 999px; }
+button.flat:hover, button.circular:hover { background-color: alpha(%FG%, 0.10); }
 button.suggested-action { background-color: %ACCENT%; color: %ON_ACCENT%; border-color: %ACCENT%; }
 button.suggested-action:hover { background-color: %WARN%; border-color: %WARN%; }
 button.destructive-action { background-color: %ERR%; color: %ON_ACCENT%; border-color: %ERR%; }
-button.pill { border-radius: 0; }
+button.pill { border-radius: 999px; padding: 5px 16px; }
 
 entry, spinbutton, .entry {
   background-color: %BG_VIEW%;
   background-image: none;
   color: %FG%;
   border: 1px solid %GRID%;
-  border-radius: 0;
+  border-radius: 8px;
   box-shadow: none;
+  transition: border-color 120ms ease;
 }
 entry:focus-within { border-color: %ACCENT%; }
 
 checkbutton check, check {
-  border-radius: 0;
-  border: 1px solid %GRID%;
+  border-radius: 6px;
+  border: 1px solid alpha(%FG%, 0.35);
   background-color: %BG_VIEW%;
+  min-width: 18px;
+  min-height: 18px;
+  transition: background-color 120ms ease, border-color 120ms ease;
 }
+check:hover { border-color: %ACCENT%; }
 check:checked { background-color: %ACCENT%; color: %ON_ACCENT%; border-color: %ACCENT%; }
 
 switch {
-  border-radius: 0;
+  border-radius: 999px;
   background-color: %BG_VIEW%;
   border: 1px solid %GRID%;
+  min-width: 40px;
 }
-switch:checked { background-color: %ACCENT%; }
-switch > slider { border-radius: 0; background-color: %FG%; }
+switch:checked { background-color: %ACCENT%; border-color: %ACCENT%; }
+switch > slider { border-radius: 999px; background-color: %FG%; margin: 2px; }
 
-scale > trough { background-color: %GRID%; border-radius: 0; }
-scale > trough > highlight { background-color: %ACCENT%; border-radius: 0; }
-scale > trough > slider { border-radius: 0; background-color: %FG%; }
+scale > trough { background-color: %GRID%; border-radius: 999px; }
+scale > trough > highlight { background-color: %ACCENT%; border-radius: 999px; }
+scale > trough > slider { border-radius: 999px; background-color: %FG%; }
 
 popover > contents, .popover > contents {
   background-color: %BG_CARD%;
   color: %FG%;
   border: 1px solid %GRID%;
-  border-radius: 0;
-  box-shadow: none;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.38);
 }
 
 .dim-label { color: %FG_DIM%; }
@@ -193,8 +209,9 @@ button:focus-visible, entry:focus-visible, .atrium-swatch:focus-visible {
   background-color: %BG_CARD%;
   color: %FG%;
   border: 1px solid %GRID%;
-  border-radius: 0;
-  padding: 6px 12px;
+  border-radius: 12px;
+  padding: 8px 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.38);
 }
 ";
 

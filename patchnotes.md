@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## v0.62.1 (2026-07-17): soften the C9 look — gently rounded, not blocky
+
+First live look at the C9 theme read as too blocky, so the owned sheet's "flat and square" stance is softened. Controls (buttons, entries, rows) round to ~8px, cards / popovers / toasts to ~12px, switches / scales / pills go fully round, and checkboxes become rounded squares with a lighter border and a hover-accent hint. Floating panels (popovers, toasts, cards) gain a soft drop shadow for depth, sidebar selection is a rounded inset highlight, and buttons get a short colour transition. Chrome stays flat with 1px hairlines; the palette and the dragonYellow accent are unchanged. spec §3.7 updated to the softened design language (Atrium is a Things-3-style surface, so it carries rounding where the utilitarian de-adwaita siblings stayed square). Stylesheet-only.
+
 ## v0.62.0 (2026-07-17): de-adwaita ladder C9 — the visual flip (owned Kanagawa stylesheet + migration 0020)
 
 Atrium stops looking like adwaita. A new owned stylesheet, `atrium/src/ui/theme.rs`, bakes the Kanagawa Dragon palette into one generated sheet and installs it a step above USER priority (just under `data/style.css`, which keeps its per-surface tweaks). The accent is dragonYellow (#c4b28a), matching the app icon's courtyard floor. The base widgets flip to the spec §3.7 design language: flat, square, hard 1px hairlines, no gradients or rounded chrome.
