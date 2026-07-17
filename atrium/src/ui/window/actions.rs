@@ -434,7 +434,7 @@ impl AtriumWindow {
         let names: Vec<&str> = templates.iter().map(|t| t.name.as_str()).collect();
         let model = gtk::StringList::new(&names);
         let dropdown = gtk::DropDown::builder().model(&model).build();
-        let dialog = adw::AlertDialog::new(
+        let dialog = crate::ui::dialogs::Alert::new(
             Some(&gettext("Create from Template")),
             Some(&gettext("Stamp the chosen template out as a new project.")),
         );
@@ -443,7 +443,7 @@ impl AtriumWindow {
         dialog.add_response("ok", &gettext("Create"));
         dialog.set_default_response(Some("ok"));
         dialog.set_close_response("cancel");
-        dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dialog.set_response_appearance("ok", crate::ui::dialogs::Appearance::Suggested);
 
         let ids: Vec<i64> = templates.iter().map(|t| t.id).collect();
         let win = self.clone();

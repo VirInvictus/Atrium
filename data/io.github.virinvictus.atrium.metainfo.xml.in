@@ -90,6 +90,16 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.53.0" date="2026-07-17">
+      <description translate="no">
+        <p>Fourth step of the plain-GTK4 move: the confirmation and prompt
+           dialogs (rename, delete confirmations, the tag editor with its
+           colour swatches, the perspective editor, template pickers) are
+           rebuilt on an owned modal instead of the GNOME toolkit's. Same
+           buttons, same keyboard behaviour (Enter confirms, Escape
+           cancels), same wording.</p>
+      </description>
+    </release>
     <release version="0.52.0" date="2026-07-17">
       <description translate="no">
         <p>Third step of the plain-GTK4 move: the pop-up notifications

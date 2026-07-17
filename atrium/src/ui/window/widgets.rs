@@ -101,7 +101,7 @@ pub(crate) fn build_primary_menu(include_debug: bool) -> gio::Menu {
     menu
 }
 
-/// Open a small `AdwAlertDialog` with a text entry. Returns the
+/// Open a small owned modal alert with a text entry. Returns the
 /// trimmed entered text on the configured-action response, or `None`
 /// on cancel / empty input.
 /// v0.3.0 — six-swatch palette used by the tag-color picker. Hex
@@ -249,13 +249,13 @@ pub(super) async fn prompt_for_named_color(
         spin
     });
 
-    let dialog = adw::AlertDialog::new(Some(heading), None);
+    let dialog = crate::ui::dialogs::Alert::new(Some(heading), None);
     dialog.set_extra_child(Some(&body));
     dialog.add_response("cancel", &gettext("Cancel"));
     dialog.add_response("ok", confirm_label);
     dialog.set_default_response(Some("ok"));
     dialog.set_close_response("cancel");
-    dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+    dialog.set_response_appearance("ok", crate::ui::dialogs::Appearance::Suggested);
 
     let response = dialog.choose_future(parent).await;
     if response.as_str() == "ok" {
@@ -284,13 +284,13 @@ pub(super) async fn prompt_for_text(
         .activates_default(true)
         .build();
 
-    let dialog = adw::AlertDialog::new(Some(heading), None);
+    let dialog = crate::ui::dialogs::Alert::new(Some(heading), None);
     dialog.set_extra_child(Some(&entry));
     dialog.add_response("cancel", &gettext("Cancel"));
     dialog.add_response("ok", confirm_label);
     dialog.set_default_response(Some("ok"));
     dialog.set_close_response("cancel");
-    dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+    dialog.set_response_appearance("ok", crate::ui::dialogs::Appearance::Suggested);
 
     let response = dialog.choose_future(parent).await;
     if response.as_str() == "ok" {
@@ -508,7 +508,7 @@ pub(super) async fn prompt_configure_renderer_dialog(
     let (_list_radio, tag_radio, status_radio, columns_entry) =
         build_renderer_form(&form, existing_axis, &existing_cols_text);
 
-    let dialog = adw::AlertDialog::new(
+    let dialog = crate::ui::dialogs::Alert::new(
         Some(&gettext_f(
             "Configure renderer for “{name}”",
             &[("name", &perspective.name)],
@@ -520,7 +520,7 @@ pub(super) async fn prompt_configure_renderer_dialog(
     dialog.add_response("ok", &gettext("Save"));
     dialog.set_default_response(Some("ok"));
     dialog.set_close_response("cancel");
-    dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+    dialog.set_response_appearance("ok", crate::ui::dialogs::Appearance::Suggested);
 
     let response = dialog.choose_future(parent).await;
     if response.as_str() != "ok" {
@@ -544,7 +544,7 @@ pub(crate) struct EditedPerspectiveFields {
 
 /// v0.7.3 — perspective editor dialog. Used for both create
 /// (`existing = None`) and edit (`existing = Some(&perspective)`).
-/// Renders a single AdwAlertDialog form with Name + Filter +
+/// Renders a single owned-alert form with Name + Filter +
 /// Renderer (List / Board radios) + Columns (sensitive only when
 /// Board is active). Returns `Some(EditedPerspectiveFields)` on
 /// Save, `None` on Cancel or empty Name/Filter.
@@ -610,7 +610,7 @@ pub(super) async fn prompt_edit_perspective(
     } else {
         gettext("New perspective")
     };
-    let dialog = adw::AlertDialog::new(Some(&heading), None);
+    let dialog = crate::ui::dialogs::Alert::new(Some(&heading), None);
     dialog.set_extra_child(Some(&form));
     dialog.add_response("cancel", &gettext("Cancel"));
     dialog.add_response(
@@ -623,7 +623,7 @@ pub(super) async fn prompt_edit_perspective(
     );
     dialog.set_default_response(Some("ok"));
     dialog.set_close_response("cancel");
-    dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+    dialog.set_response_appearance("ok", crate::ui::dialogs::Appearance::Suggested);
 
     let response = dialog.choose_future(parent).await;
     if response.as_str() != "ok" {
@@ -666,7 +666,7 @@ pub(super) fn tag_lists_equal_case_insensitive(a: &[String], b: &[String]) -> bo
     a_lower == b_lower
 }
 
-/// Confirm a destructive action via `AdwAlertDialog`. Returns `true`
+/// Confirm a destructive action via owned modal alert. Returns `true`
 /// only if the user explicitly confirmed.
 pub(super) async fn prompt_confirm_destructive(
     parent: &impl IsA<gtk::Widget>,
@@ -674,12 +674,12 @@ pub(super) async fn prompt_confirm_destructive(
     body: &str,
     destructive_label: &str,
 ) -> bool {
-    let dialog = adw::AlertDialog::new(Some(heading), Some(body));
+    let dialog = crate::ui::dialogs::Alert::new(Some(heading), Some(body));
     dialog.add_response("cancel", &gettext("Cancel"));
     dialog.add_response("destroy", destructive_label);
     dialog.set_default_response(Some("cancel"));
     dialog.set_close_response("cancel");
-    dialog.set_response_appearance("destroy", adw::ResponseAppearance::Destructive);
+    dialog.set_response_appearance("destroy", crate::ui::dialogs::Appearance::Destructive);
 
     let response = dialog.choose_future(parent).await;
     response.as_str() == "destroy"

@@ -1,5 +1,15 @@
 # Atrium — Patch Notes
 
+## v0.53.0 (2026-07-17): de-adwaita ladder C4 — owned modal alert dialogs
+
+The fourth rung, and the biggest so far. `adw::AlertDialog` is gone: a new `atrium/src/ui/dialogs.rs` provides an owned `Alert` (a small modal `gtk::Window`), cribbed from Conservatory's Phase 26 version with the async chooser Atrium's call sites need. Its surface mirrors adwaita's, heading and body, an optional extra child, named responses with per-response `Appearance` (suggested / destructive), a default response for Enter and a close response for Escape and the window-manager close, so all eight call sites converted by swapping only the constructor and the appearance enum.
+
+The async part is the interesting bit. Every dialog in Atrium is driven by `dialog.choose_future(parent).await`, which resolves to the chosen response id. The owned `choose_future` reproduces that over a `tokio::sync::oneshot`: it wires a one-shot response handler that sends the id, presents the modal, and awaits the receiver; a button click, Escape, or the WM close all resolve it exactly once. Enter activates the default response through the window's default widget (entries still opt in with `activates_default`), and Escape or a WM close answer with the close response, matching adwaita's semantics.
+
+The eight sites: the two task confirmations (a destructive-delete confirm and an add/remove prompt) in `tasks.rs`, the four `widgets.rs` prompts (a plain text entry, the tag editor with its colour-swatch extra child, the Name+Filter perspective form, and a review-interval prompt), the shared `confirm_destructive` helper, and the template-picker confirm in `actions.rs`. Behaviour and copy are unchanged; the swatch picker and the perspective form keep their custom content through `set_extra_child`.
+
+Stock `gtk::AlertDialog` was considered and rejected for the reason Conservatory found: it offers no extra child, no per-response styling, and only index-addressed buttons. `fmt`, `clippy -D warnings`, and the workspace test suite (now 1028 with the appearance-mapping unit test) are green. Runtime dialog behaviour is a GUI surface pending a display pass. (Note: the atrium binary's test harness prints a pre-existing `g_static_resource_init` GLib critical from libadwaita's static resources under parallel test load; it is unrelated to this change and goes away at the C10 toolkit cut.)
+
 ## v0.52.0 (2026-07-17): de-adwaita ladder C3 — owned toasts
 
 The third rung. `AdwToastOverlay` and `adw::Toast` are gone; toasts now ride an owned overlay. The content stack in `data/window.ui` is wrapped in a `GtkOverlay` whose overlay child is a crossfading `GtkRevealer` holding a label and an optional Undo button. `show_toast` and `show_undo_toast` (in `search.rs`) drive it through a small `present_toast` / `hide_toast` pair: a new toast cancels the pending auto-hide and re-arms it, so a burst of confirmations keeps the latest message up for its full window (4 seconds plain, 6 for the undo variant), matching the old newest-wins behaviour.
