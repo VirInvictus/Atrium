@@ -131,6 +131,17 @@ The GTK binary is translatable via gettext. Scaffolding-only at 1.0: English is 
 
 Mode-as-view discipline applies: localisation is a presentation-layer concern and touches no schema, no stored data, and no CLI output shape.
 
+### 3.7 Design language — owned stylesheet, plain GTK4 (Phase 22, pre-1.0)
+
+Phase 22 moves Atrium off libadwaita to plain GTK4 with an application stylesheet it owns outright. GTK4 stays because it is Wayland-native; the GNOME design language does not. This section is the target the sub-phase ladder (roadmap Phase 22) builds toward; it lands incrementally across the ladder, with libadwaita finally dropped from the dependency tree at the toolkit-cut step. The look is **flat, square, tiling-first**: no rounded cards or drop shadows on chrome, 1px hairline borders, denser spacing than the GNOME HIG, Kanagawa Dragon throughout. The bundled-font typography (§ Simple Mode / Builder) is unchanged by the toolkit swap.
+
+- **The sheet is generated Rust, not a `.css` asset.** `atrium/src/ui/theme.rs` holds the Kanagawa Dragon palette as consts and splices them into a template (`%TOKEN%` replacement, no GTK custom properties). It installs display-wide at `STYLE_PROVIDER_PRIORITY_USER + 1` so a user's themed `~/.config/gtk-4.0/gtk.css` cannot half-override it. The old `data/style.css` (which consumed libadwaita's named colours) is absorbed into the generated sheet.
+- **The keyboard-focus ring is scoped to discrete interactive controls** (`button:focus-visible, entry:focus-visible, switch:focus-visible, scale:focus-visible`, …), never a universal `*:focus-visible`: a bare modifier press (a tiling-WM workspace chord) flips GTK into keyboard-focus mode, and a universal rule then flashes the accent across every widget in the focus chain at once. Rows show position through their selection background and need no outline.
+- **Dark/light follows the desktop portal directly.** `org.freedesktop.portal.Settings` is read over gio D-Bus (no new dependency) in place of `adw::StyleManager`; the `theme` GSettings key (`auto` / light / dark) still overrides. The window decoration posture (whether window buttons render, given a tiling compositor supplies its own close/maximize binds) is a spec decision made when the shell cut lands.
+- **Owned widget primitives** replace the adwaita families: a plain-GTK status page, an owned toast revealer, an owned modal alert (the dialog-primitives successor), an owned rows/groups family (the `PreferencesGroup` / `ActionRow` / `ComboRow` / `EntryRow` / `SwitchRow` / `SpinRow` successors), a plain Preferences window, and `gtk::Paned` split views with a hand-rolled narrow-collapse in place of the adaptive split-views.
+
+"Never break userspace" binds: no feature regresses in either mode, and the app still runs under GNOME Shell — only the look stops being GNOME's. The phase's one schema touch is a planned migration (`0020`, per the §4.7 discipline), which recolours the six persisted tag/area swatch hexes to their Kanagawa counterparts in lockstep with the sheet so existing tags/areas keep a real colour rather than falling to the grey default.
+
 ---
 
 ## 4. Data Model

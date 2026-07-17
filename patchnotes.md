@@ -1,5 +1,21 @@
 # Atrium — Patch Notes
 
+## v0.48.0 (2026-07-17): re-sequence the 1.0 endgame, de-adwaita moves in front of the tag
+
+A planning release: documentation only, no code, no schema, no behaviour change. It records a sequencing decision and lays out the runway for the work it unblocks.
+
+The call (Brandon, 2026-07-17): pull Phase 22, the de-adwaita and Kanagawa Dragon re-theme, in front of the `v1.0.0` tag instead of running it post-1.0. The reasoning is that the three remaining 1.0 items, the final icon pass, the AppStream screenshots, and the Flathub metadata, are all assets a toolkit swap invalidates. Ship 1.0 wearing GNOME's look and every one of them gets redone one release later; the roadmap already conceded as much ("metadata/screenshots refresh rides along" once libadwaita is gone). Doing the re-theme first means 1.0 is shot against the look it actually keeps.
+
+The gate that held Phase 22 back is satisfied. It was gated on the Colophon pilot, which has landed (Colophon's Phase 6 shipped at v2.0.0, now v2.1.0, its stylesheet generated from `colophon/src/theme.rs` with zero `.css` files); Conservatory went the whole distance at Phase 26 / v0.3.8 ("zero libadwaita symbols in the workspace") across a twelve-release sub-phase ladder. Conservatory's `theme.rs` and its 26b→26m ladder are the proven template Atrium adapts.
+
+What changed on disk:
+
+- **`roadmap.md`** — the pre-1.0 order is now de-adwaita ladder → icon/screenshots/Flathub asset tail → the tag. Phase 20's remaining items are reframed as that asset tail; Phase 22's four design bullets gain a concrete ten-step sub-phase ladder (C1 foundations through C10 toolkit cut), a migration-0020 note for the swatch recolour, and a schema-impact line. Phase 21 (the post-1.0 Hyprland audit) stays where it is; its number is lower than Phase 22 but its execution is later, and the note about the two possibly running together was already there.
+- **`spec.md`** — new §3.7 documents the owned-stylesheet design language (flat, square, 1px hairlines, Kanagawa Dragon, generated `theme.rs` at `USER + 1` priority, the scoped-not-universal focus ring, portal-driven dark/light in place of `adw::StyleManager`) as the Phase 22 target.
+- The six persisted tag/area swatch hexes are flagged as the one "never break userspace" tripwire in the re-theme: they live in SQLite and in the Org sidecar, so the recolour rides a real UPDATE-only migration (`0020`) rather than a silent CSS change that would drop every existing tag to the grey fallback.
+
+No `VERSION`-consuming code moved; `Cargo.toml` and the metainfo track the bump per the release discipline.
+
 ## v0.47.0 (2026-07-16): localisation scaffolding (Phase 20)
 
 The deferred Phase 20 localisation item, shipped now that the meson MO-build can verify locally. Scaffolding-only by design: English is the only shipped catalogue, and no translations land before 1.0. What the release delivers is that translations are now *possible* — a translator can take `po/atrium.pot` and produce a working locale with zero code changes.

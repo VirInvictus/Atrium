@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.48.0" date="2026-07-17">
+      <description translate="no">
+        <p>Planning release. The road to 1.0 is re-sequenced: the move
+           to a flat, tiling-first look on plain GTK4 (dropping the
+           GNOME toolkit) now happens before the 1.0 tag rather than
+           after, so the final icon, screenshots, and store metadata
+           are produced against the finished look instead of being
+           redone a release later. Documentation only; no behaviour or
+           schema change.</p>
+      </description>
+    </release>
     <release version="0.47.0" date="2026-07-16">
       <description translate="no">
         <p>Localisation scaffolding. Atrium now speaks gettext: the
