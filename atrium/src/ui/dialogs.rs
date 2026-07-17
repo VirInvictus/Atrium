@@ -19,6 +19,32 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{gdk, glib};
 
+/// Install Escape-to-close on a plain `gtk::Window`. `adw::Dialog` /
+/// `adw::Window` gave this for free; the owned plain-GTK dialogs (Phase 22
+/// C8) wire it explicitly so Escape dismisses on every desktop, not only
+/// where the compositor happens to offer a close affordance.
+pub fn close_on_escape(window: &impl IsA<gtk::Window>) {
+    let win = window.clone().upcast::<gtk::Window>();
+    let controller = gtk::EventControllerKey::new();
+    // Weak so the window → controller → closure chain doesn't pin the
+    // window alive through a strong self-reference.
+    controller.connect_key_pressed(glib::clone!(
+        #[weak]
+        win,
+        #[upgrade_or]
+        glib::Propagation::Proceed,
+        move |_, key, _, _| {
+            if key == gdk::Key::Escape {
+                win.close();
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            }
+        }
+    ));
+    win.add_controller(controller);
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum Appearance {
     Suggested,

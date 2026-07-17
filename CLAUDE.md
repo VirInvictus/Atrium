@@ -256,10 +256,14 @@ scripts/regression.sh                 ← ship-gate
 scripts/perf.sh                       ← perf regression suite (v0.36.0): 50K/100K fixtures, §8 budget assertions
 ```
 
-## Dialog primitives (standardised v0.0.37)
+## Dialog primitives (standardised v0.0.37; de-adwaita'd through Phase 22 C8)
 
-- **Inspector** (Simple Mode) + **Tag editor** are `adw::Dialog` (in-window modal overlay; `present(parent)` / `close()`).
-- **Inspector pane** (Builder Mode) is an always-visible `AdwBin` in the right-side `AdwOverlaySplitView` sidebar — non-modal, autosaves on focus-out.
-- **Quick Entry** is `adw::Window` (`modal=false`, `transient_for(main)`, fade-in keyframe) — the spec wants it to *not* steal grab from the previously-focused window; AdwDialog always grabs.
-- **Memory Watch** is `adw::Window` for the same non-grab reason.
-- **Confirmations** use `adw::AlertDialog`. The tag-colour picker (`prompt_for_tag`) extends `AlertDialog` with a custom extra-child Box for the swatch row.
+The Phase 22 ladder replaced every adwaita dialog primitive with an owned or plain-GTK equivalent. Current state:
+
+- **Inspector** (Simple Mode) + **Tag editor** are modal, transient `gtk::Window`s (C8; were `adw::Dialog`). An invisible `gtk::HeaderBar` titlebar suppresses GTK's default header; the in-content `gtk::HeaderBar` carries the buttons with `show-title-buttons=false`; `dialogs::close_on_escape` wires Escape-to-dismiss; `present()` / `close()`.
+- **Inspector pane** (Builder Mode) is an always-visible `gtk::Box` host in the right-side `gtk::Paned` end child (C5d/C6; were `AdwBin` in an `AdwOverlaySplitView`) — non-modal, autosaves on focus-out.
+- **Quick Entry** is a `gtk::Window` (`modal=false`, `transient_for(main)`; C8) — it must *not* steal grab from the previously-focused window (adwaita's dialogs always grabbed). Static "Quick Entry" title kept for the Hyprland window rule.
+- **Memory Watch** is a `gtk::Window` for the same non-grab reason (C8; gained Escape-to-close).
+- **Confirmations** use the owned `dialogs::Alert` (C4; was `adw::AlertDialog`) — named responses, per-response appearance, optional extra child, async `choose_future`. The tag-colour picker (`prompt_for_tag`) passes a swatch-row extra child.
+
+The remaining adwaita surface is `adw::Application` and the one `adw::StyleManager` theme call in `preferences.rs`, both scheduled for C10 (the toolkit cut, portal theme read).

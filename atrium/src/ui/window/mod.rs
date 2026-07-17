@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-//! `AtriumWindow` — the application's `AdwApplicationWindow` subclass.
+//! `AtriumWindow` — the application's `gtk::ApplicationWindow` subclass
+//! (Phase 22 C8 reparented it off `adw::ApplicationWindow`).
 //!
 //! Phase 4 turns the static sidebar / placeholder content from Phase 3
 //! into a real working surface:
@@ -305,7 +306,7 @@ mod imp {
     impl ObjectSubclass for AtriumWindow {
         const NAME: &'static str = "AtriumWindow";
         type Type = super::AtriumWindow;
-        type ParentType = adw::ApplicationWindow;
+        type ParentType = gtk::ApplicationWindow;
 
         fn class_init(klass: &mut Self::Class) {
             klass.bind_template();
@@ -344,12 +345,11 @@ mod imp {
         }
     }
     impl ApplicationWindowImpl for AtriumWindow {}
-    impl AdwApplicationWindowImpl for AtriumWindow {}
 }
 
 glib::wrapper! {
     pub struct AtriumWindow(ObjectSubclass<imp::AtriumWindow>)
-        @extends gtk::Widget, gtk::Window, gtk::ApplicationWindow, adw::ApplicationWindow,
+        @extends gtk::Widget, gtk::Window, gtk::ApplicationWindow,
         @implements gio::ActionGroup, gio::ActionMap;
 }
 

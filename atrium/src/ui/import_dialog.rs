@@ -10,22 +10,28 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use adw::prelude::*;
 use atrium_core::WorkerHandle;
 use atrium_import::UdaPolicy;
 use gtk::gio;
 use gtk::glib;
+use gtk::prelude::*;
 
 use crate::i18n::{gettext, gettext_f};
 
 /// Open the import dialog anchored to `parent`, running imports
 /// through `worker`.
 pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
-    let dialog = adw::Dialog::builder()
+    let dialog = gtk::Window::builder()
         .title(gettext("Import"))
-        .content_width(540)
-        .content_height(560)
+        .modal(true)
+        .default_width(540)
+        .default_height(560)
         .build();
+    if let Some(win) = parent.root().and_downcast::<gtk::Window>() {
+        dialog.set_transient_for(Some(&win));
+    }
+    // Tiling-first (spec §3.7): suppress GTK's default titlebar.
+    dialog.set_titlebar(Some(&gtk::HeaderBar::builder().visible(false).build()));
 
     let page = crate::ui::rows::page();
 
@@ -178,15 +184,25 @@ pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
         });
     }
 
-    let header = adw::HeaderBar::new();
+    let header = gtk::HeaderBar::builder()
+        .show_title_buttons(false)
+        .title_widget(
+            &gtk::Label::builder()
+                .label(gettext("Import"))
+                .css_classes(["title"])
+                .build(),
+        )
+        .build();
     header.pack_end(&import_btn);
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&header);
+    let toolbar = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    toolbar.append(&header);
     // The owned rows::Page brings its own vertical ScrolledWindow, so no
     // outer scroller is needed (unlike adw::PreferencesPage which was wrapped).
-    toolbar.set_content(Some(page.widget()));
+    page.widget().set_vexpand(true);
+    toolbar.append(page.widget());
     dialog.set_child(Some(&toolbar));
-    dialog.present(Some(parent));
+    crate::ui::dialogs::close_on_escape(&dialog);
+    dialog.present();
 }
 
 /// Run the chosen importer through the worker and return a one-line

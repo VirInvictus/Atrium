@@ -90,6 +90,18 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.61.0" date="2026-07-17">
+      <description translate="no">
+        <p>De-adwaita ladder C8 — the window shell drops libadwaita. The
+           application window, its toolbars, and its header bars become
+           plain GTK widgets, and the four secondary dialogs (Inspector,
+           Import, Quick Entry, Memory Watch) become plain modal windows
+           with Escape-to-close. Tiling-first posture: window buttons are
+           hidden (the compositor owns close / maximize / minimize, Ctrl+Q
+           quits). The task-list width cap returns with the owned
+           stylesheet in the next rung.</p>
+      </description>
+    </release>
     <release version="0.60.1" date="2026-07-17">
       <description translate="no">
         <p>Seeds the vault write-ledger at launch so the very first save

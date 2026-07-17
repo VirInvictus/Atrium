@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 //! Per-task Inspector dialog (Phase 7i).
 //!
-//! An in-window modal `adw::Dialog` exposing the editable Simple
-//! Mode fields that have no other UI surface today: title, notes,
-//! schedule (When), deadline, and project assignment. Tags delegate
-//! to the existing Phase 7g tag editor via an "Edit Tags…" button —
-//! re-implementing the picker inside the inspector would duplicate
-//! logic and waste vertical space.
+//! A modal `gtk::Window` (Phase 22 C8 — was an `adw::Dialog`) exposing
+//! the editable Simple Mode fields that have no other UI surface today:
+//! title, notes, schedule (When), deadline, and project assignment. Tags
+//! delegate to the existing Phase 7g tag editor via an "Edit Tags…"
+//! button — re-implementing the picker inside the inspector would
+//! duplicate logic and waste vertical space.
 //!
 //! Open paths:
 //!   - double-click on a task row (per-row gesture in
@@ -14,11 +14,10 @@
 //!   - right-click the row → *Edit Details…*,
 //!   - `Ctrl+I` while a row is focused / first-selected.
 //!
-//! `adw::Dialog` (vs the v0.0.35–36 `adw::Window` + `transient_for` +
-//! `modal(true)` shape) gets us the libadwaita-standard in-window
-//! presentation: solid window-bg even when the content rows are
-//! narrower than the dialog, automatic Esc-to-close, slide/fade
-//! animation that matches every other modal in the platform.
+//! A plain modal `gtk::Window` (transient-for the main window) with an
+//! in-content `gtk::HeaderBar` carrying Cancel / Apply; window buttons
+//! are hidden per the tiling-first posture (spec §3.7) and Escape closes
+//! it via `dialogs::close_on_escape`.
 //!
 //! Apply dispatches one `worker.update_task(TaskUpdate { … })` with
 //! exactly the fields the user changed.
@@ -26,7 +25,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use adw::prelude::*;
 use atrium_core::{
     Project, ScheduledFor, Task, TaskUpdate, WorkerHandle, parse_body_checkboxes, parse_body_links,
     toggle_body_checkbox,
@@ -35,6 +33,7 @@ use chrono::NaiveDate;
 use gtk::glib;
 use gtk::glib::clone;
 use gtk::pango;
+use gtk::prelude::*;
 use tracing::error;
 
 use crate::i18n::{gettext, ngettext_f};
@@ -56,11 +55,18 @@ pub fn open<F, N>(
     F: Fn(i64) + 'static,
     N: Fn(String) + 'static,
 {
-    let dialog = adw::Dialog::builder()
+    let dialog = gtk::Window::builder()
         .title(gettext("Edit Task"))
-        .content_width(560)
-        .content_height(640)
+        .modal(true)
+        .default_width(560)
+        .default_height(640)
         .build();
+    if let Some(win) = parent.root().and_downcast::<gtk::Window>() {
+        dialog.set_transient_for(Some(&win));
+    }
+    // Tiling-first (spec §3.7): an invisible titlebar suppresses GTK's
+    // default header; the in-content header below carries Cancel / Apply.
+    dialog.set_titlebar(Some(&gtk::HeaderBar::builder().visible(false).build()));
 
     // ── Header bar with explicit Cancel / Apply ──────────────────
     // Buttons in the header bar mirror the GNOME pattern; the form
@@ -72,15 +78,20 @@ pub fn open<F, N>(
         .label(gettext("Apply"))
         .css_classes(["suggested-action"])
         .build();
-    let header = adw::HeaderBar::builder()
-        .show_start_title_buttons(false)
-        .show_end_title_buttons(false)
+    let header = gtk::HeaderBar::builder()
+        .show_title_buttons(false)
+        .title_widget(
+            &gtk::Label::builder()
+                .label(gettext("Edit Task"))
+                .css_classes(["title"])
+                .build(),
+        )
         .build();
     header.pack_start(&cancel_button);
     header.pack_end(&apply_button);
 
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&header);
+    let toolbar = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    toolbar.append(&header);
 
     // ── Title (owned entry row inside its own group) ─────────────
     let (title_row, title_entry) = crate::ui::rows::entry_row(&gettext("Title"), &task.title);
@@ -321,12 +332,14 @@ pub fn open<F, N>(
     page.add(&checklist_group);
     page.add(&notes_group);
 
-    toolbar.set_content(Some(page.widget()));
+    page.widget().set_vexpand(true);
+    toolbar.append(page.widget());
     dialog.set_child(Some(&toolbar));
+    // Escape dismisses (adw::Dialog gave this for free; a plain
+    // gtk::Window needs it wired).
+    crate::ui::dialogs::close_on_escape(&dialog);
 
-    // Cancel dismisses without writes. Esc-to-close is handled by
-    // AdwDialog directly (it consumes the keystroke and runs its
-    // own close-attempt path) — no manual key controller needed.
+    // Cancel dismisses without writes.
     cancel_button.connect_clicked(clone!(
         #[weak]
         dialog,
@@ -344,7 +357,7 @@ pub fn open<F, N>(
         #[strong]
         on_edit_tags,
         move |_| {
-            let _ = dialog.close();
+            dialog.close();
             on_edit_tags(task.id);
         }
     ));
@@ -408,7 +421,7 @@ pub fn open<F, N>(
             }
 
             if update.is_noop() {
-                let _ = dialog.close();
+                dialog.close();
                 return;
             }
 
@@ -418,13 +431,13 @@ pub fn open<F, N>(
                     error!(?e, task_id, "inspector apply failed");
                     return;
                 }
-                let _ = dialog.close();
+                dialog.close();
             });
         }
     ));
 
     title_entry.grab_focus();
-    dialog.present(Some(parent));
+    dialog.present();
 }
 
 // ── helpers ──────────────────────────────────────────────────────
