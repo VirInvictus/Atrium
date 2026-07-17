@@ -1,5 +1,11 @@
 # Atrium — Patch Notes
 
+## v0.50.1 (2026-07-17): About-window copy
+
+Follows the C1 About rebuild with a copy pass. The one-line description dropped its toolkit framing and its side-by-side comparison; it now says what Atrium is on its own terms: a local-first task manager with Org-mode internals and a two-way plain-text vault, switchable between Simple and Builder modes. The "Built on the shoulders of" credits (Things 3, OmniFocus, Org-mode, NetNewsWire) stay, since those are attribution, not a claim about Atrium.
+
+Copy only; no code path, schema, or behaviour change. (The metainfo summary still reads "native GNOME design"; that line is left for the broader plain-GTK posture sweep rather than changed piecemeal here.)
+
 ## v0.50.0 (2026-07-17): de-adwaita ladder C1 — foundations + the stylesheet-priority fix
 
 The first rung of the Phase 22 sub-phase ladder (roadmap C1). Deliberately small and low-risk: no visual change, no schema, no feature touched.

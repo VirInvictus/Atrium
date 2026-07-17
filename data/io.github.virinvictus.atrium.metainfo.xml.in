@@ -90,6 +90,14 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.50.1" date="2026-07-17">
+      <description translate="no">
+        <p>Small copy change: the About window now describes Atrium on
+           its own terms — a local-first task manager with Org-mode
+           internals and a two-way plain-text vault — rather than by
+           comparison. No functional change.</p>
+      </description>
+    </release>
     <release version="0.50.0" date="2026-07-17">
       <description translate="no">
         <p>First step of the move to a flat, tiling-first look on plain

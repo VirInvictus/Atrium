@@ -23,9 +23,8 @@ pub fn show(parent: &impl IsA<gtk::Widget>) {
         .website_label(gettext("Website & issue tracker"))
         .license_type(gtk::License::MitX11)
         .copyright(COPYRIGHT)
-        // Translators: "Things 3" and "OmniFocus" are product names — keep them as-is.
         .comments(gettext(
-            "A native GNOME task manager — Things 3 clarity, OmniFocus depth, mode-switched.",
+            "A local-first task manager with Org-mode internals and a two-way plain-text vault, switchable between Simple and Builder modes.",
         ))
         .authors(vec!["Brandon LaRocque <larocque.brandon@gmail.com>"])
         .artists(vec!["Brandon LaRocque"])
