@@ -1,5 +1,13 @@
 # Atrium — Patch Notes
 
+## v0.52.0 (2026-07-17): de-adwaita ladder C3 — owned toasts
+
+The third rung. `AdwToastOverlay` and `adw::Toast` are gone; toasts now ride an owned overlay. The content stack in `data/window.ui` is wrapped in a `GtkOverlay` whose overlay child is a crossfading `GtkRevealer` holding a label and an optional Undo button. `show_toast` and `show_undo_toast` (in `search.rs`) drive it through a small `present_toast` / `hide_toast` pair: a new toast cancels the pending auto-hide and re-arms it, so a burst of confirmations keeps the latest message up for its full window (4 seconds plain, 6 for the undo variant), matching the old newest-wins behaviour.
+
+The Undo button needed care. With adwaita, each `adw::Toast` carried its own button and click signal; the owned model has one persistent button, so it is wired once at setup (`wire_toast`) and consumes the window's shared `last_undo` cell — the exact slot `Ctrl+Z` (`win.undo`) already reads. Whichever fires first takes the closure and the other no-ops, and a button click also hides the toast. The three call sites (the filter-parse warning, the "task deleted" bulk confirmation, and the undo-bearing edits) are unchanged in behaviour.
+
+A temporary `.toast` pill style lands in `style.css` to sit close to the adwaita look; like the other rungs, the exact styling converges when the owned stylesheet arrives at C9. `fmt`, `clippy -D warnings`, and the 1027-test suite are green; the overlay and its revealer are runtime GUI surfaces whose hands-on pass rides Brandon's display.
+
 ## v0.51.0 (2026-07-17): de-adwaita ladder C2 — owned empty-state pages
 
 The second rung. Every `adw::StatusPage` in the app is replaced by an owned composite (`atrium/src/ui/status_page.rs`, cribbed from Conservatory's Phase 26 version): a centered icon / title / description column with an optional call-to-action child, exposing the same `set_title` / `set_description` / `set_icon_name` / `set_child` setters so call sites converted mechanically.

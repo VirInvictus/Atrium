@@ -298,7 +298,11 @@
                       </object>
                     </child>
                     <property name="content">
-                      <object class="AdwToastOverlay" id="toast_overlay">
+                      <!-- Owned toast host (Phase 22 C3): a GtkOverlay over the
+                           content stack with a crossfading auto-hide revealer as
+                           its overlay child, replacing AdwToastOverlay. show_toast /
+                           show_undo_toast in search.rs drive toast_revealer. -->
+                      <object class="GtkOverlay" id="content_overlay">
                         <property name="child">
                           <object class="GtkStack" id="content_stack">
                             <property name="transition-type">crossfade</property>
@@ -615,6 +619,37 @@
                             </child>
                           </object>
                         </property>
+                        <child type="overlay">
+                          <object class="GtkRevealer" id="toast_revealer">
+                            <property name="transition-type">crossfade</property>
+                            <property name="halign">center</property>
+                            <property name="valign">end</property>
+                            <property name="reveal-child">false</property>
+                            <property name="margin-bottom">24</property>
+                            <property name="child">
+                              <object class="GtkBox" id="toast_box">
+                                <property name="halign">center</property>
+                                <property name="spacing">12</property>
+                                <style>
+                                  <class name="toast"/>
+                                </style>
+                                <child>
+                                  <object class="GtkLabel" id="toast_label">
+                                    <property name="wrap">true</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkButton" id="toast_button">
+                                    <property name="visible">false</property>
+                                    <style>
+                                      <class name="flat"/>
+                                    </style>
+                                  </object>
+                                </child>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
                       </object>
                     </property>
                   </object>

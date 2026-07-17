@@ -90,6 +90,14 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.52.0" date="2026-07-17">
+      <description translate="no">
+        <p>Third step of the plain-GTK4 move: the pop-up notifications
+           ("toasts", including the one with an Undo button after a bulk
+           delete) are rebuilt on an owned overlay instead of the GNOME
+           toolkit's. Same timing, same newest-wins behaviour, same Undo.</p>
+      </description>
+    </release>
     <release version="0.51.0" date="2026-07-17">
       <description translate="no">
         <p>Second step of the plain-GTK4 move: the empty-state pages (the

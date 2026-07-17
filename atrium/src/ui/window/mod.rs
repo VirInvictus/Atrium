@@ -133,8 +133,15 @@ mod imp {
         /// `wire_search_bar`.
         #[template_child]
         pub search_help_button: TemplateChild<gtk::MenuButton>,
+        /// Owned toast host (Phase 22 C3) — the crossfading revealer, its
+        /// label, and its optional Undo button, replacing `adw::Toast` /
+        /// `AdwToastOverlay`. Driven by `show_toast` / `show_undo_toast`.
         #[template_child]
-        pub toast_overlay: TemplateChild<adw::ToastOverlay>,
+        pub toast_revealer: TemplateChild<gtk::Revealer>,
+        #[template_child]
+        pub toast_label: TemplateChild<gtk::Label>,
+        #[template_child]
+        pub toast_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub selection_revealer: TemplateChild<gtk::Revealer>,
         #[template_child]
@@ -238,6 +245,11 @@ mod imp {
         /// *or* the `Ctrl+Z` accel can take it (whoever fires first
         /// wins; the loser sees an empty cell and no-ops). Phase 7f.
         pub last_undo: RefCell<Option<UndoCell>>,
+
+        /// Phase 22 C3 — pending auto-hide timer for the owned toast.
+        /// A new toast cancels the old timer (newest-wins) so a burst of
+        /// confirmations keeps the latest up for its full window.
+        pub toast_timeout: RefCell<Option<glib::SourceId>>,
 
         /// v0.2.2 — fingerprint of the last filter-parse warning we
         /// surfaced as a toast. Refreshes of the same query (e.g.

@@ -748,7 +748,7 @@ impl AtriumWindow {
                 }
             }
             if let Some(win) = win_weak.upgrade() {
-                let toast = adw::Toast::new(&ngettext_f(
+                win.show_toast(&ngettext_f(
                     "{deleted} of {count} task deleted",
                     "{deleted} of {count} tasks deleted",
                     count as u32,
@@ -757,8 +757,6 @@ impl AtriumWindow {
                         ("count", &count.to_string()),
                     ],
                 ));
-                toast.set_timeout(4);
-                win.imp().toast_overlay.add_toast(toast);
             }
         });
         self.clear_selection();

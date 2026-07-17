@@ -927,3 +927,14 @@ listview.navigation-sidebar > row:focus-visible,
 .atrium-filter-ghost:focus-within {
   opacity: 1;
 }
+
+/* Phase 22 C3 — owned toast pill. Temporary styling to sit close to the
+ * adwaita toast look until the owned stylesheet lands at C9. */
+.toast {
+  background-color: @card_bg_color;
+  color: @window_fg_color;
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
