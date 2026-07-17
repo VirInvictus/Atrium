@@ -1,5 +1,13 @@
 # Atrium — Patch Notes
 
+## v0.48.0 (2026-07-17): fix over-eager vault conflict backups
+
+The vault writer was snapshotting projects' Org files as spurious `.atrium.bak.<timestamp>` "conflicts" on ordinary edits — most visibly, completing a task backed up its project file every time, with a toast, because the conflict check only remembered Atrium's own writes for a two-second in-memory window (and forgot them entirely across a restart). After that window lapsed, the writer mistook its own previous output for an external edit.
+
+The fix gives the writer a durable content ledger, persisted under `<vault>/.atrium/write-ledger`: it records a stable hash of what it writes to each file, and the pre-overwrite conflict check compares the on-disk content against that record. Atrium's own output — however long ago it wrote it, and across restarts — is recognised and never backed up; only content that differs from the last thing Atrium wrote (a real external edit in Emacs, vim-orgmode, etc.) is preserved to a `.bak` before the overwrite, exactly as before. The `recent_writes` inotify-echo suppressor is unchanged.
+
+The safety direction is intact (the external-edit and concurrent-edit conflict tests still pass) and a new regression test (`fresh_writer_recognises_own_prior_write_via_ledger`) proves a brand-new writer no longer backs up its own prior on-disk write. FNV-1a hashing, no new dependency.
+
 ## v0.47.0 (2026-07-16): localisation scaffolding (Phase 20)
 
 The deferred Phase 20 localisation item, shipped now that the meson MO-build can verify locally. Scaffolding-only by design: English is the only shipped catalogue, and no translations land before 1.0. What the release delivers is that translations are now *possible* — a translator can take `po/atrium.pot` and produce a working locale with zero code changes.

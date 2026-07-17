@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.48.0" date="2026-07-17">
+      <description translate="no">
+        <p>Fixes over-eager vault conflict backups. Completing or editing a
+           task no longer snapshots the project's Org file as a spurious
+           ".atrium.bak" conflict: Atrium now keeps a durable record of what
+           it last wrote to each file, so it recognises its own output across
+           edits and restarts and only backs up a genuine external edit.</p>
+      </description>
+    </release>
     <release version="0.47.0" date="2026-07-16">
       <description translate="no">
         <p>Localisation scaffolding. Atrium now speaks gettext: the

@@ -125,6 +125,13 @@ pub struct VaultWriter {
     recent_writes: Arc<RwLock<RecentWrites>>,
     events_tx: Option<mpsc::UnboundedSender<VaultEvent>>,
     last_sidecar: Option<crate::sidecar::Sidecar>,
+    /// Durable content-hash ledger of what Atrium last wrote to each vault
+    /// file (persisted under `<vault>/.atrium/`). The conflict-detection
+    /// pre-write consults it so Atrium's own writes are never mistaken for
+    /// external edits — unlike `recent_writes`, which is a 2 s in-memory
+    /// inotify-echo window and so forgets Atrium's writes across the gap
+    /// between two task edits or across a restart.
+    write_ledger: WriteLedger,
 }
 
 impl VaultWriter {
@@ -159,6 +166,7 @@ impl VaultWriter {
         recent_writes: Arc<RwLock<RecentWrites>>,
         events_tx: Option<mpsc::UnboundedSender<VaultEvent>>,
     ) -> Self {
+        let write_ledger = WriteLedger::load(&root);
         Self {
             root,
             pool,
@@ -168,6 +176,7 @@ impl VaultWriter {
             recent_writes,
             events_tx,
             last_sidecar: None,
+            write_ledger,
         }
     }
 
@@ -268,21 +277,21 @@ impl VaultWriter {
         }
     }
 
-    fn write_project(&self, project_id: i64) {
+    fn write_project(&mut self, project_id: i64) {
         // Conflict-detection pre-write: if the destination file
-        // exists with an mtime we don't recognise as our own, an
-        // external editor (Doom Emacs, vim-orgmode, etc.) has
-        // changed the file since our last write. Snapshot the
-        // current contents to <file>.atrium.bak.<timestamp> so
-        // the user's edit survives the overwrite. Spec §7.3.3
-        // rule 5 — last-writer-wins by mtime; the loser is
-        // preserved.
+        // exists with contents we don't recognise as our own last
+        // write, an external editor (Doom Emacs, vim-orgmode, etc.)
+        // has changed the file since. Snapshot the current contents
+        // to <file>.atrium.bak.<timestamp> so the user's edit
+        // survives the overwrite. Spec §7.3.3 rule 5 — last-writer-
+        // wins; the loser is preserved.
         let dest = self.pool.with(|conn| {
             crate::org::project_vault_path(conn, &self.root, project_id)
                 .map_err(|e| DbError::Sync(e.to_string()))
         });
         if let Ok(dest_path) = &dest {
-            self.maybe_back_up_external_edit(dest_path);
+            let dest_path = dest_path.clone();
+            self.maybe_back_up_external_edit(&dest_path);
         }
 
         let result = self.pool.with(|conn| {
@@ -297,6 +306,13 @@ impl VaultWriter {
                     tasks = summary.task_count,
                     "vault write succeeded"
                 );
+                // Record the content we just wrote, durably, so a
+                // later flush recognises it as ours and never backs
+                // it up spuriously.
+                if let Ok(bytes) = std::fs::read(&summary.file_path) {
+                    self.write_ledger
+                        .record(&summary.file_path, content_hash(&bytes));
+                }
                 // Tell the watcher this file is one of ours so the
                 // resulting inotify event gets suppressed by exact
                 // (path, mtime) match. If metadata fails, the
@@ -316,18 +332,31 @@ impl VaultWriter {
     /// Inspect the current on-disk file (if any) before the writer
     /// overwrites it. Returns `Some(backup_path)` when an external
     /// edit was detected and snapshotted; `None` when the file
-    /// doesn't exist, our last-self-write mtime matches, or the
-    /// stat / copy failed (logged at warn level — never panics).
-    fn maybe_back_up_external_edit(&self, dest: &Path) -> Option<PathBuf> {
+    /// doesn't exist, its contents match what Atrium last wrote, an
+    /// immediate self-write echo matches by mtime, or the stat / read
+    /// failed (logged at warn level — never panics).
+    fn maybe_back_up_external_edit(&mut self, dest: &Path) -> Option<PathBuf> {
         let mtime = match std::fs::metadata(dest).and_then(|m| m.modified()) {
             Ok(m) => m,
             Err(_) => return None,
         };
+        // Fast path: an immediate inotify-echo of our own just-completed
+        // write (matches by exact mtime within the 2 s window).
         let is_self = self
             .recent_writes
             .read()
             .is_ok_and(|rw| rw.is_self_write(dest, mtime));
         if is_self {
+            return None;
+        }
+        // Durable path: does the on-disk content match what Atrium last
+        // wrote to this file? `recent_writes` forgets across the 2 s window
+        // and across restarts, so it flags Atrium's own older writes as
+        // "external"; the content ledger doesn't. Only a genuine external
+        // edit changes the bytes away from our recorded hash.
+        if let Ok(bytes) = std::fs::read(dest)
+            && self.write_ledger.get(dest) == Some(content_hash(&bytes))
+        {
             return None;
         }
         let bak = backup_path(dest, SystemTime::now());
@@ -373,6 +402,82 @@ fn backup_path(dest: &Path, now: SystemTime) -> PathBuf {
     bak_name.push(format!(".atrium.bak.{stamp}"));
     let parent = dest.parent().unwrap_or_else(|| Path::new(""));
     parent.join(bak_name)
+}
+
+/// FNV-1a 64-bit hash of a file's bytes. Stable across processes (unlike
+/// `std`'s `DefaultHasher`), so a hash written to the ledger last session
+/// compares equal this session. No dependency, and collisions are
+/// astronomically unlikely for the vault-file size range — and a collision
+/// only ever risks a *missed* backup of a genuine external edit, never data
+/// loss (the DB stays canonical).
+fn content_hash(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Durable per-file record of the content Atrium last wrote to each vault
+/// file, persisted under `<vault>/.atrium/write-ledger`. Lets the conflict
+/// detector tell Atrium's own writes from genuine external edits across the
+/// `recent_writes` TTL and across restarts. Non-critical cache: a lost or
+/// stale ledger only risks an occasional spurious backup, never data loss.
+struct WriteLedger {
+    file: PathBuf,
+    root: PathBuf,
+    hashes: HashMap<PathBuf, u64>,
+}
+
+impl WriteLedger {
+    fn load(root: &Path) -> Self {
+        let file = root.join(".atrium").join("write-ledger");
+        let mut hashes = HashMap::new();
+        if let Ok(text) = std::fs::read_to_string(&file) {
+            for line in text.lines() {
+                if let Some((hex, rel)) = line.split_once('\t')
+                    && let Ok(h) = u64::from_str_radix(hex, 16)
+                {
+                    hashes.insert(root.join(rel), h);
+                }
+            }
+        }
+        Self {
+            file,
+            root: root.to_path_buf(),
+            hashes,
+        }
+    }
+
+    fn get(&self, path: &Path) -> Option<u64> {
+        self.hashes.get(path).copied()
+    }
+
+    fn record(&mut self, path: &Path, hash: u64) {
+        if self.hashes.get(path) == Some(&hash) {
+            return;
+        }
+        self.hashes.insert(path.to_path_buf(), hash);
+        self.persist();
+    }
+
+    fn persist(&self) {
+        let mut out = String::new();
+        for (path, h) in &self.hashes {
+            if let Ok(rel) = path.strip_prefix(&self.root) {
+                out.push_str(&format!("{h:016x}\t{}\n", rel.display()));
+            }
+        }
+        if let Some(parent) = self.file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        // Temp + rename so a crash mid-write can't leave a torn ledger.
+        let tmp = self.file.with_extension("tmp");
+        if std::fs::write(&tmp, out.as_bytes()).is_ok() {
+            let _ = std::fs::rename(&tmp, &self.file);
+        }
+    }
 }
 
 /// Spawn a vault writer task on the current tokio runtime and
@@ -678,6 +783,76 @@ mod tests {
         );
 
         let _ = notifier.sender().send(VaultWriteRequest::Shutdown).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// The regression test for the over-reactivity bug: a *fresh* writer
+    /// (empty `RecentWrites`, as after a relaunch or once the 2 s echo
+    /// window has lapsed) must recognise Atrium's own prior on-disk write
+    /// via the persisted content ledger and NOT back it up. Before the
+    /// ledger, completing a task each session spuriously snapshotted the
+    /// file every time.
+    #[tokio::test]
+    async fn fresh_writer_recognises_own_prior_write_via_ledger() {
+        let (writer_conn, pool, scratch) = fresh_setup("ledger");
+        let (handle, _changes_rx, _library_rx) = spawn_worker(writer_conn);
+        let project = handle
+            .create_project(NewProject {
+                title: "Ledger".to_string(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let task = handle
+            .create_task(NewTask {
+                title: "task one".to_string(),
+                project_id: Some(project.id),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Session 1: writer establishes the file and persists the ledger,
+        // then shuts down.
+        let notifier1 = spawn_vault_writer(scratch.clone(), pool.clone());
+        notifier1
+            .sender()
+            .send(VaultWriteRequest::ProjectDirty(project.id))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let _ = notifier1.sender().send(VaultWriteRequest::Shutdown).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let dest = scratch.join("Ledger.org");
+        assert!(dest.exists());
+        assert!(scratch.join(".atrium").join("write-ledger").exists());
+
+        // A DB change in the "next session": complete the task.
+        handle.toggle_complete(task.id).await.unwrap();
+
+        // Session 2: a brand-new writer with an empty RecentWrites. Before
+        // the ledger fix its first flush would mistake the on-disk file
+        // (its own session-1 output) for an external edit and back it up.
+        let notifier2 = spawn_vault_writer(scratch.clone(), pool);
+        notifier2
+            .sender()
+            .send(VaultWriteRequest::ProjectDirty(project.id))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        let entries: Vec<_> = std::fs::read_dir(&scratch)
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            !entries.iter().any(|n| n.contains(".atrium.bak.")),
+            "a fresh writer must recognise Atrium's own prior write via the ledger; saw: {entries:?}"
+        );
+
+        let _ = notifier2.sender().send(VaultWriteRequest::Shutdown).await;
         tokio::time::sleep(Duration::from_millis(50)).await;
         let _ = std::fs::remove_dir_all(&scratch);
     }
