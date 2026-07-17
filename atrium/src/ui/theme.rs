@@ -163,16 +163,26 @@ entry, spinbutton, .entry {
 }
 entry:focus-within { border-color: %ACCENT%; }
 
-checkbutton check, check {
-  border-radius: 6px;
-  border: 1px solid alpha(%FG%, 0.35);
-  background-color: %BG_VIEW%;
-  min-width: 18px;
-  min-height: 18px;
+/* Checkboxes render as clean circles (the Things-3 / Reminders idiom, and
+   what the .selection-mode task checkbox wants). An outline when open, a
+   filled dragonYellow disc when done. Owned here so it does not depend on
+   whatever theme sits underneath. */
+checkbutton check, check, .selection-mode check {
+  border-radius: 999px;
+  border: 2px solid alpha(%FG%, 0.40);
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  min-width: 20px;
+  min-height: 20px;
   transition: background-color 120ms ease, border-color 120ms ease;
 }
-check:hover { border-color: %ACCENT%; }
-check:checked { background-color: %ACCENT%; color: %ON_ACCENT%; border-color: %ACCENT%; }
+check:hover, .selection-mode check:hover { border-color: %ACCENT%; }
+check:checked, .selection-mode check:checked {
+  background-color: %ACCENT%;
+  color: %ON_ACCENT%;
+  border-color: %ACCENT%;
+}
 
 switch {
   border-radius: 999px;

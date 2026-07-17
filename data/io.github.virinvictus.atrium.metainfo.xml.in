@@ -90,6 +90,13 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.62.2" date="2026-07-17">
+      <description translate="no">
+        <p>Draws task checkboxes as clean circles again (a thin ring when
+           open, a filled disc when done) instead of the square boxes the
+           first owned-stylesheet pass produced.</p>
+      </description>
+    </release>
     <release version="0.62.1" date="2026-07-17">
       <description translate="no">
         <p>Softens the new Kanagawa look: gently rounded controls, cards,

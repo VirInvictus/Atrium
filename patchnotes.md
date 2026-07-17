@@ -1,5 +1,11 @@
 # Atrium — Patch Notes
 
+## v0.62.2 (2026-07-17): checkboxes back to circles
+
+The task-completion checkbox uses the `.selection-mode` style, which renders as a circle (the Things-3 / Reminders idiom). The C9 sheet's generic `check` rule had squared it off, which was the most conspicuously blocky thing on screen. The owned sheet now draws checkboxes as clean circles regardless of what theme sits underneath: a thin outline when open, a filled dragonYellow disc when done. Stylesheet-only.
+
+Context worth noting for the styling still to come: Atrium's owned sheet installs one notch above the user's GTK theme, so on a machine with a full system theme (e.g. a Kanagawa `~/.config/gtk-4.0/gtk.css`) the app's look is that theme with Atrium's sheet on top. To look intentional and identical everywhere (and to survive C10, when libadwaita is no longer underneath), the owned sheet needs to grow more comprehensive; that polish is the immediate follow-up.
+
 ## v0.62.1 (2026-07-17): soften the C9 look — gently rounded, not blocky
 
 First live look at the C9 theme read as too blocky, so the owned sheet's "flat and square" stance is softened. Controls (buttons, entries, rows) round to ~8px, cards / popovers / toasts to ~12px, switches / scales / pills go fully round, and checkboxes become rounded squares with a lighter border and a hover-accent hint. Floating panels (popovers, toasts, cards) gain a soft drop shadow for depth, sidebar selection is a rounded inset highlight, and buttons get a short colour transition. Chrome stays flat with 1px hairlines; the palette and the dragonYellow accent are unchanged. spec §3.7 updated to the softened design language (Atrium is a Things-3-style surface, so it carries rounding where the utilitarian de-adwaita siblings stayed square). Stylesheet-only.
