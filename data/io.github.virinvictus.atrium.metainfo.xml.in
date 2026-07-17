@@ -90,6 +90,14 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.59.2" date="2026-07-17">
+      <description translate="no">
+        <p>Build fix: repairs the dependency lock file, which a
+           release-automation slip had left pointing at a nonexistent
+           version of a platform dependency. No code or behaviour
+           change.</p>
+      </description>
+    </release>
     <release version="0.59.1" date="2026-07-17">
       <description translate="no">
         <p>Documentation: records the decision, ahead of the window-shell

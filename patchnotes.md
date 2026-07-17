@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## v0.59.2 (2026-07-17): fix Cargo.lock corruption
+
+A build fix, no code change. The per-release version bumps had been rewriting `Cargo.lock` with a text substitution (`version = "X" -> "Y"`), which also rewrote any third-party crate that happened to share the old version string. At v0.59.1 that clobbered `windows-sys` 0.59.0 into a nonexistent 0.59.1, breaking `cargo run` with a resolution error (harmless on Linux builds, since it is a Windows-only transitive dependency, which is why the earlier per-rung builds and tests stayed green). The lock is restored from `main` (all third-party pins pristine) and re-stamped for the seven `atrium` crates by cargo itself. Going forward the lock is updated via `cargo build`, never a text substitution.
+
 ## v0.59.1 (2026-07-17): spec — decoration posture for the shell cut
 
 A documentation patch, recording a design decision ahead of the C8 window-shell rework so it lands in spec first (per the roadmap). Atrium's tiling-first posture hides the title-bar window-control buttons: the compositor owns close / maximize / minimize, `Ctrl+Q` quits, and the headerbars keep only their functional controls. This matches the portfolio (Hermitage's Hyprland-native phases, Viaduct v3.0.0). Spec §3.7 updated; no code change.
