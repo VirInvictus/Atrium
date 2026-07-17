@@ -1,5 +1,11 @@
 # Atrium — Patch Notes
 
+## v0.60.0 (2026-07-17): fix over-eager vault conflict backups (merged from main)
+
+The vault-backup over-reactivity fix, brought onto the de-adwaita branch (it landed on the release line as v0.48.0). The vault writer was snapshotting projects' Org files as spurious `.atrium.bak.<timestamp>` conflicts on ordinary edits — completing a task backed up its project file every time — because the conflict check only remembered Atrium's own writes for a two-second in-memory window and forgot them across restarts. It now keeps a durable content ledger under `<vault>/.atrium/write-ledger` (a stable FNV-1a hash of what it wrote to each file) and only backs up content that genuinely differs from Atrium's last write, i.e. a real external edit. Safety intact; new regression test `fresh_writer_recognises_own_prior_write_via_ledger`. `atrium-org` only; no interaction with the de-adwaita toolkit work. See v0.48.0 on main for the full write-up.
+
+Note: this is orthogonal to the de-adwaita ladder. The completion-*revert* observed on this branch (distinct from the backup spam, which was pre-existing on both branches) is a separate de-adwaita UI regression still to be pinned.
+
 ## v0.59.2 (2026-07-17): fix Cargo.lock corruption
 
 A build fix, no code change. The per-release version bumps had been rewriting `Cargo.lock` with a text substitution (`version = "X" -> "Y"`), which also rewrote any third-party crate that happened to share the old version string. At v0.59.1 that clobbered `windows-sys` 0.59.0 into a nonexistent 0.59.1, breaking `cargo run` with a resolution error (harmless on Linux builds, since it is a Windows-only transitive dependency, which is why the earlier per-rung builds and tests stayed green). The lock is restored from `main` (all third-party pins pristine) and re-stamped for the seven `atrium` crates by cargo itself. Going forward the lock is updated via `cargo build`, never a text substitution.

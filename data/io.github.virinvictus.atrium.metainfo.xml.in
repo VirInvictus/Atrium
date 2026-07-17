@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.60.0" date="2026-07-17">
+      <description translate="no">
+        <p>Fixes over-eager vault conflict backups (the same fix shipped on
+           the release line as 0.48.0). Completing or editing a task no
+           longer snapshots the project's Org file as a spurious conflict:
+           Atrium keeps a durable record of what it last wrote to each file
+           and only backs up a genuine external edit.</p>
+      </description>
+    </release>
     <release version="0.59.2" date="2026-07-17">
       <description translate="no">
         <p>Build fix: repairs the dependency lock file, which a
