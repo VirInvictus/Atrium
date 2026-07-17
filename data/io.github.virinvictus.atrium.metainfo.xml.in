@@ -90,6 +90,14 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.59.0" date="2026-07-17">
+      <description translate="no">
+        <p>The Preferences window is rebuilt on plain GTK4: a page list
+           on the left (General, Capture, Notifications, Backups) beside
+           the settings, replacing the GNOME toolkit's preferences
+           dialog. Every setting keeps its behaviour.</p>
+      </description>
+    </release>
     <release version="0.58.0" date="2026-07-17">
       <description translate="no">
         <p>The two-pane window layout (the Lists sidebar beside the

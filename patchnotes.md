@@ -1,5 +1,13 @@
 # Atrium — Patch Notes
 
+## v0.59.0 (2026-07-17): de-adwaita ladder C7 — the Preferences window
+
+The Preferences surface moves off `AdwPreferencesDialog` onto a plain modal `gtk::Window`. A `GtkStackSidebar` lists the four pages (General, Capture, Notifications, Backups) beside a `GtkStack` holding them, each an owned `rows::page`. The mode and theme dropdowns, the high-legibility and notification and weekly-backup switches, and the Quick Entry shortcut entry all convert to the owned combo / switch / entry rows; the vault-path row is hand-built (a label, a filling entry, and the folder-picker button) since it pairs an entry with a trailing button. Escape closes the window, and it opens transient over the main window.
+
+Every handler body is unchanged: settings still write straight through to GSettings, the vault and backup file pickers still use `gtk::FileDialog`, "Back up now" still snapshots and prunes, and "Restore…" still queues the marker for the next launch. The one adwaita call that stays is `apply_theme`, which drives `adw::StyleManager` for the light/dark override; that becomes a direct desktop-portal read at the C10 toolkit cut.
+
+`fmt`, `clippy -D warnings`, and the 1028-test suite are green. The window is a GUI surface pending a display pass. Remaining adwaita: the window and dialog shells (C8), the stylesheet (C9), then the toolkit drop (C10).
+
 ## v0.58.0 (2026-07-17): de-adwaita ladder C6 — the split views
 
 The two-pane window layout moves off Adwaita's split views onto plain `GtkPaned`. The outer `AdwOverlaySplitView` (which held the Builder inspector pane on the right) and the inner `AdwNavigationSplitView` (Lists sidebar beside the content) both become `GtkPaned`, wired through the `start-child` / `end-child` properties. The two `AdwNavigationPage` wrappers that Adwaita required are unwrapped (their titles were already suppressed), and the now-unused `content_page` template child is dropped along with the redundant `set_title` call it fed. The inspector still appears only in Builder Mode, now by toggling the pane host's visibility rather than an Adwaita show-sidebar flag.
