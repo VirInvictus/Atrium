@@ -1,5 +1,15 @@
 # Atrium — Patch Notes
 
+## v0.56.0 (2026-07-17): de-adwaita ladder C5c — the Builder inspector pane
+
+The heaviest rung: the Builder-mode inspector pane (`inspector_pane/mod.rs` + `fields.rs`, about 2,220 lines) moves off the entire `adw` row family. This is the app's deepest editing surface, and every field converts while keeping its live autosave.
+
+The owned rows module gained what this pane needed: `spin_row` and the group header-suffix helper return, plus an owned single-child `Bin` (the editor host that swaps its child as the selection changes) and a `Page::add_widget` for bespoke sections. The field builders in `fields.rs` (keyword picker, time-tracking group, the repeat-rule editor, the project combo, the task-link picker) now return owned rows and dropdowns; the recurrence editor's frequency/interval/mode/custom rows drive the same commit logic through `gtk::DropDown` / `gtk::SpinButton` / `gtk::Entry` handles.
+
+The genuinely non-mechanical parts: the title row is a hand-built leading-checkbox beside a `gtk::Entry`; the dynamic subtasks, checklist, and blocked-by sections are bespoke heading-over-list boxes whose rows are hand-built (a leading check, a flat button that navigates on click or keyboard, a trailing remove button); and autosave moves from adwaita's `EntryRow` apply-signal to `gtk::Entry` activate plus a focus-out controller. The link and dependency pickers render their candidates as flat buttons so they stay keyboard-operable.
+
+Behaviour is preserved throughout: title/notes/reminder autosave on focus-out and Enter, schedule and deadline pickers toggle their dependent time and heads-up rows, the completion check and subtask checks dispatch through the worker, checkbox toggles rewrite the note body, dependency add/remove and cycle rejection are unchanged, and the repeat editor still validates custom RRULEs locally before dispatch. It compiled clean on the first attempt; `fmt`, `clippy -D warnings`, and the 1028-test suite are green. The one remaining adwaita reference is the window.ui `Bin` host parameter, which converts at C5d. The rendered pane is a GUI surface pending a display pass.
+
 ## v0.55.0 (2026-07-17): de-adwaita ladder C5b — the Simple-Mode inspector
 
 The second C5 consumer. The Edit Task dialog (`inspector.rs`) moves its whole form off the `adw` row family onto the owned rows from v0.54.0: the title entry, the schedule / deadline / project group, the tags row, the checklist, and the notes section are now owned groups and rows, and the project picker is an owned combo (a `gtk::DropDown` behind the same `selected` surface).

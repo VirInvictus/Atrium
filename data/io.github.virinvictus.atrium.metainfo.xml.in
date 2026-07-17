@@ -90,6 +90,17 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.56.0" date="2026-07-17">
+      <description translate="no">
+        <p>The Builder-mode inspector pane — the app's deepest editing
+           surface (title with completion, schedule and deadline with
+           time-of-day and heads-up windows, project, tags, subtasks,
+           checklist, blocked-by dependencies, notes with task links,
+           time tracking, estimate, defer, and the repeat-rule editor)
+           — is rebuilt on the owned list widgets. Every field keeps its
+           autosave and behaviour.</p>
+      </description>
+    </release>
     <release version="0.55.0" date="2026-07-17">
       <description translate="no">
         <p>The Simple-Mode task inspector (the Edit Task dialog: title,

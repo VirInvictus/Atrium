@@ -92,6 +92,20 @@ pub fn switch_row(title: &str, subtitle: Option<&str>) -> (gtk::ListBoxRow, gtk:
     (row, switch)
 }
 
+/// An `adw::SpinRow` successor; the returned `gtk::SpinButton` carries the
+/// `set_digits` / `set_value` / `value` / `adjustment` surface.
+pub fn spin_row(
+    title: &str,
+    subtitle: Option<&str>,
+    min: f64,
+    max: f64,
+    step: f64,
+) -> (gtk::ListBoxRow, gtk::SpinButton) {
+    let spin = gtk::SpinButton::with_range(min, max, step);
+    let row = row(title, subtitle, Some(spin.upcast_ref()));
+    (row, spin)
+}
+
 /// An `adw::ComboRow` successor; the returned `gtk::DropDown` carries the
 /// `set_selected` / `selected` / `connect_selected_notify` surface.
 pub fn combo_row(
@@ -119,6 +133,7 @@ pub fn entry_row(title: &str, text: &str) -> (gtk::ListBoxRow, gtk::Entry) {
 /// of rows.
 pub struct Group {
     root: gtk::Box,
+    header: gtk::Box,
     list: gtk::ListBox,
 }
 
@@ -164,13 +179,22 @@ pub fn group(title: Option<&str>, description: Option<&str>) -> Group {
         .css_classes(["boxed-list"])
         .build();
     root.append(&list);
-    Group { root, list }
+    Group { root, header, list }
 }
 
 impl Group {
     /// The widget to place (a dialog extra child, a page section).
     pub fn widget(&self) -> &gtk::Widget {
         self.root.upcast_ref()
+    }
+
+    /// A trailing widget in the header line (the way
+    /// `adw::PreferencesGroup::set_header_suffix` placed one). Reveals the
+    /// header even when the group has no title/description.
+    pub fn set_header_suffix(&self, suffix: &impl IsA<gtk::Widget>) {
+        suffix.as_ref().set_valign(gtk::Align::Center);
+        self.header.append(suffix);
+        self.header.set_visible(true);
     }
 
     /// Append a row; any non-row widget is wrapped in a non-activatable row,
@@ -228,5 +252,43 @@ impl Page {
 
     pub fn add(&self, group: &Group) {
         self.list.append(group.widget());
+    }
+
+    /// Add an arbitrary widget as a page section (a bespoke section that
+    /// isn't a plain [`Group`] — e.g. a heading over a dynamic list).
+    pub fn add_widget(&self, child: &impl IsA<gtk::Widget>) {
+        self.list.append(child);
+    }
+}
+
+/// An `adw::Bin` successor: a single-child host whose child is swapped at
+/// runtime via [`Bin::set_child`]. Used where content is rebuilt in place
+/// (the inspector pane's editor host, the stack-page view hosts).
+pub struct Bin {
+    root: gtk::Box,
+}
+
+pub fn bin() -> Bin {
+    let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    root.set_hexpand(true);
+    root.set_vexpand(true);
+    Bin { root }
+}
+
+impl Bin {
+    /// The widget to place.
+    pub fn widget(&self) -> &gtk::Widget {
+        self.root.upcast_ref()
+    }
+
+    /// Replace the (single) child. `None` clears it. Mirrors
+    /// `adw::Bin::set_child`.
+    pub fn set_child(&self, child: Option<&impl IsA<gtk::Widget>>) {
+        while let Some(existing) = self.root.first_child() {
+            self.root.remove(&existing);
+        }
+        if let Some(child) = child {
+            self.root.append(child);
+        }
     }
 }
