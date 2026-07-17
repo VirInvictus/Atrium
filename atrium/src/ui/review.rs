@@ -23,10 +23,10 @@
 
 use std::collections::HashMap;
 
-use adw::prelude::*;
 use atrium_core::{Project, Task, WorkerHandle};
 use chrono::NaiveDate;
 use gtk::glib;
+use gtk::prelude::*;
 use tracing::error;
 
 use crate::i18n::{gettext, gettext_f, ngettext_f};

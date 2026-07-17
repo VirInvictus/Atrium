@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! GTK / libadwaita widget tree.
+//! GTK4 widget tree (libadwaita dropped at Phase 22 C10).
 //!
 //! - [`typography`]: bundle the three font families and the base CSS.
 //! - [`window`]: the `AdwApplicationWindow` subclass via composite

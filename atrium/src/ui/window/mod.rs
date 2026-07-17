@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //! `AtriumWindow` — the application's `gtk::ApplicationWindow` subclass
-//! (Phase 22 C8 reparented it off `adw::ApplicationWindow`).
+//! (Phase 22 C8 reparented it off `gtk::ApplicationWindow`).
 //!
 //! Phase 4 turns the static sidebar / placeholder content from Phase 3
 //! into a real working surface:
@@ -22,8 +22,6 @@ use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use adw::prelude::*;
-use adw::subclass::prelude::*;
 use atrium_core::db::read::CanonicalCounts;
 use atrium_core::db::read_pool::ReadPool;
 use atrium_core::{
@@ -34,6 +32,8 @@ use atrium_core::{
 use chrono::Local;
 use gtk::glib::Propagation;
 use gtk::glib::clone;
+use gtk::prelude::*;
+use gtk::subclass::prelude::*;
 use gtk::{CompositeTemplate, gio, glib};
 use tracing::{debug, error, warn};
 
@@ -406,7 +406,7 @@ fn icon_for(list: &ActiveList) -> &'static str {
 }
 
 impl AtriumWindow {
-    pub fn new(app: &adw::Application, debug: bool) -> Self {
+    pub fn new(app: &gtk::Application, debug: bool) -> Self {
         let win: Self = glib::Object::builder().property("application", app).build();
         win.imp().debug_enabled.set(debug);
         if debug {

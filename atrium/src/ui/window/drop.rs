@@ -9,8 +9,8 @@
 
 use std::path::Path;
 
-use adw::prelude::*;
 use gtk::glib::clone;
+use gtk::prelude::*;
 use gtk::{gdk, glib};
 
 use super::AtriumWindow;

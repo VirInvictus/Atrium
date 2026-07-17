@@ -1,5 +1,11 @@
 # Atrium — Patch Notes
 
+## v0.64.0 (2026-07-17): de-adwaita ladder C10 — libadwaita dropped (the toolkit cut)
+
+The last rung. libadwaita is gone from the dependency tree; Atrium is plain GTK4 with its own owned stylesheet. `adw::Application` becomes `gtk::Application`; the boot-time and Preferences theme apply, which drove `adw::StyleManager` / `adw::ColorScheme`, now sets GtkSettings' prefer-dark hint (Atrium ships the dark Kanagawa Dragon sheet, so dark and auto both render dark; a true light Lotus palette is post-1.0 work). Every `use adw::prelude::*` / `adw::subclass::prelude::*` becomes its GTK equivalent, the `libadwaita` workspace dependency is removed, and CI drops the `libadwaita-devel` build package. `cargo tree` shows zero libadwaita.
+
+This completes the Phase 22 de-adwaita ladder (C1 → C10, v0.50.0 → v0.64.0): Atrium now runs on GTK4 with a self-contained, gently-rounded Kanagawa Dragon look it owns outright, on GNOME, Hyprland, or any Wayland desktop, with window controls hidden for the tiling-first posture. Next up: the tiling-forward responsive layout (adaptive narrow-collapse + the list width cap), then the 1.0 asset tail (icon final pass, screenshots, Flathub) and the `v1.0.0` tag.
+
 ## v0.63.0 (2026-07-17): comprehensive owned stylesheet (self-contained, C10-ready)
 
 The owned sheet grows from a thin layer into a comprehensive one, so Atrium looks the same with or without a system GTK theme underneath — and, crucially, after libadwaita is dropped at C10, when there is no rich substrate left to lean on. `theme.rs` now styles the full widget vocabulary Atrium uses (window, header bars, panes, list rows and the sidebar, buttons and all their variants, entries and spin buttons, dropdowns, circular checkboxes and radios, switches, scales, popovers and their menus, tooltips, scrollbars, separators, selection, the focus ring) in the gently-rounded Kanagawa Dragon language, and it carries the adwaita utility classes Atrium leans on across the binary (`.title-1`…`.title-4`, `.large-title`, `.heading`, `.caption`, `.caption-heading`, `.dim-label`, `.success`, `.warning`, `.error`, `.accent`, `.numeric`) so those keep working once libadwaita is gone. Font families stay in `data/style.css` (the owned sheet carries no `font-family` rule; a test enforces it), which continues to layer its per-surface tweaks on top.

@@ -23,10 +23,10 @@
 
 use std::collections::HashMap;
 
-use adw::prelude::*;
 use atrium_core::Task;
 use chrono::{Duration, NaiveDate};
 use gtk::pango;
+use gtk::prelude::*;
 
 use crate::i18n::{gettext, gettext_f};
 use crate::ui::task_list::TagPillMap;

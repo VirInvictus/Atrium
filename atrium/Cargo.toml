@@ -33,10 +33,9 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
-# Phase 3: GTK + libadwaita application shell, tokio runtime for the
-# worker. `gtk` re-exports glib / gio / pango.
+# Phase 3: GTK4 application shell, tokio runtime for the worker.
+# `gtk` re-exports glib / gio / pango. libadwaita dropped at Phase 22 C10.
 gtk.workspace = true
-adw.workspace = true
 tokio.workspace = true
 
 # Phase 4: chrono for date formatting in row labels and `Today` filter.

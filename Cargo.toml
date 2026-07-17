@@ -12,7 +12,7 @@ default-members = ["atrium"]
 resolver = "2"
 
 [workspace.package]
-version = "0.63.0"
+version = "0.64.0"
 edition = "2024"
 license = "MIT"
 authors = ["Brandon LaRocque"]
@@ -40,9 +40,9 @@ thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# UI (binary-only)
+# UI (binary-only). libadwaita was dropped at Phase 22 C10; the app owns
+# its stylesheet (atrium/src/ui/theme.rs) on plain GTK4.
 gtk = { version = "0.9", package = "gtk4", features = ["v4_16"] }
-adw = { version = "0.7", package = "libadwaita", features = ["v1_7"] }
 
 # Phase 1: UUID v4 generation. Sign-off granted in Phase 1 design call.
 # v5 (Phase 18, v0.12.0): deterministic name-based UUIDs from

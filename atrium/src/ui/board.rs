@@ -35,12 +35,12 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use adw::prelude::*;
 use atrium_core::{Column, ScheduledFor, Task, WorkerHandle};
 use gtk::gdk;
 use gtk::glib;
 use gtk::glib::clone;
 use gtk::pango;
+use gtk::prelude::*;
 use tracing::error;
 
 use super::task_list::{TagPillMap, format_tag_names};

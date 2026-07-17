@@ -12,10 +12,10 @@
 //! Drag-to-reschedule writes `scheduled_for` via the worker — the
 //! same column the Inspector touches.
 
-use adw::prelude::*;
 use atrium_core::{ScheduledFor, Task, TaskUpdate, WorkerHandle};
 use chrono::{Datelike, NaiveDate};
 use gtk::glib;
+use gtk::prelude::*;
 use gtk::{gdk, pango};
 use tracing::error;
 

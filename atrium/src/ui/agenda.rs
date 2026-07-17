@@ -31,9 +31,9 @@
 
 use std::collections::HashMap;
 
-use adw::prelude::*;
 use atrium_core::{ScheduledFor, Task};
 use chrono::{Datelike, Duration, NaiveDate};
+use gtk::prelude::*;
 
 use super::task_list::{TagPillMap, format_tag_names};
 use crate::i18n::{gettext, ngettext_f};

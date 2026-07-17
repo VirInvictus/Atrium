@@ -3,7 +3,7 @@
 //!
 //! Phase 4 turns the binary into a real working task surface. `main`
 //! parses CLI flags, builds the tokio runtime, and either short-circuits
-//! to a fixture-only run or hands off to the GTK `adw::Application`.
+//! to a fixture-only run or hands off to the GTK `gtk::Application`.
 //! `connect_activate` opens the DB, spawns the worker, builds the
 //! window, installs actions + keyboard accelerators, and bridges
 //! `TaskChanges` from the worker to the window's diff applier.
@@ -17,12 +17,12 @@ mod ui;
 
 use std::sync::OnceLock;
 
-use adw::prelude::*;
 use anyhow::{Context, Result};
 use atrium_core::db::fixtures::FixtureScale;
 use atrium_core::db::read_pool::ReadPool;
 use atrium_core::{LibraryChanges, TaskChanges, WorkerHandle};
 use gtk::glib::clone;
+use gtk::prelude::*;
 use gtk::{gio, glib};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
@@ -79,7 +79,7 @@ fn main() -> glib::ExitCode {
     // Force runtime initialisation so signal handlers can spawn onto it.
     let _ = runtime();
 
-    let app = adw::Application::builder().application_id(APP_ID).build();
+    let app = gtk::Application::builder().application_id(APP_ID).build();
     install_actions(&app, cfg.debug);
     install_accels(&app);
     connect_startup(&app);
@@ -119,7 +119,7 @@ fn generate_fixtures(
     atrium_core::db::fixtures::generate(&mut conn, scale).context("fixture generation failed")
 }
 
-fn connect_startup(app: &adw::Application) {
+fn connect_startup(app: &gtk::Application) {
     app.connect_startup(|_app| {
         let installed = ui::typography::install_bundled_fonts();
         info!(font_files_present = installed, "typography ready");
@@ -130,17 +130,17 @@ fn connect_startup(app: &adw::Application) {
         ui::typography::apply_bundled_stylesheet();
         ui::typography::register_icon_search_paths();
         // v0.20.0 — Phase 19.5 boot-time theme apply. Reads
-        // the persisted `theme` GSetting and pushes it into the
-        // Adwaita StyleManager so the user's pinned scheme
-        // takes effect on every launch (not just after they
-        // re-open Preferences).
+        // the persisted `theme` GSetting and applies it (GtkSettings
+        // prefer-dark since the C10 toolkit cut) so the user's pinned
+        // scheme takes effect on every launch, not just after they
+        // re-open Preferences.
         let settings = gio::Settings::new(atrium_core::APP_ID);
         let theme = settings.string("theme");
         ui::preferences::apply_theme(&theme);
     });
 }
 
-fn connect_activate(app: &adw::Application, debug: bool) {
+fn connect_activate(app: &gtk::Application, debug: bool) {
     app.connect_activate(move |app| {
         // Single-instance: present the existing window if any.
         if let Some(window) = app.active_window() {
@@ -635,7 +635,7 @@ fn bridge_vault_events(
     });
 }
 
-fn install_actions(app: &adw::Application, debug: bool) {
+fn install_actions(app: &gtk::Application, debug: bool) {
     install_quit_action(app);
     install_about_action(app);
     install_preferences_action(app);
@@ -659,7 +659,7 @@ fn install_actions(app: &adw::Application, debug: bool) {
 /// action. Wired by the reminder service: clicking a fired
 /// notification activates this with the target task's id.
 /// Routes through the existing `open_inspector_for(id)` path.
-fn install_show_task_action(app: &adw::Application) {
+fn install_show_task_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("show-task", Some(&i64::static_variant_type()));
     action.connect_activate(clone!(
         #[weak]
@@ -686,7 +686,7 @@ fn install_show_task_action(app: &adw::Application) {
 /// AdwPreferencesWindow anchored to the active window. Wired
 /// to the primary menu's "Preferences…" entry; also accel-bound
 /// in `install_keyboard_accels`.
-fn install_preferences_action(app: &adw::Application) {
+fn install_preferences_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("preferences", None);
     action.connect_activate(clone!(
         #[weak]
@@ -701,7 +701,7 @@ fn install_preferences_action(app: &adw::Application) {
     app.add_action(&action);
 }
 
-fn install_memory_watch_action(app: &adw::Application) {
+fn install_memory_watch_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("show-memory-watch", None);
     action.connect_activate(clone!(
         #[weak]
@@ -716,7 +716,7 @@ fn install_memory_watch_action(app: &adw::Application) {
     app.add_action(&action);
 }
 
-fn install_quick_entry_action(app: &adw::Application) {
+fn install_quick_entry_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("quick-entry", None);
     action.connect_activate(clone!(
         #[weak]
@@ -738,7 +738,7 @@ fn install_quick_entry_action(app: &adw::Application) {
 
 /// Map every keyboard shortcut from `docs/keymap.md` to its action.
 /// Centralised here so the table is inspectable from one place.
-fn install_accels(app: &adw::Application) {
+fn install_accels(app: &gtk::Application) {
     // App-level
     app.set_accels_for_action("app.quit", &["<Primary>q"]);
     app.set_accels_for_action("app.new-task", &["<Primary>n"]);
@@ -804,7 +804,7 @@ fn install_accels(app: &adw::Application) {
     app.set_accels_for_action("win.move-task-down", &["<Alt>Down"]);
 }
 
-fn install_quit_action(app: &adw::Application) {
+fn install_quit_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("quit", None);
     action.connect_activate(clone!(
         #[weak]
@@ -814,11 +814,11 @@ fn install_quit_action(app: &adw::Application) {
     app.add_action(&action);
 }
 
-fn install_about_action(app: &adw::Application) {
+fn install_about_action(app: &gtk::Application) {
     ui::about::install_action(app);
 }
 
-fn install_mode_action(app: &adw::Application) {
+fn install_mode_action(app: &gtk::Application) {
     let settings = gio::Settings::new(APP_ID);
     let initial = settings.string("mode");
     let action = gio::SimpleAction::new_stateful(
@@ -859,7 +859,7 @@ fn install_mode_action(app: &adw::Application) {
     app.add_action(&action);
 }
 
-fn install_new_task_action(app: &adw::Application) {
+fn install_new_task_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("new-task", None);
     action.connect_activate(clone!(
         #[weak]
@@ -875,7 +875,7 @@ fn install_new_task_action(app: &adw::Application) {
     app.add_action(&action);
 }
 
-fn install_new_area_action(app: &adw::Application) {
+fn install_new_area_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("new-area", None);
     action.connect_activate(clone!(
         #[weak]
@@ -889,7 +889,7 @@ fn install_new_area_action(app: &adw::Application) {
     app.add_action(&action);
 }
 
-fn install_new_tag_action(app: &adw::Application) {
+fn install_new_tag_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("new-tag", None);
     action.connect_activate(clone!(
         #[weak]
@@ -903,7 +903,7 @@ fn install_new_tag_action(app: &adw::Application) {
     app.add_action(&action);
 }
 
-fn install_new_project_action(app: &adw::Application) {
+fn install_new_project_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("new-project", None);
     action.connect_activate(clone!(
         #[weak]
@@ -944,7 +944,7 @@ fn install_new_project_action(app: &adw::Application) {
     app.add_action(&action);
 }
 
-fn install_show_list_action(app: &adw::Application) {
+fn install_show_list_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("show-list", Some(glib::VariantTy::STRING));
     action.connect_activate(clone!(
         #[weak]
@@ -981,7 +981,7 @@ fn install_show_list_action(app: &adw::Application) {
     app.add_action(&action);
 }
 
-fn install_search_action(app: &adw::Application) {
+fn install_search_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("search", None);
     action.connect_activate(clone!(
         #[weak]
@@ -995,7 +995,7 @@ fn install_search_action(app: &adw::Application) {
     app.add_action(&action);
 }
 
-fn install_show_shortcuts_action(app: &adw::Application) {
+fn install_show_shortcuts_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("show-shortcuts", None);
     action.connect_activate(clone!(
         #[weak]
@@ -1011,7 +1011,7 @@ fn install_show_shortcuts_action(app: &adw::Application) {
     app.add_action(&action);
 }
 
-fn install_fixture_action(app: &adw::Application) {
+fn install_fixture_action(app: &gtk::Application) {
     let action = gio::SimpleAction::new("fixture", Some(glib::VariantTy::STRING));
     action.connect_activate(clone!(
         #[weak]

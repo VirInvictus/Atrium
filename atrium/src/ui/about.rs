@@ -2,8 +2,8 @@
 //! "About Atrium" dialog. Built imperatively (no .ui template) since
 //! it's small and benefits from carrying the runtime version directly.
 
-use adw::prelude::*;
 use gtk::glib;
+use gtk::prelude::*;
 
 use crate::i18n::gettext;
 
@@ -65,7 +65,7 @@ pub fn show(parent: &impl IsA<gtk::Widget>) {
 }
 
 /// Glib action handler — wired into the application as `app.about`.
-pub fn install_action(app: &adw::Application) {
+pub fn install_action(app: &gtk::Application) {
     let action = gtk::gio::SimpleAction::new("about", None);
     action.connect_activate(glib::clone!(
         #[weak]

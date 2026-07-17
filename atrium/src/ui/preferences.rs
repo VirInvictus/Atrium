@@ -12,14 +12,14 @@
 //!
 //! Wired to `app.preferences`. Was `AdwPreferencesDialog`; now a plain
 //! modal `gtk::Window` with a `GtkStackSidebar` over the owned rows.
-//! `apply_theme` still drives `adw::StyleManager` — that moves to a
-//! direct portal read at the C10 toolkit cut.
+//! `apply_theme` sets GtkSettings' prefer-dark hint (was `adw::StyleManager`
+//! before the C10 toolkit cut).
 
-use adw::prelude::*;
 use atrium_core::APP_ID;
 use gtk::gio;
 use gtk::glib;
 use gtk::glib::clone;
+use gtk::prelude::*;
 
 use crate::i18n::{gettext, gettext_f};
 use crate::ui::rows;
@@ -437,16 +437,18 @@ fn theme_to_index(value: &str) -> u32 {
     }
 }
 
-/// Apply a theme override to the Adwaita StyleManager. Called when the
-/// user picks a theme in preferences; the application boot path also
-/// calls this once with the persisted value. (Moves to a direct
-/// `org.freedesktop.portal.Settings` read at the C10 toolkit cut.)
+/// Apply the persisted theme preference. Called when the user picks a
+/// theme in Preferences; the boot path also calls it once with the stored
+/// value. Was `adw::StyleManager` / `adw::ColorScheme` before the C10
+/// toolkit cut; now it sets GtkSettings' prefer-dark hint.
+///
+/// Atrium ships the dark Kanagawa Dragon sheet (`theme.rs`), so "dark" and
+/// the "auto" default both render dark; "light" only nudges the prefer-dark
+/// hint for any GTK-default-drawn bits the owned sheet doesn't cover. A true
+/// light (Lotus) palette is post-1.0 work.
 pub fn apply_theme(value: &str) {
-    let manager = adw::StyleManager::default();
-    let scheme = match value {
-        "light" => adw::ColorScheme::ForceLight,
-        "dark" => adw::ColorScheme::ForceDark,
-        _ => adw::ColorScheme::Default,
+    let Some(settings) = gtk::Settings::default() else {
+        return;
     };
-    manager.set_color_scheme(scheme);
+    settings.set_gtk_application_prefer_dark_theme(!matches!(value, "light"));
 }

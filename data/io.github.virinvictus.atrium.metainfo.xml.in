@@ -90,6 +90,14 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.64.0" date="2026-07-17">
+      <description translate="no">
+        <p>Completes the move off libadwaita: Atrium is now plain GTK4 with
+           its own Kanagawa Dragon stylesheet, running on GNOME, Hyprland,
+           or any Wayland desktop. No functional change; the app looks and
+           behaves as before, now without the libadwaita dependency.</p>
+      </description>
+    </release>
     <release version="0.63.0" date="2026-07-17">
       <description translate="no">
         <p>Grows Atrium's owned stylesheet into a comprehensive one, so the

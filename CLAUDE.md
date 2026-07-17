@@ -4,7 +4,7 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.62.0** on the `phase-22-de-adwaita` branch (July 2026); `main` is at v0.48.1 (the vault-ledger fixes). **Schema version: 20** (migrations `0001` → `0020`; 0020 is the C9 swatch recolour). Full workspace suite green.
+**Current release: v0.64.0** on the `phase-22-de-adwaita` branch (July 2026); `main` is at v0.48.1 (the vault-ledger fixes). **Schema version: 20** (migrations `0001` → `0020`; 0020 is the C9 swatch recolour). Full workspace suite green. **The Phase 22 de-adwaita ladder is complete (C1 → C10): Atrium is plain GTK4 with a self-contained owned Kanagawa Dragon stylesheet, zero libadwaita in the tree.** Display-verified and look approved by Brandon.
 
 Phases 0 through 19.5 are complete: the full OmniFocus-superset data layer, dual Simple/Builder modes, Quick Entry, the Org vault two-way mirror, search, recurrence, subtasks, dependencies, templates, backup/restore, per-area review schedules, bulk editing, reminders with launch catch-up, and the non-Org importers (Todoist, Taskwarrior, todo.txt, VTODO, extracted into `atrium-import`). The kanban surface has matured through v0.46.0 (richer cards, per-column WIP limits, add-in-place, persisted intra-column order), preserving the projection column model (columns stay a projection of a tag or Org status; no first-class buckets, so boards still round-trip to Org). v0.46.1 / v0.46.2 were test-only fixes for a flaky CI: the `atrium-org` vault-watcher integration tests now poll for the expected end-state instead of waiting a fixed interval (v0.46.1), and are serialized via a file-level `tokio::sync::Mutex` so the harness can't run them in parallel and starve each other on a small runner (v0.46.2).
 
@@ -266,4 +266,4 @@ The Phase 22 ladder replaced every adwaita dialog primitive with an owned or pla
 - **Memory Watch** is a `gtk::Window` for the same non-grab reason (C8; gained Escape-to-close).
 - **Confirmations** use the owned `dialogs::Alert` (C4; was `adw::AlertDialog`) — named responses, per-response appearance, optional extra child, async `choose_future`. The tag-colour picker (`prompt_for_tag`) passes a swatch-row extra child.
 
-The remaining adwaita surface is `adw::Application` and the one `adw::StyleManager` theme call in `preferences.rs`, both scheduled for C10 (the toolkit cut, portal theme read).
+There is no adwaita surface left: C10 (v0.64.0) dropped libadwaita entirely. `adw::Application` → `gtk::Application`; the `preferences.rs` theme apply sets GtkSettings' `gtk-application-prefer-dark-theme` (Atrium ships the dark Kanagawa sheet; a light Lotus palette is post-1.0).
