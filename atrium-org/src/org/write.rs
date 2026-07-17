@@ -62,7 +62,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, NaiveDate, Timelike, Utc};
 use rusqlite::Connection;
 
-use super::emit::emit_org_file_with_meta;
+use super::emit::{emit_org_file_with_meta, emit_org_text_with_meta};
 use super::parse::{OrgFile, OrgKeyword, OrgRepeater, OrgTask};
 use atrium_core::domain::{Heading, Project, ScheduledFor, Task};
 use atrium_core::error::DbError;
@@ -103,6 +103,64 @@ pub fn write_project_to_vault(
     vault_root: &Path,
     project_id: i64,
 ) -> Result<WriteSummary, WriteError> {
+    let built = build_project_org_file(conn, vault_root, project_id)?;
+
+    if let Some(parent) = built.path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| WriteError::Io {
+            path: parent.display().to_string(),
+            source: e,
+        })?;
+    }
+
+    emit_org_file_with_meta(&built.path, &built.file).map_err(|e| WriteError::Io {
+        path: built.path.display().to_string(),
+        source: e,
+    })?;
+
+    Ok(WriteSummary {
+        project_id,
+        project_title: built.project_title,
+        task_count: built.task_count,
+        file_path: built.path,
+    })
+}
+
+/// Render one project to its canonical Org text without touching the
+/// filesystem, alongside the path it would land at. Because
+/// [`emit_org_file_with_meta`] writes exactly
+/// [`emit_org_text_with_meta`]'s bytes, the returned string is
+/// byte-identical to what [`write_project_to_vault`] would produce —
+/// so the vault writer's startup seed can compare it against the
+/// on-disk file to decide whether that file is already in sync (ours)
+/// or carries an external edit (needs a conflict backup).
+pub fn render_project_to_string(
+    conn: &Connection,
+    vault_root: &Path,
+    project_id: i64,
+) -> Result<(PathBuf, String), WriteError> {
+    let built = build_project_org_file(conn, vault_root, project_id)?;
+    Ok((built.path, emit_org_text_with_meta(&built.file)))
+}
+
+/// The materials needed to write (or render) one project's `.org`
+/// file: the assembled [`OrgFile`], its destination path, and the
+/// bits [`WriteSummary`] carries back to callers.
+struct BuiltProject {
+    file: OrgFile,
+    path: PathBuf,
+    project_title: String,
+    task_count: usize,
+}
+
+/// Read a project + its tasks / headings / tags / clock entries and
+/// assemble the [`OrgFile`] tree, without any filesystem side effects.
+/// Shared by [`write_project_to_vault`] (which then writes it) and
+/// [`render_project_to_string`] (which emits it to a string).
+fn build_project_org_file(
+    conn: &Connection,
+    vault_root: &Path,
+    project_id: i64,
+) -> Result<BuiltProject, WriteError> {
     let project = atrium_core::db::read::project_by_id(conn, project_id)?
         .ok_or(WriteError::ProjectNotFound(project_id))?;
     let area_title = match project.area_id {
@@ -149,23 +207,11 @@ pub fn write_project_to_vault(
 
     let path = build_project_vault_path(vault_root, area_title.as_deref(), &project.title);
 
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| WriteError::Io {
-            path: parent.display().to_string(),
-            source: e,
-        })?;
-    }
-
-    emit_org_file_with_meta(&path, &file).map_err(|e| WriteError::Io {
-        path: path.display().to_string(),
-        source: e,
-    })?;
-
-    Ok(WriteSummary {
-        project_id,
+    Ok(BuiltProject {
+        file,
+        path,
         project_title: project.title,
         task_count: tasks.len(),
-        file_path: path,
     })
 }
 

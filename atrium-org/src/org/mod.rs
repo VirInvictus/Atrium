@@ -31,8 +31,8 @@ pub use parse::{
     parse_org_file_with_meta, parse_org_text, parse_org_text_with_meta,
 };
 pub use write::{
-    WriteError, WriteSummary, project_vault_path, write_all_projects_to_vault,
-    write_project_to_vault,
+    WriteError, WriteSummary, project_vault_path, render_project_to_string,
+    write_all_projects_to_vault, write_project_to_vault,
 };
 
 use std::collections::{BTreeMap, HashMap};

@@ -167,7 +167,7 @@ impl VaultWriter {
         events_tx: Option<mpsc::UnboundedSender<VaultEvent>>,
     ) -> Self {
         let write_ledger = WriteLedger::load(&root);
-        Self {
+        let mut writer = Self {
             root,
             pool,
             rx,
@@ -177,6 +177,54 @@ impl VaultWriter {
             events_tx,
             last_sidecar: None,
             write_ledger,
+        };
+        writer.seed_ledger_from_synced_files();
+        writer
+    }
+
+    /// Seed the content ledger at startup for every project whose `.org`
+    /// file is already byte-identical to what Atrium would write right
+    /// now (i.e. in sync with the DB). Without this, the *first* flush of
+    /// each not-yet-tracked file after a launch mistakes Atrium's own
+    /// prior output for an external edit and snapshots it once — harmless
+    /// but noisy, and spread across sessions until every file has been
+    /// touched. Seeding closes that window on launch.
+    ///
+    /// Safety: only in-sync files are seeded. The watcher does not
+    /// re-scan on startup, so an edit made in Emacs while Atrium was
+    /// closed lives only on disk; such a file will NOT match canonical,
+    /// is left unseeded, and so still trips the conflict backup on its
+    /// first flush. Purely an optimisation — any read error skips silently
+    /// and the pre-existing per-file backup remains the fallback.
+    fn seed_ledger_from_synced_files(&mut self) {
+        let renders = self.pool.with(|conn| {
+            let projects = atrium_core::db::read::list_projects(conn)
+                .map_err(|e| DbError::Sync(e.to_string()))?;
+            let mut out = Vec::with_capacity(projects.len());
+            for project in projects {
+                if let Ok(rendered) =
+                    crate::org::render_project_to_string(conn, &self.root, project.id)
+                {
+                    out.push(rendered);
+                }
+            }
+            Ok::<_, DbError>(out)
+        });
+        let Ok(renders) = renders else {
+            return;
+        };
+        let mut seeded_any = false;
+        for (path, text) in renders {
+            let canonical = content_hash(text.as_bytes());
+            if let Ok(bytes) = std::fs::read(&path)
+                && content_hash(&bytes) == canonical
+                && self.write_ledger.seed_if_absent(&path, canonical)
+            {
+                seeded_any = true;
+            }
+        }
+        if seeded_any {
+            self.write_ledger.flush();
         }
     }
 
@@ -459,6 +507,24 @@ impl WriteLedger {
             return;
         }
         self.hashes.insert(path.to_path_buf(), hash);
+        self.persist();
+    }
+
+    /// Insert an entry only if the file is not already tracked, without
+    /// persisting. The startup seed batches many of these and calls
+    /// [`WriteLedger::flush`] once at the end. Returns whether it inserted.
+    fn seed_if_absent(&mut self, path: &Path, hash: u64) -> bool {
+        if self.hashes.contains_key(path) {
+            return false;
+        }
+        self.hashes.insert(path.to_path_buf(), hash);
+        true
+    }
+
+    /// Persist the in-memory map to disk. Used by the batch seed after
+    /// folding in every in-sync file, so seeding writes the ledger once
+    /// rather than once per file.
+    fn flush(&self) {
         self.persist();
     }
 
@@ -850,6 +916,81 @@ mod tests {
         assert!(
             !entries.iter().any(|n| n.contains(".atrium.bak.")),
             "a fresh writer must recognise Atrium's own prior write via the ledger; saw: {entries:?}"
+        );
+
+        let _ = notifier2.sender().send(VaultWriteRequest::Shutdown).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// The startup seed: a file that is on disk and in sync with the DB
+    /// but has NO ledger entry (e.g. produced by `export org`, or written
+    /// by a pre-ledger build) must be recognised as ours on the next
+    /// launch, so the first flush after a DB change doesn't back it up.
+    #[tokio::test]
+    async fn startup_seed_recognises_in_sync_file_without_prior_ledger() {
+        let (writer_conn, pool, scratch) = fresh_setup("seed");
+        let (handle, _changes_rx, _library_rx) = spawn_worker(writer_conn);
+        let project = handle
+            .create_project(NewProject {
+                title: "Seed".to_string(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let task = handle
+            .create_task(NewTask {
+                title: "task one".to_string(),
+                project_id: Some(project.id),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Session 1: establish the file + ledger, then shut down.
+        let notifier1 = spawn_vault_writer(scratch.clone(), pool.clone());
+        notifier1
+            .sender()
+            .send(VaultWriteRequest::ProjectDirty(project.id))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let _ = notifier1.sender().send(VaultWriteRequest::Shutdown).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let dest = scratch.join("Seed.org");
+        assert!(dest.exists());
+
+        // Simulate a vault whose file is in sync but was never ledgered:
+        // delete the ledger while the on-disk file still matches the DB.
+        let ledger = scratch.join(".atrium").join("write-ledger");
+        std::fs::remove_file(&ledger).unwrap();
+
+        // Session 2: constructing the writer seeds the ledger from the
+        // in-sync file (no DB change yet, so on-disk == canonical).
+        let notifier2 = spawn_vault_writer(scratch.clone(), pool.clone());
+        assert!(
+            ledger.exists(),
+            "startup seed must re-create the ledger from the in-sync file"
+        );
+
+        // Now a DB change + flush: the seeded ledger must recognise the
+        // file as ours, so no backup is produced.
+        handle.toggle_complete(task.id).await.unwrap();
+        notifier2
+            .sender()
+            .send(VaultWriteRequest::ProjectDirty(project.id))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        let entries: Vec<_> = std::fs::read_dir(&scratch)
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            !entries.iter().any(|n| n.contains(".atrium.bak.")),
+            "startup seed should recognise the in-sync file as ours; saw: {entries:?}"
         );
 
         let _ = notifier2.sender().send(VaultWriteRequest::Shutdown).await;
