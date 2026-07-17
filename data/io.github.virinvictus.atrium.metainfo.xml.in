@@ -82,14 +82,24 @@
   <content_rating type="oars-1.1"/>
 
   <branding>
-    <color type="primary" scheme_preference="light">#F4F1EA</color>
-    <color type="primary" scheme_preference="dark">#1A1D21</color>
+    <color type="primary" scheme_preference="light">#c4b28a</color>
+    <color type="primary" scheme_preference="dark">#12120f</color>
   </branding>
 
   <!-- TODO: add <screenshots> section once a release build is ready to
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.49.0" date="2026-07-17">
+      <description translate="no">
+        <p>New application icon. The placeholder "A" is redrawn on the
+           standard icon grid in the app's Kanagawa Dragon palette: a
+           dark rounded-square tile, a pale "A" whose open triangular
+           counter reads as an atrium court, and a warm line for the
+           courtyard floor. A monochrome symbolic version is added for
+           sidebars and notifications.</p>
+      </description>
+    </release>
     <release version="0.48.0" date="2026-07-17">
       <description translate="no">
         <p>Planning release. The road to 1.0 is re-sequenced: the move

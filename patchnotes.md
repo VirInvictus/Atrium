@@ -1,5 +1,17 @@
 # Atrium — Patch Notes
 
+## v0.49.0 (2026-07-17): new application icon
+
+The day-one placeholder is replaced. The icon comment had said "Replace before 1.0" since v0.0.0, and with the de-adwaita re-theme now landing before the tag, the icon is drawn in the palette it will actually keep.
+
+The concept is unchanged: a capital "A" as a building silhouette, its triangular counter the atrium itself, an open court with a warm line for the courtyard floor. What changed is the craft. The old mark sat on a 256 grid with an off-standard margin and colours borrowed from libadwaita's accent set. The redraw moves to the house 128 canvas with a 12px safe margin and a rounded-square card at the Adwaita ~22% corner radius, and recolours to Kanagawa Dragon: a dragonBlack card gradient (`#282727` → `#12120f`), the "A" in dragonWhite (`#c5c9c5`), the floor line in dragonYellow (`#c4b28a`). The letterform is weighted to hold up at 16px.
+
+A hand-redrawn 16×16 symbolic sibling lands alongside it (`io.github.virinvictus.atrium-symbolic.svg`), following the portfolio pattern (Colophon, Viaduct): same "A"-with-counter silhouette, but the card, the floor line, and the safe margin drop because they collapse to noise at that scale. It recolours through the GNOME symbolic mechanism for sidebars, menus, and notifications. `onboarding.rs` and the About dialog already reference the app icon by name, so both pick up the new art with no code change; meson now installs the symbolic variant beside the scalable one.
+
+`logo.svg` is refreshed to match (kept byte-identical to the app icon), and the metainfo `<branding>` colours are re-sampled from the redraw (`#c4b28a` light, `#12120f` dark) since the old values were lifted from the placeholder. `appstreamcli validate` stays clean.
+
+No code, no schema, no behaviour change; asset-only.
+
 ## v0.48.0 (2026-07-17): re-sequence the 1.0 endgame, de-adwaita moves in front of the tag
 
 A planning release: documentation only, no code, no schema, no behaviour change. It records a sequencing decision and lays out the runway for the work it unblocks.
