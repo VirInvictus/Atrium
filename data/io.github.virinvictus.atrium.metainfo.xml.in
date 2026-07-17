@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.54.0" date="2026-07-17">
+      <description translate="no">
+        <p>Fifth step of the plain-GTK4 move begins: the settings-style
+           list rows (title, subtitle, dropdowns, switches, text fields
+           grouped into cards) move to an owned toolkit. This release
+           converts the Import dialog; the inspector and other forms
+           follow. Same layout and behaviour.</p>
+      </description>
+    </release>
     <release version="0.53.0" date="2026-07-17">
       <description translate="no">
         <p>Fourth step of the plain-GTK4 move: the confirmation and prompt

@@ -1,5 +1,15 @@
 # Atrium — Patch Notes
 
+## v0.54.0 (2026-07-17): de-adwaita ladder C5a — the owned rows module + the Import dialog
+
+C5 is the big rung: the whole `adw` list-row family (`ActionRow`, `PreferencesGroup`, `PreferencesPage`, `ComboRow`, `EntryRow`, `SwitchRow`, `SpinRow`) appears ~95 times across the inspector, the forms, and preferences. It converts over several releases rather than one. This is the first: the owned module plus its first consumer.
+
+The module, `atrium/src/ui/rows.rs` (ported from Conservatory's Phase 26 version), gives free-function builders that return a `gtk::ListBoxRow` alongside the interactive control it carries, so call sites keep the exact surface they wired against: `row` / `action_row` (returns the subtitle label for runtime updates) / `switch_row` (→ `gtk::Switch`) / `combo_row` (→ `gtk::DropDown`) / `entry_row` (→ `gtk::Entry`), a `group` (the `PreferencesGroup` successor: heading + description over a `.boxed-list`), and a `page` (the `PreferencesPage` successor: a self-scrolling column of groups). Unlike the earlier rungs these conversions are not mechanical, since the adw rows are builders with `title` / `subtitle` / `model` properties that each have to be rewritten into the owned calls.
+
+The first consumer is the Import dialog. Its source-format and UDA dropdowns, the project-name entry, the dry-run switch, the file row with its "Choose…" suffix, and the result pane all move to the owned rows and groups; the redundant outer scroller drops because the owned `Page` brings its own. Behaviour is unchanged: the dropdowns still drive the same importer dispatch, the file chooser still fills the subtitle, dry-run still gates writing. The dialog's own shell (`adw::Dialog` / `HeaderBar` / `ToolbarView`) stays for the C8 shell cut. `spin_row` and the group header-suffix helper are omitted here and return with their first real consumers (the inspector rungs) to keep this release free of unused code.
+
+`fmt`, `clippy -D warnings`, and the 1028-test workspace suite are green; the rendered dialog is a GUI surface pending a display pass. Remaining C5 consumers (the Simple-Mode inspector, the Builder inspector pane, the stack-page `Bin` hosts) are tracked as C5b–C5d on the roadmap.
+
 ## v0.53.0 (2026-07-17): de-adwaita ladder C4 — owned modal alert dialogs
 
 The fourth rung, and the biggest so far. `adw::AlertDialog` is gone: a new `atrium/src/ui/dialogs.rs` provides an owned `Alert` (a small modal `gtk::Window`), cribbed from Conservatory's Phase 26 version with the async chooser Atrium's call sites need. Its surface mirrors adwaita's, heading and body, an optional extra child, named responses with per-response `Appearance` (suggested / destructive), a default response for Enter and a close response for Escape and the window-manager close, so all eight call sites converted by swapping only the constructor and the appearance enum.

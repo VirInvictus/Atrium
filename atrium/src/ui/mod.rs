@@ -25,6 +25,7 @@ pub mod inspector_pane;
 pub mod logbook;
 pub mod preferences;
 pub mod review;
+pub mod rows;
 pub mod shortcuts;
 pub mod status_page;
 pub mod tag_editor;

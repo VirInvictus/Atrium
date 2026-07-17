@@ -27,11 +27,9 @@ pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
         .content_height(560)
         .build();
 
-    let page = adw::PreferencesPage::new();
+    let page = crate::ui::rows::page();
 
-    let group = adw::PreferencesGroup::builder()
-        .title(gettext("Source"))
-        .build();
+    let group = crate::ui::rows::group(Some(&gettext("Source")), None);
     // Source formats, in the order `run_gui_import` matches on.
     // Translators: import format names — product names ("Todoist",
     // "Taskwarrior", "VTODO", "todo.txt") and file extensions stay as-is.
@@ -40,36 +38,36 @@ pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
     let src_vtodo = gettext("VTODO (.ics)");
     let src_taskwarrior = gettext("Taskwarrior JSON");
     let src_todotxt = gettext("todo.txt");
-    let source_model = gtk::StringList::new(&[
-        src_org.as_str(),
-        src_todoist.as_str(),
-        src_vtodo.as_str(),
-        src_taskwarrior.as_str(),
-        src_todotxt.as_str(),
-    ]);
-    let source_row = adw::ComboRow::builder()
-        .title(gettext("Format"))
-        .model(&source_model)
-        .build();
+    let (source_row, source_dd) = crate::ui::rows::combo_row(
+        &gettext("Format"),
+        None,
+        &[
+            src_org.as_str(),
+            src_todoist.as_str(),
+            src_vtodo.as_str(),
+            src_taskwarrior.as_str(),
+            src_todotxt.as_str(),
+        ],
+    );
     group.add(&source_row);
 
-    let file_row = adw::ActionRow::builder()
-        .title(gettext("File"))
-        .subtitle(gettext("No file chosen"))
-        .build();
     let choose_btn = gtk::Button::builder()
         .label(gettext("Choose…"))
         .valign(gtk::Align::Center)
         .build();
     choose_btn.add_css_class("flat");
-    file_row.add_suffix(&choose_btn);
+    let (file_row, file_subtitle) = crate::ui::rows::action_row(
+        &gettext("File"),
+        Some(&gettext("No file chosen")),
+        Some(choose_btn.upcast_ref()),
+    );
     group.add(&file_row);
 
-    let project_row = adw::EntryRow::builder()
-        .title(gettext("Project name (ignored for Org)"))
+    let (project_row, project_entry) = crate::ui::rows::entry_row(
+        &gettext("Project name (ignored for Org)"),
         // Translators: default name of the project created to hold imported tasks.
-        .text(gettext("Imported"))
-        .build();
+        &gettext("Imported"),
+    );
     group.add(&project_row);
 
     // Translators: policies for mapping Taskwarrior user-defined
@@ -77,27 +75,24 @@ pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
     let uda_tag = gettext("Tag");
     let uda_note = gettext("Note");
     let uda_drop = gettext("Drop");
-    let uda_model = gtk::StringList::new(&[uda_tag.as_str(), uda_note.as_str(), uda_drop.as_str()]);
-    let uda_row = adw::ComboRow::builder()
-        .title(gettext("Taskwarrior UDAs"))
-        .subtitle(gettext(
+    let (uda_row, uda_dd) = crate::ui::rows::combo_row(
+        &gettext("Taskwarrior UDAs"),
+        Some(&gettext(
             "How user-defined attributes map (Taskwarrior only)",
-        ))
-        .model(&uda_model)
-        .build();
+        )),
+        &[uda_tag.as_str(), uda_note.as_str(), uda_drop.as_str()],
+    );
     group.add(&uda_row);
 
-    let dryrun_row = adw::SwitchRow::builder()
-        .title(gettext("Dry run"))
-        .subtitle(gettext("Preview the result without writing anything"))
-        .active(true)
-        .build();
+    let (dryrun_row, dryrun_switch) = crate::ui::rows::switch_row(
+        &gettext("Dry run"),
+        Some(&gettext("Preview the result without writing anything")),
+    );
+    dryrun_switch.set_active(true);
     group.add(&dryrun_row);
     page.add(&group);
 
-    let result_group = adw::PreferencesGroup::builder()
-        .title(gettext("Result"))
-        .build();
+    let result_group = crate::ui::rows::group(Some(&gettext("Result")), None);
     let result_label = gtk::Label::builder()
         .label(gettext("Choose a file, then Import."))
         .wrap(true)
@@ -113,14 +108,14 @@ pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
     // File chooser.
     {
         let chosen = chosen.clone();
-        let file_row = file_row.clone();
+        let file_subtitle = file_subtitle.clone();
         choose_btn.connect_clicked(move |btn| {
             let window = btn.root().and_downcast::<gtk::Window>();
             let file_dialog = gtk::FileDialog::builder()
                 .title(gettext("Choose a file to import"))
                 .build();
             let chosen = chosen.clone();
-            let file_row = file_row.clone();
+            let file_subtitle = file_subtitle.clone();
             file_dialog.open(window.as_ref(), gio::Cancellable::NONE, move |res| {
                 if let Ok(file) = res
                     && let Some(path) = file.path()
@@ -129,7 +124,9 @@ pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
-                    file_row.set_subtitle(&name);
+                    file_subtitle.set_label(&name);
+                    file_subtitle.set_tooltip_text(Some(&name));
+                    file_subtitle.set_visible(true);
                     *chosen.borrow_mut() = Some(path);
                 }
             });
@@ -141,10 +138,10 @@ pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
     import_btn.add_css_class("suggested-action");
     {
         let chosen = chosen.clone();
-        let source_row = source_row.clone();
-        let project_row = project_row.clone();
-        let uda_row = uda_row.clone();
-        let dryrun_row = dryrun_row.clone();
+        let source_dd = source_dd.clone();
+        let project_entry = project_entry.clone();
+        let uda_dd = uda_dd.clone();
+        let dryrun_switch = dryrun_switch.clone();
         let result_label = result_label.clone();
         let worker = worker.clone();
         import_btn.connect_clicked(move |_| {
@@ -152,9 +149,9 @@ pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
                 result_label.set_label(&gettext("Choose a file first."));
                 return;
             };
-            let source = source_row.selected() as usize;
+            let source = source_dd.selected() as usize;
             let project = {
-                let t = project_row.text().trim().to_string();
+                let t = project_entry.text().trim().to_string();
                 if t.is_empty() {
                     // Translators: default name of the project created to hold imported tasks.
                     gettext("Imported")
@@ -162,12 +159,12 @@ pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
                     t
                 }
             };
-            let uda = match uda_row.selected() {
+            let uda = match uda_dd.selected() {
                 1 => UdaPolicy::Note,
                 2 => UdaPolicy::Drop,
                 _ => UdaPolicy::Tag,
             };
-            let dry_run = dryrun_row.is_active();
+            let dry_run = dryrun_switch.is_active();
             let result_label = result_label.clone();
             let worker = worker.clone();
             result_label.set_label(&gettext("Working…"));
@@ -185,11 +182,9 @@ pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
     header.pack_end(&import_btn);
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&header);
-    let scrolled = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&page)
-        .build();
-    toolbar.set_content(Some(&scrolled));
+    // The owned rows::Page brings its own vertical ScrolledWindow, so no
+    // outer scroller is needed (unlike adw::PreferencesPage which was wrapped).
+    toolbar.set_content(Some(page.widget()));
     dialog.set_child(Some(&toolbar));
     dialog.present(Some(parent));
 }
