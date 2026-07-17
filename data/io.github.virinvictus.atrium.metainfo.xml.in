@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.48.1" date="2026-07-17">
+      <description translate="no">
+        <p>Seeds the vault write-ledger at launch so the very first save
+           after startup never produces a spurious conflict backup: a
+           project file already in sync with the database is recognised as
+           Atrium's own up front. A file carrying a real external edit is
+           left unseeded and still backs up correctly.</p>
+      </description>
+    </release>
     <release version="0.48.0" date="2026-07-17">
       <description translate="no">
         <p>Fixes over-eager vault conflict backups. Completing or editing a

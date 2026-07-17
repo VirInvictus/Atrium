@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## v0.48.1 (2026-07-17): seed the vault ledger on launch so the first flush never spuriously backs up
+
+Closes the one remaining gap in the v0.48.0 vault-backup fix. The durable content ledger only knows a file is Atrium's own once Atrium has written it at least once *with the ledger in place*, so on the first launch after the fix, the first flush of each not-yet-tracked project still snapshotted its Org file once (harmless but noisy, and spread across sessions as each project was first touched). The writer now seeds the ledger at startup: for every project whose `.org` file is already byte-identical to what Atrium would write right now (in sync with the DB), it records the hash up front, so that first flush recognises the file as ours and skips the backup. A file that carries a real edit made in Emacs while Atrium was closed will not match the canonical bytes, is left unseeded, and so still trips the conflict backup on its first flush. Safety intact; new regression test `startup_seed_recognises_in_sync_file_without_prior_ledger`. Adds `atrium_org::org::render_project_to_string`, a filesystem-free canonical render that shares the OrgFile-building path with the writer so the two stay byte-identical. `atrium-org` only.
+
 ## v0.48.0 (2026-07-17): fix over-eager vault conflict backups
 
 The vault writer was snapshotting projects' Org files as spurious `.atrium.bak.<timestamp>` "conflicts" on ordinary edits — most visibly, completing a task backed up its project file every time, with a toast, because the conflict check only remembered Atrium's own writes for a two-second in-memory window (and forgot them entirely across a restart). After that window lapsed, the writer mistook its own previous output for an external edit.
