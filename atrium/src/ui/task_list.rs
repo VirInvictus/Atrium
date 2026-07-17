@@ -56,12 +56,12 @@ const AREA_ACCENT_CLASSES: &[&str] = &[
 /// than rendering an arbitrary stripe colour.
 fn area_accent_class_for_hex(hex: &str) -> Option<&'static str> {
     match hex {
-        "#3584e4" => Some("atrium-area-accent-blue"),
-        "#33d17a" => Some("atrium-area-accent-green"),
-        "#e5a50a" => Some("atrium-area-accent-yellow"),
-        "#ff7800" => Some("atrium-area-accent-orange"),
-        "#e01b24" => Some("atrium-area-accent-red"),
-        "#9141ac" => Some("atrium-area-accent-purple"),
+        "#8ba4b0" => Some("atrium-area-accent-blue"),
+        "#87a987" => Some("atrium-area-accent-green"),
+        "#c4b28a" => Some("atrium-area-accent-yellow"),
+        "#b6927b" => Some("atrium-area-accent-orange"),
+        "#c4746e" => Some("atrium-area-accent-red"),
+        "#8992a7" => Some("atrium-area-accent-purple"),
         _ => None,
     }
 }

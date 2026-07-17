@@ -364,12 +364,12 @@ fn tag_name(i: usize) -> String {
 /// coincidence.
 fn swatch_color(i: usize) -> &'static str {
     const PALETTE: &[&str] = &[
-        "#3584e4", // Blue
-        "#33d17a", // Green
-        "#e5a50a", // Yellow
-        "#ff7800", // Orange
-        "#e01b24", // Red
-        "#9141ac", // Purple
+        "#8ba4b0", // Blue   (dragonBlue2)
+        "#87a987", // Green  (dragonGreen)
+        "#c4b28a", // Yellow (dragonYellow)
+        "#b6927b", // Orange (dragonOrange)
+        "#c4746e", // Red    (dragonRed)
+        "#8992a7", // Purple (dragonViolet)
     ];
     PALETTE[i % PALETTE.len()]
 }

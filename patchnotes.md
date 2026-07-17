@@ -1,5 +1,17 @@
 # Atrium — Patch Notes
 
+## v0.62.0 (2026-07-17): de-adwaita ladder C9 — the visual flip (owned Kanagawa stylesheet + migration 0020)
+
+Atrium stops looking like adwaita. A new owned stylesheet, `atrium/src/ui/theme.rs`, bakes the Kanagawa Dragon palette into one generated sheet and installs it a step above USER priority (just under `data/style.css`, which keeps its per-surface tweaks). The accent is dragonYellow (#c4b28a), matching the app icon's courtyard floor. The base widgets flip to the spec §3.7 design language: flat, square, hard 1px hairlines, no gradients or rounded chrome.
+
+The sheet does two jobs. First, it redefines every adwaita colour name `data/style.css` leans on (`@accent_color`, `@card_shade_color`, `@window_bg_color`, the `@blue_3` / `@yellow_5` palette scale, and the rest) in a Kanagawa hue via `@define-color`. libadwaita supplies those names today and vanishes at C10, so defining them here both recolours adwaita's own widgets now and keeps `style.css` resolving after the toolkit is gone. Second, it carries the flat/square base rules (window, header bars, buttons, rows, entries, switches, scales) that override adwaita's look. Typography stays in `data/style.css` (the three bundled families).
+
+Migration 0020 (schema version 20, UPDATE-only) recolours the six built-in tag and area swatches from the old adwaita hexes to their Kanagawa counterparts, in lockstep with the swatch-class lookups, the colour picker, the fixtures, and the swatch CSS. It only touches those six exact hexes, so a user's own custom colours are untouched; and since the sidecar carries tag colours DB-to-disk only (never back), the migration is authoritative with no stale-sidecar revert.
+
+The task-list width cap (the 960px `AdwClamp` dropped in C8) needs an owned custom-layout widget rather than the stylesheet, and it wants on-display verification, so it joins the narrow-collapse in the Phase 21 geometry audit rather than shipping here.
+
+libadwaita is still linked (this rung recolours and reshapes through overrides); the toolkit itself, `adw::Application`, and the last `adw::StyleManager` theme call come out in C10.
+
 ## v0.61.0 (2026-07-17): de-adwaita ladder C8 — the shell cut
 
 The window shell drops libadwaita. `AdwApplicationWindow` becomes a plain `gtk::ApplicationWindow`; the three `AdwToolbarView` stacks become vertical `GtkBox`es; the three `AdwHeaderBar`s become `gtk::HeaderBar`s; the two empty `AdwWindowTitle`s become empty `GtkLabel` title-widgets; and `data/window.ui` no longer requires libadwaita. This lands the tiling-first decoration posture from spec §3.7: an invisible headerbar suppresses GTK's default titlebar, and window controls are hidden everywhere (the compositor owns close / maximize / minimize, and Ctrl+Q quits), so each headerbar keeps only its functional buttons.

@@ -90,6 +90,16 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.62.0" date="2026-07-17">
+      <description translate="no">
+        <p>De-adwaita ladder C9 — the visual flip. An owned Kanagawa Dragon
+           stylesheet replaces adwaita's palette and flattens the widgets
+           (flat, square, hard 1px hairlines). The accent is a warm gold
+           matching the app icon. A schema migration recolours the six
+           built-in tag and area swatches to their Kanagawa counterparts;
+           custom colours are left untouched.</p>
+      </description>
+    </release>
     <release version="0.61.0" date="2026-07-17">
       <description translate="no">
         <p>De-adwaita ladder C8 — the window shell drops libadwaita. The

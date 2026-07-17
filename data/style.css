@@ -375,12 +375,12 @@ window.atrium-debug-pane {
   padding: 0;
   border-radius: 50%;
 }
-.atrium-swatch-blue   { background: #3584e4; }
-.atrium-swatch-green  { background: #33d17a; }
-.atrium-swatch-yellow { background: #e5a50a; }
-.atrium-swatch-orange { background: #ff7800; }
-.atrium-swatch-red    { background: #e01b24; }
-.atrium-swatch-purple { background: #9141ac; }
+.atrium-swatch-blue   { background: #8ba4b0; }
+.atrium-swatch-green  { background: #87a987; }
+.atrium-swatch-yellow { background: #c4b28a; }
+.atrium-swatch-orange { background: #b6927b; }
+.atrium-swatch-red    { background: #c4746e; }
+.atrium-swatch-purple { background: #8992a7; }
 .atrium-swatch:checked {
   box-shadow: 0 0 0 2px alpha(@accent_color, 0.45);
 }
@@ -411,22 +411,22 @@ window.atrium-debug-pane {
  * cleanly over the hover and selection background-colors
  * (background-image renders on top of background-color). */
 .atrium-task-row.atrium-area-accent-blue {
-  background-image: linear-gradient(to right, alpha(#3584e4, 0.10), transparent 40%);
+  background-image: linear-gradient(to right, alpha(#8ba4b0, 0.10), transparent 40%);
 }
 .atrium-task-row.atrium-area-accent-green {
-  background-image: linear-gradient(to right, alpha(#33d17a, 0.10), transparent 40%);
+  background-image: linear-gradient(to right, alpha(#87a987, 0.10), transparent 40%);
 }
 .atrium-task-row.atrium-area-accent-yellow {
-  background-image: linear-gradient(to right, alpha(#e5a50a, 0.10), transparent 40%);
+  background-image: linear-gradient(to right, alpha(#c4b28a, 0.10), transparent 40%);
 }
 .atrium-task-row.atrium-area-accent-orange {
-  background-image: linear-gradient(to right, alpha(#ff7800, 0.10), transparent 40%);
+  background-image: linear-gradient(to right, alpha(#b6927b, 0.10), transparent 40%);
 }
 .atrium-task-row.atrium-area-accent-red {
-  background-image: linear-gradient(to right, alpha(#e01b24, 0.10), transparent 40%);
+  background-image: linear-gradient(to right, alpha(#c4746e, 0.10), transparent 40%);
 }
 .atrium-task-row.atrium-area-accent-purple {
-  background-image: linear-gradient(to right, alpha(#9141ac, 0.10), transparent 40%);
+  background-image: linear-gradient(to right, alpha(#8992a7, 0.10), transparent 40%);
 }
 
 /* v0.5.0 — canonical-list icon tinting. Each canonical sidebar

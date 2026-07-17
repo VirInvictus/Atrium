@@ -111,12 +111,12 @@ pub(crate) fn build_primary_menu(include_debug: bool) -> gio::Menu {
 /// `tag.color`.
 pub(super) const TAG_COLORS: &[(&str, Option<&str>)] = &[
     ("None", None),
-    ("Blue", Some("#3584e4")),
-    ("Green", Some("#33d17a")),
-    ("Yellow", Some("#e5a50a")),
-    ("Orange", Some("#ff7800")),
-    ("Red", Some("#e01b24")),
-    ("Purple", Some("#9141ac")),
+    ("Blue", Some("#8ba4b0")),
+    ("Green", Some("#87a987")),
+    ("Yellow", Some("#c4b28a")),
+    ("Orange", Some("#b6927b")),
+    ("Red", Some("#c4746e")),
+    ("Purple", Some("#8992a7")),
 ];
 
 /// Display name for a `TAG_COLORS` label. A literal-msgid match rather
@@ -1140,12 +1140,12 @@ pub(super) fn build_tag_row(tag: &Tag) -> (gtk::ListBoxRow, gtk::Label) {
 /// gives it a neutral grey fallback).
 pub(super) fn swatch_class_for_hex(hex: &str) -> Option<&'static str> {
     match hex {
-        "#3584e4" => Some("atrium-swatch-blue"),
-        "#33d17a" => Some("atrium-swatch-green"),
-        "#e5a50a" => Some("atrium-swatch-yellow"),
-        "#ff7800" => Some("atrium-swatch-orange"),
-        "#e01b24" => Some("atrium-swatch-red"),
-        "#9141ac" => Some("atrium-swatch-purple"),
+        "#8ba4b0" => Some("atrium-swatch-blue"),
+        "#87a987" => Some("atrium-swatch-green"),
+        "#c4b28a" => Some("atrium-swatch-yellow"),
+        "#b6927b" => Some("atrium-swatch-orange"),
+        "#c4746e" => Some("atrium-swatch-red"),
+        "#8992a7" => Some("atrium-swatch-purple"),
         _ => None,
     }
 }

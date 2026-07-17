@@ -123,6 +123,10 @@ fn connect_startup(app: &adw::Application) {
     app.connect_startup(|_app| {
         let installed = ui::typography::install_bundled_fonts();
         info!(font_files_present = installed, "typography ready");
+        // Phase 22 C9 — the owned Kanagawa sheet installs first (it supplies
+        // the @define-color names + flat base), then the bundled style.css
+        // layers its per-surface tweaks over it at the same priority.
+        ui::theme::install();
         ui::typography::apply_bundled_stylesheet();
         ui::typography::register_icon_search_paths();
         // v0.20.0 — Phase 19.5 boot-time theme apply. Reads

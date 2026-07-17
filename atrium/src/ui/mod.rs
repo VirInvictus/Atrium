@@ -31,5 +31,6 @@ pub mod status_page;
 pub mod tag_editor;
 pub mod task_list;
 pub mod task_object;
+pub mod theme;
 pub mod typography;
 pub mod window;
