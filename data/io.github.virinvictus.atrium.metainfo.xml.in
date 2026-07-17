@@ -90,6 +90,14 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.55.0" date="2026-07-17">
+      <description translate="no">
+        <p>The Simple-Mode task inspector (the Edit Task dialog: title,
+           schedule, deadline, project, tags, checklist, and notes) is
+           rebuilt on the owned list rows from the previous release.
+           Same fields, same Apply/Cancel behaviour.</p>
+      </description>
+    </release>
     <release version="0.54.0" date="2026-07-17">
       <description translate="no">
         <p>Fifth step of the plain-GTK4 move begins: the settings-style

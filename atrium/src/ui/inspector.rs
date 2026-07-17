@@ -82,13 +82,9 @@ pub fn open<F, N>(
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&header);
 
-    // ── Title (AdwEntryRow inside its own group) ─────────────────
-    let title_row = adw::EntryRow::builder()
-        .title(gettext("Title"))
-        .text(&task.title)
-        .build();
-
-    let title_group = adw::PreferencesGroup::new();
+    // ── Title (owned entry row inside its own group) ─────────────
+    let (title_row, title_entry) = crate::ui::rows::entry_row(&gettext("Title"), &task.title);
+    let title_group = crate::ui::rows::group(None, None);
     title_group.add(&title_row);
 
     // ── Schedule + Deadline + Project (one group) ────────────────
@@ -96,20 +92,20 @@ pub fn open<F, N>(
         Rc::new(RefCell::new(task.scheduled_for));
     let schedule_button = build_schedule_button(&schedule_state);
     schedule_button.add_css_class("flat");
-    let schedule_row = adw::ActionRow::builder()
-        .title(gettext("Schedule"))
-        .activatable_widget(&schedule_button)
-        .build();
-    schedule_row.add_suffix(&schedule_button);
+    let schedule_row = crate::ui::rows::row(
+        &gettext("Schedule"),
+        None,
+        Some(schedule_button.upcast_ref()),
+    );
 
     let deadline_state: Rc<RefCell<Option<NaiveDate>>> = Rc::new(RefCell::new(task.deadline));
     let deadline_button = build_date_button(&deadline_state, format_deadline_label);
     deadline_button.add_css_class("flat");
-    let deadline_row = adw::ActionRow::builder()
-        .title(gettext("Deadline"))
-        .activatable_widget(&deadline_button)
-        .build();
-    deadline_row.add_suffix(&deadline_button);
+    let deadline_row = crate::ui::rows::row(
+        &gettext("Deadline"),
+        None,
+        Some(deadline_button.upcast_ref()),
+    );
 
     // No defer_until editor here: `defer_until` is a Builder-only
     // field (spec §3.1 / §4 — "Builder-only; hidden in Simple"). The
@@ -117,10 +113,10 @@ pub fn open<F, N>(
     // calm, no-defer-dates surface the spec promises; the Builder
     // Inspector pane exposes it. The stored value is untouched.
 
-    // Project — AdwComboRow gives the proper Adwaita dropdown chrome.
-    let project_row = build_project_combo_row(&all_projects, task.project_id);
+    // Project — owned combo row (title + dropdown).
+    let (project_row, project_dd) = build_project_combo_row(&all_projects, task.project_id);
 
-    let dates_group = adw::PreferencesGroup::new();
+    let dates_group = crate::ui::rows::group(None, None);
     dates_group.add(&schedule_row);
     dates_group.add(&deadline_row);
     dates_group.add(&project_row);
@@ -141,13 +137,12 @@ pub fn open<F, N>(
         .css_classes(["flat"])
         .valign(gtk::Align::Center)
         .build();
-    let tags_row = adw::ActionRow::builder()
-        .title(gettext("Tags"))
-        .subtitle(&tag_count_text)
-        .activatable_widget(&edit_tags_button)
-        .build();
-    tags_row.add_suffix(&edit_tags_button);
-    let tags_group = adw::PreferencesGroup::new();
+    let tags_row = crate::ui::rows::row(
+        &gettext("Tags"),
+        Some(&tag_count_text),
+        Some(edit_tags_button.upcast_ref()),
+    );
+    let tags_group = crate::ui::rows::group(None, None);
     tags_group.add(&tags_row);
 
     // ── Notes (its own group with a header + a card-styled
@@ -173,9 +168,7 @@ pub fn open<F, N>(
         .build();
     notes_scroll.add_css_class("card");
     notes_scroll.add_css_class("view");
-    let notes_group = adw::PreferencesGroup::builder()
-        .title(gettext("Notes"))
-        .build();
+    let notes_group = crate::ui::rows::group(Some(&gettext("Notes")), None);
     notes_group.add(&notes_scroll);
 
     // ── v0.15.0 — Body checkboxes (Phase 18.5 Tier-2). Identical
@@ -184,33 +177,22 @@ pub fn open<F, N>(
     // edits the buffer text. The dialog's Apply button picks up
     // the resulting note string; Cancel discards both text edits
     // and toggles together (Apply/Cancel transactional surface).
-    let checklist_group = adw::PreferencesGroup::builder()
-        .title(gettext("Checklist"))
-        .build();
-    let checklist_list = gtk::ListBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .build();
-    checklist_list.add_css_class("boxed-list");
-    checklist_group.add(&checklist_list);
+    let checklist_group = Rc::new(crate::ui::rows::group(Some(&gettext("Checklist")), None));
     let rebuild_subtasks = Rc::new({
         let buffer = notes_buffer.clone();
-        let list = checklist_list.clone();
         let group = checklist_group.clone();
         move || {
-            while let Some(child) = list.first_child() {
-                list.remove(&child);
-            }
+            group.clear();
             let body = buffer
                 .text(&buffer.start_iter(), &buffer.end_iter(), false)
                 .to_string();
             let checkboxes = parse_body_checkboxes(&body);
             if checkboxes.is_empty() {
-                group.set_visible(false);
+                group.widget().set_visible(false);
                 return;
             }
-            group.set_visible(true);
+            group.widget().set_visible(true);
             for cb in checkboxes {
-                let row = adw::ActionRow::builder().title(&cb.label).build();
                 let check = gtk::CheckButton::builder()
                     .active(cb.state.is_done())
                     .valign(gtk::Align::Center)
@@ -235,9 +217,27 @@ pub fn open<F, N>(
                     }
                     buffer_for_click.set_text(&updated);
                 });
-                row.add_prefix(&check);
-                row.set_activatable_widget(Some(&check));
-                list.append(&row);
+                let label = gtk::Label::builder()
+                    .label(&cb.label)
+                    .xalign(0.0)
+                    .wrap(true)
+                    .hexpand(true)
+                    .build();
+                let hbox = gtk::Box::builder()
+                    .orientation(gtk::Orientation::Horizontal)
+                    .spacing(12)
+                    .margin_top(8)
+                    .margin_bottom(8)
+                    .margin_start(12)
+                    .margin_end(12)
+                    .build();
+                hbox.append(&check);
+                hbox.append(&label);
+                let row = gtk::ListBoxRow::builder()
+                    .activatable(false)
+                    .child(&hbox)
+                    .build();
+                group.add(&row);
             }
         }
     });
@@ -312,16 +312,16 @@ pub fn open<F, N>(
     });
     notes_view.add_controller(click_gesture);
 
-    // ── PreferencesPage container holds the four groups; gives
-    //    automatic padding, scrolling, and the Adwaita background.
-    let page = adw::PreferencesPage::new();
+    // ── Owned page container holds the five groups; the Page brings
+    //    its own vertical scrolling.
+    let page = crate::ui::rows::page();
     page.add(&title_group);
     page.add(&dates_group);
     page.add(&tags_group);
     page.add(&checklist_group);
     page.add(&notes_group);
 
-    toolbar.set_content(Some(&page));
+    toolbar.set_content(Some(page.widget()));
     dialog.set_child(Some(&toolbar));
 
     // Cancel dismisses without writes. Esc-to-close is handled by
@@ -362,11 +362,11 @@ pub fn open<F, N>(
         #[weak]
         dialog,
         #[weak]
-        title_row,
+        title_entry,
         #[weak]
         notes_buffer,
         #[weak]
-        project_row,
+        project_dd,
         #[strong]
         worker,
         #[strong]
@@ -376,11 +376,11 @@ pub fn open<F, N>(
         #[strong]
         all_projects,
         move |_| {
-            let new_title_raw = title_row.text().to_string();
+            let new_title_raw = title_entry.text().to_string();
             let new_title = new_title_raw.trim().to_string();
             if new_title.is_empty() {
-                title_row.add_css_class("error");
-                title_row.grab_focus();
+                title_entry.add_css_class("error");
+                title_entry.grab_focus();
                 return;
             }
             let new_note = notes_buffer
@@ -388,7 +388,7 @@ pub fn open<F, N>(
                 .to_string();
             let new_schedule = *schedule_state.borrow();
             let new_deadline = *deadline_state.borrow();
-            let new_project = project_id_from_combo_row(&project_row, &all_projects);
+            let new_project = project_id_from_combo_row(&project_dd, &all_projects);
 
             let mut update = TaskUpdate::new(task_id);
             if new_title != original_title {
@@ -423,7 +423,7 @@ pub fn open<F, N>(
         }
     ));
 
-    title_row.grab_focus();
+    title_entry.grab_focus();
     dialog.present(Some(parent));
 }
 
@@ -656,19 +656,20 @@ fn build_date_button(
     button
 }
 
-/// AdwComboRow with "Inbox (no project)" at index 0 followed by every
-/// project. Returns the row pre-selected to the task's current project.
-fn build_project_combo_row(projects: &[Project], current: Option<i64>) -> adw::ComboRow {
+/// Owned combo row with "Inbox (no project)" at index 0 followed by every
+/// project. Returns the row (for placement) and its dropdown (pre-selected to
+/// the task's current project) for the value query.
+fn build_project_combo_row(
+    projects: &[Project],
+    current: Option<i64>,
+) -> (gtk::ListBoxRow, gtk::DropDown) {
     // Translators: first dropdown entry — the task belongs to no project.
     let inbox_label = gettext("Inbox (no project)");
-    let model = gtk::StringList::new(&[inbox_label.as_str()]);
+    let mut items: Vec<&str> = vec![inbox_label.as_str()];
     for p in projects {
-        model.append(&p.title);
+        items.push(p.title.as_str());
     }
-    let row = adw::ComboRow::builder()
-        .title(gettext("Project"))
-        .model(&model)
-        .build();
+    let (row, dropdown) = crate::ui::rows::combo_row(&gettext("Project"), None, &items);
     let pos: u32 = match current {
         None => 0,
         Some(id) => projects
@@ -676,12 +677,12 @@ fn build_project_combo_row(projects: &[Project], current: Option<i64>) -> adw::C
             .position(|p| p.id == id)
             .map_or(0, |i| (i + 1) as u32),
     };
-    row.set_selected(pos);
-    row
+    dropdown.set_selected(pos);
+    (row, dropdown)
 }
 
-fn project_id_from_combo_row(row: &adw::ComboRow, projects: &[Project]) -> Option<i64> {
-    let selected = row.selected();
+fn project_id_from_combo_row(dropdown: &gtk::DropDown, projects: &[Project]) -> Option<i64> {
+    let selected = dropdown.selected();
     if selected == 0 {
         return None;
     }

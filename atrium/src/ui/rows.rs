@@ -186,6 +186,14 @@ impl Group {
             self.list.append(&wrapper);
         }
     }
+
+    /// Remove every row (for groups whose contents rebuild at runtime, e.g.
+    /// the inspector checklist).
+    pub fn clear(&self) {
+        while let Some(child) = self.list.first_child() {
+            self.list.remove(&child);
+        }
+    }
 }
 
 /// An `adw::PreferencesPage` successor: a vertically-scrolling column of

@@ -1,5 +1,13 @@
 # Atrium — Patch Notes
 
+## v0.55.0 (2026-07-17): de-adwaita ladder C5b — the Simple-Mode inspector
+
+The second C5 consumer. The Edit Task dialog (`inspector.rs`) moves its whole form off the `adw` row family onto the owned rows from v0.54.0: the title entry, the schedule / deadline / project group, the tags row, the checklist, and the notes section are now owned groups and rows, and the project picker is an owned combo (a `gtk::DropDown` behind the same `selected` surface).
+
+Two spots needed more than a mechanical swap. The checklist rebuilds its rows whenever the note text changes, so its group is shared through an `Rc` and cleared through a new `Group::clear`; its checkbox rows are hand-built (a leading `GtkCheckButton` beside the label) since the owned row builder trails its suffix. And the title field's validation (reject an empty title, flash the error class, refocus) now targets the owned entry directly rather than the adwaita row wrapper.
+
+Behaviour is unchanged: Apply still diffs against the opened snapshot and dispatches one `update_task`, Cancel still discards, the notes checkboxes still edit the buffer transactionally, and the Org-link click-through still closes the dialog and navigates. The dialog's own shell (`adw::Dialog` / `HeaderBar` / `ToolbarView`) stays for the C8 shell cut. `fmt`, `clippy -D warnings`, and the 1028-test suite are green; the rendered dialog is a GUI surface pending a display pass.
+
 ## v0.54.0 (2026-07-17): de-adwaita ladder C5a — the owned rows module + the Import dialog
 
 C5 is the big rung: the whole `adw` list-row family (`ActionRow`, `PreferencesGroup`, `PreferencesPage`, `ComboRow`, `EntryRow`, `SwitchRow`, `SpinRow`) appears ~95 times across the inspector, the forms, and preferences. It converts over several releases rather than one. This is the first: the owned module plus its first consumer.
