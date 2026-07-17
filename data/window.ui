@@ -307,10 +307,12 @@
                               <object class="GtkStackPage">
                                 <property name="name">empty</property>
                                 <property name="child">
-                                  <object class="AdwStatusPage" id="content_status">
-                                    <property name="icon-name">checkmark-symbolic</property>
-                                    <property name="title" translatable="yes">No tasks yet</property>
-                                    <property name="description" translatable="yes">Press Ctrl+N or the + button to create your first task.</property>
+                                  <!-- Host for the owned empty-state page (Phase 22 C2).
+                                       The window builds a crate::ui::status_page::StatusPage
+                                       in code and appends it here; update_empty_state swaps
+                                       its title / description / icon per active list. -->
+                                  <object class="GtkBox" id="content_status_host">
+                                    <property name="orientation">vertical</property>
                                   </object>
                                 </property>
                               </object>

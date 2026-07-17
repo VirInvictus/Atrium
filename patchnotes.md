@@ -1,5 +1,15 @@
 # Atrium — Patch Notes
 
+## v0.51.0 (2026-07-17): de-adwaita ladder C2 — owned empty-state pages
+
+The second rung. Every `adw::StatusPage` in the app is replaced by an owned composite (`atrium/src/ui/status_page.rs`, cribbed from Conservatory's Phase 26 version): a centered icon / title / description column with an optional call-to-action child, exposing the same `set_title` / `set_description` / `set_icon_name` / `set_child` setters so call sites converted mechanically.
+
+Five sites moved. Four were imperative builders and became one-line `status_page(...)` calls: the empty Review ("All caught up"), Agenda ("Nothing on the agenda"), and Logbook ("Nothing logged yet") views, plus the first-run onboarding welcome (which keeps its three next-steps pill buttons via `set_child`).
+
+The fifth is the one that carried real structure. The main empty-list placeholder (`content_status`) was an `AdwStatusPage` embedded in `data/window.ui` and mutated at runtime by `update_empty_state` (which swaps its copy per active list: "Inbox zero", "Clear plate today", and so on). It becomes a plain `GtkBox` host in the template; the window builds the owned page in code at setup, parents it into that host, and keeps it in a `OnceCell` so the per-list swaps keep working unchanged.
+
+Same copy, same behaviour throughout. The composite does not pixel-match adwaita's status page (icon weight, spacing) and is not meant to yet: the exact styling converges when the owned stylesheet lands at C9, matching how Conservatory sequenced the same work. `fmt`, `clippy -D warnings`, and the 1027-test workspace suite are green; the `window.ui` template binding and the rendered pages are GUI surfaces whose hands-on pass rides Brandon's display.
+
 ## v0.50.1 (2026-07-17): About-window copy
 
 Follows the C1 About rebuild with a copy pass. The one-line description dropped its toolkit framing and its side-by-side comparison; it now says what Atrium is on its own terms: a local-first task manager with Org-mode internals and a two-way plain-text vault, switchable between Simple and Builder modes. The "Built on the shoulders of" credits (Things 3, OmniFocus, Org-mode, NetNewsWire) stay, since those are attribution, not a claim about Atrium.

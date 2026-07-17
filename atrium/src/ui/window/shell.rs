@@ -177,6 +177,7 @@ impl AtriumWindow {
         self.install_mode_observer();
         self.install_calendar_width_watcher();
         self.install_drop_target();
+        self.setup_content_status();
         self.setup_onboarding_page();
         // Append the Areas / Projects sections to the sidebar.
         self.rebuild_dynamic_sidebar();

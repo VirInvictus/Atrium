@@ -7,8 +7,8 @@
 //! - Sidebar is built programmatically so we can attach click handlers
 //!   and (Phase 5+) count badges.
 //! - Content pane hosts a `GtkStack` between an empty-state
-//!   `AdwStatusPage` and a `GtkListView` rendering tasks via the
-//!   `task_list` factory.
+//!   status page (the owned `status_page` composite) and a
+//!   `GtkListView` rendering tasks via the `task_list` factory.
 //! - `switch_to_list` re-populates the store from the read pool.
 //! - `apply_task_changes` runs the diff applier on the active store
 //!   when the worker emits a delta.
@@ -77,8 +77,13 @@ mod imp {
         pub content_stack: TemplateChild<gtk::Stack>,
         #[template_child]
         pub task_list_view: TemplateChild<gtk::ListView>,
+        /// Host box for the owned empty-state page (Phase 22 C2). The
+        /// `adw::StatusPage` that used to live here in the template was
+        /// replaced by [`crate::ui::status_page::StatusPage`], built in
+        /// code at setup and parented into this box; the owned page
+        /// itself lives in `content_status` below.
         #[template_child]
-        pub content_status: TemplateChild<adw::StatusPage>,
+        pub content_status_host: TemplateChild<gtk::Box>,
         #[template_child]
         pub forecast_host: TemplateChild<adw::Bin>,
         #[template_child]
@@ -140,6 +145,11 @@ mod imp {
         pub project_sequential_switch: TemplateChild<gtk::Switch>,
         #[template_child]
         pub project_review_spin: TemplateChild<gtk::SpinButton>,
+
+        /// The owned empty-state page parented into `content_status_host`
+        /// (Phase 22 C2). Built once at setup; `update_empty_state` swaps
+        /// its title / description / icon per active list.
+        pub content_status: OnceCell<crate::ui::status_page::StatusPage>,
 
         pub debug_enabled: Cell<bool>,
         /// v0.31.0 — cached "the library has nothing in it" flag

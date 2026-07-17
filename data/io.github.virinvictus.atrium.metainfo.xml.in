@@ -90,6 +90,15 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.51.0" date="2026-07-17">
+      <description translate="no">
+        <p>Second step of the plain-GTK4 move: the empty-state pages (the
+           "no tasks yet" placeholder, the onboarding welcome, and the
+           empty Review, Agenda, and Logbook views) are rebuilt on an
+           owned widget instead of the GNOME toolkit's. Same wording,
+           same behaviour.</p>
+      </description>
+    </release>
     <release version="0.50.1" date="2026-07-17">
       <description translate="no">
         <p>Small copy change: the About window now describes Atrium on

@@ -161,12 +161,13 @@ pub fn build_page<F: Fn(i64) + 'static + Clone>(
 ) -> gtk::Widget {
     let groups = group_by_section(tasks, today);
     if groups.is_empty() {
-        return adw::StatusPage::builder()
-            .icon_name("checkmark-symbolic")
-            .title(gettext("Nothing on the agenda"))
-            .description(gettext("No overdue, today, or near-term scheduled tasks."))
-            .build()
-            .upcast();
+        return crate::ui::status_page::status_page(
+            Some("checkmark-symbolic"),
+            &gettext("Nothing on the agenda"),
+            Some(&gettext("No overdue, today, or near-term scheduled tasks.")),
+        )
+        .widget()
+        .clone();
     }
 
     let body = gtk::Box::builder()

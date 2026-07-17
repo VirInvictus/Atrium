@@ -40,7 +40,7 @@ use crate::ui::task_list::TagPillMap;
 /// (the `queue` argument; Phase 13's list_review_queue) and This
 /// week (the `weekly_tasks` argument; REVIEW_WEEKLY_WALK_FILTER,
 /// excluding tasks marked reviewed in the last 7 days). If both
-/// are empty, an `AdwStatusPage` "All caught up" placeholder
+/// are empty, an owned status-page "All caught up" placeholder
 /// shows instead.
 #[allow(clippy::too_many_arguments)]
 pub fn build_page<F, G>(
@@ -59,14 +59,15 @@ where
     G: Fn(i64) + 'static + Clone,
 {
     if queue.is_empty() && weekly_tasks.is_empty() {
-        let status = adw::StatusPage::builder()
-            .icon_name("checkmark-symbolic")
-            .title(gettext("All caught up"))
-            .description(gettext(
+        return crate::ui::status_page::status_page(
+            Some("checkmark-symbolic"),
+            &gettext("All caught up"),
+            Some(&gettext(
                 "No projects need review and nothing is pressing this week.",
-            ))
-            .build();
-        return status.upcast();
+            )),
+        )
+        .widget()
+        .clone();
     }
 
     let body = gtk::Box::builder()

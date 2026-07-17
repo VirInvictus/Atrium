@@ -109,7 +109,7 @@ pub fn group_by_band(tasks: &[Task], today: NaiveDate) -> Vec<(DateBand, Vec<Tas
 }
 
 /// Build the Logbook page widget. Empty input gets an
-/// `AdwStatusPage` "Nothing logged yet" placeholder that mirrors
+/// owned status-page "Nothing logged yet" placeholder that mirrors
 /// the canonical empty-state copy used elsewhere.
 pub fn build_page(
     today: NaiveDate,
@@ -120,14 +120,15 @@ pub fn build_page(
     tag_pills: &TagPillMap,
 ) -> gtk::Widget {
     if tasks.is_empty() {
-        let status = adw::StatusPage::builder()
-            .icon_name("document-open-recent-symbolic")
-            .title(gettext("Nothing logged yet"))
-            .description(gettext(
+        return crate::ui::status_page::status_page(
+            Some("document-open-recent-symbolic"),
+            &gettext("Nothing logged yet"),
+            Some(&gettext(
                 "Completed tasks settle here, grouped by when you finished them.",
-            ))
-            .build();
-        return status.upcast();
+            )),
+        )
+        .widget()
+        .clone();
     }
 
     let body = gtk::Box::builder()
