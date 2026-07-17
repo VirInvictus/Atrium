@@ -12,7 +12,7 @@ default-members = ["atrium"]
 resolver = "2"
 
 [workspace.package]
-version = "0.46.2"
+version = "0.47.0"
 edition = "2024"
 license = "MIT"
 authors = ["Brandon LaRocque"]
@@ -70,3 +70,11 @@ regex = "1.12"
 # which is what Atrium needs. Lives in `atrium-org` as a direct
 # dependency; atrium-core never sees it.
 notify = "8"
+
+# Phase 20 (v0.47.0): gettext bindings for localisation. Sign-off
+# pre-granted by the roadmap's Phase 20 localisation item, which names
+# the crate. `gettext-system` links glibc's built-in gettext instead
+# of building vendored GNU gettext from source (matters for CI and the
+# Flatpak offline build). Lives in the `atrium` binary only — library
+# crates and atrium-cli stay untranslated.
+gettext-rs = { version = "0.7", features = ["gettext-system"] }

@@ -3,6 +3,8 @@
 //! dialogs, and canonical-list navigation. Extracted from
 //! window/mod.rs in v0.22.0's structural split (Pass 3).
 
+use crate::i18n::{gettext, gettext_f};
+
 use super::*;
 
 impl AtriumWindow {
@@ -144,14 +146,14 @@ impl AtriumWindow {
         // `bulk_schedule_button` MenuButton.
         let schedule_menu = gio::Menu::new();
         for (label, key) in [
-            ("Today", "today"),
-            ("Tomorrow", "tomorrow"),
-            ("This Weekend", "weekend"),
-            ("Next Week", "nextweek"),
-            ("Someday", "someday"),
-            ("Clear Schedule", "clear"),
+            (gettext("Today"), "today"),
+            (gettext("Tomorrow"), "tomorrow"),
+            (gettext("This Weekend"), "weekend"),
+            (gettext("Next Week"), "nextweek"),
+            (gettext("Someday"), "someday"),
+            (gettext("Clear Schedule"), "clear"),
         ] {
-            let item = gio::MenuItem::new(Some(label), None);
+            let item = gio::MenuItem::new(Some(&label), None);
             item.set_action_and_target_value(Some("win.bulk-reschedule"), Some(&key.to_variant()));
             schedule_menu.append_item(&item);
         }
@@ -346,9 +348,16 @@ impl AtriumWindow {
     pub fn prompt_create_area(&self) {
         let win = self.clone();
         glib::MainContext::default().spawn_local(async move {
-            let Some((title, color, review)) =
-                prompt_for_named_color(&win, "New Area", "Area name", "", None, "Create", Some(0))
-                    .await
+            let Some((title, color, review)) = prompt_for_named_color(
+                &win,
+                &gettext("New Area"),
+                &gettext("Area name"),
+                "",
+                None,
+                &gettext("Create"),
+                Some(0),
+            )
+            .await
             else {
                 return;
             };
@@ -372,8 +381,14 @@ impl AtriumWindow {
     pub fn prompt_create_project(&self) {
         let win = self.clone();
         glib::MainContext::default().spawn_local(async move {
-            let Some(title) =
-                prompt_for_text(&win, "New Project", "Project name", "", "Create").await
+            let Some(title) = prompt_for_text(
+                &win,
+                &gettext("New Project"),
+                &gettext("Project name"),
+                "",
+                &gettext("Create"),
+            )
+            .await
             else {
                 return;
             };
@@ -409,21 +424,23 @@ impl AtriumWindow {
             .with(atrium_core::db::read::list_task_templates)
             .unwrap_or_default();
         if templates.is_empty() {
-            self.show_toast(
+            // Translators: `atrium-cli task-template create` is a
+            // literal shell command and must not be translated.
+            self.show_toast(&gettext(
                 "No task templates yet. Create one with `atrium-cli task-template create`.",
-            );
+            ));
             return;
         }
         let names: Vec<&str> = templates.iter().map(|t| t.name.as_str()).collect();
         let model = gtk::StringList::new(&names);
         let dropdown = gtk::DropDown::builder().model(&model).build();
         let dialog = adw::AlertDialog::new(
-            Some("Create from Template"),
-            Some("Stamp the chosen template out as a new project."),
+            Some(&gettext("Create from Template")),
+            Some(&gettext("Stamp the chosen template out as a new project.")),
         );
         dialog.set_extra_child(Some(&dropdown));
-        dialog.add_response("cancel", "Cancel");
-        dialog.add_response("ok", "Create");
+        dialog.add_response("cancel", &gettext("Cancel"));
+        dialog.add_response("ok", &gettext("Create"));
         dialog.set_default_response(Some("ok"));
         dialog.set_close_response("cancel");
         dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
@@ -445,7 +462,7 @@ impl AtriumWindow {
                 }
                 Err(e) => {
                     error!(?e, "instantiate_template failed");
-                    win.show_toast("Could not create project from template.");
+                    win.show_toast(&gettext("Could not create project from template."));
                 }
             }
         });
@@ -488,11 +505,11 @@ impl AtriumWindow {
                 glib::MainContext::default().spawn_local(async move {
                     let Some((title, color, review)) = prompt_for_named_color(
                         &win,
-                        "Edit Area",
-                        "Area name",
+                        &gettext("Edit Area"),
+                        &gettext("Area name"),
                         &current_name,
                         current_color.as_deref(),
-                        "Save",
+                        &gettext("Save"),
                         Some(current_review.unwrap_or(0)),
                     )
                     .await
@@ -526,9 +543,14 @@ impl AtriumWindow {
                     .cloned()
                     .unwrap_or_default();
                 glib::MainContext::default().spawn_local(async move {
-                    let Some(title) =
-                        prompt_for_text(&win, "Rename Project", "Project name", &current, "Rename")
-                            .await
+                    let Some(title) = prompt_for_text(
+                        &win,
+                        &gettext("Rename Project"),
+                        &gettext("Project name"),
+                        &current,
+                        &gettext("Rename"),
+                    )
+                    .await
                     else {
                         return;
                     };
@@ -553,11 +575,11 @@ impl AtriumWindow {
                 glib::MainContext::default().spawn_local(async move {
                     let Some((name, color, _)) = prompt_for_named_color(
                         &win,
-                        "Edit Tag",
-                        "Tag name",
+                        &gettext("Edit Tag"),
+                        &gettext("Tag name"),
                         &current_name,
                         current_color.as_deref(),
-                        "Save",
+                        &gettext("Save"),
                         None,
                     )
                     .await
@@ -584,10 +606,10 @@ impl AtriumWindow {
                 glib::MainContext::default().spawn_local(async move {
                     let Some(name) = prompt_for_text(
                         &win,
-                        "Rename Perspective",
-                        "Perspective name",
+                        &gettext("Rename Perspective"),
+                        &gettext("Perspective name"),
                         &current,
-                        "Rename",
+                        &gettext("Rename"),
                     )
                     .await
                     else {
@@ -623,12 +645,12 @@ impl AtriumWindow {
                 glib::MainContext::default().spawn_local(async move {
                     let confirmed = prompt_confirm_destructive(
                         &win,
-                        "Delete Area?",
-                        &format!(
-                            "“{}” will be removed. Projects inside it become unfiled — their tasks aren't deleted.",
-                            title
+                        &gettext("Delete Area?"),
+                        &gettext_f(
+                            "“{title}” will be removed. Projects inside it become unfiled — their tasks aren't deleted.",
+                            &[("title", &title)],
                         ),
-                        "Delete",
+                        &gettext("Delete"),
                     )
                     .await;
                     if !confirmed {
@@ -651,12 +673,12 @@ impl AtriumWindow {
                 glib::MainContext::default().spawn_local(async move {
                     let confirmed = prompt_confirm_destructive(
                         &win,
-                        "Delete Project?",
-                        &format!(
-                            "“{}” and every task inside it will be removed. This cannot be undone.",
-                            title
+                        &gettext("Delete Project?"),
+                        &gettext_f(
+                            "“{title}” and every task inside it will be removed. This cannot be undone.",
+                            &[("title", &title)],
                         ),
-                        "Delete",
+                        &gettext("Delete"),
                     )
                     .await;
                     if !confirmed {
@@ -679,12 +701,12 @@ impl AtriumWindow {
                 glib::MainContext::default().spawn_local(async move {
                     let confirmed = prompt_confirm_destructive(
                         &win,
-                        "Delete Tag?",
-                        &format!(
-                            "“{}” will be removed. Tasks bearing this tag stay; the tag association is dropped.",
-                            title
+                        &gettext("Delete Tag?"),
+                        &gettext_f(
+                            "“{title}” will be removed. Tasks bearing this tag stay; the tag association is dropped.",
+                            &[("title", &title)],
                         ),
-                        "Delete",
+                        &gettext("Delete"),
                     )
                     .await;
                     if !confirmed {
@@ -707,12 +729,12 @@ impl AtriumWindow {
                 glib::MainContext::default().spawn_local(async move {
                     let confirmed = prompt_confirm_destructive(
                         &win,
-                        "Delete Perspective?",
-                        &format!(
-                            "“{}” will be removed. Tasks the perspective surfaces are not affected — only the saved view is deleted.",
-                            title
+                        &gettext("Delete Perspective?"),
+                        &gettext_f(
+                            "“{title}” will be removed. Tasks the perspective surfaces are not affected — only the saved view is deleted.",
+                            &[("title", &title)],
                         ),
-                        "Delete",
+                        &gettext("Delete"),
                     )
                     .await;
                     if !confirmed {
@@ -733,8 +755,16 @@ impl AtriumWindow {
     pub fn prompt_create_tag(&self) {
         let win = self.clone();
         glib::MainContext::default().spawn_local(async move {
-            let Some((name, color, _)) =
-                prompt_for_named_color(&win, "New Tag", "Tag name", "", None, "Create", None).await
+            let Some((name, color, _)) = prompt_for_named_color(
+                &win,
+                &gettext("New Tag"),
+                &gettext("Tag name"),
+                "",
+                None,
+                &gettext("Create"),
+                None,
+            )
+            .await
             else {
                 return;
             };
@@ -761,8 +791,14 @@ impl AtriumWindow {
         }
         let win = self.clone();
         glib::MainContext::default().spawn_local(async move {
-            let Some(name) =
-                prompt_for_text(&win, "Save Perspective", "Perspective name", "", "Save").await
+            let Some(name) = prompt_for_text(
+                &win,
+                &gettext("Save Perspective"),
+                &gettext("Perspective name"),
+                "",
+                &gettext("Save"),
+            )
+            .await
             else {
                 return;
             };
@@ -863,12 +899,12 @@ impl AtriumWindow {
         glib::MainContext::default().spawn_local(async move {
             let confirmed = prompt_confirm_destructive(
                 &win,
-                "Archive Project?",
-                &format!(
-                    "“{}” will be archived and every open task inside it will be marked complete. They'll appear in Logbook.",
-                    title
+                &gettext("Archive Project?"),
+                &gettext_f(
+                    "“{title}” will be archived and every open task inside it will be marked complete. They'll appear in Logbook.",
+                    &[("title", &title)],
                 ),
-                "Archive",
+                &gettext("Archive"),
             )
             .await;
             if !confirmed {

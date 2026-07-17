@@ -19,6 +19,8 @@ use gtk::glib;
 use gtk::glib::clone;
 use tracing::error;
 
+use crate::i18n::{gettext, gettext_f};
+
 /// Open the tag editor for `task_id`.
 ///
 /// `task_title`: the task's current title, surfaced in the dialog
@@ -36,7 +38,7 @@ pub fn open(
     all_tags: Vec<Tag>,
 ) {
     let dialog = adw::Dialog::builder()
-        .title("Edit Tags")
+        .title(gettext("Edit Tags"))
         .content_width(380)
         .content_height(420)
         .build();
@@ -47,7 +49,11 @@ pub fn open(
     // Header: which task we're editing. Truncated so a long title
     // doesn't break layout; the full text is on the tooltip.
     let header_label = gtk::Label::builder()
-        .label(format!("Editing: {}", truncate(&task_title, 64)))
+        // Translators: {title} is the task being edited.
+        .label(gettext_f(
+            "Editing: {title}",
+            &[("title", &truncate(&task_title, 64))],
+        ))
         .tooltip_text(task_title.clone())
         .halign(gtk::Align::Start)
         .ellipsize(gtk::pango::EllipsizeMode::End)
@@ -77,7 +83,7 @@ pub fn open(
     // If the library is empty, surface a hint instead of a blank list.
     if all_tags.is_empty() {
         let empty = gtk::Label::builder()
-            .label("No tags yet. Add one below.")
+            .label(gettext("No tags yet. Add one below."))
             .halign(gtk::Align::Center)
             .build();
         empty.add_css_class("dim-label");
@@ -95,15 +101,17 @@ pub fn open(
     // it selected. We don't dispatch ensure_tag yet — that happens
     // on Apply so a Cancel discards everything.
     let new_entry = gtk::Entry::builder()
-        .placeholder_text("Add a new tag…")
+        .placeholder_text(gettext("Add a new tag…"))
         .hexpand(true)
         .build();
     let plus_button = gtk::Button::builder()
         .icon_name("list-add-symbolic")
-        .tooltip_text("Add this tag (Enter)")
+        // Translators: "(Enter)" names the key that triggers the same
+        // action.
+        .tooltip_text(gettext("Add this tag (Enter)"))
         .css_classes(["flat"])
         .build();
-    plus_button.update_property(&[gtk::accessible::Property::Label("Add this tag")]);
+    plus_button.update_property(&[gtk::accessible::Property::Label(&gettext("Add this tag"))]);
 
     let add_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -125,9 +133,9 @@ pub fn open(
     body.append(&add_row);
 
     // Footer with Cancel / Apply.
-    let cancel_button = gtk::Button::builder().label("Cancel").build();
+    let cancel_button = gtk::Button::builder().label(gettext("Cancel")).build();
     let apply_button = gtk::Button::builder()
-        .label("Apply")
+        .label(gettext("Apply"))
         .css_classes(["suggested-action"])
         .build();
     let footer = gtk::Box::builder()
@@ -284,7 +292,9 @@ fn build_tag_row(tag: &Tag, selected: &Rc<RefCell<HashSet<i64>>>) -> gtk::ListBo
 /// real tags via `ensure_tag` + `set_task_tags`.
 fn build_pending_tag_row(name: &str) -> gtk::ListBoxRow {
     let label = gtk::Label::builder()
-        .label(format!("#{name}  · new"))
+        // Translators: {name} is the tag being created; the leading "#"
+        // is Atrium's tag syntax — keep both. Only "new" translates.
+        .label(gettext_f("#{name}  · new", &[("name", name)]))
         .halign(gtk::Align::Start)
         .build();
     label.add_css_class("dim-label");

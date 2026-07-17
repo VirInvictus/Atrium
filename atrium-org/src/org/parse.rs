@@ -983,10 +983,9 @@ fn parse_repeater(token: &str) -> Option<OrgRepeater> {
         ("++", rest)
     } else if let Some(rest) = token.strip_prefix(".+") {
         (".+", rest)
-    } else if let Some(rest) = token.strip_prefix('+') {
-        ("+", rest)
     } else {
-        return None;
+        let rest = token.strip_prefix('+')?;
+        ("+", rest)
     };
     if rest.is_empty() {
         return None;

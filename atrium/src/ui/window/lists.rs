@@ -2,6 +2,8 @@
 //! `AtriumWindow`: active-list rendering, task/library-change appliers, empty state.
 //! Extracted from window/mod.rs in v0.22.0 split (Pass 3).
 
+use crate::i18n::{gettext, gettext_f};
+
 use super::*;
 
 impl AtriumWindow {
@@ -598,68 +600,113 @@ impl AtriumWindow {
     pub(super) fn empty_state_copy(&self, active: &ActiveList) -> (String, String) {
         match active {
             ActiveList::Inbox => (
-                "Inbox zero".into(),
-                "Catch a thought with Ctrl+N or the entry below — Atrium will keep it safe until you place it.".into(),
+                gettext("Inbox zero"),
+                gettext(
+                    "Catch a thought with Ctrl+N or the entry below — Atrium will keep it safe until you place it.",
+                ),
             ),
             ActiveList::Today => (
-                "Clear plate today".into(),
-                "Nothing scheduled and no deadlines crossing the horizon. Glance at Upcoming for what's next, or take the afternoon back.".into(),
+                gettext("Clear plate today"),
+                gettext(
+                    "Nothing scheduled and no deadlines crossing the horizon. Glance at Upcoming for what's next, or take the afternoon back.",
+                ),
             ),
             ActiveList::Upcoming => (
-                "Open horizon".into(),
-                "Schedule a task to a future date and it'll surface here, sorted by when.".into(),
+                gettext("Open horizon"),
+                gettext("Schedule a task to a future date and it'll surface here, sorted by when."),
             ),
             ActiveList::Anytime => (
-                "Nothing waiting".into(),
-                "Open tasks without a date land here — your low-pressure pool to dip into when there's time.".into(),
+                gettext("Nothing waiting"),
+                gettext(
+                    "Open tasks without a date land here — your low-pressure pool to dip into when there's time.",
+                ),
             ),
             ActiveList::Someday => (
-                "Park it for later".into(),
-                "Ideas and maybes belong here. Scheduled to Someday means \"on the radar, no commitment yet\".".into(),
+                gettext("Park it for later"),
+                gettext(
+                    "Ideas and maybes belong here. Scheduled to Someday means \"on the radar, no commitment yet\".",
+                ),
             ),
             ActiveList::Logbook => (
-                "Nothing logged yet".into(),
-                "Completed tasks settle here in reverse chronological order — your record of the work done.".into(),
+                gettext("Nothing logged yet"),
+                gettext(
+                    "Completed tasks settle here in reverse chronological order — your record of the work done.",
+                ),
             ),
             ActiveList::Project(_) => (
-                format!("{} is empty", self.title_for(active.clone())),
-                "Add the first task with the entry below, or capture quickly with Ctrl+Alt+Space.".into(),
+                gettext_f(
+                    "{title} is empty",
+                    &[("title", &self.title_for(active.clone()))],
+                ),
+                gettext(
+                    "Add the first task with the entry below, or capture quickly with Ctrl+Alt+Space.",
+                ),
             ),
             ActiveList::Area(_) => (
-                format!("Nothing open in {}", self.title_for(active.clone())),
-                "An area aggregates open tasks across its projects. Add a project under it, then file tasks into the project.".into(),
+                gettext_f(
+                    "Nothing open in {title}",
+                    &[("title", &self.title_for(active.clone()))],
+                ),
+                gettext(
+                    "An area aggregates open tasks across its projects. Add a project under it, then file tasks into the project.",
+                ),
             ),
             ActiveList::Tag(_) => (
-                format!("No tasks tagged {}", self.title_for(active.clone())),
-                "Apply this tag from a task's Inspector or with #tag in Quick Entry.".into(),
+                gettext_f(
+                    "No tasks tagged {tag}",
+                    &[("tag", &self.title_for(active.clone()))],
+                ),
+                // Translators: `#tag` is the literal inline-capture
+                // syntax and must stay as-is.
+                gettext("Apply this tag from a task's Inspector or with #tag in Quick Entry."),
             ),
             ActiveList::SearchResults(q) if q.trim().is_empty() => (
-                "Search Atrium".into(),
-                "Type to find tasks by title or note. Try filters too: tag:errand, due:today, is:overdue.".into(),
+                gettext("Search Atrium"),
+                // Translators: `tag:errand`, `due:today`, and
+                // `is:overdue` are literal search-grammar tokens and
+                // must not be translated.
+                gettext(
+                    "Type to find tasks by title or note. Try filters too: tag:errand, due:today, is:overdue.",
+                ),
             ),
             ActiveList::SearchResults(q) => (
-                format!("No matches for \u{201c}{q}\u{201d}"),
-                "Search covers task titles, notes, and filter expressions. Check spelling, or try a broader term.".into(),
+                gettext_f("No matches for \u{201c}{query}\u{201d}", &[("query", q)]),
+                gettext(
+                    "Search covers task titles, notes, and filter expressions. Check spelling, or try a broader term.",
+                ),
             ),
             ActiveList::Forecast => (
-                "Open horizon".into(),
-                "Schedule, deadline, or defer a task and it'll appear here on its day. Drag rows between days to reschedule.".into(),
+                gettext("Open horizon"),
+                gettext(
+                    "Schedule, deadline, or defer a task and it'll appear here on its day. Drag rows between days to reschedule.",
+                ),
             ),
             ActiveList::Review => (
-                "All caught up".into(),
-                "Projects with a review interval surface here when their last review goes stale — oldest first.".into(),
+                gettext("All caught up"),
+                gettext(
+                    "Projects with a review interval surface here when their last review goes stale — oldest first.",
+                ),
             ),
             ActiveList::Perspective(_) => (
-                format!("{} is quiet", self.title_for(active.clone())),
-                "No tasks currently match this perspective's filter expression. Adjust the filter or wait for matches to appear.".into(),
+                gettext_f(
+                    "{title} is quiet",
+                    &[("title", &self.title_for(active.clone()))],
+                ),
+                gettext(
+                    "No tasks currently match this perspective's filter expression. Adjust the filter or wait for matches to appear.",
+                ),
             ),
             ActiveList::Agenda => (
-                "Nothing on the agenda".into(),
-                "No overdue, today, or near-term scheduled tasks — the next two weeks are clear.".into(),
+                gettext("Nothing on the agenda"),
+                gettext(
+                    "No overdue, today, or near-term scheduled tasks — the next two weeks are clear.",
+                ),
             ),
             ActiveList::Calendar => (
-                "Open month".into(),
-                "Schedule a task and its day cell will fill in. Page Up / Page Down to navigate months; Today resets to the current month.".into(),
+                gettext("Open month"),
+                gettext(
+                    "Schedule a task and its day cell will fill in. Page Up / Page Down to navigate months; Today resets to the current month.",
+                ),
             ),
         }
     }

@@ -2,6 +2,8 @@
 //! `AtriumWindow`: task mutations (toggle / rename / reorder / create / delete), selection, inspector open.
 //! Extracted from window/mod.rs in v0.22.0 split (Pass 3).
 
+use crate::i18n::{gettext, gettext_f, ngettext_f};
+
 use super::*;
 
 impl AtriumWindow {
@@ -21,9 +23,15 @@ impl AtriumWindow {
                         return;
                     };
                     let message = if task.is_completed() {
-                        format!("“{}” completed", truncate(&task.title, 40))
+                        gettext_f(
+                            "“{title}” completed",
+                            &[("title", &truncate(&task.title, 40))],
+                        )
                     } else {
-                        format!("“{}” reopened", truncate(&task.title, 40))
+                        gettext_f(
+                            "“{title}” reopened",
+                            &[("title", &truncate(&task.title, 40))],
+                        )
                     };
                     let worker_for_undo = worker.clone();
                     win.show_undo_toast(&message, move || {
@@ -218,9 +226,9 @@ impl AtriumWindow {
             // the drop. Only when it's a genuine reorder attempt (not a
             // task dropped back onto itself).
             if src_id != dest_id {
-                self.show_toast(
+                self.show_toast(&gettext(
                     "This list is sorted by date — drag to reorder isn't available here.",
-                );
+                ));
             }
             return;
         }
@@ -365,7 +373,9 @@ impl AtriumWindow {
             {
                 warn!(?e, src_id, new_parent_id, "reparent failed");
                 if let Some(win) = win.upgrade() {
-                    win.show_toast("Can't nest there (a different project or a cycle).");
+                    win.show_toast(&gettext(
+                        "Can't nest there (a different project or a cycle).",
+                    ));
                 }
             }
         });
@@ -568,7 +578,7 @@ impl AtriumWindow {
             let title = task.title.clone();
             let worker_for_undo = worker.clone();
             win.show_undo_toast(
-                &format!("Deleted “{}”", truncate(&title, 40)),
+                &gettext_f("Deleted “{title}”", &[("title", &truncate(&title, 40))]),
                 move || {
                     let worker = worker_for_undo;
                     let task = task.clone();
@@ -690,7 +700,8 @@ impl AtriumWindow {
         if n < 2 {
             revealer.set_reveal_child(false);
         } else {
-            label.set_label(&format!("{n} selected"));
+            // Translators: bulk-selection bar count; {n} is always ≥ 2.
+            label.set_label(&gettext_f("{n} selected", &[("n", &n.to_string())]));
             revealer.set_reveal_child(true);
         }
     }
@@ -737,9 +748,14 @@ impl AtriumWindow {
                 }
             }
             if let Some(win) = win_weak.upgrade() {
-                let toast = adw::Toast::new(&format!(
-                    "{deleted} of {count} task{} deleted",
-                    if count == 1 { "" } else { "s" }
+                let toast = adw::Toast::new(&ngettext_f(
+                    "{deleted} of {count} task deleted",
+                    "{deleted} of {count} tasks deleted",
+                    count as u32,
+                    &[
+                        ("deleted", &deleted.to_string()),
+                        ("count", &count.to_string()),
+                    ],
                 ));
                 toast.set_timeout(4);
                 win.imp().toast_overlay.add_toast(toast);
@@ -764,18 +780,18 @@ impl AtriumWindow {
         // Dropdown option 0 is Inbox (no project); the rest map to
         // `projects` in order.
         let mut labels: Vec<String> = Vec::with_capacity(projects.len() + 1);
-        labels.push("Inbox (no project)".to_string());
+        labels.push(gettext("Inbox (no project)"));
         labels.extend(projects.iter().map(|p| p.title.clone()));
         let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
         let model = gtk::StringList::new(&label_refs);
         let dropdown = gtk::DropDown::builder().model(&model).build();
         let dialog = adw::AlertDialog::new(
-            Some("Move to Project"),
-            Some("Move the selected tasks to a project."),
+            Some(&gettext("Move to Project")),
+            Some(&gettext("Move the selected tasks to a project.")),
         );
         dialog.set_extra_child(Some(&dropdown));
-        dialog.add_response("cancel", "Cancel");
-        dialog.add_response("ok", "Move");
+        dialog.add_response("cancel", &gettext("Cancel"));
+        dialog.add_response("ok", &gettext("Move"));
         dialog.set_default_response(Some("ok"));
         dialog.set_close_response("cancel");
         dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
@@ -813,7 +829,12 @@ impl AtriumWindow {
             }
             let worker_undo = worker.clone();
             win.show_undo_toast(
-                &format!("Moved {count} task{}", if count == 1 { "" } else { "s" }),
+                &ngettext_f(
+                    "Moved {count} task",
+                    "Moved {count} tasks",
+                    count as u32,
+                    &[("count", &count.to_string())],
+                ),
                 move || {
                     let worker = worker_undo;
                     glib::MainContext::default().spawn_local(async move {
@@ -837,17 +858,17 @@ impl AtriumWindow {
             return;
         }
         let entry = gtk::Entry::builder()
-            .placeholder_text("Tag name")
+            .placeholder_text(gettext("Tag name"))
             .activates_default(true)
             .build();
         let dialog = adw::AlertDialog::new(
-            Some("Tag Tasks"),
-            Some("Add or remove a tag across the selected tasks."),
+            Some(&gettext("Tag Tasks")),
+            Some(&gettext("Add or remove a tag across the selected tasks.")),
         );
         dialog.set_extra_child(Some(&entry));
-        dialog.add_response("cancel", "Cancel");
-        dialog.add_response("remove", "Remove");
-        dialog.add_response("add", "Add");
+        dialog.add_response("cancel", &gettext("Cancel"));
+        dialog.add_response("remove", &gettext("Remove"));
+        dialog.add_response("add", &gettext("Add"));
         dialog.set_default_response(Some("add"));
         dialog.set_close_response("cancel");
         dialog.set_response_appearance("add", adw::ResponseAppearance::Suggested);
@@ -901,19 +922,30 @@ impl AtriumWindow {
                 return;
             }
             let count = prior.len();
-            let verb = if adding { "Tagged" } else { "Untagged" };
+            let message = if adding {
+                ngettext_f(
+                    "Tagged {count} task",
+                    "Tagged {count} tasks",
+                    count as u32,
+                    &[("count", &count.to_string())],
+                )
+            } else {
+                ngettext_f(
+                    "Untagged {count} task",
+                    "Untagged {count} tasks",
+                    count as u32,
+                    &[("count", &count.to_string())],
+                )
+            };
             let worker_undo = worker.clone();
-            win.show_undo_toast(
-                &format!("{verb} {count} task{}", if count == 1 { "" } else { "s" }),
-                move || {
-                    let worker = worker_undo;
-                    glib::MainContext::default().spawn_local(async move {
-                        for (id, old) in prior {
-                            let _ = worker.set_task_tags(id, old).await;
-                        }
-                    });
-                },
-            );
+            win.show_undo_toast(&message, move || {
+                let worker = worker_undo;
+                glib::MainContext::default().spawn_local(async move {
+                    for (id, old) in prior {
+                        let _ = worker.set_task_tags(id, old).await;
+                    }
+                });
+            });
             win.clear_selection();
         });
     }
@@ -956,9 +988,11 @@ impl AtriumWindow {
             if let Some(win) = win_weak.upgrade() {
                 let worker_undo = worker.clone();
                 win.show_undo_toast(
-                    &format!(
-                        "Rescheduled {count} task{}",
-                        if count == 1 { "" } else { "s" }
+                    &ngettext_f(
+                        "Rescheduled {count} task",
+                        "Rescheduled {count} tasks",
+                        count as u32,
+                        &[("count", &count.to_string())],
                     ),
                     move || {
                         let worker = worker_undo;

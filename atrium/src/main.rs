@@ -10,6 +10,7 @@
 
 mod debug;
 mod error;
+mod i18n;
 mod quickentry;
 mod reminders;
 mod ui;
@@ -28,6 +29,7 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::error::{AtriumError, UiError};
+use crate::i18n::{gettext, gettext_f};
 use crate::ui::window::AtriumWindow;
 
 const APP_ID: &str = atrium_core::APP_ID;
@@ -50,6 +52,9 @@ fn main() -> glib::ExitCode {
     };
 
     init_tracing();
+    // Bind the gettext domain before any GTK type exists — GtkBuilder
+    // templates translate through it at inflate time.
+    i18n::init();
     install_gsettings_schema_dir();
 
     info!(
@@ -552,51 +557,72 @@ fn bridge_vault_events(
             };
             match event {
                 atrium_org::VaultEvent::ConflictBackup { source, backup } => {
+                    // Translators: fallback shown when a file name can't be rendered.
+                    let src_fallback = gettext("vault file");
+                    // Translators: fallback shown when a backup file's name can't be rendered.
+                    let bak_fallback = gettext("backup");
                     let src_name = source
                         .file_name()
                         .and_then(|s| s.to_str())
-                        .unwrap_or("vault file");
+                        .unwrap_or(&src_fallback);
                     let bak_name = backup
                         .file_name()
                         .and_then(|s| s.to_str())
-                        .unwrap_or("backup");
-                    win.show_toast(&format!(
-                        "Vault edit conflict on {src_name} — preserved as {bak_name}"
+                        .unwrap_or(&bak_fallback);
+                    win.show_toast(&gettext_f(
+                        "Vault edit conflict on {source} — preserved as {backup}",
+                        &[("source", src_name), ("backup", bak_name)],
                     ));
                 }
                 atrium_org::VaultEvent::ParseFailed { source, error } => {
+                    // Translators: fallback shown when a file name can't be rendered.
+                    let src_fallback = gettext("vault file");
                     let src_name = source
                         .file_name()
                         .and_then(|s| s.to_str())
-                        .unwrap_or("vault file");
-                    win.show_toast(&format!(
-                        "Could not parse {src_name}: {error} — sync paused for this file"
+                        .unwrap_or(&src_fallback);
+                    let error = error.to_string();
+                    win.show_toast(&gettext_f(
+                        "Could not parse {source}: {error} — sync paused for this file",
+                        &[("source", src_name), ("error", &error)],
                     ));
                 }
                 atrium_org::VaultEvent::ParseRecovered { source } => {
+                    // Translators: fallback shown when a file name can't be rendered.
+                    let src_fallback = gettext("vault file");
                     let src_name = source
                         .file_name()
                         .and_then(|s| s.to_str())
-                        .unwrap_or("vault file");
-                    win.show_toast(&format!("{src_name} parsed cleanly — sync resumed"));
+                        .unwrap_or(&src_fallback);
+                    win.show_toast(&gettext_f(
+                        "{source} parsed cleanly — sync resumed",
+                        &[("source", src_name)],
+                    ));
                 }
                 atrium_org::VaultEvent::FileRemoved { source } => {
+                    // Translators: fallback shown when a file name can't be rendered.
+                    let src_fallback = gettext("vault file");
                     let src_name = source
                         .file_name()
                         .and_then(|s| s.to_str())
-                        .unwrap_or("vault file");
-                    win.show_toast(&format!(
-                        "{src_name} was removed from the vault — Atrium tasks retained"
+                        .unwrap_or(&src_fallback);
+                    win.show_toast(&gettext_f(
+                        "{source} was removed from the vault — Atrium tasks retained",
+                        &[("source", src_name)],
                     ));
                 }
                 atrium_org::VaultEvent::RruleDiverged { title, .. } => {
-                    win.show_toast(&format!(
-                        "“{title}”: Org cookie diverged from :RRULE: — DB kept the canonical rule"
+                    win.show_toast(&gettext_f(
+                        // Translators: `:RRULE:` is a literal Org property name — keep it untranslated.
+                        "“{title}”: Org cookie diverged from :RRULE: — DB kept the canonical rule",
+                        &[("title", title.as_str())],
                     ));
                 }
                 atrium_org::VaultEvent::UnknownKeyword { keyword, .. } => {
-                    win.show_toast(&format!(
-                        "Vault uses keyword “{keyword}” that isn't in the configured TODO sequence — preserved verbatim"
+                    win.show_toast(&gettext_f(
+                        // Translators: TODO is a literal Org keyword-sequence name — keep it untranslated.
+                        "Vault uses keyword “{keyword}” that isn't in the configured TODO sequence — preserved verbatim",
+                        &[("keyword", keyword.as_str())],
                     ));
                 }
             }

@@ -2,6 +2,8 @@
 //! `AtriumWindow`: tag editor, search bar, toasts, undo, new-task entry.
 //! Extracted from window/mod.rs in v0.22.0 split (Pass 3).
 
+use crate::i18n::{gettext, gettext_f};
+
 use super::*;
 
 impl AtriumWindow {
@@ -220,17 +222,29 @@ impl AtriumWindow {
         self.imp().last_filter_warning.replace(Some(fingerprint));
         let preview = parsed.warnings.iter().take(3).cloned().collect::<Vec<_>>();
         let suffix = if parsed.warnings.len() > preview.len() {
-            format!(" (+{} more)", parsed.warnings.len() - preview.len())
+            // Translators: appended to the "Unknown filter" toast when
+            // more unknown tokens exist than are shown; {n} is the
+            // number of additional tokens. Note the leading space.
+            gettext_f(
+                " (+{n} more)",
+                &[("n", &(parsed.warnings.len() - preview.len()).to_string())],
+            )
         } else {
             String::new()
         };
-        let message = format!("Unknown filter: {}{}", preview.join(", "), suffix);
+        // Translators: {warnings} is a comma-separated list of the
+        // unrecognised filter tokens; {suffix} is the "(+N more)"
+        // overflow marker or empty.
+        let message = gettext_f(
+            "Unknown filter: {warnings}{suffix}",
+            &[("warnings", &preview.join(", ")), ("suffix", &suffix)],
+        );
         self.show_toast(&message);
     }
 
     pub fn show_undo_toast<F: FnOnce() + 'static>(&self, message: &str, undo: F) {
         let toast = adw::Toast::new(message);
-        toast.set_button_label(Some("Undo"));
+        toast.set_button_label(Some(&gettext("Undo")));
         toast.set_timeout(6);
         let cell: UndoCell = Rc::new(RefCell::new(Some(Box::new(undo))));
         // Share the cell with the window so `win.undo` (Ctrl+Z) can

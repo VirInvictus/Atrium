@@ -37,6 +37,8 @@ use gtk::glib::clone;
 use gtk::pango;
 use tracing::error;
 
+use crate::i18n::{gettext, ngettext_f};
+
 /// Open the inspector for `task`. Loads of `all_projects` happen
 /// in the caller (window) so the dialog itself stays free of
 /// read-pool concerns. `on_edit_tags` is invoked when the user
@@ -55,7 +57,7 @@ pub fn open<F, N>(
     N: Fn(String) + 'static,
 {
     let dialog = adw::Dialog::builder()
-        .title("Edit Task")
+        .title(gettext("Edit Task"))
         .content_width(560)
         .content_height(640)
         .build();
@@ -65,9 +67,9 @@ pub fn open<F, N>(
     // area below stays free for content. AdwDialog supplies its own
     // close-button + Esc handling, so we hide the libadwaita-default
     // chrome buttons and route the user through Cancel / Apply.
-    let cancel_button = gtk::Button::builder().label("Cancel").build();
+    let cancel_button = gtk::Button::builder().label(gettext("Cancel")).build();
     let apply_button = gtk::Button::builder()
-        .label("Apply")
+        .label(gettext("Apply"))
         .css_classes(["suggested-action"])
         .build();
     let header = adw::HeaderBar::builder()
@@ -82,7 +84,7 @@ pub fn open<F, N>(
 
     // ── Title (AdwEntryRow inside its own group) ─────────────────
     let title_row = adw::EntryRow::builder()
-        .title("Title")
+        .title(gettext("Title"))
         .text(&task.title)
         .build();
 
@@ -95,7 +97,7 @@ pub fn open<F, N>(
     let schedule_button = build_schedule_button(&schedule_state);
     schedule_button.add_css_class("flat");
     let schedule_row = adw::ActionRow::builder()
-        .title("Schedule")
+        .title(gettext("Schedule"))
         .activatable_widget(&schedule_button)
         .build();
     schedule_row.add_suffix(&schedule_button);
@@ -104,7 +106,7 @@ pub fn open<F, N>(
     let deadline_button = build_date_button(&deadline_state, format_deadline_label);
     deadline_button.add_css_class("flat");
     let deadline_row = adw::ActionRow::builder()
-        .title("Deadline")
+        .title(gettext("Deadline"))
         .activatable_widget(&deadline_button)
         .build();
     deadline_row.add_suffix(&deadline_button);
@@ -125,19 +127,22 @@ pub fn open<F, N>(
 
     // ── Tags row (its own group, with Edit Tags… suffix) ─────────
     let tag_count_text = if current_tag_count == 0 {
-        "No tags".to_string()
-    } else if current_tag_count == 1 {
-        "1 tag".to_string()
+        gettext("No tags")
     } else {
-        format!("{current_tag_count} tags")
+        ngettext_f(
+            "{n} tag",
+            "{n} tags",
+            current_tag_count as u32,
+            &[("n", &current_tag_count.to_string())],
+        )
     };
     let edit_tags_button = gtk::Button::builder()
-        .label("Edit Tags…")
+        .label(gettext("Edit Tags…"))
         .css_classes(["flat"])
         .valign(gtk::Align::Center)
         .build();
     let tags_row = adw::ActionRow::builder()
-        .title("Tags")
+        .title(gettext("Tags"))
         .subtitle(&tag_count_text)
         .activatable_widget(&edit_tags_button)
         .build();
@@ -168,7 +173,9 @@ pub fn open<F, N>(
         .build();
     notes_scroll.add_css_class("card");
     notes_scroll.add_css_class("view");
-    let notes_group = adw::PreferencesGroup::builder().title("Notes").build();
+    let notes_group = adw::PreferencesGroup::builder()
+        .title(gettext("Notes"))
+        .build();
     notes_group.add(&notes_scroll);
 
     // ── v0.15.0 — Body checkboxes (Phase 18.5 Tier-2). Identical
@@ -177,7 +184,9 @@ pub fn open<F, N>(
     // edits the buffer text. The dialog's Apply button picks up
     // the resulting note string; Cancel discards both text edits
     // and toggles together (Apply/Cancel transactional surface).
-    let checklist_group = adw::PreferencesGroup::builder().title("Checklist").build();
+    let checklist_group = adw::PreferencesGroup::builder()
+        .title(gettext("Checklist"))
+        .build();
     let checklist_list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .build();
@@ -440,19 +449,19 @@ fn build_schedule_button(state: &Rc<RefCell<Option<ScheduledFor>>>) -> gtk::Menu
         .build();
 
     let today_button = gtk::Button::builder()
-        .label("Today")
+        .label(gettext("Today"))
         .css_classes(["flat"])
         .build();
     let tomorrow_button = gtk::Button::builder()
-        .label("Tomorrow")
+        .label(gettext("Tomorrow"))
         .css_classes(["flat"])
         .build();
     let someday_button = gtk::Button::builder()
-        .label("Someday")
+        .label(gettext("Someday"))
         .css_classes(["flat"])
         .build();
     let clear_button = gtk::Button::builder()
-        .label("Clear")
+        .label(gettext("Clear"))
         .css_classes(["flat"])
         .build();
 
@@ -563,15 +572,15 @@ fn build_date_button(
         .build();
 
     let today_button = gtk::Button::builder()
-        .label("Today")
+        .label(gettext("Today"))
         .css_classes(["flat"])
         .build();
     let tomorrow_button = gtk::Button::builder()
-        .label("Tomorrow")
+        .label(gettext("Tomorrow"))
         .css_classes(["flat"])
         .build();
     let clear_button = gtk::Button::builder()
-        .label("Clear")
+        .label(gettext("Clear"))
         .css_classes(["flat"])
         .build();
     let calendar = gtk::Calendar::new();
@@ -650,12 +659,14 @@ fn build_date_button(
 /// AdwComboRow with "Inbox (no project)" at index 0 followed by every
 /// project. Returns the row pre-selected to the task's current project.
 fn build_project_combo_row(projects: &[Project], current: Option<i64>) -> adw::ComboRow {
-    let model = gtk::StringList::new(&["Inbox (no project)"]);
+    // Translators: first dropdown entry — the task belongs to no project.
+    let inbox_label = gettext("Inbox (no project)");
+    let model = gtk::StringList::new(&[inbox_label.as_str()]);
     for p in projects {
         model.append(&p.title);
     }
     let row = adw::ComboRow::builder()
-        .title("Project")
+        .title(gettext("Project"))
         .model(&model)
         .build();
     let pos: u32 = match current {
@@ -680,15 +691,15 @@ fn project_id_from_combo_row(row: &adw::ComboRow, projects: &[Project]) -> Optio
 
 pub(crate) fn format_schedule_label(value: Option<&ScheduledFor>) -> String {
     match value {
-        None => "No schedule".to_string(),
-        Some(ScheduledFor::Someday) => "Someday".to_string(),
+        None => gettext("No schedule"),
+        Some(ScheduledFor::Someday) => gettext("Someday"),
         Some(ScheduledFor::Date(d)) => d.format("%a · %b %-d, %Y").to_string(),
     }
 }
 
 pub(crate) fn format_deadline_label(value: Option<&NaiveDate>) -> String {
     match value {
-        None => "No deadline".to_string(),
+        None => gettext("No deadline"),
         Some(d) => d.format("%a · %b %-d, %Y").to_string(),
     }
 }
@@ -700,7 +711,7 @@ pub(crate) fn format_deadline_label(value: Option<&NaiveDate>) -> String {
 /// reads as a date-shaped fact.
 pub(crate) fn format_defer_label(value: Option<&NaiveDate>) -> String {
     match value {
-        None => "Not deferred".to_string(),
+        None => gettext("Not deferred"),
         Some(d) => d.format("%a · %b %-d, %Y").to_string(),
     }
 }

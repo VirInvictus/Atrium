@@ -41,6 +41,7 @@ use gtk::glib::clone;
 use gtk::pango;
 use tracing::error;
 
+use crate::i18n::gettext;
 use crate::ui::inspector::{format_deadline_label, format_defer_label, format_schedule_label};
 
 /// Shared state mounted into the pane host. Keeps the empty-state
@@ -102,7 +103,7 @@ impl InspectorPane {
         // claiming visual weight. The atmospheric tint of the
         // pane itself signals that this is the inspector's home.
         let empty_label = gtk::Label::builder()
-            .label("Select a task to edit it here.")
+            .label(gettext("Select a task to edit it here."))
             .halign(gtk::Align::Center)
             .valign(gtk::Align::Start)
             .margin_top(28)
@@ -235,7 +236,7 @@ where
 
     // ── Title ────────────────────────────────────────────────────
     let title_row = adw::EntryRow::builder()
-        .title("Title")
+        .title(gettext("Title"))
         .text(&task.title)
         .build();
 
@@ -248,11 +249,11 @@ where
     // place without bouncing back to the row.
     let complete_check = gtk::CheckButton::builder()
         .css_classes(["selection-mode"])
-        .tooltip_text("Toggle complete")
+        .tooltip_text(gettext("Toggle complete"))
         .valign(gtk::Align::Center)
         .active(task.completed_at.is_some())
         .build();
-    complete_check.update_property(&[gtk::accessible::Property::Label("Task complete")]);
+    complete_check.update_property(&[gtk::accessible::Property::Label(&gettext("Task complete"))]);
     {
         let worker = worker.clone();
         // `toggled` fires both for user clicks and for our own
@@ -327,7 +328,9 @@ where
     // a meaningful time). Entry text is `HH:MM`; commit on
     // focus-leave parses + dispatches the worker update.
     let time_entry = gtk::Entry::builder()
-        .placeholder_text("HH:MM")
+        // Translators: placeholder showing the 24-hour time format the
+        // entry accepts; adapt the letters, keep the shape.
+        .placeholder_text(gettext("HH:MM"))
         .max_length(5)
         .width_chars(6)
         .build();
@@ -335,7 +338,7 @@ where
         time_entry.set_text(&t.format("%H:%M").to_string());
     }
     let time_row = adw::ActionRow::builder()
-        .title("Time")
+        .title(gettext("Time"))
         .activatable_widget(&time_entry)
         .build();
     time_row.add_suffix(&time_entry);
@@ -393,7 +396,7 @@ where
     });
     schedule_button.add_css_class("flat");
     let schedule_row = adw::ActionRow::builder()
-        .title("Schedule")
+        .title(gettext("Schedule"))
         .activatable_widget(&schedule_button)
         .build();
     schedule_row.add_suffix(&schedule_button);
@@ -408,10 +411,11 @@ where
     // any positive value sets a per-task override that surfaces
     // the task in Today that many days early.
     let warn_row = adw::SpinRow::with_range(0.0, 60.0, 1.0);
-    warn_row.set_title("Heads-up window");
-    warn_row.set_subtitle(
+    warn_row.set_title(&gettext("Heads-up window"));
+    // Translators: "Today" is the name of Atrium's Today view.
+    warn_row.set_subtitle(&gettext(
         "Days before the deadline this task surfaces in Today. 0 uses the default (7).",
-    );
+    ));
     warn_row.set_value(task.deadline_warn_days.unwrap_or(0) as f64);
     warn_row.set_visible(task.deadline.is_some());
     let original_warn = task.deadline_warn_days;
@@ -459,7 +463,7 @@ where
     });
     deadline_button.add_css_class("flat");
     let deadline_row = adw::ActionRow::builder()
-        .title("Deadline")
+        .title(gettext("Deadline"))
         .activatable_widget(&deadline_button)
         .build();
     deadline_row.add_suffix(&deadline_button);
@@ -497,7 +501,7 @@ where
     // scheduled_for / deadline (a reminder fires on a task
     // regardless of those). EntryRow accepts `YYYY-MM-DD HH:MM`
     // text; commits on focus-leave. Empty clears.
-    let reminder_row = adw::EntryRow::builder().title("Reminder").build();
+    let reminder_row = adw::EntryRow::builder().title(gettext("Reminder")).build();
     if let Some(when) = task.reminder_at {
         let local = when.with_timezone(&chrono::Local);
         reminder_row.set_text(&local.format("%Y-%m-%d %H:%M").to_string());
@@ -536,12 +540,12 @@ where
     // ── Classify cluster: Project + Tags ─────────────────────────
     let tag_count_text = format_tag_count(tag_count);
     let edit_tags_button = gtk::Button::builder()
-        .label("Edit Tags…")
+        .label(gettext("Edit Tags…"))
         .css_classes(["flat"])
         .valign(gtk::Align::Center)
         .build();
     let tags_row = adw::ActionRow::builder()
-        .title("Tags")
+        .title(gettext("Tags"))
         .subtitle(&tag_count_text)
         .activatable_widget(&edit_tags_button)
         .build();
@@ -575,7 +579,7 @@ where
     // — the underlying TextView still gets focus when the user
     // clicks anywhere on the surface.
     let notes_placeholder = gtk::Label::builder()
-        .label("What / why / next step — autosaves on focus-out")
+        .label(gettext("What / why / next step — autosaves on focus-out"))
         .halign(gtk::Align::Start)
         .valign(gtk::Align::Start)
         .margin_top(14)
@@ -601,7 +605,9 @@ where
         .build();
     notes_scroll.add_css_class("card");
     notes_scroll.add_css_class("view");
-    let notes_group = adw::PreferencesGroup::builder().title("Notes").build();
+    let notes_group = adw::PreferencesGroup::builder()
+        .title(gettext("Notes"))
+        .build();
     notes_group.add(&notes_scroll);
 
     // v0.19.0 — Phase 18.5 Tier-2 Link… picker. Lives as the
@@ -611,10 +617,12 @@ where
     // a task inserts `[[id:UUID][title]]` at the cursor.
     let link_button = gtk::Button::builder()
         .icon_name("insert-link-symbolic")
-        .tooltip_text("Link to another task…")
+        .tooltip_text(gettext("Link to another task…"))
         .css_classes(["flat"])
         .build();
-    link_button.update_property(&[gtk::accessible::Property::Label("Link to another task")]);
+    link_button.update_property(&[gtk::accessible::Property::Label(&gettext(
+        "Link to another task",
+    ))]);
     let link_popover = build_task_link_popover(&notes_buffer, pool_source.clone(), task_id);
     link_popover.set_parent(&link_button);
     link_button.connect_clicked(move |_| {
@@ -749,7 +757,9 @@ where
     // gated on focus-out — the click *is* the commit. The
     // notes_view stays the source of truth; this section is a
     // projection rendered on every buffer edit.
-    let checklist_group = adw::PreferencesGroup::builder().title("Checklist").build();
+    let checklist_group = adw::PreferencesGroup::builder()
+        .title(gettext("Checklist"))
+        .build();
     let checklist_list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .build();
@@ -843,13 +853,17 @@ where
     // children list is refetched from the read pool on build and
     // after each add. The `[done/total]` cookie on the task row
     // already folds these children in via count_done_total_per_parent.
-    let subtasks_group = adw::PreferencesGroup::builder().title("Subtasks").build();
+    let subtasks_group = adw::PreferencesGroup::builder()
+        .title(gettext("Subtasks"))
+        .build();
     let subtasks_list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .build();
     subtasks_list.add_css_class("boxed-list");
     subtasks_group.add(&subtasks_list);
-    let add_subtask_row = adw::EntryRow::builder().title("Add subtask…").build();
+    let add_subtask_row = adw::EntryRow::builder()
+        .title(gettext("Add subtask…"))
+        .build();
     subtasks_group.add(&add_subtask_row);
 
     let parent_project = task.project_id;
@@ -932,7 +946,9 @@ where
     // picker over other tasks; selecting one records the edge via
     // worker.add_dependency. The worker rejects self-edges and cycles;
     // the row's Blocked pill and is:blocked / is:available follow.
-    let blocked_group = adw::PreferencesGroup::builder().title("Blocked by").build();
+    let blocked_group = adw::PreferencesGroup::builder()
+        .title(gettext("Blocked by"))
+        .build();
     let blocked_list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .build();
@@ -954,10 +970,11 @@ where
             let remove_btn = gtk::Button::from_icon_name("edit-delete-symbolic");
             remove_btn.add_css_class("flat");
             remove_btn.set_valign(gtk::Align::Center);
-            remove_btn.set_tooltip_text(Some("Remove prerequisite"));
+            let remove_label = gettext("Remove prerequisite");
+            remove_btn.set_tooltip_text(Some(&remove_label));
             // v0.35.0 — icon-only: give it an accessible name, not just
             // the tooltip (which a screen reader reads as a description).
-            remove_btn.update_property(&[gtk::accessible::Property::Label("Remove prerequisite")]);
+            remove_btn.update_property(&[gtk::accessible::Property::Label(&remove_label)]);
             let worker_rm = worker.clone();
             let list_rm = list.clone();
             let row_rm = row.clone();
@@ -999,10 +1016,12 @@ where
     // "Add" button → search-as-you-type picker over candidate tasks.
     let add_button = gtk::MenuButton::builder()
         .icon_name("list-add-symbolic")
-        .tooltip_text("Add a prerequisite")
+        .tooltip_text(gettext("Add a prerequisite"))
         .build();
     add_button.add_css_class("flat");
-    add_button.update_property(&[gtk::accessible::Property::Label("Add a prerequisite")]);
+    add_button.update_property(&[gtk::accessible::Property::Label(&gettext(
+        "Add a prerequisite",
+    ))]);
     let add_popover = gtk::Popover::new();
     add_popover.add_css_class("atrium-link-picker");
     let picker_box = gtk::Box::builder()
@@ -1012,7 +1031,7 @@ where
         .height_request(300)
         .build();
     let picker_search = gtk::SearchEntry::builder()
-        .placeholder_text("Search tasks…")
+        .placeholder_text(gettext("Search tasks…"))
         .build();
     picker_box.append(&picker_search);
     let picker_list = gtk::ListBox::builder()
@@ -1044,7 +1063,7 @@ where
             if tasks.is_empty() {
                 list.append(
                     &adw::ActionRow::builder()
-                        .title("(no matching tasks)")
+                        .title(gettext("(no matching tasks)"))
                         .build(),
                 );
                 return;
@@ -1122,15 +1141,15 @@ where
     // the subtitle entirely and renamed the section to a verb
     // phrase that describes what the fields do.
     let builder_group = adw::PreferencesGroup::builder()
-        .title("Schedule depth")
+        .title(gettext("Schedule depth"))
         .build();
 
     // estimated_minutes — Phase 11 wires the dispatch. SpinRow
     // commits on value-changed via `worker.update_task(
     // TaskUpdate::estimated_minutes_value(_))`. 0 clears the field.
     let est_row = adw::SpinRow::with_range(0.0, 24.0 * 60.0, 5.0);
-    est_row.set_title("Estimated minutes");
-    est_row.set_subtitle("0 leaves the field unset.");
+    est_row.set_title(&gettext("Estimated minutes"));
+    est_row.set_subtitle(&gettext("0 leaves the field unset."));
     est_row.set_value(task.estimated_minutes.unwrap_or(0) as f64);
     let original_estimated = task.estimated_minutes;
     {
@@ -1178,7 +1197,7 @@ where
     });
     defer_button.add_css_class("flat");
     let defer_row = adw::ActionRow::builder()
-        .title("Defer until")
+        .title(gettext("Defer until"))
         .activatable_widget(&defer_button)
         .build();
     defer_row.add_suffix(&defer_button);

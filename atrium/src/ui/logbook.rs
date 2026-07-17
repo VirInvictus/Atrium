@@ -28,6 +28,7 @@ use atrium_core::Task;
 use chrono::{Duration, NaiveDate};
 use gtk::pango;
 
+use crate::i18n::{gettext, gettext_f};
 use crate::ui::task_list::TagPillMap;
 
 /// One band in the Logbook's date-grouped layout. Bands are
@@ -43,12 +44,12 @@ pub enum DateBand {
 impl DateBand {
     /// Display heading for the band — matches Things 3's vocabulary
     /// rather than ISO dates so the page reads like a journal.
-    pub fn heading(self) -> &'static str {
+    pub fn heading(self) -> String {
         match self {
-            Self::Today => "Today",
-            Self::Yesterday => "Yesterday",
-            Self::LastSevenDays => "Last 7 Days",
-            Self::Older => "Older",
+            Self::Today => gettext("Today"),
+            Self::Yesterday => gettext("Yesterday"),
+            Self::LastSevenDays => gettext("Last 7 Days"),
+            Self::Older => gettext("Older"),
         }
     }
 
@@ -121,8 +122,10 @@ pub fn build_page(
     if tasks.is_empty() {
         let status = adw::StatusPage::builder()
             .icon_name("document-open-recent-symbolic")
-            .title("Nothing logged yet")
-            .description("Completed tasks settle here, grouped by when you finished them.")
+            .title(gettext("Nothing logged yet"))
+            .description(gettext(
+                "Completed tasks settle here, grouped by when you finished them.",
+            ))
             .build();
         return status.upcast();
     }
@@ -305,7 +308,12 @@ fn build_context_label(
         .unwrap_or_default();
     match (area.is_empty(), project.is_empty()) {
         (true, true) => String::new(),
-        (false, false) => format!("{area} › {project}"),
+        // Translators: hierarchy breadcrumb, e.g. "Work › Website";
+        // keep the › separator unless the locale demands otherwise.
+        (false, false) => gettext_f(
+            "{area} › {project}",
+            &[("area", &area), ("project", &project)],
+        ),
         (false, true) => area,
         (true, false) => project,
     }

@@ -2,6 +2,8 @@
 //! `AtriumWindow`: Forecast / Review / Logbook / Agenda / Calendar / Board page refreshers + calendar nav.
 //! Extracted from window/mod.rs in v0.22.0 split (Pass 3).
 
+use crate::i18n::gettext;
+
 use super::*;
 
 impl AtriumWindow {
@@ -67,19 +69,24 @@ impl AtriumWindow {
         }
         let on_strip = matches!(self.active_list(), ActiveList::Forecast);
 
+        // Translators: the two Agenda layout toggle labels — "Bands"
+        // is the chronological section layout, "Strip" the 30-day
+        // Forecast projection.
         let bands = gtk::ToggleButton::builder()
-            .label("Bands")
+            .label(gettext("Bands"))
             .active(!on_strip)
             .build();
         let strip = gtk::ToggleButton::builder()
-            .label("Strip")
+            .label(gettext("Strip"))
             .active(on_strip)
             .build();
         strip.set_group(Some(&bands));
-        bands.update_property(&[gtk::accessible::Property::Label("Agenda bands layout")]);
-        strip.update_property(&[gtk::accessible::Property::Label(
+        bands.update_property(&[gtk::accessible::Property::Label(&gettext(
+            "Agenda bands layout",
+        ))]);
+        strip.update_property(&[gtk::accessible::Property::Label(&gettext(
             "Forecast strip layout (30-day)",
-        )]);
+        ))]);
 
         let weak_b = self.downgrade();
         bands.connect_toggled(move |btn| {

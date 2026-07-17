@@ -4,6 +4,8 @@
 
 use super::*;
 
+use crate::i18n::{gettext, gettext_f, ngettext_f, pgettext};
+
 /// v0.16.0 — Phase 18.5 Tier-1. Read the vault's first
 /// configured TODO sequence (if any). Returns `None` when no
 /// vault is configured, the sidecar is missing / malformed, or
@@ -60,8 +62,9 @@ pub(super) fn build_keyword_picker(
         .unwrap_or(0) as u32;
 
     let row = adw::ComboRow::builder()
-        .title("Keyword")
-        .subtitle("From the vault's configured TODO sequence")
+        .title(gettext("Keyword"))
+        // Translators: "TODO" is an Org-mode keyword; keep it verbatim.
+        .subtitle(gettext("From the vault's configured TODO sequence"))
         .model(&model)
         .selected(initial_index)
         .build();
@@ -183,7 +186,7 @@ pub(super) fn build_task_link_popover(
         .build();
 
     let search = gtk::SearchEntry::builder()
-        .placeholder_text("Search tasks…")
+        .placeholder_text(gettext("Search tasks…"))
         .build();
     body.append(&search);
 
@@ -218,7 +221,7 @@ pub(super) fn build_task_link_popover(
                 list_for_show.remove(&child);
             }
             let row = adw::ActionRow::builder()
-                .title("(database unavailable)")
+                .title(gettext("(database unavailable)"))
                 .build();
             list_for_show.append(&row);
             return;
@@ -275,7 +278,7 @@ pub(super) fn populate_link_picker_rows(
     }
     if tasks.is_empty() {
         let row = adw::ActionRow::builder()
-            .title("(no matching tasks)")
+            .title(gettext("(no matching tasks)"))
             .build();
         list.append(&row);
         return;
@@ -326,18 +329,24 @@ pub(super) fn build_time_group(
     task_id: i64,
     entries: &[TaskClockEntry],
 ) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::builder().title("Time").build();
+    let group = adw::PreferencesGroup::builder()
+        .title(gettext("Time"))
+        .build();
 
     let running = entries.iter().any(|e| e.is_running());
     let action_row = adw::ActionRow::builder()
         .title(if running {
-            "Currently running"
+            gettext("Currently running")
         } else {
-            "Track time on this task"
+            gettext("Track time on this task")
         })
         .build();
     let toggle_button = gtk::Button::builder()
-        .label(if running { "Stop" } else { "Start" })
+        .label(if running {
+            gettext("Stop")
+        } else {
+            gettext("Start")
+        })
         .valign(gtk::Align::Center)
         .build();
     if running {
@@ -381,7 +390,7 @@ pub(super) fn build_time_group(
         let hours = total_minutes / 60;
         let mins = total_minutes % 60;
         let total_row = adw::ActionRow::builder()
-            .title("Total")
+            .title(gettext("Total"))
             .subtitle(format!("{hours}:{mins:02}"))
             .build();
         group.add(&total_row);
@@ -400,15 +409,23 @@ pub(super) fn build_time_group(
             }
             None => {
                 // Open entry — surface "Running since…".
-                row.set_title("Running");
-                row.set_subtitle(&format!("started {started_label}"));
+                row.set_title(&gettext("Running"));
+                // Translators: {time} is when the running session began,
+                // e.g. "Mon Jul 6, 14:30".
+                row.set_subtitle(&gettext_f("started {time}", &[("time", &started_label)]));
                 row.add_css_class("atrium-clock-running");
             }
         }
         if !entry.note.is_empty() {
             // Append the note in the subtitle so the user can
             // see what the session was for.
-            let combined = format!("{} — {}", row.subtitle().unwrap_or_default(), entry.note);
+            let existing = row.subtitle().unwrap_or_default();
+            // Translators: joins a clock session's start time and its
+            // note; only the separator is yours to change.
+            let combined = gettext_f(
+                "{subtitle} — {note}",
+                &[("subtitle", existing.as_str()), ("note", &entry.note)],
+            );
             row.set_subtitle(&combined);
         }
         group.add(&row);
@@ -434,32 +451,48 @@ pub(super) fn install_repeat_editor(
 
     // Frequency dropdown. "None" lives at index 0 so a brand-new
     // task without a repeat lands there by default.
-    let freq_model =
-        gtk::StringList::new(&["None", "Daily", "Weekly", "Monthly", "Yearly", "Custom"]);
+    let freq_choices = [
+        // Translators: repeat-frequency choice meaning the task does
+        // not repeat.
+        pgettext("repeat frequency", "None"),
+        gettext("Daily"),
+        gettext("Weekly"),
+        gettext("Monthly"),
+        gettext("Yearly"),
+        gettext("Custom"),
+    ];
+    let freq_refs: Vec<&str> = freq_choices.iter().map(String::as_str).collect();
+    let freq_model = gtk::StringList::new(&freq_refs);
     let freq_row = adw::ComboRow::builder()
-        .title("Repeat")
+        .title(gettext("Repeat"))
         .model(&freq_model)
         .selected(preset_index(initial_preset))
         .build();
 
     let interval_row = adw::SpinRow::with_range(1.0, 365.0, 1.0);
-    interval_row.set_title("Every");
-    interval_row.set_subtitle("Number of frequency units between occurrences.");
+    // Translators: title of the interval spinner; reads as "Every N"
+    // where N is the number of frequency units.
+    interval_row.set_title(&gettext("Every"));
+    interval_row.set_subtitle(&gettext("Number of frequency units between occurrences."));
     interval_row.set_value(initial_interval as f64);
 
-    let mode_model = gtk::StringList::new(&[
-        "After completion (Cumulative)",
-        "From completion date (Next)",
-        "Always shift by interval (Basic)",
-    ]);
+    let mode_choices = [
+        gettext("After completion (Cumulative)"),
+        gettext("From completion date (Next)"),
+        gettext("Always shift by interval (Basic)"),
+    ];
+    let mode_refs: Vec<&str> = mode_choices.iter().map(String::as_str).collect();
+    let mode_model = gtk::StringList::new(&mode_refs);
     let mode_row = adw::ComboRow::builder()
-        .title("After completion")
+        .title(gettext("After completion"))
         .model(&mode_model)
         .selected(mode_index(initial_mode))
         .build();
 
     let custom_row = adw::EntryRow::builder()
-        .title("Custom RRULE")
+        // Translators: "RRULE" is the RFC 5545 recurrence-rule keyword;
+        // keep it verbatim.
+        .title(gettext("Custom RRULE"))
         .text(&initial_custom)
         .build();
 
@@ -678,10 +711,10 @@ pub(super) fn rule_from_freq(freq: &str, interval: u32) -> String {
 }
 
 pub(super) fn format_tag_count(n: usize) -> String {
-    match n {
-        0 => "No tags".to_string(),
-        1 => "1 tag".to_string(),
-        n => format!("{n} tags"),
+    if n == 0 {
+        gettext("No tags")
+    } else {
+        ngettext_f("{n} tag", "{n} tags", n as u32, &[("n", &n.to_string())])
     }
 }
 
@@ -735,19 +768,19 @@ where
         .build();
 
     let today_button = gtk::Button::builder()
-        .label("Today")
+        .label(gettext("Today"))
         .css_classes(["flat"])
         .build();
     let tomorrow_button = gtk::Button::builder()
-        .label("Tomorrow")
+        .label(gettext("Tomorrow"))
         .css_classes(["flat"])
         .build();
     let someday_button = gtk::Button::builder()
-        .label("Someday")
+        .label(gettext("Someday"))
         .css_classes(["flat"])
         .build();
     let clear_button = gtk::Button::builder()
-        .label("Clear")
+        .label(gettext("Clear"))
         .css_classes(["flat"])
         .build();
     let calendar = gtk::Calendar::new();
@@ -832,15 +865,15 @@ where
         .build();
 
     let today_button = gtk::Button::builder()
-        .label("Today")
+        .label(gettext("Today"))
         .css_classes(["flat"])
         .build();
     let tomorrow_button = gtk::Button::builder()
-        .label("Tomorrow")
+        .label(gettext("Tomorrow"))
         .css_classes(["flat"])
         .build();
     let clear_button = gtk::Button::builder()
-        .label("Clear")
+        .label(gettext("Clear"))
         .css_classes(["flat"])
         .build();
     let calendar = gtk::Calendar::new();
@@ -898,12 +931,14 @@ where
 }
 
 pub(super) fn build_project_combo_row(projects: &[Project], current: Option<i64>) -> adw::ComboRow {
-    let model = gtk::StringList::new(&["Inbox (no project)"]);
+    // Translators: first dropdown entry — the task belongs to no project.
+    let inbox_label = gettext("Inbox (no project)");
+    let model = gtk::StringList::new(&[inbox_label.as_str()]);
     for p in projects {
         model.append(&p.title);
     }
     let row = adw::ComboRow::builder()
-        .title("Project")
+        .title(gettext("Project"))
         .model(&model)
         .build();
     let pos: u32 = match current {

@@ -90,8 +90,19 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.47.0" date="2026-07-16">
+      <description translate="no">
+        <p>Localisation scaffolding. Atrium now speaks gettext: the
+           interface strings, keyboard-shortcut titles, settings
+           summaries, and app-store copy are all extractable for
+           translation, with the build producing and installing
+           language catalogues. English ships as the first catalogue;
+           this release adds no translations yet, it makes them
+           possible.</p>
+      </description>
+    </release>
     <release version="0.46.2" date="2026-07-05">
-      <description>
+      <description translate="no">
         <p>Follow-up to the v0.46.1 test-reliability fix. Making the
            vault-watcher tests poll for the expected state was not enough
            on its own: the test harness runs them in parallel, and on a
@@ -101,7 +112,7 @@
       </description>
     </release>
     <release version="0.46.1" date="2026-07-05">
-      <description>
+      <description translate="no">
         <p>Test-suite reliability fix. The vault-watcher integration tests
            waited a fixed interval for filesystem changes to sync and could
            fail on a heavily loaded CI runner before the change had settled.
@@ -110,7 +121,7 @@
       </description>
     </release>
     <release version="0.46.0" date="2026-07-01">
-      <description>
+      <description translate="no">
         <p>Reorder cards on the board. Dragging a card up or down within
            its column now sticks; drop it on another card to place it
            just above. The order is remembered per board. This completes
@@ -119,7 +130,7 @@
       </description>
     </release>
     <release version="0.45.0" date="2026-07-01">
-      <description>
+      <description translate="no">
         <p>Add cards on the board. Each kanban column now has an inline
            "Add card" entry; a new task is created already in that column
            (its tag or status set for you), and the usual #tag / @date
@@ -127,7 +138,7 @@
       </description>
     </release>
     <release version="0.44.0" date="2026-07-01">
-      <description>
+      <description translate="no">
         <p>Kanban WIP limits. A board column can carry a
            work-in-progress cap: the header shows count over limit and
            turns red when the column is over. Set it with a name:limit
@@ -136,7 +147,7 @@
       </description>
     </release>
     <release version="0.43.0" date="2026-07-01">
-      <description>
+      <description translate="no">
         <p>Richer kanban cards. A board card now shows a done/total
            progress cookie (subtasks and checklist items folded together)
            and an amber Blocked pill when a task is waiting on a
@@ -145,7 +156,7 @@
       </description>
     </release>
     <release version="0.42.0" date="2026-07-01">
-      <description>
+      <description translate="no">
         <p>Bulk editing. Select several tasks and move them all to a
            project, add or remove a tag across the lot, or reschedule
            them in one action, each with a single undo. The command line
@@ -154,7 +165,7 @@
       </description>
     </release>
     <release version="0.41.0" date="2026-06-20">
-      <description>
+      <description translate="no">
         <p>Reminders you can trust. A reminder that came due while
            Atrium was closed now fires the next time you open the app,
            instead of being silently missed. Turning notifications off
@@ -164,14 +175,14 @@
       </description>
     </release>
     <release version="0.40.1" date="2026-06-20">
-      <description>
+      <description translate="no">
         <p>Keyboard reorder. Alt+Up and Alt+Down move the focused task
            up or down without the mouse, a keyboard alternative to
            drag-to-reorder on the lists where manual ordering applies.</p>
       </description>
     </release>
     <release version="0.40.0" date="2026-06-20">
-      <description>
+      <description translate="no">
         <p>Quick rescheduling. A task's right-click menu now has a
            Schedule submenu (Today, Tomorrow, This Weekend, Next Week,
            Someday, Clear), so pushing a task to a new day is one pick
@@ -180,7 +191,7 @@
       </description>
     </release>
     <release version="0.39.2" date="2026-06-20">
-      <description>
+      <description translate="no">
         <p>Discoverability polish. Kanban boards gained a Configure
            button in the page header, so changing columns no longer
            means hunting through a right-click menu. Quick Entry now
@@ -190,7 +201,7 @@
       </description>
     </release>
     <release version="0.39.1" date="2026-06-20">
-      <description>
+      <description translate="no">
         <p>Interaction consistency. Clicking a task in the calendar's
            week strip now opens that task, like everywhere else.
            Dragging to reorder a date-sorted list (Today, Upcoming,
@@ -199,7 +210,7 @@
       </description>
     </release>
     <release version="0.39.0" date="2026-06-20">
-      <description>
+      <description translate="no">
         <p>The Agenda and Forecast views are now one. Instead of two
            separate sidebar entries that both showed "what's coming
            up," there is a single Agenda view with a Bands / Strip
@@ -211,7 +222,7 @@
       </description>
     </release>
     <release version="0.38.3" date="2026-06-20">
-      <description>
+      <description translate="no">
         <p>Accessibility improvements. The keyboard focus ring is
            visible again on the sidebar and task lists, icon-only
            controls (colour swatches, the repeating-task icon) now have
@@ -221,7 +232,7 @@
       </description>
     </release>
     <release version="0.38.2" date="2026-06-20">
-      <description>
+      <description translate="no">
         <p>Performance tightening. Editing tasks in an external Org-mode
            vault no longer scans the whole library's tags on every file
            save, which keeps large vault-backed libraries responsive.
@@ -230,7 +241,7 @@
       </description>
     </release>
     <release version="0.38.1" date="2026-06-20">
-      <description>
+      <description translate="no">
         <p>Correctness fixes from an audit pass. The "add a
            prerequisite" and "link to another task" pickers are now
            operable by keyboard, not just the mouse. A corrupt custom
@@ -241,7 +252,7 @@
       </description>
     </release>
     <release version="0.38.0" date="2026-06-20">
-      <description>
+      <description translate="no">
         <p>Kanban boards gain a second grouping axis. Alongside the
            original tag-based columns, a board can now group by status
            (Org TODO-sequence keyword). On a status board, dragging a
@@ -254,7 +265,7 @@
       </description>
     </release>
     <release version="0.37.4" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>A focused rewrite of the project README for clarity. The
            version-by-version narrative and phase-tracking tables moved
            out to the roadmap and release notes where they belong, the
@@ -265,7 +276,7 @@
       </description>
     </release>
     <release version="0.37.3" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Documentation maintenance. The version and test-count
            headers across the project's docs were reconciled to the
            current release, so nothing claims a stale version. No
@@ -273,7 +284,7 @@
       </description>
     </release>
     <release version="0.37.2" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Internal test-suite tidy. The command-line parser had two
            test homes that overlapped heavily; they are consolidated
            into one, dropping 23 duplicate cases while keeping every
@@ -282,7 +293,7 @@
       </description>
     </release>
     <release version="0.37.1" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Documentation polish for the public-facing surfaces. The
            README was brought up to date (it still announced v0.20.0
            and marked shipped work as planned) and every em-dash was
@@ -293,7 +304,7 @@
       </description>
     </release>
     <release version="0.37.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>A documentation handbook. Atrium's guides and reference docs
            (modes, Quick Entry, search, importing, the Org vault,
            keyboard map, schema, accessibility, performance) are now an
@@ -302,7 +313,7 @@
       </description>
     </release>
     <release version="0.36.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Internal: a performance regression suite. A new script
            exercises 50,000- and 100,000-task databases and checks
            Atrium's memory and load times stay within budget, so future
@@ -310,7 +321,7 @@
       </description>
     </release>
     <release version="0.35.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Accessibility polish. Icon-only buttons throughout the app
            (calendar navigation, the add buttons, the "Blocked by" and
            Notes-link controls, the vault folder picker) now announce a
@@ -319,7 +330,7 @@
       </description>
     </release>
     <release version="0.34.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Import, now with a dialog. A new Import window lets you bring
            in tasks from Org files, Todoist CSV, VTODO (.ics),
            Taskwarrior JSON, and todo.txt — pick the format and file,
@@ -330,7 +341,7 @@
       </description>
     </release>
     <release version="0.33.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Task templates. Save a reusable project shape — a named set
            of tasks, optionally nested, with their own tags and time
            estimates — and stamp it out as a fresh project whenever you
@@ -342,7 +353,7 @@
       </description>
     </release>
     <release version="0.32.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Backups, built in. A new Backups page in Preferences lets you
            snapshot your database with one click (kept as a compact,
            defragmented copy), restore an earlier snapshot on the next
@@ -353,7 +364,7 @@
       </description>
     </release>
     <release version="0.31.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>A friendlier first run. When the database is empty, Atrium
            now shows a welcome screen with three ways to start: create
            your first project, capture a task, or set up an Org vault.</p>
@@ -362,7 +373,7 @@
       </description>
     </release>
     <release version="0.30.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Drag to capture. Drop a file or a URL (or selected text)
            anywhere on the window and Quick Entry opens pre-filled, so
            you can add tags or a date and drop it into your list
@@ -373,7 +384,7 @@
       </description>
     </release>
     <release version="0.29.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Task dependencies. A task can now be blocked by one or more
            prerequisite tasks; a blocked task is unavailable until every
            prerequisite is complete.</p>
@@ -391,7 +402,7 @@
       </description>
     </release>
     <release version="0.28.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Per-area review schedules. An area can now set a default
            review cadence that cascades to every project filed under
            it, so projects no longer have to be opted into the Review
@@ -408,7 +419,7 @@
       </description>
     </release>
     <release version="0.27.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>The todo.txt importer. Phase 19's third slice and
            the simplest of the importer formats: one task per
            line, plain text, no quoting. Hand-rolled stdlib
@@ -443,7 +454,7 @@
       </description>
     </release>
     <release version="0.26.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Taskwarrior `task export` JSON importer. Phase 19's
            second slice — the TUI / CLI Taskwarrior crowd's bridge
            to Atrium. Hand-rolled stdlib parser via serde_json;
@@ -481,7 +492,7 @@
       </description>
     </release>
     <release version="0.25.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>VTODO (RFC 5545) import and export. Phase 19's first
            slice, opening Atrium's bridge to the CalDAV ecosystem:
            Endeavour, Errands, Nextcloud Tasks, Planify. One-shot
@@ -525,7 +536,7 @@
       </description>
     </release>
     <release version="0.24.0" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Custom property-drawer passthrough. The Post-v0.22.0 Tier 1
            item next on the roadmap after subtasks, closing the last
            documented Org round-trip data loss: unmodeled
@@ -565,7 +576,7 @@
       </description>
     </release>
     <release version="0.23.1" date="2026-05-28">
-      <description>
+      <description translate="no">
         <p>Subtasks bugfixes from the v0.23.0 hands-on pass. Workspace
            tests stay at 899 + green; no schema change.</p>
         <p>List indent now updates live when a subtask is created,
@@ -596,7 +607,7 @@
       </description>
     </release>
     <release version="0.23.0" date="2026-05-27">
-      <description>
+      <description translate="no">
         <p>Subtasks. Nested tasks (parent_id, in the schema since day
            one) are now exposed end to end, the first Phase 19.5
            productivity essential. No schema change.</p>
@@ -611,7 +622,7 @@
       </description>
     </release>
     <release version="0.22.1" date="2026-05-27">
-      <description>
+      <description translate="no">
         <p>Documentation and metadata maintenance. No code, behaviour,
            or schema changes.</p>
         <p>Cleared the remaining AppStream validation infos by giving
@@ -622,7 +633,7 @@
       </description>
     </release>
     <release version="0.22.0" date="2026-05-27">
-      <description>
+      <description translate="no">
         <p>Maintenance release: structural refactor only, no behaviour
            or schema changes. The repository's two largest source files
            were split into module trees for reviewability.</p>
@@ -635,7 +646,7 @@
       </description>
     </release>
     <release version="0.21.2" date="2026-05-27">
-      <description>
+      <description translate="no">
         <p>Packaging fix. Several historical release entries in this
            metainfo file carried raw, unescaped angle brackets and an
            ampersand inside their description text, which made the file
@@ -646,7 +657,7 @@
       </description>
     </release>
     <release version="0.21.1" date="2026-05-27">
-      <description>
+      <description translate="no">
         <p>Documentation and lint maintenance patch. No behaviour
            changes, no schema changes.</p>
         <p>Doc accuracy: the spec header was pinned at v0.12.0 and is
@@ -661,7 +672,7 @@
       </description>
     </release>
     <release version="0.21.0" date="2026-05-10">
-      <description>
+      <description translate="no">
         <p>Maintenance pass after the rapid v0.14.0 → v0.20.0
            sequence — no behaviour changes, no spec changes.
            Audited via clippy pedantic + unwrap census + long-
@@ -691,7 +702,7 @@
       </description>
     </release>
     <release version="0.20.0" date="2026-05-10">
-      <description>
+      <description translate="no">
         <p>Phase 19.5 foundations land: a real preferences dialog
            and the first system-notification surface. The two pair
            naturally — preferences exposes the toggle that gates
@@ -720,7 +731,7 @@
       </description>
     </release>
     <release version="0.19.0" date="2026-05-10">
-      <description>
+      <description translate="no">
         <p>Phase 18.5 closes with both Tier-2 items: ID-based
            inter-task links and time-of-day on the schedule.
            All seven Phase 18.5 features now shipped across
@@ -743,7 +754,7 @@
       </description>
     </release>
     <release version="0.18.0" date="2026-05-10">
-      <description>
+      <description translate="no">
         <p>Phase 18.5 Tier-1 Quick Entry templates — the fifth and
            final Tier-1 item. All five Phase 18.5 Tier-1 features
            (deadline warning windows, statistics cookies, body
@@ -761,7 +772,7 @@
       </description>
     </release>
     <release version="0.17.0" date="2026-05-10">
-      <description>
+      <description translate="no">
         <p>Phase 18.5 Tier-1 CLOCK time tracking — the flagship
            Phase 18.5 feature. Records actual time spent on a
            task across multiple work sessions (distinct from
@@ -783,7 +794,7 @@
       </description>
     </release>
     <release version="0.16.0" date="2026-05-10">
-      <description>
+      <description translate="no">
         <p>Phase 18.5 Tier-1 custom TODO sequences land. The
            most-cited Org feature (Bernt Hansen, Jethro Kuan,
            every GTD-with-Org tutorial) — per-vault declared
@@ -805,7 +816,7 @@
       </description>
     </release>
     <release version="0.15.0" date="2026-05-10">
-      <description>
+      <description translate="no">
         <p>Two Phase 18.5 features bundled — statistics cookies on
            parent headlines (`[2/5]` / `[40%]`) and body inline
            checkboxes (`- [ ]` / `- [X]`). Karl Voit names both
@@ -828,7 +839,7 @@
       </description>
     </release>
     <release version="0.14.0" date="2026-05-10">
-      <description>
+      <description translate="no">
         <p>First Phase 18.5 item lands. The Org-mode `-Nd` warning
            suffix on the DEADLINE cookie (`DEADLINE: &lt;2026-04-15
            Wed -7d&gt;` — "surface 7 days early") becomes a per-task
@@ -853,7 +864,7 @@
       </description>
     </release>
     <release version="0.13.5" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Hotfix on top of v0.13.4: the fresh-vault seed now
            registers its writes in the shared `RecentWrites` set
            that the writer + watcher consult to suppress
@@ -873,7 +884,7 @@
       <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
     </release>
     <release version="0.13.4" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Fresh vaults seed on first boot. Phase 17's vault loop
            is change-driven — setting vault-path on an empty
            directory previously did nothing visible until the
@@ -892,7 +903,7 @@
       <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
     </release>
     <release version="0.13.3" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Stylistic Org-emit fix — successive headlines now
            have a blank line between them, matching Emacs's
            default `org-blank-before-new-entry` convention.
@@ -905,7 +916,7 @@
       <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
     </release>
     <release version="0.13.2" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Inline-rename gets the tab-completion popover.
            v0.13.0 Slice 3 wired the popover into the
            bottom-of-list capture entry and the Quick Entry
@@ -934,7 +945,7 @@
       <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
     </release>
     <release version="0.13.1" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Sidecar follow-up — saved Perspectives now round-trip
            through &lt;vault&gt;/.atrium/config.toml. The slot was
            reserved at v0.10.1 with a placeholder section; v0.13.1
@@ -956,7 +967,7 @@
       <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
     </release>
     <release version="0.13.0" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>The atrium-inline arc — a polish + extraction cycle on
            top of v0.12.0's Phase 18 work. The inline-syntax
            parser (#tag, @today, etc.) was small in v0.1 and grew
@@ -1025,7 +1036,7 @@
       <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
     </release>
     <release version="0.12.0" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Phase 18 — Todoist CSV import. The cross-platform
            productivity app most likely-to-migrate Linux user
            is leaving behind now has a real export path into
@@ -1087,7 +1098,7 @@
       <url type="details">https://github.com/VirInvictus/Atrium/blob/main/patchnotes.md</url>
     </release>
     <release version="0.11.0" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Phase 12.5 — Calendar Month View. Builder Mode gains
            the third lens over the same task data Forecast (30-
            day strip) and Agenda (chronological bands) already
@@ -1140,7 +1151,7 @@
       </description>
     </release>
     <release version="0.10.3" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Phase 17 closer: RRULE canonicalisation contract end-
            to-end. Repeating tasks now emit both a best-fit Org
            cookie and the canonical :RRULE: in the property
@@ -1192,7 +1203,7 @@
       </description>
     </release>
     <release version="0.10.2" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Phase 17 reliability slice: malformed vault files no
            longer spam toasts; custom Org keywords (WAITING,
            IN-PROGRESS, BLOCKED) round-trip cleanly through the
@@ -1234,7 +1245,7 @@
       </description>
     </release>
     <release version="0.10.1" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Phase 17 next slice: GUI now participates in the two-way
            vault loop. The GTK binary boots with both the writer
            half (DB → vault, since v0.7.16) and the watcher half
@@ -1274,7 +1285,7 @@
       </description>
     </release>
     <release version="0.10.0" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Phase 17 first slice: vault → DB sync. Edits made in
            Emacs / Doom / vim-orgmode against the configured Org
            vault now flow back into the SQLite store within
@@ -1317,7 +1328,7 @@
       </description>
     </release>
     <release version="0.9.0" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>The atrium-org crate extraction. The Phase 16 Org
            projection — parser, emitter, importer, vault writer
            task — moves out of atrium-core::sync into its own
@@ -1345,7 +1356,7 @@
       </description>
     </release>
     <release version="0.8.0" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Phase 16 stamp + maintenance pass. End of the
            eleven-patch v0.7.6 → v0.7.18 Phase 16 build-out.
            Atrium's GTK binary, atrium-cli, and the hand-rolled
@@ -1384,7 +1395,7 @@
       </description>
     </release>
     <release version="0.7.18" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>GUI vault integration. Thirteenth patch on the
            Phase 16 arc. The GTK binary now reads the
            vault-path GSettings key on boot and routes through
@@ -1410,7 +1421,7 @@
       </description>
     </release>
     <release version="0.7.17" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Round-trip test fixture + two importer fixes. Twelfth
            patch on the Phase 16 arc. Five complicated .org
            files (kitchen_sink, custom_keywords, deep_nesting,
@@ -1432,7 +1443,7 @@
       </description>
     </release>
     <release version="0.7.16" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Auto-debounced worker write hook (DB → vault). The
            last Phase 16 roadmap bullet before the v0.8.0 stamp.
            Every Task / Project write through the SQLite worker
@@ -1459,7 +1470,7 @@
       </description>
     </release>
     <release version="0.7.15" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Post-write Org integrity check. Tenth patch on the
            Phase 16 arc. Every vault write now goes through a
            post-write parse-back assertion: the file Atrium
@@ -1478,7 +1489,7 @@
       </description>
     </release>
     <release version="0.7.14" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Multi-file vault walk + ensure_area. Ninth patch on
            the Phase 16 arc. atrium-cli `import org PATH` now
            accepts a directory: files at `vault/project.org`
@@ -1497,7 +1508,7 @@
       </description>
     </release>
     <release version="0.7.13" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>File-level Org metadata round-trip. Eighth patch on
            the Phase 16 arc. v0.7.12 closed the per-task half
            of the round-trip discipline; v0.7.13 closes the
@@ -1519,7 +1530,7 @@
       </description>
     </release>
     <release version="0.7.12" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Custom-keyword Org round-trip via migration 0007.
            Seventh patch on the Phase 16 arc. Spec §7.3.3 rule
            1 calls for non-canonical TODO keywords (WAITING,
@@ -1538,7 +1549,7 @@
       </description>
     </release>
     <release version="0.7.11" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>JSON snapshot export. Sixth patch on the Phase 16
            arc. The Org vault projection is interoperable with
            Emacs but lossy on constructs Atrium doesn't fully
@@ -1559,7 +1570,7 @@
       </description>
     </release>
     <release version="0.7.10" date="2026-05-09">
-      <description>
+      <description translate="no">
         <p>Vault writer + atrium-cli export org. Fifth patch on
            the Phase 16 arc. write_project_to_vault reads a
            project + every task + tag names through a read-only
@@ -1582,7 +1593,7 @@
       </description>
     </release>
     <release version="0.7.9" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Org importer (atrium-cli import org). Fourth patch on
            the Phase 16 arc. import_org_file reads a single .org
            file and inserts every TODO-keyworded headline as a
@@ -1605,7 +1616,7 @@
       </description>
     </release>
     <release version="0.7.8" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Org-mode emitter (round-trip safe). Third patch on
            the Phase 16 arc. emit_org_text takes a Vec&lt;OrgTask&gt;
            and writes the canonical Org form: headline + cookies
@@ -1628,7 +1639,7 @@
       </description>
     </release>
     <release version="0.7.7" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Hand-rolled Org-mode parser. Second patch on the
            Phase 16 arc. atrium-core::sync::org::parse_org_text
            reads Org text into a Vec&lt;OrgTask&gt; tree
@@ -1653,7 +1664,7 @@
       </description>
     </release>
     <release version="0.7.6" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Phase 16 foundation — first patch on the Org-mode
            vault projection arc that ships across v0.7.6 →
            v0.8.0. Lands the sync module skeleton
@@ -1677,7 +1688,7 @@
       </description>
     </release>
     <release version="0.7.5" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Visual refinement pass — five items finishing the
            v0.7.x polish arc. Tag pills retired the chip
            background in favour of bare colored Pango spans
@@ -1699,7 +1710,7 @@
       </description>
     </release>
     <release version="0.7.4" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Task-level Mark Reviewed. The Review page's "This
            week" weekly walk shipped at v0.7.2 with no way to
            acknowledge an item; v0.7.4 closes the gap with a
@@ -1719,7 +1730,7 @@
       </description>
     </release>
     <release version="0.7.3" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Inspector check-off + perspective editor. Two
            functional gaps after v0.7.2: the inspector had no
            way to mark a task complete (bouncing back to the
@@ -1745,7 +1756,7 @@
       </description>
     </release>
     <release version="0.7.2" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Confusion-killer patch. Two problems from Brandon's
            after-v0.7.1 review: the canonical Review page and
            the seeded "Weekly Review" perspective lived
@@ -1771,7 +1782,7 @@
       </description>
     </release>
     <release version="0.7.1" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Surface continuity patch — kills the visible
            "colour breaking" Brandon flagged after v0.7.0. The
            upper-left corner showed three stacked horizontal
@@ -1799,7 +1810,7 @@
       </description>
     </release>
     <release version="0.7.0" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Visual fusion + whitespace pass. Addresses a
            critical-eye review of v0.6.21: the app didn't feel
            "living" yet — accents had hard boundaries, the three
@@ -1834,7 +1845,7 @@
       </description>
     </release>
     <release version="0.6.21" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Documentation housekeeping pass. README version
            badge refreshed to 0.6.20. CLAUDE.md status section
            consolidated and codebase map updated to v0.6.20
@@ -1860,7 +1871,7 @@
       </description>
     </release>
     <release version="0.6.20" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Phase 19.5 calendar-overlay item course-corrected
            from "read-only iCal feed" to "Evolution Data
            Server overlay." Atrium is a GNOME-native client
@@ -1876,7 +1887,7 @@
       </description>
     </release>
     <release version="0.6.19" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Roadmap revision. The Things 3 import phase is
            retired (`.things` JSON requires macOS export the
            typical Linux user can't produce; the GNOME-using-
@@ -1898,7 +1909,7 @@
       </description>
     </release>
     <release version="0.6.18" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Efficiency pass — SQL fast-path everywhere search
            runs. v0.5.3 shipped the SQL translation evaluator
            and v0.6.6 wired it into the kanban refresh;
@@ -1916,7 +1927,7 @@
       </description>
     </release>
     <release version="0.6.17" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Forecast view click-to-open. Brandon flagged that
            clicking a task in Forecast did nothing. The row
            had a DragSource (so drag-to-reschedule worked)
@@ -1929,7 +1940,7 @@
       </description>
     </release>
     <release version="0.6.16" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Sidebar order — Logbook bookends the top tier.
            Brandon flagged that Logbook between Someday and
            Agenda read as out of place; completed work was
@@ -1943,7 +1954,7 @@
       </description>
     </release>
     <release version="0.6.15" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Two debug-surface bugfixes from a v0.6.14 eyes-on
            test. The Memory Watch dialog had no visible body
            / background — labels appeared to float against
@@ -1958,7 +1969,7 @@
       </description>
     </release>
     <release version="0.6.14" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Patch D, reframed — visible row separators and a
            derived recurrence icon. The original "day-band
            grouping in the main task list" plan didn't fit
@@ -1974,7 +1985,7 @@
       </description>
     </release>
     <release version="0.6.13" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Patch C — Inspector Notes placeholder. The Notes
            field used to be a blank dark rectangle; first-run
            users had no way to know it was editable. v0.6.13
@@ -1986,7 +1997,7 @@
       </description>
     </release>
     <release version="0.6.12" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Patch B — state-aware row treatment. The biggest
            visual win in the screenshot-cleanup arc. Each
            task row classifies into Overdue / Today /
@@ -2000,7 +2011,7 @@
       </description>
     </release>
     <release version="0.6.11" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Screenshot-driven cleanup, Patch A — eight quick
            wins that ship together because each touches one
            file. Inspector "Defer until: Available now"
@@ -2020,7 +2031,7 @@
       </description>
     </release>
     <release version="0.6.10" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Soft-accent pass — adds a thin layer of accent
            warmth across six surfaces (sidebar background,
            header bars, page title, sidebar count badges,
@@ -2033,7 +2044,7 @@
       </description>
     </release>
     <release version="0.6.9" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Two startup-log warning fixes surfaced by an
            eyes-on test of v0.6.8. A no-op placeholder CSS rule
            (v0.6.1) used a pseudo-element selector GTK4 doesn't
@@ -2048,7 +2059,7 @@
       </description>
     </release>
     <release version="0.6.8" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>A v0.6.x cleanup pass — end-of-session maintenance.
            Eleven patches shipped since the v0.5.0 line and
            the contract docs lagged behind. spec.md, roadmap.md,
@@ -2066,7 +2077,7 @@
       </description>
     </release>
     <release version="0.6.7" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Sidebar reorganisation. Agenda / Forecast / Review
            no longer hide at the bottom of the Builder section
            — they now sit in the top tier alongside Inbox /
@@ -2082,7 +2093,7 @@
       </description>
     </release>
     <release version="0.6.6" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Kanban drag-drop CPU mitigation. Two targeted
            optimisations: dropped the
            <code>transition: background-color 120ms</code> on
@@ -2099,7 +2110,7 @@
       </description>
     </release>
     <release version="0.6.5" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>The atrium-cli perspective write side closes the gap
            that the only way to create or convert a saved
            perspective from the shell was via direct SQL.
@@ -2118,7 +2129,7 @@
       </description>
     </release>
     <release version="0.6.4" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Slice D2 — the Agenda canonical page. Org-mode-style
            chronological view that groups open tasks into
            Overdue / Today / Tomorrow / This Week / Next Week
@@ -2132,7 +2143,7 @@
       </description>
     </release>
     <release version="0.6.3" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Kanban drag-drop between columns. The kanban is no
            longer read-only — drag a task row from one column
            to another and its tag set is rewritten so the
@@ -2147,7 +2158,7 @@
       </description>
     </release>
     <release version="0.6.2" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Perspective renderer dialog — closes the v0.6.0 gap
            that the only way to make a Perspective render as a
            kanban was direct SQL or the test fixture. Right-
@@ -2159,7 +2170,7 @@
       </description>
     </release>
     <release version="0.6.1" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Kanban polish — board rows now show a metadata line
            with the project name, the most-relevant date
            (deadline if set, else scheduled, else Someday), and
@@ -2172,7 +2183,7 @@
       </description>
     </release>
     <release version="0.6.0" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Slice D1 GUI — saved Perspectives whose renderer is
            <code>"board"</code> now render as a horizontal kanban
            layout in the main window instead of a flat list.
@@ -2190,7 +2201,7 @@
       </description>
     </release>
     <release version="0.5.4" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Slice D1 foundation — saved Perspectives can render
            as kanban boards. v0.5.4 ships the headless engine:
            a renderer parser, a tag-axis grouping helper, and
@@ -2205,7 +2216,7 @@
       </description>
     </release>
     <release version="0.5.3" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>SQL-translation evaluator for the Calibre-style search
            expression language — the fourth v0.6.x carryover off
            the deferred list. Queries that map cleanly onto SQL
@@ -2225,7 +2236,7 @@
       </description>
     </release>
     <release version="0.5.2" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>FTS5 bm25 + recency ranking on bare-text searches —
            the third v0.6.x carryover off the deferred list.
            Searching for a freeform word (in the search bar or
@@ -2240,7 +2251,7 @@
       </description>
     </release>
     <release version="0.5.1" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>Patch release. Three small, coupled fixes the v0.5.0
            ship-gate hadn't been wide enough to catch:
            the atrium-cli runtime nesting panic on every write
@@ -2253,7 +2264,7 @@
       </description>
     </release>
     <release version="0.5.0" date="2026-05-08">
-      <description>
+      <description translate="no">
         <p>A meaty minor — fifteen post-v0.4.0 patches rolled
            together into one shippable boundary.
            Phase 15.5 deferred-list closed: state predicates,
@@ -2271,7 +2282,7 @@
       </description>
     </release>
     <release version="0.4.0" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Phase 15.5 — Calibre-powered search. The search bar's
            filter language grew from a flat <code>tag:foo is:open</code>
            shape into a full Calibre-style expression grammar:
@@ -2291,7 +2302,7 @@
       </description>
     </release>
     <release version="0.3.0" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Visual polish pass. Tag colours land — six-swatch picker
            in the tag editor, coloured dots in the sidebar, coloured
            pills on every task row. Task rows light up gently on
@@ -2305,7 +2316,7 @@
       </description>
     </release>
     <release version="0.2.2" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Audit-pass bug fixes. Filter typos in the search bar (or in
            a saved Perspective) now surface a toast instead of silently
            no-op-ing — type <code>tga:work</code> by mistake and you'll
@@ -2320,7 +2331,7 @@
       </description>
     </release>
     <release version="0.2.1" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Two task-row fixes. Adding or removing a tag in the
            per-task editor now updates the row's tag pill in place
            instead of leaving stale text. And task rows on Today,
@@ -2330,7 +2341,7 @@
       </description>
     </release>
     <release version="0.2.0" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Builder Mode milestone — Phase 15 lands repeating tasks
            with full RFC 5545 RRULE support. Set a repeat in the
            Inspector (Daily / Weekly / Monthly / Yearly preset, or a
@@ -2352,7 +2363,7 @@
       </description>
     </release>
     <release version="0.1.17" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Phase 14 — saved Perspectives. Save the current search bar
            query as a named view from the primary menu, and it lands
            in a dedicated Perspectives section in the Builder sidebar.
@@ -2364,7 +2375,7 @@
       </description>
     </release>
     <release version="0.1.16" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Phase 13 — Review queue. Builder Mode's GTD discipline:
            projects with a configured review interval surface in
            the Review sidebar entry when their last review is older
@@ -2375,7 +2386,7 @@
       </description>
     </release>
     <release version="0.1.15" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Fix: fast double-clicks now reliably trigger inline title
            edit. GtkListView's internal click gesture was claiming
            the event sequence on fast doubles to fire its own
@@ -2388,7 +2399,7 @@
       </description>
     </release>
     <release version="0.1.14" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Fix: double-click → inline title edit was firing the
            edit but the editor was closing before users saw it.
            Cause: the click event was still propagating when our
@@ -2401,7 +2412,7 @@
       </description>
     </release>
     <release version="0.1.13" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Double-click hardening: 700 ms time window widened to
            800 ms, plus the gesture now bails out when the row is
            already in edit mode. Stops fast double-clicks from
@@ -2410,7 +2421,7 @@
       </description>
     </release>
     <release version="0.1.12" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Fix: double-clicking a task row now reliably enters
            inline title edit. The previous detection used GTK's
            built-in n_press counter which only matches clicks
@@ -2422,7 +2433,7 @@
       </description>
     </release>
     <release version="0.1.11" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Diagnostic build for the double-click-not-firing report.
            The per-row activate gesture moved from Bubble to
            Capture propagation phase so it fires before the parent
@@ -2433,7 +2444,7 @@
       </description>
     </release>
     <release version="0.1.10" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Double-click a task row now enters inline title edit
            (same surface as F2). Single click still selects and
            holds focus. The Inspector dialog stays accessible via
@@ -2442,7 +2453,7 @@
       </description>
     </release>
     <release version="0.1.9" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Fix: double-clicking a task in Simple Mode now reliably
            opens the modal Inspector dialog. open_inspector_for was
            still reading the GSettings mode string directly, which
@@ -2456,7 +2467,7 @@
       </description>
     </release>
     <release version="0.1.8" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>The bulk-action toolbar above the task list now reveals
            only when 2 or more rows are selected. Single-row
            selection had the row checkbox + Delete key + Ctrl+I
@@ -2467,7 +2478,7 @@
       </description>
     </release>
     <release version="0.1.7" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Fix: switching to Builder Mode via the menu now reliably
            shows the side pane on the same frame as the click. The
            window's GSettings change observer wasn't firing on the
@@ -2480,7 +2491,7 @@
       </description>
     </release>
     <release version="0.1.6" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Fix: the Inspector side pane now reliably populates when
            you select a task in Builder Mode. The v0.1.5 mode-gate
            in the selection-changed handler was reading the GSettings
@@ -2493,7 +2504,7 @@
       </description>
     </release>
     <release version="0.1.5" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Fix: the Inspector side pane now reliably hides when
            switching from Builder Mode back to Simple. The
            OverlaySplitView's show-sidebar property alone wasn't
@@ -2504,7 +2515,7 @@
       </description>
     </release>
     <release version="0.1.4" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Fix: Ctrl+I, double-click, and right-click → Edit Details
            now consistently open the editor in Builder Mode by
            routing the targeted task into the side pane and grabbing
@@ -2517,7 +2528,7 @@
       </description>
     </release>
     <release version="0.1.3" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Phase 12 — Forecast view. Builder Mode's calendar-axis
            layout: a scrollable column of day cards over the next 30
            days, each showing scheduled / deadlined / defer-ending
@@ -2528,7 +2539,7 @@
       </description>
     </release>
     <release version="0.1.2" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Phase 11 — defer dates and sequential project rendering.
            The Inspector (modal + side pane) gains a working
            "Defer until" date picker; tasks deferred to a future
@@ -2543,7 +2554,7 @@
       </description>
     </release>
     <release version="0.1.1" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Phase 10 — Builder Mode UI shell. The mode switch becomes
            real: the primary menu Mode → Builder toggle now reveals
            an Inspector side pane on the right (auto-saving as you
@@ -2556,7 +2567,7 @@
       </description>
     </release>
     <release version="0.1.0" date="2026-05-07" type="stable">
-      <description>
+      <description translate="no">
         <p>First public release. Simple Mode is feature-complete:</p>
         <ul>
           <li>Inbox · Today · Upcoming · Anytime · Someday · Logbook</li>
@@ -2582,7 +2593,7 @@
       </description>
     </release>
     <release version="0.0.38" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>Today filter widens to include upcoming-deadline heads-up.
            Spec §4.2 picks up a `today + N` deadline window (default
            7 days), so a task with a deadline approaching surfaces in
@@ -2592,7 +2603,7 @@
       </description>
     </release>
     <release version="0.0.37" date="2026-05-07">
-      <description>
+      <description translate="no">
         <p>UI bugsweep before v0.1.0. Inspector + tag editor switch from
            free-standing windows to in-window AdwDialogs (the v0.0.36 form
            rendered as a transparent overlay because the parent window
@@ -2606,49 +2617,49 @@
       </description>
     </release>
     <release version="0.0.23" date="2026-05-06">
-      <description>
+      <description translate="no">
         <p>Phase 8a — typography polish + completion fade. Inter cv11/ss01 on
            UI labels, tabular figures audit, surface-by-surface size/weight
            pass, opacity fade for completed task rows.</p>
       </description>
     </release>
     <release version="0.0.22" date="2026-05-06">
-      <description>
+      <description translate="no">
         <p>Phase 7f — full keyboard map. Ctrl+Z invokes the active undo
            toast; F2 starts inline editing on the focused task row.</p>
       </description>
     </release>
     <release version="0.0.21" date="2026-05-06">
-      <description>
+      <description translate="no">
         <p>Phase 7e — find-as-you-type sidebar. GtkSearchEntry above the row
            list filters areas, projects, and tags; Ctrl+L focuses it.</p>
       </description>
     </release>
     <release version="0.0.20" date="2026-05-06">
-      <description>
+      <description translate="no">
         <p>Phase 7d — search filter expressions. tag:, is:, due: clauses mix
            with freeform text in the search bar.</p>
       </description>
     </release>
     <release version="0.0.19" date="2026-05-06">
-      <description>
+      <description translate="no">
         <p>Phase 7c — multi-select with Ctrl+Click / Shift+Click / Ctrl+A,
            bulk Complete and Delete actions.</p>
       </description>
     </release>
     <release version="0.0.18" date="2026-05-06">
-      <description>
+      <description translate="no">
         <p>Phase 7b — undo for toggle-complete and delete-task via 6 s
            AdwToast.</p>
       </description>
     </release>
     <release version="0.0.17" date="2026-05-06">
-      <description>
+      <description translate="no">
         <p>Phase 7a — FTS5-backed search bar (Ctrl+F).</p>
       </description>
     </release>
     <release version="0.0.0" date="2026-05-04">
-      <description>
+      <description translate="no">
         <p>Pre-implementation — the contract, public framing, and metadata
            land before any code. Phases 0 through 6 wire up the workspace,
            data layer, UI shell, and Simple Mode core (Inbox/Today, Areas,

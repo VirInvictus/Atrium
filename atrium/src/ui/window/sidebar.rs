@@ -2,6 +2,8 @@
 //! `AtriumWindow`: primary menu, sidebar build, context menus, count badges.
 //! Extracted from window/mod.rs in v0.22.0 split (Pass 3).
 
+use crate::i18n::gettext;
+
 use super::*;
 
 impl AtriumWindow {
@@ -17,9 +19,12 @@ impl AtriumWindow {
     /// list was selected before the right-click.
     pub(super) fn install_project_context_menu(&self, row: &gtk::ListBoxRow, project_id: i64) {
         let menu = gio::Menu::new();
-        menu.append(Some("Rename"), Some("win.rename-active"));
-        menu.append(Some("Archive"), Some("win.archive-active-project"));
-        menu.append(Some("Delete"), Some("win.delete-active"));
+        menu.append(Some(&gettext("Rename")), Some("win.rename-active"));
+        menu.append(
+            Some(&gettext("Archive")),
+            Some("win.archive-active-project"),
+        );
+        menu.append(Some(&gettext("Delete")), Some("win.delete-active"));
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
         popover.set_has_arrow(false);
         popover.set_parent(row);
@@ -47,8 +52,8 @@ impl AtriumWindow {
     /// Right-click context menu on a tag row — Rename / Delete.
     pub(super) fn install_tag_context_menu(&self, row: &gtk::ListBoxRow, tag_id: i64) {
         let menu = gio::Menu::new();
-        menu.append(Some("Rename"), Some("win.rename-active"));
-        menu.append(Some("Delete"), Some("win.delete-active"));
+        menu.append(Some(&gettext("Rename")), Some("win.rename-active"));
+        menu.append(Some(&gettext("Delete")), Some("win.delete-active"));
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
         popover.set_has_arrow(false);
         popover.set_parent(row);
@@ -76,8 +81,8 @@ impl AtriumWindow {
     /// Same idea for areas — Rename / Delete only (areas don't archive).
     pub(super) fn install_area_context_menu(&self, row: &gtk::ListBoxRow, area_id: i64) {
         let menu = gio::Menu::new();
-        menu.append(Some("Rename"), Some("win.rename-active"));
-        menu.append(Some("Delete"), Some("win.delete-active"));
+        menu.append(Some(&gettext("Rename")), Some("win.rename-active"));
+        menu.append(Some(&gettext("Delete")), Some("win.delete-active"));
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
         popover.set_has_arrow(false);
         popover.set_parent(row);
@@ -111,7 +116,7 @@ impl AtriumWindow {
     /// primary action.
     pub(super) fn build_perspectives_section_header(&self) -> gtk::ListBoxRow {
         let label = gtk::Label::builder()
-            .label("Perspectives")
+            .label(gettext("Perspectives"))
             .halign(gtk::Align::Start)
             .hexpand(true)
             .build();
@@ -121,11 +126,13 @@ impl AtriumWindow {
 
         let add_button = gtk::Button::builder()
             .icon_name("list-add-symbolic")
-            .tooltip_text("New Perspective")
+            .tooltip_text(gettext("New Perspective"))
             .css_classes(["flat", "circular"])
             .valign(gtk::Align::Center)
             .build();
-        add_button.update_property(&[gtk::accessible::Property::Label("New Perspective")]);
+        add_button.update_property(&[gtk::accessible::Property::Label(&gettext(
+            "New Perspective",
+        ))]);
         let win_weak = self.downgrade();
         add_button.connect_clicked(move |_| {
             let Some(win) = win_weak.upgrade() else {
@@ -192,8 +199,8 @@ impl AtriumWindow {
         perspective_id: i64,
     ) {
         let menu = gio::Menu::new();
-        menu.append(Some("Edit\u{2026}"), Some("win.edit-perspective"));
-        menu.append(Some("Delete"), Some("win.delete-active"));
+        menu.append(Some(&gettext("Edit\u{2026}")), Some("win.edit-perspective"));
+        menu.append(Some(&gettext("Delete")), Some("win.delete-active"));
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
         popover.set_has_arrow(false);
         popover.set_parent(row);
@@ -458,7 +465,7 @@ impl AtriumWindow {
         let builder = self.imp().current_mode_is_builder.get();
         let mut new_logbook_badge: Option<gtk::Label> = None;
         for (active, label) in top_tier_extras(builder) {
-            let (row, badge) = sidebar_row(icon_for(&active), label, 8);
+            let (row, badge) = sidebar_row(icon_for(&active), &label, 8);
             if let Some(class) = canonical_accent_class(&active) {
                 row.add_css_class(class);
             }
@@ -549,7 +556,7 @@ impl AtriumWindow {
         let mut project_badges: HashMap<i64, gtk::Label> = HashMap::new();
         let mut area_badges: HashMap<i64, gtk::Label> = HashMap::new();
         if !areas.is_empty() {
-            list_box.append(&build_section_header("Areas"));
+            list_box.append(&build_section_header(&gettext("Areas")));
             targets.push(None);
             titles.push(None);
             for area in &areas {
@@ -577,7 +584,7 @@ impl AtriumWindow {
         if let Some(unfiled) = by_area.get(&None)
             && !unfiled.is_empty()
         {
-            list_box.append(&build_section_header("Unfiled"));
+            list_box.append(&build_section_header(&gettext("Unfiled")));
             targets.push(None);
             titles.push(None);
             for project in unfiled {
@@ -601,7 +608,7 @@ impl AtriumWindow {
         let mut tag_colors: HashMap<i64, Option<String>> = HashMap::new();
         let mut tag_badges: HashMap<i64, gtk::Label> = HashMap::new();
         if !tags.is_empty() {
-            list_box.append(&build_section_header("Tags"));
+            list_box.append(&build_section_header(&gettext("Tags")));
             targets.push(None);
             titles.push(None);
             for tag in &tags {

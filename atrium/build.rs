@@ -50,6 +50,16 @@ fn main() {
         workspace_data.display()
     );
 
+    // Localedir: meson exports ATRIUM_LOCALEDIR (= $prefix/$localedir)
+    // into the cargo env; plain `cargo build` falls back to the system
+    // location (harmless — no atrium.mo there means msgid fallback).
+    // Read here and re-emit so option_env! in i18n.rs sees a value
+    // regardless of how the ambient env reaches rustc.
+    let localedir =
+        std::env::var("ATRIUM_LOCALEDIR").unwrap_or_else(|_| "/usr/share/locale".into());
+    println!("cargo:rustc-env=ATRIUM_LOCALEDIR={localedir}");
+    println!("cargo:rerun-if-env-changed=ATRIUM_LOCALEDIR");
+
     println!("cargo:rerun-if-changed={}", schema_xml.display());
     println!(
         "cargo:rerun-if-changed={}",

@@ -19,6 +19,8 @@ use gtk::glib;
 use gtk::{gdk, pango};
 use tracing::error;
 
+use crate::i18n::{gettext, gettext_f, ngettext_f};
+
 /// How many days the Forecast surface shows from today inclusive.
 /// Spec §4.2 documents the 30-day window; OmniFocus uses ~14 days
 /// by default but our spec settled on 30. Tunable later via
@@ -37,11 +39,11 @@ pub enum Reason {
 }
 
 impl Reason {
-    fn label(self) -> &'static str {
+    fn label(self) -> String {
         match self {
-            Self::Scheduled => "Scheduled",
-            Self::Deadline => "Deadline",
-            Self::DeferEnds => "Defer ends",
+            Self::Scheduled => gettext("Scheduled"),
+            Self::Deadline => gettext("Deadline"),
+            Self::DeferEnds => gettext("Defer ends"),
         }
     }
 
@@ -181,7 +183,7 @@ where
         .build();
 
     let title = gtk::Label::builder()
-        .label("Overdue")
+        .label(gettext("Overdue"))
         .halign(gtk::Align::Start)
         .hexpand(true)
         .build();
@@ -200,7 +202,7 @@ where
 
     if tasks.is_empty() {
         let caught_up = gtk::Label::builder()
-            .label("Caught up.")
+            .label(gettext("Caught up."))
             .halign(gtk::Align::Start)
             .margin_start(12)
             .margin_end(12)
@@ -416,10 +418,18 @@ where
 
 fn format_day_title(date: NaiveDate, today: NaiveDate) -> String {
     if date == today {
-        return format!("Today · {}", date.format("%a %b %-d"));
+        // Translators: {date} is a formatted date like "Fri May 15".
+        return gettext_f(
+            "Today · {date}",
+            &[("date", &date.format("%a %b %-d").to_string())],
+        );
     }
     if date == today + chrono::Duration::days(1) {
-        return format!("Tomorrow · {}", date.format("%a %b %-d"));
+        // Translators: {date} is a formatted date like "Sat May 16".
+        return gettext_f(
+            "Tomorrow · {date}",
+            &[("date", &date.format("%a %b %-d").to_string())],
+        );
     }
     // Within the same year: drop the year for less noise. Across
     // a year boundary: include it.
@@ -431,11 +441,13 @@ fn format_day_title(date: NaiveDate, today: NaiveDate) -> String {
 }
 
 fn count_text(n: usize) -> String {
-    match n {
-        0 => "0 overdue".to_string(),
-        1 => "1 overdue".to_string(),
-        n => format!("{n} overdue"),
-    }
+    // Translators: badge on the Overdue block; {n} is a task count.
+    ngettext_f(
+        "{n} overdue",
+        "{n} overdue",
+        n as u32,
+        &[("n", &n.to_string())],
+    )
 }
 
 #[cfg(test)]

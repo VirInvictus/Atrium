@@ -42,6 +42,8 @@ use gtk::prelude::*;
 use tokio::sync::Notify;
 use tracing::{trace, warn};
 
+use crate::i18n::gettext;
+
 /// One hour. The sleep cap (defensive against clock jumps / suspend)
 /// and the idle re-check interval when the master toggle is off.
 const MAX_SLEEP_SECS: u64 = 3600;
@@ -166,7 +168,8 @@ async fn run(pool: ReadPool, worker: WorkerHandle, app: gio::Application, notify
 }
 
 fn fire_notification(app: &gio::Application, task_id: i64, title: &str) {
-    let notification = gio::Notification::new("Reminder");
+    // Translators: heading of a task-reminder system notification.
+    let notification = gio::Notification::new(&gettext("Reminder"));
     notification.set_body(Some(title));
     notification.set_default_action_and_target_value("app.show-task", Some(&task_id.to_variant()));
     // Use the task id as the notification id so a new reminder for the

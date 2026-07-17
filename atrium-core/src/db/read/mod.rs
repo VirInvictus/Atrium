@@ -372,7 +372,7 @@ pub fn list_area(conn: &Connection, area_id: i64) -> Result<Vec<Task>, DbError> 
          JOIN project p ON t.project_id = p.id \
          WHERE p.area_id = ?1 AND t.completed_at IS NULL \
          ORDER BY p.position, t.position",
-        &*TASK_COLUMNS_T
+        *TASK_COLUMNS_T
     );
     let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(params![area_id], task_from_row)?;
@@ -683,7 +683,7 @@ pub fn list_tasks_with_tag(conn: &Connection, tag_id: i64) -> Result<Vec<Task>, 
          JOIN task_tag tt ON tt.task_id = t.id \
          WHERE tt.tag_id = ?1 AND t.completed_at IS NULL \
          ORDER BY t.position",
-        &*TASK_COLUMNS_T
+        *TASK_COLUMNS_T
     );
     let mut stmt = conn.prepare_cached(&sql)?;
     let rows = stmt.query_map(params![tag_id], task_from_row)?;

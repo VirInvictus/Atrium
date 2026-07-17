@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<schemalist>
+<schemalist gettext-domain="atrium">
   <enum id="io.github.virinvictus.atrium.Mode">
     <value nick="simple" value="0"/>
     <value nick="builder" value="1"/>

@@ -19,6 +19,7 @@ use gtk::glib;
 use gtk::prelude::*;
 use gtk::{gdk, gio, pango};
 
+use crate::i18n::gettext;
 use crate::ui::task_object::AtriumTask;
 
 /// Per-task tag-name lookup used by `replace_store_with_tags` and
@@ -138,26 +139,27 @@ pub enum ActiveList {
 }
 
 impl ActiveList {
-    /// Static label for the canonical lists. Project/Area return a
-    /// generic placeholder; the window resolves the real title from
-    /// its cache because that requires DB-side data.
-    pub fn canonical_title(&self) -> &'static str {
+    /// Label for the canonical lists, from the translation catalogue.
+    /// Project/Area return a generic placeholder; the window resolves
+    /// the real title from its cache because that requires DB-side
+    /// data.
+    pub fn canonical_title(&self) -> String {
         match self {
-            Self::Inbox => "Inbox",
-            Self::Today => "Today",
-            Self::Upcoming => "Upcoming",
-            Self::Anytime => "Anytime",
-            Self::Someday => "Someday",
-            Self::Logbook => "Logbook",
-            Self::Project(_) => "Project",
-            Self::Area(_) => "Area",
-            Self::Tag(_) => "Tag",
-            Self::SearchResults(_) => "Search",
-            Self::Forecast => "Forecast",
-            Self::Review => "Review",
-            Self::Agenda => "Agenda",
-            Self::Calendar => "Calendar",
-            Self::Perspective(_) => "Perspective",
+            Self::Inbox => gettext("Inbox"),
+            Self::Today => gettext("Today"),
+            Self::Upcoming => gettext("Upcoming"),
+            Self::Anytime => gettext("Anytime"),
+            Self::Someday => gettext("Someday"),
+            Self::Logbook => gettext("Logbook"),
+            Self::Project(_) => gettext("Project"),
+            Self::Area(_) => gettext("Area"),
+            Self::Tag(_) => gettext("Tag"),
+            Self::SearchResults(_) => gettext("Search"),
+            Self::Forecast => gettext("Forecast"),
+            Self::Review => gettext("Review"),
+            Self::Agenda => gettext("Agenda"),
+            Self::Calendar => gettext("Calendar"),
+            Self::Perspective(_) => gettext("Perspective"),
         }
     }
 
@@ -324,14 +326,14 @@ where
 
         let check = gtk::CheckButton::builder()
             .css_classes(["selection-mode"])
-            .tooltip_text("Toggle complete (Space)")
+            .tooltip_text(gettext("Toggle complete (Space)"))
             .build();
         // Accessibility (Phase 8f): screen readers report the
         // CheckButton as a "checkbox", but they need a name to
         // announce. Updating the `LABEL` accessible property gives
         // them one without showing a visible label next to the
         // circle.
-        check.update_property(&[gtk::accessible::Property::Label("Task complete")]);
+        check.update_property(&[gtk::accessible::Property::Label(&gettext("Task complete"))]);
 
         // Title is a `GtkStack` with two pages: a non-editable
         // display Label, and an Entry for inline rename. v0.0.36
@@ -356,10 +358,10 @@ where
             .ellipsize(pango::EllipsizeMode::End)
             .build();
         title_label.add_css_class("atrium-task-title");
-        title_label.update_property(&[gtk::accessible::Property::Label("Task title")]);
+        title_label.update_property(&[gtk::accessible::Property::Label(&gettext("Task title"))]);
         let title_entry = gtk::Entry::builder().hexpand(true).build();
         title_entry.add_css_class("atrium-task-title");
-        title_entry.update_property(&[gtk::accessible::Property::Label("Task title")]);
+        title_entry.update_property(&[gtk::accessible::Property::Label(&gettext("Task title"))]);
         title_stack.add_named(&title_label, Some("display"));
         title_stack.add_named(&title_entry, Some("edit"));
         title_stack.set_visible_child_name("display");
@@ -388,7 +390,7 @@ where
         // and the bind path mirrors it to this pill's visibility plus
         // the row's `.blocked` class.
         let blocked_pill = gtk::Label::builder()
-            .label("Blocked")
+            .label(gettext("Blocked"))
             .visible(false)
             .build();
         blocked_pill.add_css_class("atrium-task-blocked");
@@ -437,11 +439,12 @@ where
         // `repeat_rule` is set. Lives at the tail of the row so the
         // existing next_sibling chain in `bind` doesn't shift.
         let repeat_icon = gtk::Image::from_icon_name("view-refresh-symbolic");
-        repeat_icon.set_tooltip_text(Some("Repeating task"));
+        repeat_icon.set_tooltip_text(Some(&gettext("Repeating task")));
         // Accessible name (v0.38.x audit): a tooltip is not an
         // accessible name, so the "repeating" state would otherwise be
         // invisible to assistive tech.
-        repeat_icon.update_property(&[gtk::accessible::Property::Label("Repeating task")]);
+        repeat_icon
+            .update_property(&[gtk::accessible::Property::Label(&gettext("Repeating task"))]);
         repeat_icon.set_visible(false);
         repeat_icon.add_css_class("atrium-task-repeating");
         repeat_icon.add_css_class("dim-label");
@@ -874,11 +877,11 @@ where
         // row, so it must be unparented on unbind to avoid the
         // GtkListBoxRow finalizer warning that bit us in Phase 8h.
         let menu_model = gio::Menu::new();
-        let edit_details_item = gio::MenuItem::new(Some("Edit Details…"), None);
+        let edit_details_item = gio::MenuItem::new(Some(&gettext("Edit Details…")), None);
         edit_details_item
             .set_action_and_target_value(Some("win.edit-details-for"), Some(&task_id.to_variant()));
         menu_model.append_item(&edit_details_item);
-        let edit_tags_item = gio::MenuItem::new(Some("Edit Tags…"), None);
+        let edit_tags_item = gio::MenuItem::new(Some(&gettext("Edit Tags…")), None);
         edit_tags_item
             .set_action_and_target_value(Some("win.edit-tags-for"), Some(&task_id.to_variant()));
         menu_model.append_item(&edit_tags_item);
@@ -887,22 +890,24 @@ where
         // than a full editor round-trip. Each item fires `win.reschedule`
         // with a `(task_id, keyword)` target.
         let schedule_menu = gio::Menu::new();
+        // The keys are win.reschedule action tokens, not user-visible
+        // text — only the labels translate.
         for (label, key) in [
-            ("Today", "today"),
-            ("Tomorrow", "tomorrow"),
-            ("This Weekend", "weekend"),
-            ("Next Week", "nextweek"),
-            ("Someday", "someday"),
-            ("Clear Schedule", "clear"),
+            (gettext("Today"), "today"),
+            (gettext("Tomorrow"), "tomorrow"),
+            (gettext("This Weekend"), "weekend"),
+            (gettext("Next Week"), "nextweek"),
+            (gettext("Someday"), "someday"),
+            (gettext("Clear Schedule"), "clear"),
         ] {
-            let item = gio::MenuItem::new(Some(label), None);
+            let item = gio::MenuItem::new(Some(&label), None);
             item.set_action_and_target_value(
                 Some("win.reschedule"),
                 Some(&(task_id, key).to_variant()),
             );
             schedule_menu.append_item(&item);
         }
-        menu_model.append_submenu(Some("Schedule"), &schedule_menu);
+        menu_model.append_submenu(Some(&gettext("Schedule")), &schedule_menu);
         let popover = gtk::PopoverMenu::from_model(Some(&menu_model));
         popover.set_has_arrow(false);
         popover.set_parent(&row);

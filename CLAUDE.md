@@ -4,11 +4,11 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.46.2** (July 2026). **Schema version: 19** (migrations `0001` → `0019`). **~1023 unit tests across the workspace, all green.**
+**Current release: v0.47.0** (July 2026). **Schema version: 19** (migrations `0001` → `0019`). **1027 unit tests across the workspace, all green.**
 
 Phases 0 through 19.5 are complete: the full OmniFocus-superset data layer, dual Simple/Builder modes, Quick Entry, the Org vault two-way mirror, search, recurrence, subtasks, dependencies, templates, backup/restore, per-area review schedules, bulk editing, reminders with launch catch-up, and the non-Org importers (Todoist, Taskwarrior, todo.txt, VTODO, extracted into `atrium-import`). The kanban surface has matured through v0.46.0 (richer cards, per-column WIP limits, add-in-place, persisted intra-column order), preserving the projection column model (columns stay a projection of a tag or Org status; no first-class buckets, so boards still round-trip to Org). v0.46.1 / v0.46.2 were test-only fixes for a flaky CI: the `atrium-org` vault-watcher integration tests now poll for the expected end-state instead of waiting a fixed interval (v0.46.1), and are serialized via a file-level `tokio::sync::Mutex` so the harness can't run them in parallel and starve each other on a small runner (v0.46.2).
 
-**Phase 20 (the 1.0 endgame) is in flight:** it ships one minor per workstream (accessibility, perf, mdbook docs site, then localisation and Flathub/AppStream readiness) before tagging `v1.0.0`. Localisation and Flathub readiness are deferred to a session in Brandon's environment (their meson/flatpak verification needs it).
+**Phase 20 (the 1.0 endgame) is in flight:** it ships one minor per workstream (accessibility, perf, mdbook docs site, then localisation and Flathub/AppStream readiness) before tagging `v1.0.0`. Localisation scaffolding shipped at v0.47.0 (gettext text domain `atrium`, `po/` + meson `i18n.gettext`, a full marking sweep of the GTK binary through `atrium/src/i18n.rs`, `en` as the first catalogue; spec §3.6). Two conventions started there: every new metainfo `<release><description>` carries `translate="no"`, and new `.rs` files with user-facing strings join `po/POTFILES`. Flathub/AppStream readiness is the remaining deferred workstream (needs the flatpak-builder environment).
 
 **The per-release history lives in `patchnotes.md` (newest at top); do not restate it here.** When precision on a specific version matters, read that file, `roadmap.md`, and `VERSION`.
 

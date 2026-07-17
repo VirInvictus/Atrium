@@ -5,6 +5,8 @@
 use adw::prelude::*;
 use gtk::glib;
 
+use crate::i18n::gettext;
+
 const REPO_URL: &str = "https://github.com/VirInvictus/Atrium";
 const ISSUE_URL: &str = "https://github.com/VirInvictus/Atrium/issues";
 const COPYRIGHT: &str = "© 2026 Brandon LaRocque";
@@ -19,7 +21,10 @@ pub fn show(parent: &impl IsA<gtk::Widget>) {
         .issue_url(ISSUE_URL)
         .license_type(gtk::License::MitX11)
         .copyright(COPYRIGHT)
-        .comments("A native GNOME task manager — Things 3 clarity, OmniFocus depth, mode-switched.")
+        // Translators: "Things 3" and "OmniFocus" are product names — keep them as-is.
+        .comments(gettext(
+            "A native GNOME task manager — Things 3 clarity, OmniFocus depth, mode-switched.",
+        ))
         .build();
 
     about.set_developers(&["Brandon LaRocque <larocque.brandon@gmail.com>"]);
@@ -28,7 +33,7 @@ pub fn show(parent: &impl IsA<gtk::Widget>) {
     // Acknowledge the upstream influences explicitly — this is a
     // portfolio-piece detail that matters to the project's framing.
     about.add_acknowledgement_section(
-        Some("Built on the shoulders of"),
+        Some(&gettext("Built on the shoulders of")),
         &[
             "Things 3 by Cultured Code",
             "OmniFocus by The Omni Group",
@@ -38,8 +43,11 @@ pub fn show(parent: &impl IsA<gtk::Widget>) {
     );
 
     about.add_legal_section(
-        "Bundled fonts",
-        Some("These typefaces ship with Atrium under SIL OFL 1.1."),
+        &gettext("Bundled fonts"),
+        // Translators: "SIL OFL 1.1" is a license identifier — keep it as-is.
+        Some(&gettext(
+            "These typefaces ship with Atrium under SIL OFL 1.1.",
+        )),
         gtk::License::Custom,
         Some(
             "Inter — © The Inter Project Authors\n\

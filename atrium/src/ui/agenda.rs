@@ -36,6 +36,7 @@ use atrium_core::{ScheduledFor, Task};
 use chrono::{Datelike, Duration, NaiveDate};
 
 use super::task_list::{TagPillMap, format_tag_names};
+use crate::i18n::{gettext, ngettext_f};
 
 /// One band in the agenda's chronological layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -48,13 +49,13 @@ pub enum AgendaSection {
 }
 
 impl AgendaSection {
-    pub fn heading(self) -> &'static str {
+    pub fn heading(self) -> String {
         match self {
-            Self::Overdue => "Overdue",
-            Self::Today => "Today",
-            Self::Tomorrow => "Tomorrow",
-            Self::ThisWeek => "This Week",
-            Self::NextWeek => "Next Week",
+            Self::Overdue => gettext("Overdue"),
+            Self::Today => gettext("Today"),
+            Self::Tomorrow => gettext("Tomorrow"),
+            Self::ThisWeek => gettext("This Week"),
+            Self::NextWeek => gettext("Next Week"),
         }
     }
 
@@ -162,8 +163,8 @@ pub fn build_page<F: Fn(i64) + 'static + Clone>(
     if groups.is_empty() {
         return adw::StatusPage::builder()
             .icon_name("checkmark-symbolic")
-            .title("Nothing on the agenda")
-            .description("No overdue, today, or near-term scheduled tasks.")
+            .title(gettext("Nothing on the agenda"))
+            .description(gettext("No overdue, today, or near-term scheduled tasks."))
             .build()
             .upcast();
     }
@@ -231,10 +232,11 @@ fn build_section<F: Fn(i64) + 'static + Clone>(
     header.append(&title);
 
     let count = gtk::Label::builder()
-        .label(format!(
-            "{} task{}",
-            rows.len(),
-            if rows.len() == 1 { "" } else { "s" }
+        .label(ngettext_f(
+            "{n} task",
+            "{n} tasks",
+            rows.len() as u32,
+            &[("n", &rows.len().to_string())],
         ))
         .halign(gtk::Align::End)
         .build();

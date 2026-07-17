@@ -10,6 +10,8 @@
 //! handlers recompute that flag so the page appears and disappears in
 //! step with the data.
 
+use crate::i18n::gettext;
+
 use super::*;
 
 impl AtriumWindow {
@@ -18,8 +20,8 @@ impl AtriumWindow {
     pub(super) fn setup_onboarding_page(&self) {
         let status = adw::StatusPage::builder()
             .icon_name("io.github.virinvictus.atrium")
-            .title("Welcome to Atrium")
-            .description("Your tasks live here. Start one of three ways:")
+            .title(gettext("Welcome to Atrium"))
+            .description(gettext("Your tasks live here. Start one of three ways:"))
             .build();
 
         let buttons = gtk::Box::builder()
@@ -28,14 +30,14 @@ impl AtriumWindow {
             .halign(gtk::Align::Center)
             .build();
 
-        let create_project = pill_button("Create your first project");
+        let create_project = pill_button(&gettext("Create your first project"));
         create_project.connect_clicked(clone!(
             #[weak(rename_to = win)]
             self,
             move |_| win.prompt_create_project()
         ));
 
-        let capture = pill_button("Capture a task");
+        let capture = pill_button(&gettext("Capture a task"));
         capture.connect_clicked(clone!(
             #[weak(rename_to = win)]
             self,
@@ -46,7 +48,7 @@ impl AtriumWindow {
             }
         ));
 
-        let vault = pill_button("Set up an Org vault");
+        let vault = pill_button(&gettext("Set up an Org vault"));
         vault.connect_clicked(clone!(
             #[weak(rename_to = win)]
             self,

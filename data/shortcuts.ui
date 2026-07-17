@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Keyboard-shortcuts dialog layout. Compiled into the binary via
+     include_str! in atrium/src/ui/shortcuts.rs (no install rule); it
+     lives here rather than inline so xgettext can extract the titles.
+     The source-of-truth for what binds to what is
+     main.rs::install_accels; docs/keymap.md is the human-readable
+     cousin and stays manually aligned. -->
+<interface domain="atrium">
+  <object class="GtkShortcutsWindow" id="shortcuts_window">
+    <property name="modal">true</property>
+    <child>
+      <object class="GtkShortcutsSection">
+        <property name="section-name">main</property>
+        <property name="max-height">10</property>
+
+        <child>
+          <object class="GtkShortcutsGroup">
+            <property name="title" translatable="yes">General</property>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">New task</property>
+                <property name="accelerator">&lt;Primary&gt;n</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Quick Entry</property>
+                <property name="accelerator">&lt;Primary&gt;&lt;Alt&gt;space</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <!-- Translators: keep the search-grammar tokens (tag:NAME,
+                     is:open|done|overdue, due:today) literal. -->
+                <property name="title" translatable="yes">Search · text · tag:NAME · is:open|done|overdue · due:today</property>
+                <property name="accelerator">&lt;Primary&gt;f</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Filter sidebar (find-as-you-type)</property>
+                <property name="accelerator">&lt;Primary&gt;l</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Undo last toggle / delete</property>
+                <property name="accelerator">&lt;Primary&gt;z</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Show keyboard shortcuts</property>
+                <property name="accelerator">&lt;Primary&gt;question F1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Quit</property>
+                <property name="accelerator">&lt;Primary&gt;q</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkShortcutsGroup">
+            <property name="title" translatable="yes">Navigation</property>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Inbox</property>
+                <property name="accelerator">&lt;Primary&gt;1</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Today</property>
+                <property name="accelerator">&lt;Primary&gt;2</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Upcoming</property>
+                <property name="accelerator">&lt;Primary&gt;3</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Anytime</property>
+                <property name="accelerator">&lt;Primary&gt;4</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Someday</property>
+                <property name="accelerator">&lt;Primary&gt;5</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Logbook</property>
+                <property name="accelerator">&lt;Primary&gt;6</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkShortcutsGroup">
+            <property name="title" translatable="yes">List actions</property>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Toggle completion of focused task</property>
+                <property name="accelerator">space</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Delete focused task</property>
+                <property name="accelerator">Delete</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Select all in active list</property>
+                <property name="accelerator">&lt;Primary&gt;a</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Clear selection</property>
+                <property name="accelerator">Escape</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Edit tags for focused task</property>
+                <property name="accelerator">&lt;Primary&gt;t</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Open Inspector (full editor) — also double-click a row</property>
+                <property name="accelerator">&lt;Primary&gt;i</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Move focused task up / down (position-ordered lists)</property>
+                <property name="accelerator">&lt;Alt&gt;Up &lt;Alt&gt;Down</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkShortcutsGroup">
+            <property name="title" translatable="yes">Library</property>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">New Project</property>
+                <property name="accelerator">&lt;Primary&gt;&lt;Shift&gt;n</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">New Area</property>
+                <property name="accelerator">&lt;Primary&gt;&lt;Shift&gt;a</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Edit focused row / rename active project / area</property>
+                <property name="accelerator">F2</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Delete active project / area</property>
+                <property name="accelerator">&lt;Primary&gt;&lt;Shift&gt;Delete</property>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>

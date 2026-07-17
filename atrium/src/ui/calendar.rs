@@ -25,6 +25,8 @@ use gtk::gdk;
 use gtk::glib;
 use tracing::error;
 
+use crate::i18n::{gettext, gettext_f, ngettext_f};
+
 /// One day in the rendered month grid. `tasks` holds open tasks
 /// whose `scheduled_for` is this date (deadline-only tasks are
 /// surfaced via Forecast; the calendar uses the When-axis only,
@@ -177,25 +179,24 @@ pub fn build_month_grid(viewed: NaiveDate, today: NaiveDate, tasks: &[Task]) -> 
     MonthGrid { year, month, weeks }
 }
 
-/// English month name for header rendering. Locale-aware
-/// formatting will land alongside Phase 20's localisation pass;
-/// for v0.11 we render in English so the layout is predictable
-/// during development.
-pub fn month_name(month: u32) -> &'static str {
-    [
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    ][(month as usize - 1).min(11)]
+/// Month name for header rendering. Month names come from the
+/// translation catalogue (Phase 20 localisation); untranslated
+/// locales fall back to the English msgids.
+pub fn month_name(month: u32) -> String {
+    match (month as usize - 1).min(11) {
+        0 => gettext("January"),
+        1 => gettext("February"),
+        2 => gettext("March"),
+        3 => gettext("April"),
+        4 => gettext("May"),
+        5 => gettext("June"),
+        6 => gettext("July"),
+        7 => gettext("August"),
+        8 => gettext("September"),
+        9 => gettext("October"),
+        10 => gettext("November"),
+        _ => gettext("December"),
+    }
 }
 
 // ── GTK widget rendering ─────────────────────────────────────
@@ -398,19 +399,24 @@ where
 
     let prev_btn = gtk::Button::builder()
         .icon_name("go-previous-symbolic")
-        .tooltip_text("Previous month (Page Up)")
+        .tooltip_text(gettext("Previous month (Page Up)"))
         .build();
-    prev_btn.update_property(&[gtk::accessible::Property::Label("Previous month")]);
+    prev_btn.update_property(&[gtk::accessible::Property::Label(&gettext("Previous month"))]);
     {
         let cb = on_prev.clone();
         prev_btn.connect_clicked(move |_| cb());
     }
     header.append(&prev_btn);
 
+    // Translators: calendar header, e.g. "May 2026"; reorder the
+    // placeholders as the locale requires.
     let title_btn = gtk::MenuButton::builder()
-        .label(format!("{} {}", month_name(month), year))
+        .label(gettext_f(
+            "{month} {year}",
+            &[("month", &month_name(month)), ("year", &year.to_string())],
+        ))
         .css_classes(["flat", "title-2"])
-        .tooltip_text("Pick a month")
+        .tooltip_text(gettext("Pick a month"))
         .build();
     let popover = build_month_picker(year, month, on_pick_month);
     title_btn.set_popover(Some(&popover));
@@ -419,17 +425,17 @@ where
     header.append(&title_btn);
 
     let today_btn = gtk::Button::builder()
-        .label("Today")
-        .tooltip_text("Jump to the current month")
+        .label(gettext("Today"))
+        .tooltip_text(gettext("Jump to the current month"))
         .build();
     today_btn.connect_clicked(move |_| on_today());
     header.append(&today_btn);
 
     let next_btn = gtk::Button::builder()
         .icon_name("go-next-symbolic")
-        .tooltip_text("Next month (Page Down)")
+        .tooltip_text(gettext("Next month (Page Down)"))
         .build();
-    next_btn.update_property(&[gtk::accessible::Property::Label("Next month")]);
+    next_btn.update_property(&[gtk::accessible::Property::Label(&gettext("Next month"))]);
     next_btn.connect_clicked(move |_| on_next());
     header.append(&next_btn);
 
@@ -474,8 +480,10 @@ fn build_month_picker<F: Fn(i32, u32) + 'static>(
     let on_pick = std::rc::Rc::new(on_pick);
     let popover_weak = popover.downgrade();
     for m in 1..=12u32 {
+        // Char-based (not byte) truncation — translated month names
+        // may be multibyte, and a byte slice could panic mid-char.
         let btn = gtk::Button::builder()
-            .label(&month_name(m)[..3])
+            .label(month_name(m).chars().take(3).collect::<String>())
             .css_classes(if m == current_month {
                 vec!["suggested-action"]
             } else {
@@ -505,12 +513,19 @@ fn build_weekday_strip() -> gtk::Widget {
         .column_homogeneous(true)
         .column_spacing(4)
         .build();
-    for (i, name) in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        .iter()
-        .enumerate()
-    {
+    // Translators: abbreviated weekday column headers, Monday first.
+    let names = [
+        gettext("Mon"),
+        gettext("Tue"),
+        gettext("Wed"),
+        gettext("Thu"),
+        gettext("Fri"),
+        gettext("Sat"),
+        gettext("Sun"),
+    ];
+    for (i, name) in names.into_iter().enumerate() {
         let lbl = gtk::Label::builder()
-            .label(*name)
+            .label(name)
             .css_classes(["dim-label", "caption"])
             .halign(gtk::Align::Center)
             .build();
@@ -620,7 +635,7 @@ where
 
     if cell.tasks.is_empty() {
         let empty = gtk::Label::builder()
-            .label("Nothing scheduled")
+            .label(gettext("Nothing scheduled"))
             .css_classes(["dim-label", "caption"])
             .halign(gtk::Align::Start)
             .build();
@@ -752,9 +767,11 @@ where
         // Accessible marker (v0.38.x audit): today is otherwise cued by
         // border colour + a bold day number, which reads identically to
         // any other day for a screen reader. Name it explicitly.
-        day_lbl.update_property(&[gtk::accessible::Property::Label(&format!(
-            "{} (today)",
-            cell.date.day()
+        // Translators: accessible label for the current day's cell;
+        // {day} is the day-of-month number.
+        day_lbl.update_property(&[gtk::accessible::Property::Label(&gettext_f(
+            "{day} (today)",
+            &[("day", &cell.date.day().to_string())],
         ))]);
     }
     header.append(&day_lbl);
@@ -789,8 +806,15 @@ where
 
     if cell.tasks.len() > INLINE_PER_CELL {
         let overflow = cell.tasks.len() - INLINE_PER_CELL;
+        // Translators: overflow label on a crowded calendar day;
+        // {n} is the number of hidden tasks.
         let more_btn = gtk::MenuButton::builder()
-            .label(format!("+{overflow} more"))
+            .label(ngettext_f(
+                "+{n} more",
+                "+{n} more",
+                overflow as u32,
+                &[("n", &overflow.to_string())],
+            ))
             .css_classes(["flat", "caption"])
             .halign(gtk::Align::Start)
             .build();
@@ -885,7 +909,7 @@ where
     body.append(&header);
     if tasks.is_empty() {
         let empty = gtk::Label::builder()
-            .label("Nothing scheduled.")
+            .label(gettext("Nothing scheduled."))
             .css_classes(["dim-label", "caption"])
             .halign(gtk::Align::Start)
             .build();

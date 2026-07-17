@@ -1,0 +1,2454 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the atrium package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: atrium\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-16 19:43-0400\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+#: data/io.github.virinvictus.atrium.desktop.in:2
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:7
+msgid "Atrium"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.desktop.in:3
+msgid "Task Manager"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.desktop.in:4
+msgid "Local-first GTD task manager — Things 3 clarity, OmniFocus depth"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.desktop.in:12
+msgid "todo;tasks;gtd;omnifocus;things;org-mode;productivity;"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:11
+msgid "Application mode"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:12
+msgid ""
+"Simple Mode shows the calm Things-3-style surface; Builder Mode adds the "
+"Inspector pane, Forecast, Review, and Perspectives. Flipping mode is a UI re-"
+"render only — the database is never touched (spec §3.1, \"Mode-as-View\")."
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:22
+msgid "Last window width"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:23
+msgid "Width of the application window in pixels."
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:28
+msgid "Last window height"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:29
+msgid "Height of the application window in pixels."
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:34
+msgid "Whether the window was maximized at last close"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:39
+msgid "Sidebar pane width"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:40
+msgid "Width of the navigation split view's sidebar in pixels."
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:45
+msgid "Global Quick Entry shortcut"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:46
+msgid ""
+"Accelerator that opens the Quick Entry capture modal. Phase 6 binds this; "
+"declared here from Phase 3 so the value persists across versions. GTK "
+"accelerator syntax — e.g. \"<Control>n\"."
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:55
+msgid "Use the high-legibility font (Atkinson Hyperlegible)"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:56
+msgid ""
+"When enabled, swaps the UI font from Inter to Atkinson Hyperlegible — a "
+"typeface designed by the Braille Institute for low-vision readers, with high "
+"inter-letter distinguish- ability. Bundled (SIL OFL 1.1) so the toggle works "
+"with no system fonts required. Phase 8c."
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:67
+msgid "Org-mode vault directory"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:68
+msgid ""
+"Absolute path to a directory holding `.org` files that Atrium projects its "
+"data into (Phase 16, spec §7.3). Empty string means \"no vault configured\" "
+"— Atrium runs DB-only, which is a valid configuration. Convention is `$HOME/"
+"Tasks/`. The Settings → Org Vault → Choose folder UI to manage this lands in "
+"Phase 19.5; the `--vault PATH` CLI flag overrides for this session."
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:81
+msgid "System notifications master switch"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:82
+msgid ""
+"When enabled, Atrium fires `gio::Notification` for time-based reminders "
+"(`task.reminder_at`). When disabled, the reminder service stays running but "
+"suppresses every notification. Phase 19.5 (v0.20.0)."
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:92
+msgid "Theme override"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:93
+msgid ""
+"One of \"auto\" (follow system Adwaita), \"light\", or \"dark\". v0.20.0 — "
+"Phase 19.5 preferences foundation. The Adwaita style manager already auto-"
+"tracks system scheme; this key exists for users who want to pin one "
+"regardless of system setting."
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:104
+msgid "Weekly automatic database backup"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.gschema.xml:105
+msgid ""
+"When enabled, Atrium writes a timestamped database snapshot to "
+"`$XDG_DATA_HOME/atrium/backups/` at launch if the newest existing snapshot "
+"is more than seven days old, keeping the newest ten. Off by default; manual "
+"\"Back up now\" works regardless. v0.32.0 — Phase 19.5."
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:8
+msgid "Local-first GTD task manager with a native GNOME design"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:11
+msgid ""
+"Atrium is a native GNOME task manager that fuses Things 3 clarity with "
+"OmniFocus depth via a mode switch over a shared local-first data store. Pick "
+"Simple Mode for what-am-I-doing-right-now; switch to Builder Mode when you "
+"want full GTD review, deferral, sequential projects, and forecast. Same "
+"data, two surfaces, no migration."
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:18
+msgid ""
+"Storage is one SQLite file at $XDG_DATA_HOME/atrium/atrium.db, written by a "
+"single dedicated worker thread so the UI never blocks on I/O. The schema is "
+"the OmniFocus superset on day one: Simple Mode hides the Builder fields, it "
+"doesn't lack them. An optional Org-mode vault mirrors the database as round-"
+"trippable .org files so your data stays portable to Emacs, Logseq, or a pile "
+"of files in a git repo."
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:26
+msgid "Simple Mode features (v0.1):"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:28
+msgid "Inbox · Today · Upcoming · Anytime · Someday · Logbook"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:29
+msgid "Areas → Projects → Tasks hierarchy with multi-tag"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:30
+msgid "Distinct When (scheduled-for) and Deadline dates"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:31
+msgid "Quick Entry global modal (Ctrl+Alt+Space)"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:32
+msgid "FTS5-backed search with filter expressions (tag:, is:, due:)"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:33
+msgid "Multi-select bulk operations with undo (Ctrl+Z)"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:34
+msgid "Find-as-you-type sidebar filter (Ctrl+L)"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:35
+msgid "Keyboard-first: every common op bindable, mouse optional"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:36
+msgid "Drag-reorder rows; drag tasks onto projects to file them"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:37
+msgid "Local-first: no network, no telemetry, no accounts"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:49
+msgid "Brandon LaRocque"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:62
+msgid "todo"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:63
+msgid "tasks"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:64
+msgid "gtd"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:65
+msgid "omnifocus"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:66
+msgid "things"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:67
+msgid "org-mode"
+msgstr ""
+
+#: data/io.github.virinvictus.atrium.metainfo.xml.in:68
+msgid "productivity"
+msgstr ""
+
+#: data/shortcuts.ui:18 atrium/src/ui/preferences.rs:54
+msgid "General"
+msgstr ""
+
+#: data/shortcuts.ui:21
+msgid "New task"
+msgstr ""
+
+#: data/shortcuts.ui:27 atrium/src/quickentry/modal.rs:58
+#: atrium/src/ui/preferences.rs:201 atrium/src/ui/window/widgets.rs:17
+msgid "Quick Entry"
+msgstr ""
+
+#. Translators: keep the search-grammar tokens (tag:NAME,
+#. is:open|done|overdue, due:today) literal.
+#: data/shortcuts.ui:35
+msgid "Search · text · tag:NAME · is:open|done|overdue · due:today"
+msgstr ""
+
+#: data/shortcuts.ui:41
+msgid "Filter sidebar (find-as-you-type)"
+msgstr ""
+
+#: data/shortcuts.ui:47
+msgid "Undo last toggle / delete"
+msgstr ""
+
+#: data/shortcuts.ui:53
+msgid "Show keyboard shortcuts"
+msgstr ""
+
+#: data/shortcuts.ui:59 atrium/src/ui/window/widgets.rs:98
+msgid "Quit"
+msgstr ""
+
+#: data/shortcuts.ui:68
+msgid "Navigation"
+msgstr ""
+
+#: data/shortcuts.ui:71 atrium/src/ui/task_list.rs:148
+#: atrium/src/ui/window/shell.rs:738
+msgid "Inbox"
+msgstr ""
+
+#: data/shortcuts.ui:77 data/window.ui:186 atrium/src/ui/agenda.rs:55
+#: atrium/src/ui/calendar.rs:428 atrium/src/ui/inspector.rs:452
+#: atrium/src/ui/inspector.rs:575 atrium/src/ui/inspector_pane/fields.rs:771
+#: atrium/src/ui/inspector_pane/fields.rs:868 atrium/src/ui/logbook.rs:49
+#: atrium/src/ui/task_list.rs:149 atrium/src/ui/task_list.rs:896
+#: atrium/src/ui/window/actions.rs:149
+msgid "Today"
+msgstr ""
+
+#: data/shortcuts.ui:83 atrium/src/ui/task_list.rs:150
+msgid "Upcoming"
+msgstr ""
+
+#: data/shortcuts.ui:89 atrium/src/ui/task_list.rs:151
+msgid "Anytime"
+msgstr ""
+
+#: data/shortcuts.ui:95 atrium/src/ui/board.rs:574
+#: atrium/src/ui/inspector.rs:460 atrium/src/ui/inspector.rs:695
+#: atrium/src/ui/inspector_pane/fields.rs:779 atrium/src/ui/task_list.rs:152
+#: atrium/src/ui/task_list.rs:900 atrium/src/ui/task_object.rs:255
+#: atrium/src/ui/window/actions.rs:153
+msgid "Someday"
+msgstr ""
+
+#: data/shortcuts.ui:101 atrium/src/ui/task_list.rs:153
+#: atrium/src/ui/window/widgets.rs:1056
+msgid "Logbook"
+msgstr ""
+
+#: data/shortcuts.ui:110
+msgid "List actions"
+msgstr ""
+
+#: data/shortcuts.ui:113
+msgid "Toggle completion of focused task"
+msgstr ""
+
+#: data/shortcuts.ui:119
+msgid "Delete focused task"
+msgstr ""
+
+#: data/shortcuts.ui:125
+msgid "Select all in active list"
+msgstr ""
+
+#: data/shortcuts.ui:131
+msgid "Clear selection"
+msgstr ""
+
+#: data/shortcuts.ui:137
+msgid "Edit tags for focused task"
+msgstr ""
+
+#: data/shortcuts.ui:143
+msgid "Open Inspector (full editor) — also double-click a row"
+msgstr ""
+
+#: data/shortcuts.ui:149
+msgid "Move focused task up / down (position-ordered lists)"
+msgstr ""
+
+#: data/shortcuts.ui:158
+msgid "Library"
+msgstr ""
+
+#: data/shortcuts.ui:161 data/window.ui:164 atrium/src/ui/window/actions.rs:386
+#: atrium/src/ui/window/widgets.rs:18
+msgid "New Project"
+msgstr ""
+
+#: data/shortcuts.ui:167 atrium/src/ui/window/actions.rs:353
+#: atrium/src/ui/window/widgets.rs:23
+msgid "New Area"
+msgstr ""
+
+#: data/shortcuts.ui:173
+msgid "Edit focused row / rename active project / area"
+msgstr ""
+
+#: data/shortcuts.ui:179
+msgid "Delete active project / area"
+msgstr ""
+
+#: data/window.ui:27
+msgid "Main Menu"
+msgstr ""
+
+#: data/window.ui:62
+msgid "Lists"
+msgstr ""
+
+#: data/window.ui:94
+msgid "Filter lists…"
+msgstr ""
+
+#: data/window.ui:143
+msgid "No projects yet"
+msgstr ""
+
+#: data/window.ui:152
+msgid ""
+"Group tasks by what they're for. You can always add an area later to "
+"organise multiple projects."
+msgstr ""
+
+#: data/window.ui:205
+msgid "New Task (Ctrl+N)"
+msgstr ""
+
+#: data/window.ui:215
+msgid "Search (Ctrl+F)"
+msgstr ""
+
+#: data/window.ui:282
+msgid "Find tasks — try tag:errand, due:today, or is:overdue"
+msgstr ""
+
+#: data/window.ui:290
+msgid "Search operator reference"
+msgstr ""
+
+#: data/window.ui:312
+msgid "No tasks yet"
+msgstr ""
+
+#: data/window.ui:313
+msgid "Press Ctrl+N or the + button to create your first task."
+msgstr ""
+
+#: data/window.ui:438
+msgid "Move…"
+msgstr ""
+
+#: data/window.ui:440
+msgid "Move the selected tasks to a project"
+msgstr ""
+
+#: data/window.ui:445
+msgid "Tag…"
+msgstr ""
+
+#: data/window.ui:447
+msgid "Add or remove a tag across the selected tasks"
+msgstr ""
+
+#: data/window.ui:452 atrium/src/ui/inspector.rs:100
+#: atrium/src/ui/inspector_pane/mod.rs:399 atrium/src/ui/task_list.rs:910
+msgid "Schedule"
+msgstr ""
+
+#: data/window.ui:453
+msgid "Reschedule the selected tasks"
+msgstr ""
+
+#: data/window.ui:458
+msgid "Complete"
+msgstr ""
+
+#: data/window.ui:464 atrium/src/ui/window/actions.rs:653
+#: atrium/src/ui/window/actions.rs:681 atrium/src/ui/window/actions.rs:709
+#: atrium/src/ui/window/actions.rs:737 atrium/src/ui/window/sidebar.rs:27
+#: atrium/src/ui/window/sidebar.rs:56 atrium/src/ui/window/sidebar.rs:85
+#: atrium/src/ui/window/sidebar.rs:203
+msgid "Delete"
+msgstr ""
+
+#: data/window.ui:475
+msgid "Clear selection (Esc)"
+msgstr ""
+
+#: data/window.ui:507
+msgid "Sequential"
+msgstr ""
+
+#: data/window.ui:508
+msgid ""
+"In a sequential project only the first incomplete task is \"available\". "
+"Phase 11 lands the rendering consequence."
+msgstr ""
+
+#: data/window.ui:525
+msgid "Review every"
+msgstr ""
+
+#: data/window.ui:526
+msgid ""
+"Days between Review queue surfacing. 0 means the project never auto-"
+"surfaces. Phase 13 lands the Review queue itself."
+msgstr ""
+
+#: data/window.ui:545
+msgid "days"
+msgstr ""
+
+#: data/window.ui:604
+msgid "Add task…"
+msgstr ""
+
+#. Translators: fallback shown when a file name can't be rendered.
+#: atrium/src/main.rs:561 atrium/src/main.rs:579 atrium/src/main.rs:592
+#: atrium/src/main.rs:604
+msgid "vault file"
+msgstr ""
+
+#. Translators: fallback shown when a backup file's name can't be rendered.
+#: atrium/src/main.rs:563
+msgid "backup"
+msgstr ""
+
+#: atrium/src/main.rs:573
+#, rust-format
+msgid "Vault edit conflict on {source} — preserved as {backup}"
+msgstr ""
+
+#: atrium/src/main.rs:586
+#, rust-format
+msgid "Could not parse {source}: {error} — sync paused for this file"
+msgstr ""
+
+#: atrium/src/main.rs:598
+#, rust-format
+msgid "{source} parsed cleanly — sync resumed"
+msgstr ""
+
+#: atrium/src/main.rs:610
+#, rust-format
+msgid "{source} was removed from the vault — Atrium tasks retained"
+msgstr ""
+
+#. Translators: `:RRULE:` is a literal Org property name — keep it untranslated.
+#: atrium/src/main.rs:617
+#, rust-format
+msgid ""
+"“{title}”: Org cookie diverged from :RRULE: — DB kept the canonical rule"
+msgstr ""
+
+#. Translators: TODO is a literal Org keyword-sequence name — keep it untranslated.
+#: atrium/src/main.rs:624
+#, rust-format
+msgid ""
+"Vault uses keyword “{keyword}” that isn't in the configured TODO sequence — "
+"preserved verbatim"
+msgstr ""
+
+#. Translators: `#tag`, `@today`, and `@deadline` are literal
+#. inline-syntax tokens — keep them untranslated.
+#: atrium/src/quickentry/modal.rs:78
+msgid "New task. Try #tag, @today, @deadline 2026-04-15…"
+msgstr ""
+
+#. Translators: `:key` is a literal template-shortcut trigger the
+#. user types — keep it untranslated.
+#: atrium/src/quickentry/modal.rs:97
+msgid ""
+"Press Enter to drop into Inbox · Esc to dismiss · type :key for a template"
+msgstr ""
+
+#: atrium/src/quickentry/modal.rs:99
+msgid "Press Enter to drop into Inbox · Esc to dismiss"
+msgstr ""
+
+#. Translators: heading of a task-reminder system notification.
+#. v0.7.0 — inspector clustering pass. Was: Schedule + Deadline +
+#. Project in dates_group, Tags alone in its own one-row group
+#. (an orphan card the eye couldn't justify). Now: dates_group
+#. carries only the date fields, and Project + Tags collapse
+#. into a new "Classify" cluster — both fields answer the
+#. question "where does this task live?" so the eye groups them
+#. naturally.
+#. v0.20.0 — Phase 19.5 reminder picker. Independent of
+#. scheduled_for / deadline (a reminder fires on a task
+#. regardless of those). EntryRow accepts `YYYY-MM-DD HH:MM`
+#. text; commits on focus-leave. Empty clears.
+#: atrium/src/reminders.rs:172 atrium/src/ui/inspector_pane/mod.rs:504
+msgid "Reminder"
+msgstr ""
+
+#: atrium/src/ui/about.rs:26
+msgid ""
+"A native GNOME task manager — Things 3 clarity, OmniFocus depth, mode-"
+"switched."
+msgstr ""
+
+#: atrium/src/ui/about.rs:36
+msgid "Built on the shoulders of"
+msgstr ""
+
+#: atrium/src/ui/about.rs:46
+msgid "Bundled fonts"
+msgstr ""
+
+#: atrium/src/ui/about.rs:49
+msgid "These typefaces ship with Atrium under SIL OFL 1.1."
+msgstr ""
+
+#: atrium/src/ui/agenda.rs:54 atrium/src/ui/forecast.rs:186
+msgid "Overdue"
+msgstr ""
+
+#: atrium/src/ui/agenda.rs:56 atrium/src/ui/inspector.rs:456
+#: atrium/src/ui/inspector.rs:579 atrium/src/ui/inspector_pane/fields.rs:775
+#: atrium/src/ui/inspector_pane/fields.rs:872 atrium/src/ui/task_list.rs:897
+#: atrium/src/ui/window/actions.rs:150
+msgid "Tomorrow"
+msgstr ""
+
+#: atrium/src/ui/agenda.rs:57
+msgid "This Week"
+msgstr ""
+
+#: atrium/src/ui/agenda.rs:58 atrium/src/ui/task_list.rs:899
+#: atrium/src/ui/window/actions.rs:152
+msgid "Next Week"
+msgstr ""
+
+#: atrium/src/ui/agenda.rs:166 atrium/src/ui/window/lists.rs:700
+msgid "Nothing on the agenda"
+msgstr ""
+
+#: atrium/src/ui/agenda.rs:167
+msgid "No overdue, today, or near-term scheduled tasks."
+msgstr ""
+
+#: atrium/src/ui/agenda.rs:236 atrium/src/ui/board.rs:135
+#, rust-format
+msgid "{n} task"
+msgid_plural "{n} tasks"
+msgstr[0] ""
+msgstr[1] ""
+
+#: atrium/src/ui/board.rs:121
+msgid "Configure…"
+msgstr ""
+
+#: atrium/src/ui/board.rs:126
+msgid "Configure board columns"
+msgstr ""
+
+#: atrium/src/ui/board.rs:141
+#, rust-format
+msgid "{n} column"
+msgid_plural "{n} columns"
+msgstr[0] ""
+msgstr[1] ""
+
+#: atrium/src/ui/board.rs:150
+#, rust-format
+msgid "{tasks} across {columns}"
+msgstr ""
+
+#: atrium/src/ui/board.rs:287
+msgid "(empty)"
+msgstr ""
+
+#: atrium/src/ui/board.rs:325
+msgid "Add card…"
+msgstr ""
+
+#: atrium/src/ui/board.rs:444 atrium/src/ui/task_list.rs:393
+msgid "Blocked"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:187
+msgid "January"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:188
+msgid "February"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:189
+msgid "March"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:190
+msgid "April"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:191
+msgid "May"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:192
+msgid "June"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:193
+msgid "July"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:194
+msgid "August"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:195
+msgid "September"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:196
+msgid "October"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:197
+msgid "November"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:198
+msgid "December"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:402
+msgid "Previous month (Page Up)"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:404
+msgid "Previous month"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:415
+#, rust-format
+msgid "{month} {year}"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:419
+msgid "Pick a month"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:429
+msgid "Jump to the current month"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:436
+msgid "Next month (Page Down)"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:438
+msgid "Next month"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:518
+msgid "Mon"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:519
+msgid "Tue"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:520
+msgid "Wed"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:521
+msgid "Thu"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:522
+msgid "Fri"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:523
+msgid "Sat"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:524
+msgid "Sun"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:638
+msgid "Nothing scheduled"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:773
+#, rust-format
+msgid "{day} (today)"
+msgstr ""
+
+#: atrium/src/ui/calendar.rs:813
+#, rust-format
+msgid "+{n} more"
+msgid_plural "+{n} more"
+msgstr[0] ""
+msgstr[1] ""
+
+#: atrium/src/ui/calendar.rs:912
+msgid "Nothing scheduled."
+msgstr ""
+
+#: atrium/src/ui/forecast.rs:44
+msgid "Scheduled"
+msgstr ""
+
+#: atrium/src/ui/forecast.rs:45 atrium/src/ui/inspector.rs:109
+#: atrium/src/ui/inspector_pane/mod.rs:466
+msgid "Deadline"
+msgstr ""
+
+#: atrium/src/ui/forecast.rs:46
+msgid "Defer ends"
+msgstr ""
+
+#: atrium/src/ui/forecast.rs:205
+msgid "Caught up."
+msgstr ""
+
+#: atrium/src/ui/forecast.rs:423
+#, rust-format
+msgid "Today · {date}"
+msgstr ""
+
+#: atrium/src/ui/forecast.rs:430
+#, rust-format
+msgid "Tomorrow · {date}"
+msgstr ""
+
+#: atrium/src/ui/forecast.rs:446
+#, rust-format
+msgid "{n} overdue"
+msgid_plural "{n} overdue"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Import button in the header.
+#: atrium/src/ui/import_dialog.rs:25 atrium/src/ui/import_dialog.rs:140
+msgid "Import"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:33
+msgid "Source"
+msgstr ""
+
+#. Source formats, in the order `run_gui_import` matches on.
+#. Translators: import format names — product names ("Todoist",
+#. "Taskwarrior", "VTODO", "todo.txt") and file extensions stay as-is.
+#: atrium/src/ui/import_dialog.rs:38
+msgid "Org vault file (.org)"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:39
+msgid "Todoist CSV"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:40
+msgid "VTODO (.ics)"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:41
+msgid "Taskwarrior JSON"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:42
+msgid "todo.txt"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:51
+msgid "Format"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:57
+msgid "File"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:58
+msgid "No file chosen"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:61
+msgid "Choose…"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:69
+msgid "Project name (ignored for Org)"
+msgstr ""
+
+#. Translators: default name of the project created to hold imported tasks.
+#: atrium/src/ui/import_dialog.rs:71 atrium/src/ui/import_dialog.rs:160
+msgid "Imported"
+msgstr ""
+
+#. Translators: policies for mapping Taskwarrior user-defined
+#. attributes — kept as a tag, kept as a note line, or dropped.
+#: atrium/src/ui/import_dialog.rs:77 atrium/src/ui/task_list.rs:156
+#: atrium/src/ui/window/shell.rs:563
+msgid "Tag"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:78
+msgid "Note"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:79
+msgid "Drop"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:82
+msgid "Taskwarrior UDAs"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:84
+msgid "How user-defined attributes map (Taskwarrior only)"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:91
+msgid "Dry run"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:92
+msgid "Preview the result without writing anything"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:99
+msgid "Result"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:102
+msgid "Choose a file, then Import."
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:120
+msgid "Choose a file to import"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:152
+msgid "Choose a file first."
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:173
+msgid "Working…"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:178
+#, rust-format
+msgid "Import failed: {error}"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:210
+#, rust-format
+msgid "cannot read file: {error}"
+msgstr ""
+
+#. Translators: placeholder project name shown when an Org
+#. vault import has no single project title.
+#: atrium/src/ui/import_dialog.rs:220
+msgid "(vault)"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:232
+#, rust-format
+msgid "Todoist parse error: {error}"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:249
+#, rust-format
+msgid "VTODO parse error: {error}"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:266
+#, rust-format
+msgid "Taskwarrior parse error: {error}"
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:321
+#, rust-format
+msgid ""
+"Would import {tasks} task(s) into \"{project}\" from {source}; {tags} tag(s) "
+"ensured."
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:326
+#, rust-format
+msgid ""
+"Imported {tasks} task(s) into \"{project}\" from {source}; {tags} tag(s) "
+"ensured."
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:333
+#, rust-format
+msgid ""
+"{lossy} field(s) didn't map cleanly (lossy) — run the CLI importer for the "
+"full report."
+msgstr ""
+
+#: atrium/src/ui/import_dialog.rs:340
+msgid ""
+"Dry run: nothing was written. Turn off Dry run and import again to apply."
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:60
+msgid "Edit Task"
+msgstr ""
+
+#. ── Header bar with explicit Cancel / Apply ──────────────────
+#. Buttons in the header bar mirror the GNOME pattern; the form
+#. area below stays free for content. AdwDialog supplies its own
+#. close-button + Esc handling, so we hide the libadwaita-default
+#. chrome buttons and route the user through Cancel / Apply.
+#. Footer with Cancel / Apply.
+#: atrium/src/ui/inspector.rs:70 atrium/src/ui/tag_editor.rs:136
+#: atrium/src/ui/window/actions.rs:442 atrium/src/ui/window/tasks.rs:793
+#: atrium/src/ui/window/tasks.rs:869 atrium/src/ui/window/widgets.rs:254
+#: atrium/src/ui/window/widgets.rs:289 atrium/src/ui/window/widgets.rs:519
+#: atrium/src/ui/window/widgets.rs:615 atrium/src/ui/window/widgets.rs:678
+msgid "Cancel"
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:72 atrium/src/ui/tag_editor.rs:138
+msgid "Apply"
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:87 atrium/src/ui/inspector_pane/mod.rs:239
+msgid "Title"
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:130 atrium/src/ui/inspector_pane/fields.rs:715
+msgid "No tags"
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:133 atrium/src/ui/inspector_pane/fields.rs:717
+#, rust-format
+msgid "{n} tag"
+msgid_plural "{n} tags"
+msgstr[0] ""
+msgstr[1] ""
+
+#: atrium/src/ui/inspector.rs:140 atrium/src/ui/inspector_pane/mod.rs:543
+#: atrium/src/ui/task_list.rs:884
+msgid "Edit Tags…"
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:145 atrium/src/ui/inspector_pane/mod.rs:548
+#: atrium/src/ui/window/sidebar.rs:611
+msgid "Tags"
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:177 atrium/src/ui/inspector_pane/mod.rs:609
+msgid "Notes"
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:188 atrium/src/ui/inspector_pane/mod.rs:761
+msgid "Checklist"
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:464 atrium/src/ui/inspector.rs:583
+#: atrium/src/ui/inspector_pane/fields.rs:783
+#: atrium/src/ui/inspector_pane/fields.rs:876
+msgid "Clear"
+msgstr ""
+
+#. / AdwComboRow with "Inbox (no project)" at index 0 followed by every
+
+#. / project. Returns the row pre-selected to the task's current project.
+
+#. Translators: first dropdown entry — the task belongs to no project.
+#: atrium/src/ui/inspector.rs:663 atrium/src/ui/inspector_pane/fields.rs:935
+#: atrium/src/ui/window/tasks.rs:783
+msgid "Inbox (no project)"
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:669 atrium/src/ui/inspector_pane/fields.rs:941
+#: atrium/src/ui/task_list.rs:154 atrium/src/ui/window/shell.rs:538
+msgid "Project"
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:694
+msgid "No schedule"
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:702
+msgid "No deadline"
+msgstr ""
+
+#: atrium/src/ui/inspector.rs:714
+msgid "Not deferred"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:65
+msgid "Keyword"
+msgstr ""
+
+#. Translators: "TODO" is an Org-mode keyword; keep it verbatim.
+#: atrium/src/ui/inspector_pane/fields.rs:67
+msgid "From the vault's configured TODO sequence"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:189
+#: atrium/src/ui/inspector_pane/mod.rs:1034
+msgid "Search tasks…"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:224
+msgid "(database unavailable)"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:281
+#: atrium/src/ui/inspector_pane/mod.rs:1066
+msgid "(no matching tasks)"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:333
+#: atrium/src/ui/inspector_pane/mod.rs:341
+msgid "Time"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:339
+msgid "Currently running"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:341
+msgid "Track time on this task"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:346
+msgid "Stop"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:348
+msgid "Start"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:393
+msgid "Total"
+msgstr ""
+
+#. Open entry — surface "Running since…".
+#: atrium/src/ui/inspector_pane/fields.rs:412
+msgid "Running"
+msgstr ""
+
+#. Translators: {time} is when the running session began,
+#. e.g. "Mon Jul 6, 14:30".
+#: atrium/src/ui/inspector_pane/fields.rs:415
+#, rust-format
+msgid "started {time}"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:426
+#, rust-format
+msgid "{subtitle} — {note}"
+msgstr ""
+
+#. Translators: repeat-frequency choice meaning the task does
+#. not repeat.
+#: atrium/src/ui/inspector_pane/fields.rs:457
+msgctxt "repeat frequency"
+msgid "None"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:458
+msgid "Daily"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:459
+msgid "Weekly"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:460
+msgid "Monthly"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:461
+msgid "Yearly"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:462
+msgid "Custom"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:467
+msgid "Repeat"
+msgstr ""
+
+#. Translators: title of the interval spinner; reads as "Every N"
+#. where N is the number of frequency units.
+#: atrium/src/ui/inspector_pane/fields.rs:475
+msgid "Every"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:476
+msgid "Number of frequency units between occurrences."
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:480
+msgid "After completion (Cumulative)"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:481
+msgid "From completion date (Next)"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:482
+msgid "Always shift by interval (Basic)"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/fields.rs:487
+msgid "After completion"
+msgstr ""
+
+#. Translators: "RRULE" is the RFC 5545 recurrence-rule keyword;
+#. keep it verbatim.
+#: atrium/src/ui/inspector_pane/fields.rs:495
+msgid "Custom RRULE"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:106
+msgid "Select a task to edit it here."
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:252
+msgid "Toggle complete"
+msgstr ""
+
+#. Accessibility (Phase 8f): screen readers report the
+#. CheckButton as a "checkbox", but they need a name to
+#. announce. Updating the `LABEL` accessible property gives
+#. them one without showing a visible label next to the
+#. circle.
+#: atrium/src/ui/inspector_pane/mod.rs:256 atrium/src/ui/task_list.rs:336
+msgid "Task complete"
+msgstr ""
+
+#. Translators: placeholder showing the 24-hour time format the
+#. entry accepts; adapt the letters, keep the shape.
+#: atrium/src/ui/inspector_pane/mod.rs:333
+msgid "HH:MM"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:414
+msgid "Heads-up window"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:417
+msgid ""
+"Days before the deadline this task surfaces in Today. 0 uses the default (7)."
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:582
+msgid "What / why / next step — autosaves on focus-out"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:620
+msgid "Link to another task…"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:624
+msgid "Link to another task"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:857
+msgid "Subtasks"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:865
+msgid "Add subtask…"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:950
+msgid "Blocked by"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:973
+msgid "Remove prerequisite"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:1019
+#: atrium/src/ui/inspector_pane/mod.rs:1023
+msgid "Add a prerequisite"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:1144
+msgid "Schedule depth"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:1151
+msgid "Estimated minutes"
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:1152
+msgid "0 leaves the field unset."
+msgstr ""
+
+#: atrium/src/ui/inspector_pane/mod.rs:1200
+msgid "Defer until"
+msgstr ""
+
+#: atrium/src/ui/logbook.rs:50
+msgid "Yesterday"
+msgstr ""
+
+#: atrium/src/ui/logbook.rs:51
+msgid "Last 7 Days"
+msgstr ""
+
+#: atrium/src/ui/logbook.rs:52
+msgid "Older"
+msgstr ""
+
+#: atrium/src/ui/logbook.rs:125 atrium/src/ui/window/lists.rs:631
+msgid "Nothing logged yet"
+msgstr ""
+
+#: atrium/src/ui/logbook.rs:127
+msgid "Completed tasks settle here, grouped by when you finished them."
+msgstr ""
+
+#: atrium/src/ui/logbook.rs:314
+#, rust-format
+msgid "{area} › {project}"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:39
+msgid "Preferences"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:60
+msgid "Appearance"
+msgstr ""
+
+#. Translators: the two Atrium UI modes.
+#. Translators: the two application modes — "Simple" hides the
+#. power-user surfaces, "Builder" shows them.
+#: atrium/src/ui/preferences.rs:64 atrium/src/ui/window/widgets.rs:47
+msgid "Simple"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:65 atrium/src/ui/window/widgets.rs:48
+msgid "Builder"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:68
+msgid "Default mode"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:70
+msgid ""
+"Simple is the calm Things-style surface; Builder adds Inspector pane, "
+"Forecast, Review."
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:88
+msgid "Follow system"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:89
+msgid "Light"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:90
+msgid "Dark"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:97
+msgid "Theme"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:99
+msgid ""
+"Override the system colour scheme. Adwaita auto-tracks the system; pin one "
+"here if you want it constant."
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:119
+msgid "High-legibility font"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:122
+msgid ""
+"Atkinson Hyperlegible — designed by the Braille Institute for low-vision "
+"readers."
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:138
+msgid "Org vault"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:141
+msgid ""
+"Path to a directory holding `.org` files Atrium projects its data into. "
+"Empty = no vault (DB-only). Convention is ~/Tasks/."
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:147
+msgid "Vault path"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:158
+msgid "Choose folder…"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:163 atrium/src/ui/preferences.rs:173
+msgid "Choose vault folder"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:196
+msgid "Capture"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:204
+msgid ""
+"Global shortcut that opens the Quick Entry modal. GTK accelerator syntax "
+"(e.g. `<Control><Alt>space`)."
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:210
+msgid "Shortcut"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:227
+msgid "Notifications"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:232
+msgid "Reminders"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:235
+msgid ""
+"Time-based reminders fire as system notifications when this is on. Per-task "
+"`reminder_at` timestamps drive the schedule."
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:241
+msgid "Enable system notifications"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:262
+msgid "Backups"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:267
+msgid "Database backups"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:270
+msgid ""
+"Snapshots live in the Atrium data directory's `backups/` folder (the newest "
+"ten are kept)."
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:277
+msgid "Back up now"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:278
+msgid "Write a snapshot of the current database."
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:281
+msgid "Back up"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:298
+#, rust-format
+msgid "Backed up to {name}"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:301
+#, rust-format
+msgid "Backup failed: {error}"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:311
+msgid "Restore from backup…"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:312
+msgid "Replace the current database on the next launch."
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:315
+msgid "Restore…"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:326
+msgid "Atrium backups"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:332
+msgid "Restore from backup"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:348
+msgid "Restore queued — restart Atrium to apply."
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:350
+#, rust-format
+msgid "Could not queue restore: {error}"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:362
+msgid "Weekly automatic backup"
+msgstr ""
+
+#: atrium/src/ui/preferences.rs:364
+msgid "On launch, snapshot if the newest backup is over a week old."
+msgstr ""
+
+#: atrium/src/ui/review.rs:64 atrium/src/ui/window/lists.rs:685
+msgid "All caught up"
+msgstr ""
+
+#: atrium/src/ui/review.rs:66
+msgid "No projects need review and nothing is pressing this week."
+msgstr ""
+
+#: atrium/src/ui/review.rs:116
+msgid "Projects to review"
+msgstr ""
+
+#: atrium/src/ui/review.rs:120
+msgid "No projects are due for review right now."
+msgstr ""
+
+#: atrium/src/ui/review.rs:156
+msgid "This week"
+msgstr ""
+
+#: atrium/src/ui/review.rs:158
+msgid "Mark items reviewed to hide them for 7 days."
+msgstr ""
+
+#: atrium/src/ui/review.rs:162
+msgid "Nothing pressing this week."
+msgstr ""
+
+#: atrium/src/ui/review.rs:208 atrium/src/ui/review.rs:293
+msgid "Mark Reviewed"
+msgstr ""
+
+#: atrium/src/ui/review.rs:211
+msgid "Hide from the weekly walk for 7 days"
+msgstr ""
+
+#: atrium/src/ui/review.rs:338
+#, rust-format
+msgid "{area} · {reviewed}"
+msgstr ""
+
+#: atrium/src/ui/review.rs:350
+msgid "Never reviewed"
+msgstr ""
+
+#: atrium/src/ui/review.rs:355
+msgid "Last reviewed in the future"
+msgstr ""
+
+#: atrium/src/ui/review.rs:356
+msgid "Last reviewed today"
+msgstr ""
+
+#: atrium/src/ui/review.rs:358
+#, rust-format
+msgid "Last reviewed {n} day ago"
+msgid_plural "Last reviewed {n} days ago"
+msgstr[0] ""
+msgstr[1] ""
+
+#: atrium/src/ui/tag_editor.rs:41
+msgid "Edit Tags"
+msgstr ""
+
+#: atrium/src/ui/tag_editor.rs:54
+#, rust-format
+msgid "Editing: {title}"
+msgstr ""
+
+#: atrium/src/ui/tag_editor.rs:86
+msgid "No tags yet. Add one below."
+msgstr ""
+
+#: atrium/src/ui/tag_editor.rs:104
+msgid "Add a new tag…"
+msgstr ""
+
+#. Translators: "(Enter)" names the key that triggers the same
+#. action.
+#: atrium/src/ui/tag_editor.rs:111
+msgid "Add this tag (Enter)"
+msgstr ""
+
+#: atrium/src/ui/tag_editor.rs:114
+msgid "Add this tag"
+msgstr ""
+
+#. Translators: {name} is the tag being created; the leading "#"
+#. is Atrium's tag syntax — keep both. Only "new" translates.
+#: atrium/src/ui/tag_editor.rs:297
+#, rust-format
+msgid "#{name}  · new"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:155 atrium/src/ui/window/shell.rs:557
+msgid "Area"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:157
+msgid "Search"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:158
+msgid "Forecast"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:159 atrium/src/ui/window/widgets.rs:1054
+msgid "Review"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:160 atrium/src/ui/window/widgets.rs:1051
+msgid "Agenda"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:161 atrium/src/ui/window/widgets.rs:1053
+msgid "Calendar"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:162 atrium/src/ui/window/shell.rs:570
+msgid "Perspective"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:329
+msgid "Toggle complete (Space)"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:361 atrium/src/ui/task_list.rs:364
+msgid "Task title"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:442 atrium/src/ui/task_list.rs:447
+msgid "Repeating task"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:880
+msgid "Edit Details…"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:898 atrium/src/ui/window/actions.rs:151
+msgid "This Weekend"
+msgstr ""
+
+#: atrium/src/ui/task_list.rs:901 atrium/src/ui/window/actions.rs:154
+msgid "Clear Schedule"
+msgstr ""
+
+#. The earlier alarm-clock emoji rendered inconsistently across
+#. systems (some show it as a glyph, some as a typographic box,
+#. some at the wrong baseline). A "Due " prefix reads the same
+#. everywhere and lines up with the existing typography pass.
+#. Translators: deadline pill; {date} is a short date like "May 15".
+#: atrium/src/ui/task_object.rs:266
+#, rust-format
+msgid "Due {date}"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:354 atrium/src/ui/window/actions.rs:509
+msgid "Area name"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:357 atrium/src/ui/window/actions.rs:389
+#: atrium/src/ui/window/actions.rs:443 atrium/src/ui/window/actions.rs:764
+#: atrium/src/ui/window/widgets.rs:621
+msgid "Create"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:387 atrium/src/ui/window/actions.rs:549
+msgid "Project name"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:430
+msgid ""
+"No task templates yet. Create one with `atrium-cli task-template create`."
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:438
+msgid "Create from Template"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:439
+msgid "Stamp the chosen template out as a new project."
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:465
+msgid "Could not create project from template."
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:508
+msgid "Edit Area"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:512 atrium/src/ui/window/actions.rs:582
+#: atrium/src/ui/window/actions.rs:799 atrium/src/ui/window/widgets.rs:520
+#: atrium/src/ui/window/widgets.rs:619
+msgid "Save"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:548
+msgid "Rename Project"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:551 atrium/src/ui/window/actions.rs:612
+#: atrium/src/ui/window/sidebar.rs:22 atrium/src/ui/window/sidebar.rs:55
+#: atrium/src/ui/window/sidebar.rs:84
+msgid "Rename"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:578
+msgid "Edit Tag"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:579 atrium/src/ui/window/actions.rs:761
+#: atrium/src/ui/window/tasks.rs:861
+msgid "Tag name"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:609
+msgid "Rename Perspective"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:610 atrium/src/ui/window/actions.rs:797
+msgid "Perspective name"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:648
+msgid "Delete Area?"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:650
+#, rust-format
+msgid ""
+"“{title}” will be removed. Projects inside it become unfiled — their tasks "
+"aren't deleted."
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:676
+msgid "Delete Project?"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:678
+#, rust-format
+msgid ""
+"“{title}” and every task inside it will be removed. This cannot be undone."
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:704
+msgid "Delete Tag?"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:706
+#, rust-format
+msgid ""
+"“{title}” will be removed. Tasks bearing this tag stay; the tag association "
+"is dropped."
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:732
+msgid "Delete Perspective?"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:734
+#, rust-format
+msgid ""
+"“{title}” will be removed. Tasks the perspective surfaces are not affected — "
+"only the saved view is deleted."
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:760 atrium/src/ui/window/widgets.rs:24
+msgid "New Tag"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:796
+msgid "Save Perspective"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:902
+msgid "Archive Project?"
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:904
+#, rust-format
+msgid ""
+"“{title}” will be archived and every open task inside it will be marked "
+"complete. They'll appear in Logbook."
+msgstr ""
+
+#: atrium/src/ui/window/actions.rs:907 atrium/src/ui/window/sidebar.rs:24
+msgid "Archive"
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:603
+msgid "Inbox zero"
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:605
+msgid ""
+"Catch a thought with Ctrl+N or the entry below — Atrium will keep it safe "
+"until you place it."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:609
+msgid "Clear plate today"
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:611
+msgid ""
+"Nothing scheduled and no deadlines crossing the horizon. Glance at Upcoming "
+"for what's next, or take the afternoon back."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:615 atrium/src/ui/window/lists.rs:679
+msgid "Open horizon"
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:616
+msgid ""
+"Schedule a task to a future date and it'll surface here, sorted by when."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:619
+msgid "Nothing waiting"
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:621
+msgid ""
+"Open tasks without a date land here — your low-pressure pool to dip into "
+"when there's time."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:625
+msgid "Park it for later"
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:627
+msgid ""
+"Ideas and maybes belong here. Scheduled to Someday means \"on the radar, no "
+"commitment yet\"."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:633
+msgid ""
+"Completed tasks settle here in reverse chronological order — your record of "
+"the work done."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:638
+#, rust-format
+msgid "{title} is empty"
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:642
+msgid ""
+"Add the first task with the entry below, or capture quickly with "
+"Ctrl+Alt+Space."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:647
+#, rust-format
+msgid "Nothing open in {title}"
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:651
+msgid ""
+"An area aggregates open tasks across its projects. Add a project under it, "
+"then file tasks into the project."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:656
+#, rust-format
+msgid "No tasks tagged {tag}"
+msgstr ""
+
+#. Translators: `#tag` is the literal inline-capture
+#. syntax and must stay as-is.
+#: atrium/src/ui/window/lists.rs:661
+msgid "Apply this tag from a task's Inspector or with #tag in Quick Entry."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:664
+msgid "Search Atrium"
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:669
+msgid ""
+"Type to find tasks by title or note. Try filters too: tag:errand, due:today, "
+"is:overdue."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:673
+#, rust-format
+msgid "No matches for “{query}”"
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:675
+msgid ""
+"Search covers task titles, notes, and filter expressions. Check spelling, or "
+"try a broader term."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:681
+msgid ""
+"Schedule, deadline, or defer a task and it'll appear here on its day. Drag "
+"rows between days to reschedule."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:687
+msgid ""
+"Projects with a review interval surface here when their last review goes "
+"stale — oldest first."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:692
+#, rust-format
+msgid "{title} is quiet"
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:696
+msgid ""
+"No tasks currently match this perspective's filter expression. Adjust the "
+"filter or wait for matches to appear."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:702
+msgid ""
+"No overdue, today, or near-term scheduled tasks — the next two weeks are "
+"clear."
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:706
+msgid "Open month"
+msgstr ""
+
+#: atrium/src/ui/window/lists.rs:708
+msgid ""
+"Schedule a task and its day cell will fill in. Page Up / Page Down to "
+"navigate months; Today resets to the current month."
+msgstr ""
+
+#: atrium/src/ui/window/onboarding.rs:23
+msgid "Welcome to Atrium"
+msgstr ""
+
+#: atrium/src/ui/window/onboarding.rs:24
+msgid "Your tasks live here. Start one of three ways:"
+msgstr ""
+
+#: atrium/src/ui/window/onboarding.rs:33
+msgid "Create your first project"
+msgstr ""
+
+#: atrium/src/ui/window/onboarding.rs:40
+msgid "Capture a task"
+msgstr ""
+
+#: atrium/src/ui/window/onboarding.rs:51
+msgid "Set up an Org vault"
+msgstr ""
+
+#: atrium/src/ui/window/search.rs:229
+#, rust-format
+msgid " (+{n} more)"
+msgstr ""
+
+#: atrium/src/ui/window/search.rs:239
+#, rust-format
+msgid "Unknown filter: {warnings}{suffix}"
+msgstr ""
+
+#: atrium/src/ui/window/search.rs:247
+msgid "Undo"
+msgstr ""
+
+#: atrium/src/ui/window/shell.rs:487
+#, rust-format
+msgid "Atrium · {view}"
+msgstr ""
+
+#: atrium/src/ui/window/shell.rs:596
+msgid "Next 7 days"
+msgstr ""
+
+#: atrium/src/ui/window/shell.rs:597
+msgid "Next 30 days"
+msgstr ""
+
+#: atrium/src/ui/window/sidebar.rs:119
+msgid "Perspectives"
+msgstr ""
+
+#: atrium/src/ui/window/sidebar.rs:129 atrium/src/ui/window/sidebar.rs:134
+msgid "New Perspective"
+msgstr ""
+
+#: atrium/src/ui/window/sidebar.rs:202
+msgid "Edit…"
+msgstr ""
+
+#: atrium/src/ui/window/sidebar.rs:559
+msgid "Areas"
+msgstr ""
+
+#: atrium/src/ui/window/sidebar.rs:587
+msgid "Unfiled"
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:27
+#, rust-format
+msgid "“{title}” completed"
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:32
+#, rust-format
+msgid "“{title}” reopened"
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:230
+msgid "This list is sorted by date — drag to reorder isn't available here."
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:377
+msgid "Can't nest there (a different project or a cycle)."
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:581
+#, rust-format
+msgid "Deleted “{title}”"
+msgstr ""
+
+#. Translators: bulk-selection bar count; {n} is always ≥ 2.
+#: atrium/src/ui/window/tasks.rs:704
+#, rust-format
+msgid "{n} selected"
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:752
+#, rust-format
+msgid "{deleted} of {count} task deleted"
+msgid_plural "{deleted} of {count} tasks deleted"
+msgstr[0] ""
+msgstr[1] ""
+
+#: atrium/src/ui/window/tasks.rs:789
+msgid "Move to Project"
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:790
+msgid "Move the selected tasks to a project."
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:794
+msgid "Move"
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:833
+#, rust-format
+msgid "Moved {count} task"
+msgid_plural "Moved {count} tasks"
+msgstr[0] ""
+msgstr[1] ""
+
+#: atrium/src/ui/window/tasks.rs:865
+msgid "Tag Tasks"
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:866
+msgid "Add or remove a tag across the selected tasks."
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:870
+msgid "Remove"
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:871
+msgid "Add"
+msgstr ""
+
+#: atrium/src/ui/window/tasks.rs:927
+#, rust-format
+msgid "Tagged {count} task"
+msgid_plural "Tagged {count} tasks"
+msgstr[0] ""
+msgstr[1] ""
+
+#: atrium/src/ui/window/tasks.rs:934
+#, rust-format
+msgid "Untagged {count} task"
+msgid_plural "Untagged {count} tasks"
+msgstr[0] ""
+msgstr[1] ""
+
+#: atrium/src/ui/window/tasks.rs:992
+#, rust-format
+msgid "Rescheduled {count} task"
+msgid_plural "Rescheduled {count} tasks"
+msgstr[0] ""
+msgstr[1] ""
+
+#: atrium/src/ui/window/views.rs:76
+msgid "Bands"
+msgstr ""
+
+#: atrium/src/ui/window/views.rs:80
+msgid "Strip"
+msgstr ""
+
+#: atrium/src/ui/window/views.rs:85
+msgid "Agenda bands layout"
+msgstr ""
+
+#: atrium/src/ui/window/views.rs:88
+msgid "Forecast strip layout (30-day)"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:16
+msgid "New Task"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:20
+msgid "New from Template…"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:28
+msgid "Rename Active"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:30
+msgid "Archive Project"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:33
+msgid "Delete Active"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:38
+msgid "Save Search as Perspective…"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:49
+msgid "Mode"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:55
+msgid "Use High-Legibility Font"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:58
+msgid "Accessibility"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:84
+msgid "Import…"
+msgstr ""
+
+#. v0.20.0 — Phase 19.5 preferences entry. Above the
+#. shortcuts/about line so it reads as part of the "primary"
+#. app actions; standard GNOME convention puts Preferences
+#. before About.
+#: atrium/src/ui/window/widgets.rs:92
+msgid "Preferences…"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:94
+msgid "Keyboard Shortcuts"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:97
+msgid "About Atrium"
+msgstr ""
+
+#. Translators: the "no colour" swatch in the tag/area colour picker.
+#: atrium/src/ui/window/widgets.rs:129
+msgctxt "tag colour"
+msgid "None"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:130
+msgid "Blue"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:131
+msgid "Green"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:132
+msgid "Yellow"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:133
+msgid "Orange"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:134
+msgid "Red"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:135
+msgid "Purple"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:188
+#, rust-format
+msgid "{label} colour"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:192
+msgid "No colour"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:239
+msgid "Review every (days, 0 = off)"
+msgstr ""
+
+#. Translators: the `:N` suffix syntax is literal and must
+#. stay as-is.
+#: atrium/src/ui/window/widgets.rs:380
+msgid "Columns (comma-separated; append :N for a WIP limit):"
+msgstr ""
+
+#. Translators: example column names for a tag board; the
+#. `:2` WIP-limit suffix syntax is literal.
+#: atrium/src/ui/window/widgets.rs:383
+msgid "todo, doing:2, done"
+msgstr ""
+
+#. Translators: `#+TODO:`, the `|` separator, and the `:N`
+#. suffix are literal Org-mode / board syntax and must stay
+#. as-is.
+#: atrium/src/ui/window/widgets.rs:389
+msgid "Columns (Org #+TODO: keywords; “|” before done; :N sets a WIP limit):"
+msgstr ""
+
+#. Translators: example Org status keywords; `|` and `:3`
+#. are literal syntax.
+#: atrium/src/ui/window/widgets.rs:392
+msgid "TODO, NEXT:3, WAITING | DONE, CANCELLED"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:415
+msgid "List — flat task list (default)"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:419
+msgid "Board — columns by tag"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:423
+msgid "Board — columns by status (Org keywords)"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:513
+#, rust-format
+msgid "Configure renderer for “{name}”"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:572
+msgid "Name"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:578
+msgid "e.g. Today + Errands"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:585
+msgid "Filter expression"
+msgstr ""
+
+#. Translators: `is:open`, `AND`, and `tag:errand` are literal
+#. search-grammar tokens and must not be translated.
+#: atrium/src/ui/window/widgets.rs:593
+msgid "e.g. is:open AND tag:errand"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:599
+msgid "Renderer"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:609
+#, rust-format
+msgid "Edit “{name}”"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:611
+msgid "New perspective"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:736
+msgid "Search expression reference"
+msgstr ""
+
+#. Translators: AND / OR / NOT are literal boolean operators
+#. and must not be translated.
+#: atrium/src/ui/window/widgets.rs:745
+msgid "Compose freely with AND / OR / NOT and parens."
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:760
+msgid "Boolean"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:764
+msgid "both must match (implicit between bare tokens)"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:766
+msgid "either matches"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:767
+msgid "negation"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:768
+msgid "parens override precedence"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:772
+msgid "Fields"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:774
+msgid "task has a tag matching \"work\""
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:777
+msgid "task's project sits under that area"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:781
+msgid "task lives in that project"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:783
+msgid "column-scoped text match"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:784
+msgid "date fields"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:787
+msgid "datetime fields"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:789
+msgid "numeric (minutes)"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:792
+msgid "has a repeat rule, or doesn't"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:797
+msgid "Match modifiers"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:799
+msgid "substring (default, case-insensitive)"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:800
+msgid "exact match"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:801
+msgid "regex (RE2 syntax)"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:804
+msgid "fuzzy (typo / transposition tolerant)"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:806
+msgid "has any tag, or has none"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:810
+msgid "Comparison & range"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:812
+msgid "deadline after today"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:813
+msgid "30 minutes or more"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:814
+msgid "inclusive range"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:818
+msgid "Date keywords"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:820
+msgid "single days"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:823
+msgid "ISO Mon-start week"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:827
+msgid "calendar month"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:829
+msgid "calendar year"
+msgstr ""
+
+#. Translators: `Ndaysago` / `Ndaysout` are the literal
+#. keyword patterns (N is a number) and must stay as-is.
+#: atrium/src/ui/window/widgets.rs:832
+msgid "Ndaysago / Ndaysout"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:836
+msgid "State predicates"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:840
+msgid "completion state"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:844
+msgid "has the field set"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:848
+msgid "presence flags"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:852
+msgid "canonical-list mirrors"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:854
+msgid "more list mirrors"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:858
+msgid "Sort"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:860
+msgid "ascending (due, scheduled, title, …)"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:861
+msgid "descending"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:864
+msgid "primary by deadline desc, ties by title"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:878
+msgid "Full reference: spec.md §4.3 · ↑/↓ recall recent searches"
+msgstr ""
+
+#: atrium/src/ui/window/widgets.rs:1232
+#, rust-format
+msgid "{n} open task"
+msgid_plural "{n} open tasks"
+msgstr[0] ""
+msgstr[1] ""

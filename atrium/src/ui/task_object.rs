@@ -15,6 +15,8 @@ use gtk::glib::Properties;
 use gtk::glib::subclass::prelude::*;
 use gtk::prelude::*;
 
+use crate::i18n::{gettext, gettext_f};
+
 mod imp {
     use super::*;
 
@@ -250,7 +252,7 @@ fn format_tag_names(pills: &[(String, Option<String>)]) -> String {
 fn format_schedule(s: &Option<ScheduledFor>) -> String {
     match s {
         None => String::new(),
-        Some(ScheduledFor::Someday) => "Someday".to_string(),
+        Some(ScheduledFor::Someday) => gettext("Someday"),
         Some(ScheduledFor::Date(d)) => d.format("%b %-d").to_string(),
     }
 }
@@ -260,7 +262,8 @@ fn format_deadline(d: Option<chrono::NaiveDate>) -> String {
     // systems (some show it as a glyph, some as a typographic box,
     // some at the wrong baseline). A "Due " prefix reads the same
     // everywhere and lines up with the existing typography pass.
-    d.map(|d| format!("Due {}", d.format("%b %-d")))
+    // Translators: deadline pill; {date} is a short date like "May 15".
+    d.map(|d| gettext_f("Due {date}", &[("date", &d.format("%b %-d").to_string())]))
         .unwrap_or_default()
 }
 

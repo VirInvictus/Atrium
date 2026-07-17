@@ -2,6 +2,8 @@
 //! `AtriumWindow`: list-view + data-layer wiring, mode, project extras, accessors, resolvers.
 //! Extracted from window/mod.rs in v0.22.0 split (Pass 3).
 
+use crate::i18n::{gettext, gettext_f};
+
 use super::*;
 
 impl AtriumWindow {
@@ -479,7 +481,12 @@ impl AtriumWindow {
         // window-level title shows in window managers, alt-tab
         // overlays, and screencast picker UIs; "Atrium" alone read
         // as a brand sticker not a context cue.
-        self.set_title(Some(&format!("Atrium · {view_title}")));
+        // Translators: window-manager title; {view} is the active
+        // view's name (Today, Inbox, a project title, …).
+        self.set_title(Some(&gettext_f(
+            "Atrium · {view}",
+            &[("view", &view_title)],
+        )));
         // v0.7.0 — magazine-spread page title. Big label gets the
         // view name; subtitle gets a supporting line per view (e.g.
         // today's date for Today). Subtitle hidden when empty so
@@ -528,7 +535,7 @@ impl AtriumWindow {
                     .borrow()
                     .get(&id)
                     .cloned()
-                    .unwrap_or_else(|| "Project".into());
+                    .unwrap_or_else(|| gettext("Project"));
                 let area_title = self
                     .imp()
                     .project_meta
@@ -547,20 +554,20 @@ impl AtriumWindow {
                 .borrow()
                 .get(&id)
                 .cloned()
-                .unwrap_or_else(|| "Area".into()),
+                .unwrap_or_else(|| gettext("Area")),
             ActiveList::Tag(id) => self
                 .imp()
                 .tag_titles
                 .borrow()
                 .get(&id)
-                .map_or_else(|| "Tag".into(), |n| format!("#{n}")),
+                .map_or_else(|| gettext("Tag"), |n| format!("#{n}")),
             ActiveList::Perspective(id) => self
                 .imp()
                 .perspective_titles
                 .borrow()
                 .get(&id)
                 .cloned()
-                .unwrap_or_else(|| "Perspective".into()),
+                .unwrap_or_else(|| gettext("Perspective")),
             ActiveList::SearchResults(_)
             | ActiveList::Inbox
             | ActiveList::Today
@@ -586,8 +593,8 @@ impl AtriumWindow {
                 .date_naive()
                 .format("%A, %B %-d")
                 .to_string(),
-            ActiveList::Upcoming => "Next 7 days".to_string(),
-            ActiveList::Forecast => "Next 30 days".to_string(),
+            ActiveList::Upcoming => gettext("Next 7 days"),
+            ActiveList::Forecast => gettext("Next 30 days"),
             ActiveList::Calendar => {
                 let viewed = self.calendar_viewed_or_today();
                 format!(
@@ -728,7 +735,7 @@ impl AtriumWindow {
                     return String::new();
                 }
                 let inbox = match mode {
-                    ContextMode::AreaAndProject => "Inbox".to_string(),
+                    ContextMode::AreaAndProject => gettext("Inbox"),
                     _ => String::new(),
                 };
                 return inbox;

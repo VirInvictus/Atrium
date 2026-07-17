@@ -44,6 +44,7 @@ use gtk::pango;
 use tracing::error;
 
 use super::task_list::{TagPillMap, format_tag_names};
+use crate::i18n::{gettext, gettext_f, ngettext_f};
 
 /// Drop destination — either one of the configured columns (carry the
 /// column's tag name verbatim so the move helper can use it as a
@@ -117,22 +118,37 @@ where
     heading.append(&title);
 
     let configure = gtk::Button::builder()
-        .label("Configure\u{2026}")
+        .label(gettext("Configure\u{2026}"))
         .valign(gtk::Align::Center)
         .build();
     configure.add_css_class("flat");
-    configure.update_property(&[gtk::accessible::Property::Label("Configure board columns")]);
+    configure.update_property(&[gtk::accessible::Property::Label(&gettext(
+        "Configure board columns",
+    ))]);
     configure.connect_clicked(move |_| on_configure());
     heading.append(&configure);
     outer.append(&heading);
 
+    // Two independent plurals can't share one ngettext call, so the
+    // count fragments translate separately and compose afterwards.
+    let tasks_part = ngettext_f(
+        "{n} task",
+        "{n} tasks",
+        total as u32,
+        &[("n", &total.to_string())],
+    );
+    let columns_part = ngettext_f(
+        "{n} column",
+        "{n} columns",
+        columns.len() as u32,
+        &[("n", &columns.len().to_string())],
+    );
+    // Translators: {tasks} and {columns} are already-translated
+    // fragments like "3 tasks" and "2 columns".
     let total_label = gtk::Label::builder()
-        .label(format!(
-            "{} task{} across {} column{}",
-            total,
-            if total == 1 { "" } else { "s" },
-            columns.len(),
-            if columns.len() == 1 { "" } else { "s" },
+        .label(gettext_f(
+            "{tasks} across {columns}",
+            &[("tasks", &tasks_part), ("columns", &columns_part)],
         ))
         .halign(gtk::Align::Start)
         .build();
@@ -266,8 +282,9 @@ where
         .build();
 
     if col.tasks.is_empty() {
+        // Translators: placeholder for a kanban column with no cards.
         let empty = gtk::Label::builder()
-            .label("(empty)")
+            .label(gettext("(empty)"))
             .halign(gtk::Align::Start)
             .margin_start(6)
             .margin_top(4)
@@ -305,7 +322,7 @@ where
     // this column via the on_add callback (which stamps the column's
     // tag or status). Inline `#tag` / `@date` / `!N` syntax still works.
     let add_entry = gtk::Entry::builder()
-        .placeholder_text("Add card\u{2026}")
+        .placeholder_text(gettext("Add card\u{2026}"))
         .margin_start(6)
         .margin_end(6)
         .margin_bottom(8)
@@ -424,7 +441,7 @@ where
     // reusing the list's amber `.atrium-task-blocked` style so the board
     // and list agree on what "blocked" looks like.
     if blocked_ids.contains(&task.id) {
-        let blocked_pill = gtk::Label::builder().label("Blocked").build();
+        let blocked_pill = gtk::Label::builder().label(gettext("Blocked")).build();
         blocked_pill.add_css_class("atrium-task-blocked");
         top.append(&blocked_pill);
     }
@@ -554,7 +571,7 @@ fn format_date_chip(task: &Task) -> Option<String> {
     }
     match &task.scheduled_for {
         Some(ScheduledFor::Date(d)) => Some(format!("📅 {d}")),
-        Some(ScheduledFor::Someday) => Some("Someday".into()),
+        Some(ScheduledFor::Someday) => Some(gettext("Someday")),
         None => None,
     }
 }

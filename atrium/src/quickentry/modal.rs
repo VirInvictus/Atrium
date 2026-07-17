@@ -24,6 +24,8 @@ use tracing::{debug, error, warn};
 
 use atrium_inline as parser;
 
+use crate::i18n::gettext;
+
 /// Open the Quick Entry modal anchored to `parent`. Returns
 /// immediately; commit/dismiss runs through the GTK event loop.
 ///
@@ -53,7 +55,7 @@ pub fn open(
     let active_template: Rc<RefCell<Option<QuickEntryTemplate>>> = Rc::new(RefCell::new(None));
 
     let dialog = adw::Window::builder()
-        .title("Quick Entry")
+        .title(gettext("Quick Entry"))
         .transient_for(parent)
         .modal(false)
         .default_width(480)
@@ -71,7 +73,9 @@ pub fn open(
     );
 
     let entry = gtk::Entry::builder()
-        .placeholder_text("New task. Try #tag, @today, @deadline 2026-04-15…")
+        // Translators: `#tag`, `@today`, and `@deadline` are literal
+        // inline-syntax tokens — keep them untranslated.
+        .placeholder_text(gettext("New task. Try #tag, @today, @deadline 2026-04-15…"))
         .activates_default(true)
         .hexpand(true)
         .build();
@@ -88,9 +92,11 @@ pub fn open(
     // shortcut key is actually configured — otherwise it's noise.
     let has_template_shortcuts = templates.iter().any(|t| t.shortcut_key.is_some());
     let hint_text = if has_template_shortcuts {
-        "Press Enter to drop into Inbox · Esc to dismiss · type :key for a template"
+        // Translators: `:key` is a literal template-shortcut trigger the
+        // user types — keep it untranslated.
+        gettext("Press Enter to drop into Inbox · Esc to dismiss · type :key for a template")
     } else {
-        "Press Enter to drop into Inbox · Esc to dismiss"
+        gettext("Press Enter to drop into Inbox · Esc to dismiss")
     };
     let hint = gtk::Label::builder()
         .label(hint_text)

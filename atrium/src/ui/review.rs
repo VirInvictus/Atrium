@@ -29,6 +29,7 @@ use chrono::NaiveDate;
 use gtk::glib;
 use tracing::error;
 
+use crate::i18n::{gettext, gettext_f, ngettext_f};
 use crate::ui::agenda;
 use crate::ui::task_list::TagPillMap;
 
@@ -60,8 +61,10 @@ where
     if queue.is_empty() && weekly_tasks.is_empty() {
         let status = adw::StatusPage::builder()
             .icon_name("checkmark-symbolic")
-            .title("All caught up")
-            .description("No projects need review and nothing is pressing this week.")
+            .title(gettext("All caught up"))
+            .description(gettext(
+                "No projects need review and nothing is pressing this week.",
+            ))
             .build();
         return status.upcast();
     }
@@ -110,12 +113,12 @@ fn build_queue_section(
         .orientation(gtk::Orientation::Vertical)
         .spacing(8)
         .build();
-    section.append(&build_section_header("Projects to review"));
+    section.append(&build_section_header(&gettext("Projects to review")));
 
     if queue.is_empty() {
-        section.append(&build_inline_note(
+        section.append(&build_inline_note(&gettext(
             "No projects are due for review right now.",
-        ));
+        )));
     } else {
         for project in queue {
             section.append(&build_project_card(
@@ -150,13 +153,13 @@ where
         .orientation(gtk::Orientation::Vertical)
         .spacing(4)
         .build();
-    section.append(&build_section_header("This week"));
-    section.append(&build_inline_note(
+    section.append(&build_section_header(&gettext("This week")));
+    section.append(&build_inline_note(&gettext(
         "Mark items reviewed to hide them for 7 days.",
-    ));
+    )));
 
     if weekly_tasks.is_empty() {
-        section.append(&build_inline_note("Nothing pressing this week."));
+        section.append(&build_inline_note(&gettext("Nothing pressing this week.")));
     } else {
         let list = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -202,10 +205,10 @@ where
     row.append(&body);
 
     let mark_button = gtk::Button::builder()
-        .label("Mark Reviewed")
+        .label(gettext("Mark Reviewed"))
         .css_classes(["flat"])
         .valign(gtk::Align::Center)
-        .tooltip_text("Hide from the weekly walk for 7 days")
+        .tooltip_text(gettext("Hide from the weekly walk for 7 days"))
         .build();
     let task_id = task.id;
     mark_button.connect_clicked(move |_| {
@@ -287,7 +290,7 @@ fn build_project_card(
 
     // Right column: Mark Reviewed button.
     let button = gtk::Button::builder()
-        .label("Mark Reviewed")
+        .label(gettext("Mark Reviewed"))
         .css_classes(["suggested-action"])
         .valign(gtk::Align::Center)
         .build();
@@ -329,7 +332,12 @@ pub fn format_subtitle(
     let area_chunk = project.area_id.and_then(|id| area_titles.get(&id)).cloned();
     let review_chunk = format_last_reviewed(project, today);
     match area_chunk {
-        Some(area) => format!("{area} · {review_chunk}"),
+        // Translators: review-card subtitle; {area} is an area name and
+        // {reviewed} an already-translated "Last reviewed …" phrase.
+        Some(area) => gettext_f(
+            "{area} · {reviewed}",
+            &[("area", &area), ("reviewed", &review_chunk)],
+        ),
         None => review_chunk,
     }
 }
@@ -339,15 +347,19 @@ pub fn format_subtitle(
 /// `last_reviewed_at`'s date portion and `today`.
 pub fn format_last_reviewed(project: &Project, today: NaiveDate) -> String {
     match project.last_reviewed_at {
-        None => "Never reviewed".to_string(),
+        None => gettext("Never reviewed"),
         Some(last) => {
             let last_date = last.date_naive();
             let days = (today - last_date).num_days();
             match days {
-                d if d < 0 => "Last reviewed in the future".to_string(),
-                0 => "Last reviewed today".to_string(),
-                1 => "Last reviewed 1 day ago".to_string(),
-                d => format!("Last reviewed {d} days ago"),
+                d if d < 0 => gettext("Last reviewed in the future"),
+                0 => gettext("Last reviewed today"),
+                d => ngettext_f(
+                    "Last reviewed {n} day ago",
+                    "Last reviewed {n} days ago",
+                    d as u32,
+                    &[("n", &d.to_string())],
+                ),
             }
         }
     }

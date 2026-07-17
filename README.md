@@ -151,7 +151,7 @@ Four decisions are load-bearing. **Mode is a view, not a schema:** the OmniFocus
 - **Rust 2024 Edition**, **GTK 4.16+** / **libadwaita 1.7+**
 - **SQLite** via `rusqlite` (`bundled`, `chrono`, `trace`): single-writer worker, WAL mode, FTS5
 - **`tokio`** runtime; **`chrono`** dates; **`serde`** / **`serde_json`**; **`anyhow`** / **`thiserror`**; **`tracing`**
-- **`rrule`** (RRULE iteration), **`regex`** (`tag:~` modifier), **`uuid`** (`:ID:` round-trip), **`notify`** (vault watcher)
+- **`rrule`** (RRULE iteration), **`regex`** (`tag:~` modifier), **`uuid`** (`:ID:` round-trip), **`notify`** (vault watcher), **`gettext-rs`** (localisation)
 - **Bundled fonts** (SIL OFL): Inter, Source Serif 4, JetBrains Mono, Atkinson Hyperlegible; no host fonts assumed
 - **Meson** wrapper over Cargo for Flatpak packaging
 - **Memory budget:** < 80 MB idle, < 200 MB active on a 10K-task DB, < 250 ms cold start on 5K tasks
@@ -179,7 +179,7 @@ scripts/regression.sh
 
 ## Status
 
-**Feature-complete and heading to 1.0.** Every functional phase has shipped: both modes, Calibre-powered search, two-way Org-mode sync, the kanban and calendar surfaces, every importer, and the productivity essentials (subtasks, dependencies, templates, backups, reminders, onboarding). What remains before the 1.0 tag is packaging, not features: localisation scaffolding and a Flathub submission.
+**Feature-complete and heading to 1.0.** Every functional phase has shipped: both modes, Calibre-powered search, two-way Org-mode sync, the kanban and calendar surfaces, every importer, and the productivity essentials (subtasks, dependencies, templates, backups, reminders, onboarding). Localisation scaffolding shipped at v0.47.0 (gettext throughout the interface; English is the first catalogue, translations welcome once 1.0 lands). What remains before the 1.0 tag is packaging: a Flathub submission.
 
 - [`spec.md`](spec.md): the contract (architecture, schema, search grammar, import/export mapping, perf budget).
 - [`roadmap.md`](roadmap.md): the phase plan, what shipped and what's next.

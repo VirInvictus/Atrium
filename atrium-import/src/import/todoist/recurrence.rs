@@ -120,14 +120,13 @@ fn try_every_ordinal_day(input: &str, today: NaiveDate) -> Option<RecurrencePars
     let day_of_month = if let Some(rest) = first.strip_suffix("day") {
         // "1stday" — the day suffix is glued.
         parse_ordinal(rest)?
-    } else if let Some(second) = tokens.next() {
+    } else {
         // "1st day" — second token must be "day" (or "days").
+        let second = tokens.next()?;
         if !matches!(second, "day" | "days") {
             return None;
         }
         parse_ordinal(first)?
-    } else {
-        return None;
     };
     if !(1..=31).contains(&day_of_month) {
         return None;

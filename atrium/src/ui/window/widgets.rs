@@ -5,6 +5,7 @@
 //! v0.22.0 split (Pass 2).
 
 use super::*;
+use crate::i18n::{gettext, gettext_f, ngettext_f, pgettext};
 
 /// Build the primary (hamburger) menu. `include_debug` adds the
 /// fixture-generator submenu for `--debug` runs.
@@ -12,47 +13,57 @@ pub(crate) fn build_primary_menu(include_debug: bool) -> gio::Menu {
     let menu = gio::Menu::new();
 
     let new_section = gio::Menu::new();
-    new_section.append(Some("New Task"), Some("app.new-task"));
-    new_section.append(Some("Quick Entry"), Some("app.quick-entry"));
-    new_section.append(Some("New Project"), Some("app.new-project"));
-    new_section.append(Some("New from Template…"), Some("app.new-from-template"));
-    new_section.append(Some("New Area"), Some("app.new-area"));
-    new_section.append(Some("New Tag"), Some("app.new-tag"));
+    new_section.append(Some(&gettext("New Task")), Some("app.new-task"));
+    new_section.append(Some(&gettext("Quick Entry")), Some("app.quick-entry"));
+    new_section.append(Some(&gettext("New Project")), Some("app.new-project"));
+    new_section.append(
+        Some(&gettext("New from Template…")),
+        Some("app.new-from-template"),
+    );
+    new_section.append(Some(&gettext("New Area")), Some("app.new-area"));
+    new_section.append(Some(&gettext("New Tag")), Some("app.new-tag"));
     menu.append_section(None, &new_section);
 
     let library_section = gio::Menu::new();
-    library_section.append(Some("Rename Active"), Some("win.rename-active"));
-    library_section.append(Some("Archive Project"), Some("win.archive-active-project"));
-    library_section.append(Some("Delete Active"), Some("win.delete-active"));
+    library_section.append(Some(&gettext("Rename Active")), Some("win.rename-active"));
+    library_section.append(
+        Some(&gettext("Archive Project")),
+        Some("win.archive-active-project"),
+    );
+    library_section.append(Some(&gettext("Delete Active")), Some("win.delete-active"));
     // Phase 14 — saved perspective from the current search query.
     // Disabled implicitly when not on SearchResults (the action's
     // enabled state tracks the active list).
     library_section.append(
-        Some("Save Search as Perspective…"),
+        Some(&gettext("Save Search as Perspective…")),
         Some("win.save-perspective"),
     );
     menu.append_section(None, &library_section);
 
     let mode_section = gio::Menu::new();
     let mode_submenu = gio::Menu::new();
-    mode_submenu.append(Some("Simple"), Some("app.mode::simple"));
-    mode_submenu.append(Some("Builder"), Some("app.mode::builder"));
-    mode_section.append_submenu(Some("Mode"), &mode_submenu);
+    // Translators: the two application modes — "Simple" hides the
+    // power-user surfaces, "Builder" shows them.
+    mode_submenu.append(Some(&gettext("Simple")), Some("app.mode::simple"));
+    mode_submenu.append(Some(&gettext("Builder")), Some("app.mode::builder"));
+    mode_section.append_submenu(Some(&gettext("Mode")), &mode_submenu);
     // Phase 8c — accessibility toggle. Stateful win action backed by
     // the `high-legibility-font` GSetting; the menu surfaces it as a
     // checkable item.
     let accessibility_submenu = gio::Menu::new();
     accessibility_submenu.append(
-        Some("Use High-Legibility Font"),
+        Some(&gettext("Use High-Legibility Font")),
         Some("win.high-legibility-font"),
     );
-    mode_section.append_submenu(Some("Accessibility"), &accessibility_submenu);
+    mode_section.append_submenu(Some(&gettext("Accessibility")), &accessibility_submenu);
     menu.append_section(None, &mode_section);
 
     if include_debug {
         let debug_section = gio::Menu::new();
         let debug_submenu = gio::Menu::new();
 
+        // Deliberately untranslated: the `--debug` tooling stays
+        // English-only per spec §3.6.
         let fixture_submenu = gio::Menu::new();
         fixture_submenu.append(Some("Small (1K tasks)"), Some("app.fixture::small"));
         fixture_submenu.append(Some("Medium (10K tasks)"), Some("app.fixture::medium"));
@@ -70,7 +81,7 @@ pub(crate) fn build_primary_menu(include_debug: bool) -> gio::Menu {
     // v0.34.0 — unified import dialog (Org / Todoist / VTODO /
     // Taskwarrior / todo.txt).
     let io_section = gio::Menu::new();
-    io_section.append(Some("Import…"), Some("app.import"));
+    io_section.append(Some(&gettext("Import…")), Some("app.import"));
     menu.append_section(None, &io_section);
 
     let about_section = gio::Menu::new();
@@ -78,10 +89,13 @@ pub(crate) fn build_primary_menu(include_debug: bool) -> gio::Menu {
     // shortcuts/about line so it reads as part of the "primary"
     // app actions; standard GNOME convention puts Preferences
     // before About.
-    about_section.append(Some("Preferences…"), Some("app.preferences"));
-    about_section.append(Some("Keyboard Shortcuts"), Some("app.show-shortcuts"));
-    about_section.append(Some("About Atrium"), Some("app.about"));
-    about_section.append(Some("Quit"), Some("app.quit"));
+    about_section.append(Some(&gettext("Preferences…")), Some("app.preferences"));
+    about_section.append(
+        Some(&gettext("Keyboard Shortcuts")),
+        Some("app.show-shortcuts"),
+    );
+    about_section.append(Some(&gettext("About Atrium")), Some("app.about"));
+    about_section.append(Some(&gettext("Quit")), Some("app.quit"));
     menu.append_section(None, &about_section);
 
     menu
@@ -104,6 +118,24 @@ pub(super) const TAG_COLORS: &[(&str, Option<&str>)] = &[
     ("Red", Some("#e01b24")),
     ("Purple", Some("#9141ac")),
 ];
+
+/// Display name for a `TAG_COLORS` label. A literal-msgid match rather
+/// than `gettext(*label)` because xgettext can only extract literals
+/// at a call site — translating through the const would leave these
+/// six names out of the pot.
+fn tag_color_display_name(label: &str) -> String {
+    match label {
+        // Translators: the "no colour" swatch in the tag/area colour picker.
+        "None" => pgettext("tag colour", "None"),
+        "Blue" => gettext("Blue"),
+        "Green" => gettext("Green"),
+        "Yellow" => gettext("Yellow"),
+        "Orange" => gettext("Orange"),
+        "Red" => gettext("Red"),
+        "Purple" => gettext("Purple"),
+        other => other.to_string(),
+    }
+}
 
 /// Prompt for a name + colour. Returns `Some((name, color))` on
 /// confirmation; `None` on cancel or empty name. The `color_initial`
@@ -140,7 +172,7 @@ pub(super) async fn prompt_for_named_color(
 
     for (label, hex) in TAG_COLORS {
         let toggle = gtk::ToggleButton::builder()
-            .tooltip_text(*label)
+            .tooltip_text(tag_color_display_name(label))
             .width_request(28)
             .height_request(28)
             .build();
@@ -151,9 +183,13 @@ pub(super) async fn prompt_for_named_color(
         // as garbage to a screen reader. A tooltip is not an accessible
         // name, so set one explicitly.
         let a11y_name = if hex.is_some() {
-            format!("{label} colour")
+            // Translators: {label} is a swatch colour name (Blue, Green, …).
+            gettext_f(
+                "{label} colour",
+                &[("label", &tag_color_display_name(label))],
+            )
         } else {
-            "No colour".to_string()
+            gettext("No colour")
         };
         toggle.update_property(&[gtk::accessible::Property::Label(&a11y_name)]);
         if hex.is_some() {
@@ -200,7 +236,7 @@ pub(super) async fn prompt_for_named_color(
             .spacing(12)
             .build();
         let label = gtk::Label::builder()
-            .label("Review every (days, 0 = off)")
+            .label(gettext("Review every (days, 0 = off)"))
             .halign(gtk::Align::Start)
             .hexpand(true)
             .xalign(0.0)
@@ -215,7 +251,7 @@ pub(super) async fn prompt_for_named_color(
 
     let dialog = adw::AlertDialog::new(Some(heading), None);
     dialog.set_extra_child(Some(&body));
-    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("cancel", &gettext("Cancel"));
     dialog.add_response("ok", confirm_label);
     dialog.set_default_response(Some("ok"));
     dialog.set_close_response("cancel");
@@ -250,7 +286,7 @@ pub(super) async fn prompt_for_text(
 
     let dialog = adw::AlertDialog::new(Some(heading), None);
     dialog.set_extra_child(Some(&entry));
-    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("cancel", &gettext("Cancel"));
     dialog.add_response("ok", confirm_label);
     dialog.set_default_response(Some("ok"));
     dialog.set_close_response("cancel");
@@ -336,15 +372,24 @@ fn existing_board_state(
 
 /// The static hint text + placeholder for the columns entry under a
 /// given board axis.
-fn columns_hint(axis: atrium_core::BoardAxis) -> (&'static str, &'static str) {
+fn columns_hint(axis: atrium_core::BoardAxis) -> (String, String) {
     match axis {
         atrium_core::BoardAxis::Tag => (
-            "Columns (comma-separated; append :N for a WIP limit):",
-            "todo, doing:2, done",
+            // Translators: the `:N` suffix syntax is literal and must
+            // stay as-is.
+            gettext("Columns (comma-separated; append :N for a WIP limit):"),
+            // Translators: example column names for a tag board; the
+            // `:2` WIP-limit suffix syntax is literal.
+            gettext("todo, doing:2, done"),
         ),
         atrium_core::BoardAxis::Status => (
-            "Columns (Org #+TODO: keywords; “|” before done; :N sets a WIP limit):",
-            "TODO, NEXT:3, WAITING | DONE, CANCELLED",
+            // Translators: `#+TODO:`, the `|` separator, and the `:N`
+            // suffix are literal Org-mode / board syntax and must stay
+            // as-is.
+            gettext("Columns (Org #+TODO: keywords; “|” before done; :N sets a WIP limit):"),
+            // Translators: example Org status keywords; `|` and `:3`
+            // are literal syntax.
+            gettext("TODO, NEXT:3, WAITING | DONE, CANCELLED"),
         ),
     }
 }
@@ -367,15 +412,15 @@ fn build_renderer_form(
     let is_status = existing_axis == Some(atrium_core::BoardAxis::Status);
 
     let list_radio = gtk::CheckButton::builder()
-        .label("List \u{2014} flat task list (default)")
+        .label(gettext("List \u{2014} flat task list (default)"))
         .active(existing_axis.is_none())
         .build();
     let tag_radio = gtk::CheckButton::builder()
-        .label("Board \u{2014} columns by tag")
+        .label(gettext("Board \u{2014} columns by tag"))
         .active(is_tag)
         .build();
     let status_radio = gtk::CheckButton::builder()
-        .label("Board \u{2014} columns by status (Org keywords)")
+        .label(gettext("Board \u{2014} columns by status (Org keywords)"))
         .active(is_status)
         .build();
     tag_radio.set_group(Some(&list_radio));
@@ -415,8 +460,8 @@ fn build_renderer_form(
             if btn.is_active() {
                 let (hint, placeholder) = columns_hint(axis);
                 entry.set_sensitive(true);
-                label.set_text(hint);
-                entry.set_placeholder_text(Some(placeholder));
+                label.set_text(&hint);
+                entry.set_placeholder_text(Some(&placeholder));
             }
         });
     }
@@ -464,12 +509,15 @@ pub(super) async fn prompt_configure_renderer_dialog(
         build_renderer_form(&form, existing_axis, &existing_cols_text);
 
     let dialog = adw::AlertDialog::new(
-        Some(&format!("Configure renderer for “{}”", perspective.name)),
+        Some(&gettext_f(
+            "Configure renderer for “{name}”",
+            &[("name", &perspective.name)],
+        )),
         None,
     );
     dialog.set_extra_child(Some(&form));
-    dialog.add_response("cancel", "Cancel");
-    dialog.add_response("ok", "Save");
+    dialog.add_response("cancel", &gettext("Cancel"));
+    dialog.add_response("ok", &gettext("Save"));
     dialog.set_default_response(Some("ok"));
     dialog.set_close_response("cancel");
     dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
@@ -521,32 +569,34 @@ pub(super) async fn prompt_edit_perspective(
         .build();
 
     let name_label = gtk::Label::builder()
-        .label("Name")
+        .label(gettext("Name"))
         .halign(gtk::Align::Start)
         .build();
     name_label.add_css_class("dim-label");
     form.append(&name_label);
     let name_entry = gtk::Entry::builder()
-        .placeholder_text("e.g. Today + Errands")
+        .placeholder_text(gettext("e.g. Today + Errands"))
         .text(&existing_name)
         .activates_default(true)
         .build();
     form.append(&name_entry);
 
     let filter_label = gtk::Label::builder()
-        .label("Filter expression")
+        .label(gettext("Filter expression"))
         .halign(gtk::Align::Start)
         .build();
     filter_label.add_css_class("dim-label");
     form.append(&filter_label);
     let filter_entry = gtk::Entry::builder()
-        .placeholder_text("e.g. is:open AND tag:errand")
+        // Translators: `is:open`, `AND`, and `tag:errand` are literal
+        // search-grammar tokens and must not be translated.
+        .placeholder_text(gettext("e.g. is:open AND tag:errand"))
         .text(&existing_filter)
         .build();
     form.append(&filter_entry);
 
     let renderer_label = gtk::Label::builder()
-        .label("Renderer")
+        .label(gettext("Renderer"))
         .halign(gtk::Align::Start)
         .build();
     renderer_label.add_css_class("dim-label");
@@ -556,14 +606,21 @@ pub(super) async fn prompt_edit_perspective(
         build_renderer_form(&form, existing_axis, &existing_cols_text);
 
     let heading = if existing.is_some() {
-        format!("Edit “{}”", existing_name)
+        gettext_f("Edit “{name}”", &[("name", &existing_name)])
     } else {
-        "New perspective".to_string()
+        gettext("New perspective")
     };
     let dialog = adw::AlertDialog::new(Some(&heading), None);
     dialog.set_extra_child(Some(&form));
-    dialog.add_response("cancel", "Cancel");
-    dialog.add_response("ok", if existing.is_some() { "Save" } else { "Create" });
+    dialog.add_response("cancel", &gettext("Cancel"));
+    dialog.add_response(
+        "ok",
+        &if existing.is_some() {
+            gettext("Save")
+        } else {
+            gettext("Create")
+        },
+    );
     dialog.set_default_response(Some("ok"));
     dialog.set_close_response("cancel");
     dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
@@ -618,7 +675,7 @@ pub(super) async fn prompt_confirm_destructive(
     destructive_label: &str,
 ) -> bool {
     let dialog = adw::AlertDialog::new(Some(heading), Some(body));
-    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("cancel", &gettext("Cancel"));
     dialog.add_response("destroy", destructive_label);
     dialog.set_default_response(Some("cancel"));
     dialog.set_close_response("cancel");
@@ -638,7 +695,7 @@ pub(super) fn truncate(s: &str, max_chars: usize) -> String {
 }
 
 pub(super) fn build_canonical_row(active: &ActiveList) -> (gtk::ListBoxRow, gtk::Label) {
-    let (row, badge) = sidebar_row(icon_for(active), active.canonical_title(), 8);
+    let (row, badge) = sidebar_row(icon_for(active), &active.canonical_title(), 8);
     // v0.5.0 — quiet accent colour per canonical list. Each class
     // reaches in via CSS (see data/style.css) and tints only the
     // leading symbolic icon, not the label or the row chrome. The
@@ -676,14 +733,16 @@ pub(super) fn build_search_help_popover() -> gtk::Popover {
         .build();
 
     let intro = gtk::Label::builder()
-        .label("Search expression reference")
+        .label(gettext("Search expression reference"))
         .halign(gtk::Align::Start)
         .build();
     intro.add_css_class("title-4");
     body.append(&intro);
 
     let sub = gtk::Label::builder()
-        .label("Compose freely with AND / OR / NOT and parens.")
+        // Translators: AND / OR / NOT are literal boolean operators
+        // and must not be translated.
+        .label(gettext("Compose freely with AND / OR / NOT and parens."))
         .halign(gtk::Align::Start)
         .wrap(true)
         .build();
@@ -692,92 +751,132 @@ pub(super) fn build_search_help_popover() -> gtk::Popover {
     body.append(&sub);
 
     // Sections — each is (title, [(operator, meaning), …]).
-    let sections: &[(&str, &[(&str, &str)])] = &[
+    // Translators: throughout this reference the left-hand operator
+    // examples (`tag:work`, `is:open`, `sort:-due`, …) are literal
+    // search-grammar tokens and are deliberately not translatable;
+    // only the section titles and right-hand descriptions are.
+    let sections: Vec<(String, Vec<(&str, String)>)> = vec![
         (
-            "Boolean",
-            &[
-                ("a AND b", "both must match (implicit between bare tokens)"),
-                ("a OR b", "either matches"),
-                ("NOT a / !a", "negation"),
-                ("(a OR b) AND c", "parens override precedence"),
+            gettext("Boolean"),
+            vec![
+                (
+                    "a AND b",
+                    gettext("both must match (implicit between bare tokens)"),
+                ),
+                ("a OR b", gettext("either matches")),
+                ("NOT a / !a", gettext("negation")),
+                ("(a OR b) AND c", gettext("parens override precedence")),
             ],
         ),
         (
-            "Fields",
-            &[
-                ("tag:work", "task has a tag matching \"work\""),
-                ("area:Personal", "task's project sits under that area"),
-                ("project:\"Q3 plans\"", "task lives in that project"),
-                ("title:milk / note:foo", "column-scoped text match"),
-                ("due: / scheduled: / defer:", "date fields"),
-                ("created: / modified: / completed:", "datetime fields"),
-                ("estimated:", "numeric (minutes)"),
-                ("repeats:true / :false", "has a repeat rule, or doesn't"),
+            gettext("Fields"),
+            vec![
+                ("tag:work", gettext("task has a tag matching \"work\"")),
+                (
+                    "area:Personal",
+                    gettext("task's project sits under that area"),
+                ),
+                (
+                    "project:\"Q3 plans\"",
+                    gettext("task lives in that project"),
+                ),
+                ("title:milk / note:foo", gettext("column-scoped text match")),
+                ("due: / scheduled: / defer:", gettext("date fields")),
+                (
+                    "created: / modified: / completed:",
+                    gettext("datetime fields"),
+                ),
+                ("estimated:", gettext("numeric (minutes)")),
+                (
+                    "repeats:true / :false",
+                    gettext("has a repeat rule, or doesn't"),
+                ),
             ],
         ),
         (
-            "Match modifiers",
-            &[
-                ("tag:work", "substring (default, case-insensitive)"),
-                ("tag:=work", "exact match"),
-                ("tag:~mystery.*", "regex (RE2 syntax)"),
-                ("tag:?wrok", "fuzzy (typo / transposition tolerant)"),
-                ("tag:true / tag:false", "has any tag, or has none"),
+            gettext("Match modifiers"),
+            vec![
+                ("tag:work", gettext("substring (default, case-insensitive)")),
+                ("tag:=work", gettext("exact match")),
+                ("tag:~mystery.*", gettext("regex (RE2 syntax)")),
+                (
+                    "tag:?wrok",
+                    gettext("fuzzy (typo / transposition tolerant)"),
+                ),
+                ("tag:true / tag:false", gettext("has any tag, or has none")),
             ],
         ),
         (
-            "Comparison & range",
-            &[
-                ("due:>today", "deadline after today"),
-                ("estimated:>=30", "30 minutes or more"),
-                ("due:2026-05-01..2026-05-31", "inclusive range"),
+            gettext("Comparison & range"),
+            vec![
+                ("due:>today", gettext("deadline after today")),
+                ("estimated:>=30", gettext("30 minutes or more")),
+                ("due:2026-05-01..2026-05-31", gettext("inclusive range")),
             ],
         ),
         (
-            "Date keywords",
-            &[
-                ("today / yesterday / tomorrow", "single days"),
-                ("thisweek / lastweek / nextweek", "ISO Mon-start week"),
-                ("thismonth / lastmonth / nextmonth", "calendar month"),
-                ("thisyear", "calendar year"),
-                ("5daysago / 3daysout", "Ndaysago / Ndaysout"),
+            gettext("Date keywords"),
+            vec![
+                ("today / yesterday / tomorrow", gettext("single days")),
+                (
+                    "thisweek / lastweek / nextweek",
+                    gettext("ISO Mon-start week"),
+                ),
+                (
+                    "thismonth / lastmonth / nextmonth",
+                    gettext("calendar month"),
+                ),
+                ("thisyear", gettext("calendar year")),
+                // Translators: `Ndaysago` / `Ndaysout` are the literal
+                // keyword patterns (N is a number) and must stay as-is.
+                ("5daysago / 3daysout", gettext("Ndaysago / Ndaysout")),
             ],
         ),
         (
-            "State predicates",
-            &[
-                ("is:open / is:done / is:overdue", "completion state"),
+            gettext("State predicates"),
+            vec![
+                (
+                    "is:open / is:done / is:overdue",
+                    gettext("completion state"),
+                ),
                 (
                     "is:scheduled / is:deadline / is:deferred",
-                    "has the field set",
+                    gettext("has the field set"),
                 ),
-                ("is:repeating / is:archived / is:tagged", "presence flags"),
+                (
+                    "is:repeating / is:archived / is:tagged",
+                    gettext("presence flags"),
+                ),
                 (
                     "is:today / is:inbox / is:upcoming",
-                    "canonical-list mirrors",
+                    gettext("canonical-list mirrors"),
                 ),
-                ("is:anytime / is:someday", "more list mirrors"),
+                ("is:anytime / is:someday", gettext("more list mirrors")),
             ],
         ),
         (
-            "Sort",
-            &[
-                ("sort:KEY", "ascending (due, scheduled, title, …)"),
-                ("sort:-KEY", "descending"),
+            gettext("Sort"),
+            vec![
+                ("sort:KEY", gettext("ascending (due, scheduled, title, …)")),
+                ("sort:-KEY", gettext("descending")),
                 (
                     "sort:-due sort:title",
-                    "primary by deadline desc, ties by title",
+                    gettext("primary by deadline desc, ties by title"),
                 ),
             ],
         ),
     ];
 
-    for (title, rows) in sections {
+    for (title, rows) in &sections {
         body.append(&build_help_section(title, rows));
     }
 
     let footer = gtk::Label::builder()
-        .label("Full reference: spec.md §4.3 · ↑/↓ recall recent searches")
+        // Translators: `spec.md §4.3` is a documentation reference and
+        // stays literal.
+        .label(gettext(
+            "Full reference: spec.md §4.3 · ↑/↓ recall recent searches",
+        ))
         .halign(gtk::Align::Start)
         .wrap(true)
         .build();
@@ -804,7 +903,7 @@ pub(super) fn build_search_help_popover() -> gtk::Popover {
 /// One section in the operator-reference popover: a heading label
 /// followed by `op | meaning` rows. Operators land in monospace via
 /// the `.monospace` style class so they read as code.
-pub(super) fn build_help_section(title: &str, rows: &[(&str, &str)]) -> gtk::Box {
+pub(super) fn build_help_section(title: &str, rows: &[(&str, String)]) -> gtk::Box {
     let section = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(4)
@@ -835,7 +934,7 @@ pub(super) fn build_help_section(title: &str, rows: &[(&str, &str)]) -> gtk::Box
         op_label.add_css_class("monospace");
         op_label.add_css_class("caption");
         let meaning_label = gtk::Label::builder()
-            .label(*meaning)
+            .label(meaning.as_str())
             .halign(gtk::Align::Start)
             .xalign(0.0)
             .wrap(true)
@@ -947,14 +1046,14 @@ pub(super) fn canonical_accent_class(active: &ActiveList) -> Option<&'static str
 /// - Logbook: completed past. Always last so the sidebar's top
 ///   tier ends on "what's done" rather than interrupting the
 ///   future-facing flow.
-pub(super) fn top_tier_extras(builder: bool) -> Vec<(ActiveList, &'static str)> {
-    let mut out: Vec<(ActiveList, &'static str)> = Vec::with_capacity(4);
-    out.push((ActiveList::Agenda, "Agenda"));
+pub(super) fn top_tier_extras(builder: bool) -> Vec<(ActiveList, String)> {
+    let mut out: Vec<(ActiveList, String)> = Vec::with_capacity(4);
+    out.push((ActiveList::Agenda, gettext("Agenda")));
     if builder {
-        out.push((ActiveList::Calendar, "Calendar"));
-        out.push((ActiveList::Review, "Review"));
+        out.push((ActiveList::Calendar, gettext("Calendar")));
+        out.push((ActiveList::Review, gettext("Review")));
     }
-    out.push((ActiveList::Logbook, "Logbook"));
+    out.push((ActiveList::Logbook, gettext("Logbook")));
     out
 }
 
@@ -1129,11 +1228,12 @@ pub(super) fn apply_badge_label(badge: &gtk::Label, count: i64) {
         // "5"; the accessible label reads as "5 open tasks", so
         // SR users hear "Today, 5 open tasks" instead of "Today,
         // 5". Singular form when count == 1.
-        let aria = if count == 1 {
-            "1 open task".to_string()
-        } else {
-            format!("{count} open tasks")
-        };
+        let aria = ngettext_f(
+            "{n} open task",
+            "{n} open tasks",
+            count as u32,
+            &[("n", &count.to_string())],
+        );
         badge.update_property(&[gtk::accessible::Property::Label(&aria)]);
     } else {
         badge.set_visible(false);
