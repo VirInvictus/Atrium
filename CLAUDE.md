@@ -4,17 +4,19 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.47.0** (July 2026). **Schema version: 19** (migrations `0001` → `0019`). **1027 unit tests across the workspace, all green.**
+**Current release: v0.65.1** on `main` (July 2026). The `phase-22-de-adwaita` branch was merged back and deleted at v0.65.1; the vault-ledger fixes that shipped on the release line as v0.48.0 / v0.48.1 are recorded under their branch numbers, v0.60.0 / v0.60.1 (both lines independently minted a v0.48.0; the branch's is the de-adwaita re-sequence docs commit). **Schema version: 20** (migrations `0001` → `0020`; 0020 is the C9 swatch recolour). Full workspace suite green. **The Phase 22 de-adwaita ladder is complete (C1 → C10): Atrium is plain GTK4 with a self-contained owned Kanagawa Dragon stylesheet, zero libadwaita in the tree.** Display-verified and look approved by Brandon.
 
 Phases 0 through 19.5 are complete: the full OmniFocus-superset data layer, dual Simple/Builder modes, Quick Entry, the Org vault two-way mirror, search, recurrence, subtasks, dependencies, templates, backup/restore, per-area review schedules, bulk editing, reminders with launch catch-up, and the non-Org importers (Todoist, Taskwarrior, todo.txt, VTODO, extracted into `atrium-import`). The kanban surface has matured through v0.46.0 (richer cards, per-column WIP limits, add-in-place, persisted intra-column order), preserving the projection column model (columns stay a projection of a tag or Org status; no first-class buckets, so boards still round-trip to Org). v0.46.1 / v0.46.2 were test-only fixes for a flaky CI: the `atrium-org` vault-watcher integration tests now poll for the expected end-state instead of waiting a fixed interval (v0.46.1), and are serialized via a file-level `tokio::sync::Mutex` so the harness can't run them in parallel and starve each other on a small runner (v0.46.2).
 
-**Phase 20 (the 1.0 endgame) is in flight:** it ships one minor per workstream (accessibility, perf, mdbook docs site, then localisation and Flathub/AppStream readiness) before tagging `v1.0.0`. Localisation scaffolding shipped at v0.47.0 (gettext text domain `atrium`, `po/` + meson `i18n.gettext`, a full marking sweep of the GTK binary through `atrium/src/i18n.rs`, `en` as the first catalogue; spec §3.6). Two conventions started there: every new metainfo `<release><description>` carries `translate="no"`, and new `.rs` files with user-facing strings join `po/POTFILES`. Flathub/AppStream readiness is the remaining deferred workstream (needs the flatpak-builder environment).
+**Phase 20 (the 1.0 endgame) is in flight,** and its tail is re-sequenced as of v0.48.0. Localisation scaffolding shipped at v0.47.0 (gettext text domain `atrium`, `po/` + meson `i18n.gettext`, a full marking sweep of the GTK binary through `atrium/src/i18n.rs`, `en` as the first catalogue; spec §3.6). Two conventions started there: every new metainfo `<release><description>` carries `translate="no"`, and new `.rs` files with user-facing strings join `po/POTFILES`.
+
+**Sequencing (Brandon, 2026-07-17): Phase 22 — the de-adwaita + Kanagawa Dragon re-theme — is pulled in front of the `v1.0.0` tag** rather than run post-1.0, because the remaining 1.0 assets (final icon, screenshots, Flathub metadata) are all invalidated by the toolkit swap. Pre-1.0 order is now: the de-adwaita sub-phase ladder (roadmap Phase 22, C1 foundations → C10 toolkit cut) → the icon/screenshots/Flathub asset tail → the `v1.0.0` tag. The pilot gate is satisfied (Colophon Phase 6 at v2.0.0; Conservatory Phase 26 at v0.3.8). Template: `~/.gitrepos/Conservatory/conservatory/src/theme.rs` + its 26b→26m ladder. Design language: spec §3.7. **Ladder progress (branch `phase-22-de-adwaita`): C1–C9 shipped (v0.50.0 → v0.62.0); C10 (drop libadwaita) is the last rung.** C8 (shell cut) and C9 (the owned Kanagawa `theme.rs` + the flat/square visual flip, accent dragonYellow `#c4b28a`) are not yet display-verified — needs a launch before C10, the irreversible toolkit drop. The one schema touch in the whole phase, migration `0020` (swatch recolour, UPDATE-only), shipped at C9. Phase 21 (the Hyprland audit) stays post-1.0; its number is lower than Phase 22 but its execution is later. Flathub readiness is now verifiable locally (flatpak-builder + GNOME Platform/Sdk 50 are installed); only the screenshot capture and the Flathub PR need Brandon's display/account.
 
 **The per-release history lives in `patchnotes.md` (newest at top); do not restate it here.** When precision on a specific version matters, read that file, `roadmap.md`, and `VERSION`.
 
 Seven workspace crates: `atrium-core` (data layer), `atrium-search` (Calibre-style search expression language), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-import` (non-Org import/export formats, extracted v0.34.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary.
 
-The next-up plan lives in `roadmap.md`; the current front is Phase 20 (the 1.0 endgame).
+The next-up plan lives in `roadmap.md`; the current front is the Phase 22 de-adwaita ladder (running inside the Phase 20 endgame, before the tag).
 
 **Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atriumd`, the post-1.0 `atrium-tui`). Don't add functionality to the GTK binary that can't be reached from the shell.
 
@@ -254,10 +256,14 @@ scripts/regression.sh                 ← ship-gate
 scripts/perf.sh                       ← perf regression suite (v0.36.0): 50K/100K fixtures, §8 budget assertions
 ```
 
-## Dialog primitives (standardised v0.0.37)
+## Dialog primitives (standardised v0.0.37; de-adwaita'd through Phase 22 C8)
 
-- **Inspector** (Simple Mode) + **Tag editor** are `adw::Dialog` (in-window modal overlay; `present(parent)` / `close()`).
-- **Inspector pane** (Builder Mode) is an always-visible `AdwBin` in the right-side `AdwOverlaySplitView` sidebar — non-modal, autosaves on focus-out.
-- **Quick Entry** is `adw::Window` (`modal=false`, `transient_for(main)`, fade-in keyframe) — the spec wants it to *not* steal grab from the previously-focused window; AdwDialog always grabs.
-- **Memory Watch** is `adw::Window` for the same non-grab reason.
-- **Confirmations** use `adw::AlertDialog`. The tag-colour picker (`prompt_for_tag`) extends `AlertDialog` with a custom extra-child Box for the swatch row.
+The Phase 22 ladder replaced every adwaita dialog primitive with an owned or plain-GTK equivalent. Current state:
+
+- **Inspector** (Simple Mode) + **Tag editor** are modal, transient `gtk::Window`s (C8; were `adw::Dialog`). An invisible `gtk::HeaderBar` titlebar suppresses GTK's default header; the in-content `gtk::HeaderBar` carries the buttons with `show-title-buttons=false`; `dialogs::close_on_escape` wires Escape-to-dismiss; `present()` / `close()`.
+- **Inspector pane** (Builder Mode) is an always-visible `gtk::Box` host in the right-side `gtk::Paned` end child (C5d/C6; were `AdwBin` in an `AdwOverlaySplitView`) — non-modal, autosaves on focus-out.
+- **Quick Entry** is a `gtk::Window` (`modal=false`, `transient_for(main)`; C8) — it must *not* steal grab from the previously-focused window (adwaita's dialogs always grabbed). Static "Quick Entry" title kept for the Hyprland window rule.
+- **Memory Watch** is a `gtk::Window` for the same non-grab reason (C8; gained Escape-to-close).
+- **Confirmations** use the owned `dialogs::Alert` (C4; was `adw::AlertDialog`) — named responses, per-response appearance, optional extra child, async `choose_future`. The tag-colour picker (`prompt_for_tag`) passes a swatch-row extra child.
+
+There is no adwaita surface left: C10 (v0.64.0) dropped libadwaita entirely. `adw::Application` → `gtk::Application`; the `preferences.rs` theme apply sets GtkSettings' `gtk-application-prefer-dark-theme` (Atrium ships the dark Kanagawa sheet; a light Lotus palette is post-1.0).

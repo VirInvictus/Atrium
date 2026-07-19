@@ -90,7 +90,7 @@ impl AtriumWindow {
             // v0.6.0 (Slice D1 GUI) — perspective whose
             // `renderer = "board"` renders as a kanban instead of
             // a flat list. We branch *before* the list path: the
-            // board page has its own host AdwBin in the content
+            // board page has its own host box in the content
             // stack, no shared GtkListView state.
             let perspective_snapshot = self.imp().perspective_meta.borrow().get(id).cloned();
             if let Some(p) = perspective_snapshot
@@ -584,13 +584,14 @@ impl AtriumWindow {
     pub(super) fn update_empty_state(&self, store: &gio::ListStore) {
         let active = self.active_list();
         let stack = self.imp().content_stack.clone();
-        let status = self.imp().content_status.clone();
 
         if store.n_items() == 0 {
-            let (title, description) = self.empty_state_copy(&active);
-            status.set_title(&title);
-            status.set_description(Some(&description));
-            status.set_icon_name(Some(icon_for(&active)));
+            if let Some(status) = self.imp().content_status.get() {
+                let (title, description) = self.empty_state_copy(&active);
+                status.set_title(&title);
+                status.set_description(Some(&description));
+                status.set_icon_name(Some(icon_for(&active)));
+            }
             stack.set_visible_child_name("empty");
         } else {
             stack.set_visible_child_name("list");

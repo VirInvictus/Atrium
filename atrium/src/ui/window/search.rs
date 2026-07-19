@@ -187,17 +187,60 @@ impl AtriumWindow {
         self.imp().search_entry.grab_focus();
     }
 
-    /// Show a toast with an Undo button. The undo closure runs at
-    /// most once — whichever of the toast button or the `Ctrl+Z`
-    /// accel (Phase 7f) fires first consumes it. Default 6 s timeout.
-    /// Phase 7b's daily-driver safety net.
-    /// Generic toast helper. Used for non-undo notifications like
-    /// the filter-parse warning surface. Times out at 4 seconds —
-    /// long enough to read, short enough not to linger.
+    /// Generic toast helper. Used for non-undo notifications like the
+    /// filter-parse warning surface. Times out at 4 seconds — long
+    /// enough to read, short enough not to linger.
     pub fn show_toast(&self, message: &str) {
-        let toast = adw::Toast::new(message);
-        toast.set_timeout(4);
-        self.imp().toast_overlay.add_toast(toast);
+        self.imp().toast_button.set_visible(false);
+        self.present_toast(message, 4);
+    }
+
+    /// Reveal the owned toast pill with `message` and arm an auto-hide
+    /// after `secs`. Newest-wins: a new toast cancels the pending timer
+    /// so a burst keeps the latest message up for its full window.
+    /// Phase 22 C3.
+    fn present_toast(&self, message: &str, secs: u64) {
+        let imp = self.imp();
+        imp.toast_label.set_label(message);
+        imp.toast_revealer.set_reveal_child(true);
+        if let Some(id) = imp.toast_timeout.take() {
+            id.remove();
+        }
+        let id = glib::timeout_add_local_once(
+            std::time::Duration::from_secs(secs),
+            clone!(
+                #[weak(rename_to = win)]
+                self,
+                move || {
+                    win.imp().toast_timeout.replace(None);
+                    win.imp().toast_revealer.set_reveal_child(false);
+                }
+            ),
+        );
+        imp.toast_timeout.replace(Some(id));
+    }
+
+    /// Cancel any pending auto-hide and hide the toast immediately.
+    fn hide_toast(&self) {
+        let imp = self.imp();
+        if let Some(id) = imp.toast_timeout.take() {
+            id.remove();
+        }
+        imp.toast_revealer.set_reveal_child(false);
+    }
+
+    /// Wire the toast's Undo button once, at window setup. A click
+    /// consumes the shared `last_undo` cell — the same slot `Ctrl+Z`
+    /// reads — and hides the toast.
+    pub(super) fn wire_toast(&self) {
+        self.imp().toast_button.connect_clicked(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_| {
+                win.invoke_last_undo();
+                win.hide_toast();
+            }
+        ));
     }
 
     /// v0.2.2 — surface unknown `key:value` tokens in a search /
@@ -242,22 +285,20 @@ impl AtriumWindow {
         self.show_toast(&message);
     }
 
+    /// Show a toast with an Undo button. The undo closure runs at most
+    /// once — whichever of the toast button or the `Ctrl+Z` accel
+    /// (Phase 7f) fires first consumes the shared `last_undo` cell.
+    /// 6 s timeout. Phase 7b's daily-driver safety net.
     pub fn show_undo_toast<F: FnOnce() + 'static>(&self, message: &str, undo: F) {
-        let toast = adw::Toast::new(message);
-        toast.set_button_label(Some(&gettext("Undo")));
-        toast.set_timeout(6);
         let cell: UndoCell = Rc::new(RefCell::new(Some(Box::new(undo))));
-        // Share the cell with the window so `win.undo` (Ctrl+Z) can
-        // take from the same slot.
-        self.imp().last_undo.replace(Some(cell.clone()));
-        let cell_for_button = cell.clone();
-        toast.connect_button_clicked(move |t| {
-            if let Some(f) = cell_for_button.borrow_mut().take() {
-                f();
-            }
-            t.dismiss();
-        });
-        self.imp().toast_overlay.add_toast(toast);
+        // Share the cell with the window so `win.undo` (Ctrl+Z) and the
+        // toast's Undo button (wired once in `wire_toast`) take from the
+        // same slot — whoever fires first wins.
+        self.imp().last_undo.replace(Some(cell));
+        let button = self.imp().toast_button.get();
+        button.set_label(&gettext("Undo"));
+        button.set_visible(true);
+        self.present_toast(message, 6);
     }
 
     /// Walk every sidebar row and unparent any stashed context-menu

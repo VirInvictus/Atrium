@@ -1,81 +1,130 @@
 // SPDX-License-Identifier: MIT
-//! v0.20.0 — Phase 19.5 AdwPreferencesWindow.
+//! Preferences window (Phase 19.5; plain GTK since Phase 22 C7).
 //!
-//! First app-level preferences dialog. Closes a long-standing
-//! gap (GSettings keys had no GUI surface; users had to edit
-//! via `gsettings` or wait for a custom built-in editor).
-//! Three pages: General (mode, theme, vault path),
-//! Capture (Quick Entry shortcut binding), Notifications
-//! (master on/off — wires into the v0.20.0 reminder service).
+//! First app-level preferences surface. Closes a long-standing gap
+//! (GSettings keys had no GUI; users had to edit via `gsettings`).
+//! Four pages: General (mode, theme, vault path), Capture (Quick Entry
+//! shortcut), Notifications (master on/off), Backups.
 //!
-//! All preferences write through to GSettings — no separate
-//! state. The window is a thin presentation layer; the live
-//! GSettings keys remain the source of truth.
+//! All preferences write through to GSettings — no separate state. The
+//! window is a thin presentation layer; the live GSettings keys remain
+//! the source of truth.
 //!
-//! Wired to `app.preferences` action; the primary menu's
-//! "Preferences…" entry triggers it. AdwPreferencesWindow
-//! handles its own present/close lifecycle.
-//!
-//! Phase 20 adds a Backups page when the backup-restore UI
-//! lands; the scaffolding here is set up so adding pages is
-//! a one-method addition.
+//! Wired to `app.preferences`. Was `AdwPreferencesDialog`; now a plain
+//! modal `gtk::Window` with a `GtkStackSidebar` over the owned rows.
+//! `apply_theme` sets GtkSettings' prefer-dark hint (was `adw::StyleManager`
+//! before the C10 toolkit cut).
 
-use adw::prelude::*;
 use atrium_core::APP_ID;
 use gtk::gio;
 use gtk::glib;
 use gtk::glib::clone;
+use gtk::prelude::*;
 
 use crate::i18n::{gettext, gettext_f};
+use crate::ui::rows;
 
-/// Open the preferences dialog anchored to `parent`. Presents
-/// itself and returns immediately. Uses `AdwPreferencesDialog`
-/// (libadwaita 1.6+) — the predecessor `AdwPreferencesWindow`
-/// is deprecated.
+/// Open the preferences window anchored to `parent`. Presents itself
+/// and returns immediately.
 pub fn open(parent: &impl IsA<gtk::Widget>) {
     let settings = gio::Settings::new(APP_ID);
 
-    let dialog = adw::PreferencesDialog::builder()
-        .title(gettext("Preferences"))
-        .content_width(620)
-        .content_height(520)
+    let stack = gtk::Stack::builder()
+        .transition_type(gtk::StackTransitionType::Crossfade)
+        .hexpand(true)
+        .vexpand(true)
         .build();
+    stack.add_titled(
+        &general_page(&settings),
+        Some("general"),
+        &gettext("General"),
+    );
+    stack.add_titled(
+        &capture_page(&settings),
+        Some("capture"),
+        &gettext("Capture"),
+    );
+    stack.add_titled(
+        &notifications_page(&settings),
+        Some("notifications"),
+        &gettext("Notifications"),
+    );
+    stack.add_titled(
+        &backups_page(&settings),
+        Some("backups"),
+        &gettext("Backups"),
+    );
 
-    dialog.add(&general_page(&settings));
-    dialog.add(&capture_page(&settings));
-    dialog.add(&notifications_page(&settings));
-    dialog.add(&backups_page(&settings));
+    let sidebar = gtk::StackSidebar::builder().stack(&stack).build();
+    sidebar.set_size_request(170, -1);
 
-    dialog.present(Some(parent));
+    let body = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .build();
+    body.append(&sidebar);
+    body.append(&gtk::Separator::new(gtk::Orientation::Vertical));
+    body.append(&stack);
+
+    let window = gtk::Window::builder()
+        .title(gettext("Preferences"))
+        .modal(true)
+        .default_width(660)
+        .default_height(540)
+        .child(&body)
+        .build();
+    window.set_titlebar(Some(&gtk::HeaderBar::new()));
+
+    if let Some(root) = parent
+        .upcast_ref::<gtk::Widget>()
+        .root()
+        .and_downcast::<gtk::Window>()
+    {
+        window.set_transient_for(Some(&root));
+    }
+
+    // Escape closes (plain GTK has no adwaita auto-close).
+    let key = gtk::EventControllerKey::new();
+    let weak = window.downgrade();
+    key.connect_key_pressed(move |_, keyval, _, _| {
+        if keyval == gtk::gdk::Key::Escape {
+            if let Some(w) = weak.upgrade() {
+                w.close();
+            }
+            glib::Propagation::Stop
+        } else {
+            glib::Propagation::Proceed
+        }
+    });
+    window.add_controller(key);
+
+    window.present();
 }
 
-fn general_page(settings: &gio::Settings) -> adw::PreferencesPage {
-    let page = adw::PreferencesPage::builder()
-        .title(gettext("General"))
-        .icon_name("preferences-system-symbolic")
-        .build();
+fn general_page(settings: &gio::Settings) -> gtk::Widget {
+    let page = rows::page();
 
-    // ── Mode ──────────────────────────────────────────────────
-    let appearance_group = adw::PreferencesGroup::builder()
-        .title(gettext("Appearance"))
-        .build();
+    // ── Appearance ────────────────────────────────────────────────
+    let appearance_group = rows::group(Some(&gettext("Appearance")), None);
 
     // Translators: the two Atrium UI modes.
     let mode_simple = gettext("Simple");
     let mode_builder = gettext("Builder");
-    let mode_model = gtk::StringList::new(&[mode_simple.as_str(), mode_builder.as_str()]);
-    let mode_row = adw::ComboRow::builder()
-        .title(gettext("Default mode"))
-        .subtitle(gettext(
+    let (mode_row, mode_dd) = rows::combo_row(
+        &gettext("Default mode"),
+        Some(&gettext(
             "Simple is the calm Things-style surface; Builder adds Inspector pane, Forecast, Review.",
-        ))
-        .model(&mode_model)
-        .selected(if settings.string("mode") == "builder" { 1 } else { 0 })
-        .build();
+        )),
+        &[mode_simple.as_str(), mode_builder.as_str()],
+    );
+    mode_dd.set_selected(if settings.string("mode") == "builder" {
+        1
+    } else {
+        0
+    });
     {
         let settings = settings.clone();
-        mode_row.connect_selected_notify(move |row| {
-            let value = if row.selected() == 1 {
+        mode_dd.connect_selected_notify(move |dd| {
+            let value = if dd.selected() == 1 {
                 "builder"
             } else {
                 "simple"
@@ -88,23 +137,22 @@ fn general_page(settings: &gio::Settings) -> adw::PreferencesPage {
     let theme_follow = gettext("Follow system");
     let theme_light = gettext("Light");
     let theme_dark = gettext("Dark");
-    let theme_model = gtk::StringList::new(&[
-        theme_follow.as_str(),
-        theme_light.as_str(),
-        theme_dark.as_str(),
-    ]);
-    let theme_row = adw::ComboRow::builder()
-        .title(gettext("Theme"))
-        .subtitle(gettext(
+    let (theme_row, theme_dd) = rows::combo_row(
+        &gettext("Theme"),
+        Some(&gettext(
             "Override the system colour scheme. Adwaita auto-tracks the system; pin one here if you want it constant.",
-        ))
-        .model(&theme_model)
-        .selected(theme_to_index(&settings.string("theme")))
-        .build();
+        )),
+        &[
+            theme_follow.as_str(),
+            theme_light.as_str(),
+            theme_dark.as_str(),
+        ],
+    );
+    theme_dd.set_selected(theme_to_index(&settings.string("theme")));
     {
         let settings = settings.clone();
-        theme_row.connect_selected_notify(move |row| {
-            let value = match row.selected() {
+        theme_dd.connect_selected_notify(move |dd| {
+            let value = match dd.selected() {
                 1 => "light",
                 2 => "dark",
                 _ => "auto",
@@ -115,37 +163,39 @@ fn general_page(settings: &gio::Settings) -> adw::PreferencesPage {
     }
     appearance_group.add(&theme_row);
 
-    let high_legibility = adw::SwitchRow::builder()
-        .title(gettext("High-legibility font"))
-        // Translators: "Atkinson Hyperlegible" is a typeface name — keep it as-is.
-        .subtitle(gettext(
+    // Translators: "Atkinson Hyperlegible" is a typeface name — keep it as-is.
+    let (high_leg_row, high_leg_switch) = rows::switch_row(
+        &gettext("High-legibility font"),
+        Some(&gettext(
             "Atkinson Hyperlegible — designed by the Braille Institute for low-vision readers.",
-        ))
-        .active(settings.boolean("high-legibility-font"))
-        .build();
+        )),
+    );
+    high_leg_switch.set_active(settings.boolean("high-legibility-font"));
     {
         let settings = settings.clone();
-        high_legibility.connect_active_notify(move |row| {
-            let _ = settings.set_boolean("high-legibility-font", row.is_active());
+        high_leg_switch.connect_active_notify(move |sw| {
+            let _ = settings.set_boolean("high-legibility-font", sw.is_active());
         });
     }
-    appearance_group.add(&high_legibility);
+    appearance_group.add(&high_leg_row);
 
     page.add(&appearance_group);
 
-    // ── Vault ─────────────────────────────────────────────────
-    let vault_group = adw::PreferencesGroup::builder()
-        .title(gettext("Org vault"))
+    // ── Vault ─────────────────────────────────────────────────────
+    let vault_group = rows::group(
+        Some(&gettext("Org vault")),
         // Translators: `.org` and `~/Tasks/` are literal file-system names — keep them untranslated.
-        .description(gettext(
+        Some(&gettext(
             "Path to a directory holding `.org` files Atrium projects its data into. \
              Empty = no vault (DB-only). Convention is ~/Tasks/.",
-        ))
-        .build();
+        )),
+    );
 
-    let vault_entry = adw::EntryRow::builder()
-        .title(gettext("Vault path"))
+    let vault_label = gtk::Label::builder()
+        .label(gettext("Vault path"))
+        .xalign(0.0)
         .build();
+    let vault_entry = gtk::Entry::builder().hexpand(true).build();
     vault_entry.set_text(&settings.string("vault-path"));
     {
         let settings = settings.clone();
@@ -183,109 +233,110 @@ fn general_page(settings: &gio::Settings) -> adw::PreferencesPage {
             }
         ));
     }
-    vault_entry.add_suffix(&pick_button);
-    vault_group.add(&vault_entry);
+    let vault_hbox = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(12)
+        .margin_top(8)
+        .margin_bottom(8)
+        .margin_start(12)
+        .margin_end(12)
+        .build();
+    vault_hbox.append(&vault_label);
+    vault_hbox.append(&vault_entry);
+    vault_hbox.append(&pick_button);
+    let vault_row = gtk::ListBoxRow::builder()
+        .activatable(false)
+        .child(&vault_hbox)
+        .build();
+    vault_group.add(&vault_row);
 
     page.add(&vault_group);
 
-    page
+    page.widget().clone()
 }
 
-fn capture_page(settings: &gio::Settings) -> adw::PreferencesPage {
-    let page = adw::PreferencesPage::builder()
-        .title(gettext("Capture"))
-        .icon_name("input-keyboard-symbolic")
-        .build();
-
-    let group = adw::PreferencesGroup::builder()
-        .title(gettext("Quick Entry"))
+fn capture_page(settings: &gio::Settings) -> gtk::Widget {
+    let page = rows::page();
+    let group = rows::group(
+        Some(&gettext("Quick Entry")),
         // Translators: `<Control><Alt>space` is a literal GTK accelerator string — keep it untranslated.
-        .description(gettext(
+        Some(&gettext(
             "Global shortcut that opens the Quick Entry modal. GTK accelerator syntax \
              (e.g. `<Control><Alt>space`).",
-        ))
-        .build();
+        )),
+    );
 
-    let shortcut_row = adw::EntryRow::builder()
-        .title(gettext("Shortcut"))
-        .text(settings.string("quick-entry-shortcut"))
-        .build();
+    let (shortcut_row, shortcut_entry) = rows::entry_row(
+        &gettext("Shortcut"),
+        &settings.string("quick-entry-shortcut"),
+    );
     {
         let settings = settings.clone();
-        shortcut_row.connect_changed(move |entry| {
+        shortcut_entry.connect_changed(move |entry| {
             let _ = settings.set_string("quick-entry-shortcut", &entry.text());
         });
     }
     group.add(&shortcut_row);
 
     page.add(&group);
-    page
+    page.widget().clone()
 }
 
-fn notifications_page(settings: &gio::Settings) -> adw::PreferencesPage {
-    let page = adw::PreferencesPage::builder()
-        .title(gettext("Notifications"))
-        .icon_name("preferences-system-notifications-symbolic")
-        .build();
-
-    let group = adw::PreferencesGroup::builder()
-        .title(gettext("Reminders"))
+fn notifications_page(settings: &gio::Settings) -> gtk::Widget {
+    let page = rows::page();
+    let group = rows::group(
+        Some(&gettext("Reminders")),
         // Translators: `reminder_at` is a literal field name — keep it untranslated.
-        .description(gettext(
+        Some(&gettext(
             "Time-based reminders fire as system notifications when this is on. \
              Per-task `reminder_at` timestamps drive the schedule.",
-        ))
-        .build();
+        )),
+    );
 
-    let enabled_row = adw::SwitchRow::builder()
-        .title(gettext("Enable system notifications"))
-        .active(settings.boolean("notifications-enabled"))
-        .build();
+    let (enabled_row, enabled_switch) =
+        rows::switch_row(&gettext("Enable system notifications"), None);
+    enabled_switch.set_active(settings.boolean("notifications-enabled"));
     {
         let settings = settings.clone();
-        enabled_row.connect_active_notify(move |row| {
-            let _ = settings.set_boolean("notifications-enabled", row.is_active());
+        enabled_switch.connect_active_notify(move |sw| {
+            let _ = settings.set_boolean("notifications-enabled", sw.is_active());
         });
     }
     group.add(&enabled_row);
 
     page.add(&group);
-    page
+    page.widget().clone()
 }
 
 /// v0.32.0 — Backups page. "Back up now" writes a `VACUUM INTO`
 /// snapshot and prunes to the newest 10; "Restore from backup…"
 /// queues a snapshot to be copied over the live DB on next launch;
 /// the switch toggles the opportunistic weekly auto-backup GSetting.
-fn backups_page(settings: &gio::Settings) -> adw::PreferencesPage {
-    let page = adw::PreferencesPage::builder()
-        .title(gettext("Backups"))
-        .icon_name("document-save-symbolic")
-        .build();
-
-    let group = adw::PreferencesGroup::builder()
-        .title(gettext("Database backups"))
+fn backups_page(settings: &gio::Settings) -> gtk::Widget {
+    let page = rows::page();
+    let group = rows::group(
+        Some(&gettext("Database backups")),
         // Translators: `backups/` is a literal folder name — keep it untranslated.
-        .description(gettext(
+        Some(&gettext(
             "Snapshots live in the Atrium data directory's `backups/` folder \
              (the newest ten are kept).",
-        ))
-        .build();
+        )),
+    );
 
     // Back up now.
-    let backup_row = adw::ActionRow::builder()
-        .title(gettext("Back up now"))
-        .subtitle(gettext("Write a snapshot of the current database."))
-        .build();
     let backup_btn = gtk::Button::builder()
         .label(gettext("Back up"))
         .valign(gtk::Align::Center)
+        .css_classes(["flat"])
         .build();
-    backup_btn.add_css_class("flat");
-    backup_row.add_suffix(&backup_btn);
+    let (backup_row, backup_subtitle) = rows::action_row(
+        &gettext("Back up now"),
+        Some(&gettext("Write a snapshot of the current database.")),
+        Some(backup_btn.upcast_ref()),
+    );
     backup_btn.connect_clicked(clone!(
         #[weak]
-        backup_row,
+        backup_subtitle,
         move |_| {
             let dir = atrium_core::paths::backups_dir();
             match atrium_core::backup::backup_now(&atrium_core::db_path(), &dir) {
@@ -295,9 +346,10 @@ fn backups_page(settings: &gio::Settings) -> adw::PreferencesPage {
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
-                    backup_row.set_subtitle(&gettext_f("Backed up to {name}", &[("name", &name)]));
+                    backup_subtitle
+                        .set_label(&gettext_f("Backed up to {name}", &[("name", &name)]));
                 }
-                Err(e) => backup_row.set_subtitle(&gettext_f(
+                Err(e) => backup_subtitle.set_label(&gettext_f(
                     "Backup failed: {error}",
                     &[("error", &e.to_string())],
                 )),
@@ -307,19 +359,19 @@ fn backups_page(settings: &gio::Settings) -> adw::PreferencesPage {
     group.add(&backup_row);
 
     // Restore from backup.
-    let restore_row = adw::ActionRow::builder()
-        .title(gettext("Restore from backup…"))
-        .subtitle(gettext("Replace the current database on the next launch."))
-        .build();
     let restore_btn = gtk::Button::builder()
         .label(gettext("Restore…"))
         .valign(gtk::Align::Center)
+        .css_classes(["flat"])
         .build();
-    restore_btn.add_css_class("flat");
-    restore_row.add_suffix(&restore_btn);
+    let (restore_row, restore_subtitle) = rows::action_row(
+        &gettext("Restore from backup…"),
+        Some(&gettext("Replace the current database on the next launch.")),
+        Some(restore_btn.upcast_ref()),
+    );
     restore_btn.connect_clicked(clone!(
         #[weak]
-        restore_row,
+        restore_subtitle,
         move |btn| {
             let window = btn.root().and_downcast::<gtk::Window>();
             let filter = gtk::FileFilter::new();
@@ -335,7 +387,7 @@ fn backups_page(settings: &gio::Settings) -> adw::PreferencesPage {
             if let Some(dir) = atrium_core::paths::backups_dir().to_str() {
                 dialog.set_initial_folder(Some(&gio::File::for_path(dir)));
             }
-            let restore_row = restore_row.clone();
+            let restore_subtitle = restore_subtitle.clone();
             dialog.open(window.as_ref(), gio::Cancellable::NONE, move |res| {
                 if let Ok(file) = res
                     && let Some(path) = file.path()
@@ -344,9 +396,9 @@ fn backups_page(settings: &gio::Settings) -> adw::PreferencesPage {
                         atrium_core::paths::restore_marker_path(),
                         path.to_string_lossy().as_bytes(),
                     ) {
-                        Ok(()) => restore_row
-                            .set_subtitle(&gettext("Restore queued — restart Atrium to apply.")),
-                        Err(e) => restore_row.set_subtitle(&gettext_f(
+                        Ok(()) => restore_subtitle
+                            .set_label(&gettext("Restore queued — restart Atrium to apply.")),
+                        Err(e) => restore_subtitle.set_label(&gettext_f(
                             "Could not queue restore: {error}",
                             &[("error", &e.to_string())],
                         )),
@@ -358,23 +410,23 @@ fn backups_page(settings: &gio::Settings) -> adw::PreferencesPage {
     group.add(&restore_row);
 
     // Weekly auto-backup toggle.
-    let weekly_row = adw::SwitchRow::builder()
-        .title(gettext("Weekly automatic backup"))
-        .subtitle(gettext(
+    let (weekly_row, weekly_switch) = rows::switch_row(
+        &gettext("Weekly automatic backup"),
+        Some(&gettext(
             "On launch, snapshot if the newest backup is over a week old.",
-        ))
-        .active(settings.boolean("backup-weekly"))
-        .build();
+        )),
+    );
+    weekly_switch.set_active(settings.boolean("backup-weekly"));
     {
         let settings = settings.clone();
-        weekly_row.connect_active_notify(move |row| {
-            let _ = settings.set_boolean("backup-weekly", row.is_active());
+        weekly_switch.connect_active_notify(move |sw| {
+            let _ = settings.set_boolean("backup-weekly", sw.is_active());
         });
     }
     group.add(&weekly_row);
 
     page.add(&group);
-    page
+    page.widget().clone()
 }
 
 fn theme_to_index(value: &str) -> u32 {
@@ -385,15 +437,18 @@ fn theme_to_index(value: &str) -> u32 {
     }
 }
 
-/// Apply a theme override to the Adwaita StyleManager. Called
-/// when the user picks a theme in preferences; the application
-/// boot path also calls this once with the persisted value.
+/// Apply the persisted theme preference. Called when the user picks a
+/// theme in Preferences; the boot path also calls it once with the stored
+/// value. Was `adw::StyleManager` / `adw::ColorScheme` before the C10
+/// toolkit cut; now it sets GtkSettings' prefer-dark hint.
+///
+/// Atrium ships the dark Kanagawa Dragon sheet (`theme.rs`), so "dark" and
+/// the "auto" default both render dark; "light" only nudges the prefer-dark
+/// hint for any GTK-default-drawn bits the owned sheet doesn't cover. A true
+/// light (Lotus) palette is post-1.0 work.
 pub fn apply_theme(value: &str) {
-    let manager = adw::StyleManager::default();
-    let scheme = match value {
-        "light" => adw::ColorScheme::ForceLight,
-        "dark" => adw::ColorScheme::ForceDark,
-        _ => adw::ColorScheme::Default,
+    let Some(settings) = gtk::Settings::default() else {
+        return;
     };
-    manager.set_color_scheme(scheme);
+    settings.set_gtk_application_prefer_dark_theme(!matches!(value, "light"));
 }

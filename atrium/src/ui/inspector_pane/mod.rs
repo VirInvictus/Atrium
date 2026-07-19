@@ -21,14 +21,13 @@
 //!   them (11 and 15). "No new logic — just exposure" per the
 //!   roadmap Phase 10 tagline.
 //!
-//! The pane host (`AdwBin id="inspector_pane_host"`) is declared in
+//! The pane host (`GtkBox id="inspector_pane_host"`) is declared in
 //! `data/window.ui`; `install` mounts the body widget into it on
 //! window startup. `set_task` swaps the contents.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use adw::prelude::*;
 use atrium_core::db::read_pool::ReadPool;
 use atrium_core::{
     Project, RepeatMode, RepeatRule, ScheduledFor, Task, TaskClockEntry, TaskUpdate, WorkerHandle,
@@ -39,6 +38,7 @@ use gtk::gio;
 use gtk::glib;
 use gtk::glib::clone;
 use gtk::pango;
+use gtk::prelude::*;
 use tracing::error;
 
 use crate::i18n::gettext;
@@ -51,13 +51,12 @@ use crate::ui::inspector::{format_deadline_label, format_defer_label, format_sch
 /// rebuilds when the same task is selected twice.
 pub struct InspectorPane {
     stack: gtk::Stack,
-    editor_host: adw::Bin,
+    editor_host: crate::ui::rows::Bin,
     current_task_id: RefCell<Option<i64>>,
-    /// The current editor's title `EntryRow`, stashed so
-    /// `focus_title()` can hand keyboard focus to it without
-    /// walking the widget tree. Cleared on `clear()` and replaced
-    /// on every `set_task` rebuild.
-    current_title_row: RefCell<Option<adw::EntryRow>>,
+    /// The current editor's title entry, stashed so `focus_title()` can hand
+    /// keyboard focus to it without walking the widget tree. Cleared on
+    /// `clear()` and replaced on every `set_task` rebuild.
+    current_title_row: RefCell<Option<gtk::Entry>>,
     worker: WorkerHandle,
     on_edit_tags: Rc<dyn Fn(i64)>,
     /// v0.19.0 — Phase 18.5 Tier-2 Org-link navigation. The
@@ -75,12 +74,12 @@ pub struct InspectorPane {
 }
 
 impl InspectorPane {
-    /// Build the pane and mount it into `host` (the `AdwBin` declared
+    /// Build the pane and mount it into `host` (the `host box` declared
     /// in window.ui). `on_edit_tags` is invoked when the user hits
     /// the "Edit Tags…" button — same hand-off as the dialog
     /// Inspector.
     pub fn install<F, N, P>(
-        host: &adw::Bin,
+        host: &gtk::Box,
         worker: WorkerHandle,
         on_edit_tags: F,
         on_navigate_uuid: N,
@@ -115,13 +114,13 @@ impl InspectorPane {
         empty_label.add_css_class("dim-label");
         empty_label.add_css_class("caption");
 
-        let editor_host = adw::Bin::new();
+        let editor_host = crate::ui::rows::bin();
 
         stack.add_named(&empty_label, Some("empty"));
-        stack.add_named(&editor_host, Some("editor"));
+        stack.add_named(editor_host.widget(), Some("editor"));
         stack.set_visible_child_name("empty");
 
-        host.set_child(Some(&stack));
+        crate::ui::rows::set_box_child(host, Some(&stack));
 
         Rc::new(Self {
             stack,
@@ -187,16 +186,12 @@ impl InspectorPane {
     /// call at the bottom of `inspector::open`. No-ops when no
     /// task is currently displayed (e.g., empty state).
     pub fn focus_title(&self) {
-        if let Some(row) = self.current_title_row.borrow().as_ref() {
-            row.grab_focus();
-            // EntryRow exposes the inner editable through
-            // `delegate()`; selecting all on it puts the cursor in
-            // a state where typing replaces the title outright,
-            // matching the modal Inspector's grab_focus + select-all
-            // shape.
-            if let Some(delegate) = row.delegate() {
-                delegate.select_region(0, -1);
-            }
+        if let Some(entry) = self.current_title_row.borrow().as_ref() {
+            entry.grab_focus();
+            // Select all so typing replaces the title outright, matching the
+            // modal Inspector's grab_focus + select-all shape. gtk::Entry is
+            // itself the editable (no adwaita delegate).
+            entry.select_region(0, -1);
         }
     }
 }
@@ -223,7 +218,7 @@ fn build_editor<F, N, P>(
     on_edit_tags: F,
     on_navigate_uuid: N,
     pool_source: P,
-) -> (gtk::Widget, adw::EntryRow)
+) -> (gtk::Widget, gtk::Entry)
 where
     F: Fn(i64) + 'static,
     N: Fn(String) + 'static,
@@ -235,9 +230,10 @@ where
     let pool_source = Rc::new(pool_source);
 
     // ── Title ────────────────────────────────────────────────────
-    let title_row = adw::EntryRow::builder()
-        .title(gettext("Title"))
+    let title_entry = gtk::Entry::builder()
+        .placeholder_text(gettext("Title"))
         .text(&task.title)
+        .hexpand(true)
         .build();
 
     // v0.7.3 — completion checkbox as the row's leading prefix.
@@ -275,32 +271,51 @@ where
             });
         });
     }
-    title_row.add_prefix(&complete_check);
+    // Owned title row: a leading complete-check beside the title entry.
+    let title_hbox = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(12)
+        .margin_top(6)
+        .margin_bottom(6)
+        .margin_start(12)
+        .margin_end(12)
+        .build();
+    title_hbox.append(&complete_check);
+    title_hbox.append(&title_entry);
+    let title_row = gtk::ListBoxRow::builder()
+        .activatable(false)
+        .child(&title_hbox)
+        .build();
 
     let title_initial = task.title.clone();
-    wire_entry_autosave(&title_row, worker.clone(), task_id, move |row, worker| {
-        let new = row.text().to_string();
-        let trimmed = new.trim().to_string();
-        if trimmed.is_empty() {
-            // Empty title — bounce back to the previous value.
-            row.set_text(&title_initial);
-            return;
-        }
-        if trimmed == title_initial {
-            return;
-        }
-        let value = trimmed.clone();
-        let worker = worker.clone();
-        glib::MainContext::default().spawn_local(async move {
-            if let Err(e) = worker
-                .update_task(TaskUpdate::new(task_id).title(value))
-                .await
-            {
-                error!(?e, task_id, "inspector pane: title autosave failed");
+    wire_entry_autosave(
+        &title_entry,
+        worker.clone(),
+        task_id,
+        move |entry, worker| {
+            let new = entry.text().to_string();
+            let trimmed = new.trim().to_string();
+            if trimmed.is_empty() {
+                // Empty title — bounce back to the previous value.
+                entry.set_text(&title_initial);
+                return;
             }
-        });
-    });
-    let title_group = adw::PreferencesGroup::new();
+            if trimmed == title_initial {
+                return;
+            }
+            let value = trimmed.clone();
+            let worker = worker.clone();
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(e) = worker
+                    .update_task(TaskUpdate::new(task_id).title(value))
+                    .await
+                {
+                    error!(?e, task_id, "inspector pane: title autosave failed");
+                }
+            });
+        },
+    );
+    let title_group = crate::ui::rows::group(None, None);
     title_group.add(&title_row);
 
     // v0.16.0 — Phase 18.5 Tier-1 keyword picker. Hidden when
@@ -337,11 +352,7 @@ where
     if let Some(t) = task.scheduled_time {
         time_entry.set_text(&t.format("%H:%M").to_string());
     }
-    let time_row = adw::ActionRow::builder()
-        .title(gettext("Time"))
-        .activatable_widget(&time_entry)
-        .build();
-    time_row.add_suffix(&time_entry);
+    let time_row = crate::ui::rows::row(&gettext("Time"), None, Some(time_entry.upcast_ref()));
     let scheduled_is_date = matches!(task.scheduled_for, Some(ScheduledFor::Date(_)));
     time_row.set_visible(scheduled_is_date);
 
@@ -395,11 +406,11 @@ where
         }
     });
     schedule_button.add_css_class("flat");
-    let schedule_row = adw::ActionRow::builder()
-        .title(gettext("Schedule"))
-        .activatable_widget(&schedule_button)
-        .build();
-    schedule_row.add_suffix(&schedule_button);
+    let schedule_row = crate::ui::rows::row(
+        &gettext("Schedule"),
+        None,
+        Some(schedule_button.upcast_ref()),
+    );
 
     let deadline_state: Rc<RefCell<Option<NaiveDate>>> = Rc::new(RefCell::new(task.deadline));
     let original_deadline = task.deadline;
@@ -410,19 +421,23 @@ where
     // deadline. 0 in the SpinRow means "use the global default";
     // any positive value sets a per-task override that surfaces
     // the task in Today that many days early.
-    let warn_row = adw::SpinRow::with_range(0.0, 60.0, 1.0);
-    warn_row.set_title(&gettext("Heads-up window"));
     // Translators: "Today" is the name of Atrium's Today view.
-    warn_row.set_subtitle(&gettext(
-        "Days before the deadline this task surfaces in Today. 0 uses the default (7).",
-    ));
-    warn_row.set_value(task.deadline_warn_days.unwrap_or(0) as f64);
+    let (warn_row, warn_spin) = crate::ui::rows::spin_row(
+        &gettext("Heads-up window"),
+        Some(&gettext(
+            "Days before the deadline this task surfaces in Today. 0 uses the default (7).",
+        )),
+        0.0,
+        60.0,
+        1.0,
+    );
+    warn_spin.set_value(task.deadline_warn_days.unwrap_or(0) as f64);
     warn_row.set_visible(task.deadline.is_some());
     let original_warn = task.deadline_warn_days;
     {
         let worker = worker.clone();
-        warn_row.connect_changed(move |row| {
-            let raw = row.value().round() as i64;
+        warn_spin.connect_value_changed(move |spin| {
+            let raw = spin.value().round() as i64;
             let new = if raw == 0 { None } else { Some(raw) };
             if new == original_warn {
                 return;
@@ -462,19 +477,19 @@ where
         }
     });
     deadline_button.add_css_class("flat");
-    let deadline_row = adw::ActionRow::builder()
-        .title(gettext("Deadline"))
-        .activatable_widget(&deadline_button)
-        .build();
-    deadline_row.add_suffix(&deadline_button);
+    let deadline_row = crate::ui::rows::row(
+        &gettext("Deadline"),
+        None,
+        Some(deadline_button.upcast_ref()),
+    );
 
-    let project_row = build_project_combo_row(&projects, task.project_id);
+    let (project_row, project_dd) = build_project_combo_row(&projects, task.project_id);
     let original_project = task.project_id;
     {
         let projects_for_handler = projects.clone();
         let worker = worker.clone();
-        project_row.connect_selected_notify(move |row| {
-            let new_project = project_id_from_combo_row(row, &projects_for_handler);
+        project_dd.connect_selected_notify(move |dd| {
+            let new_project = project_id_from_combo_row(dd, &projects_for_handler);
             if new_project == original_project {
                 return;
             }
@@ -501,15 +516,15 @@ where
     // scheduled_for / deadline (a reminder fires on a task
     // regardless of those). EntryRow accepts `YYYY-MM-DD HH:MM`
     // text; commits on focus-leave. Empty clears.
-    let reminder_row = adw::EntryRow::builder().title(gettext("Reminder")).build();
+    let (reminder_row, reminder_entry) = crate::ui::rows::entry_row(&gettext("Reminder"), "");
     if let Some(when) = task.reminder_at {
         let local = when.with_timezone(&chrono::Local);
-        reminder_row.set_text(&local.format("%Y-%m-%d %H:%M").to_string());
+        reminder_entry.set_text(&local.format("%Y-%m-%d %H:%M").to_string());
     }
     let original_reminder = task.reminder_at;
     {
         let worker = worker.clone();
-        let entry = reminder_row.clone();
+        let entry = reminder_entry.clone();
         let focus = gtk::EventControllerFocus::new();
         focus.connect_leave(move |_| {
             let raw = entry.text().to_string();
@@ -527,10 +542,10 @@ where
                 }
             });
         });
-        reminder_row.add_controller(focus);
+        reminder_entry.add_controller(focus);
     }
 
-    let dates_group = adw::PreferencesGroup::new();
+    let dates_group = crate::ui::rows::group(None, None);
     dates_group.add(&schedule_row);
     dates_group.add(&time_row);
     dates_group.add(&deadline_row);
@@ -544,19 +559,18 @@ where
         .css_classes(["flat"])
         .valign(gtk::Align::Center)
         .build();
-    let tags_row = adw::ActionRow::builder()
-        .title(gettext("Tags"))
-        .subtitle(&tag_count_text)
-        .activatable_widget(&edit_tags_button)
-        .build();
-    tags_row.add_suffix(&edit_tags_button);
+    let tags_row = crate::ui::rows::row(
+        &gettext("Tags"),
+        Some(&tag_count_text),
+        Some(edit_tags_button.upcast_ref()),
+    );
     edit_tags_button.connect_clicked({
         let on_edit_tags = on_edit_tags.clone();
         move |_| {
             on_edit_tags(task_id);
         }
     });
-    let classify_group = adw::PreferencesGroup::new();
+    let classify_group = crate::ui::rows::group(None, None);
     classify_group.add(&project_row);
     classify_group.add(&tags_row);
 
@@ -605,9 +619,7 @@ where
         .build();
     notes_scroll.add_css_class("card");
     notes_scroll.add_css_class("view");
-    let notes_group = adw::PreferencesGroup::builder()
-        .title(gettext("Notes"))
-        .build();
+    let notes_group = crate::ui::rows::group(Some(&gettext("Notes")), None);
     notes_group.add(&notes_scroll);
 
     // v0.19.0 — Phase 18.5 Tier-2 Link… picker. Lives as the
@@ -628,7 +640,7 @@ where
     link_button.connect_clicked(move |_| {
         link_popover.popup();
     });
-    notes_group.set_header_suffix(Some(&link_button));
+    notes_group.set_header_suffix(&link_button);
 
     let notes_initial = task.note.clone();
     let notes_focus = gtk::EventControllerFocus::new();
@@ -757,19 +769,26 @@ where
     // gated on focus-out — the click *is* the commit. The
     // notes_view stays the source of truth; this section is a
     // projection rendered on every buffer edit.
-    let checklist_group = adw::PreferencesGroup::builder()
-        .title(gettext("Checklist"))
+    let checklist_heading = gtk::Label::builder()
+        .label(gettext("Checklist"))
+        .xalign(0.0)
+        .css_classes(["heading"])
         .build();
     let checklist_list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .build();
     checklist_list.add_css_class("boxed-list");
-    checklist_group.add(&checklist_list);
+    let checklist_section = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .build();
+    checklist_section.append(&checklist_heading);
+    checklist_section.append(&checklist_list);
 
     let rebuild_subtasks = std::rc::Rc::new({
         let buffer = notes_buffer.clone();
         let list = checklist_list.clone();
-        let group = checklist_group.clone();
+        let section = checklist_section.clone();
         let worker = worker.clone();
         move || {
             // Drain existing children.
@@ -781,12 +800,11 @@ where
                 .to_string();
             let checkboxes = parse_body_checkboxes(&body);
             if checkboxes.is_empty() {
-                group.set_visible(false);
+                section.set_visible(false);
                 return;
             }
-            group.set_visible(true);
+            section.set_visible(true);
             for cb in checkboxes {
-                let row = adw::ActionRow::builder().title(&cb.label).build();
                 let check = gtk::CheckButton::builder()
                     .active(cb.state.is_done())
                     .valign(gtk::Align::Center)
@@ -826,8 +844,26 @@ where
                         }
                     });
                 });
-                row.add_prefix(&check);
-                row.set_activatable_widget(Some(&check));
+                let label = gtk::Label::builder()
+                    .label(&cb.label)
+                    .xalign(0.0)
+                    .wrap(true)
+                    .hexpand(true)
+                    .build();
+                let hbox = gtk::Box::builder()
+                    .orientation(gtk::Orientation::Horizontal)
+                    .spacing(12)
+                    .margin_top(8)
+                    .margin_bottom(8)
+                    .margin_start(12)
+                    .margin_end(12)
+                    .build();
+                hbox.append(&check);
+                hbox.append(&label);
+                let row = gtk::ListBoxRow::builder()
+                    .activatable(false)
+                    .child(&hbox)
+                    .build();
                 list.append(&row);
             }
         }
@@ -853,18 +889,25 @@ where
     // children list is refetched from the read pool on build and
     // after each add. The `[done/total]` cookie on the task row
     // already folds these children in via count_done_total_per_parent.
-    let subtasks_group = adw::PreferencesGroup::builder()
-        .title(gettext("Subtasks"))
+    let subtasks_heading = gtk::Label::builder()
+        .label(gettext("Subtasks"))
+        .xalign(0.0)
+        .css_classes(["heading"])
         .build();
     let subtasks_list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .build();
     subtasks_list.add_css_class("boxed-list");
-    subtasks_group.add(&subtasks_list);
-    let add_subtask_row = adw::EntryRow::builder()
-        .title(gettext("Add subtask…"))
+    let add_subtask_entry = gtk::Entry::builder()
+        .placeholder_text(gettext("Add subtask…"))
         .build();
-    subtasks_group.add(&add_subtask_row);
+    let subtasks_section = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .build();
+    subtasks_section.append(&subtasks_heading);
+    subtasks_section.append(&subtasks_list);
+    subtasks_section.append(&add_subtask_entry);
 
     let parent_project = task.project_id;
     let rebuild_children: Rc<dyn Fn()> = Rc::new({
@@ -883,7 +926,6 @@ where
                 })
                 .unwrap_or_default();
             for child in children {
-                let row = adw::ActionRow::builder().title(&child.title).build();
                 let check = gtk::CheckButton::builder()
                     .active(child.completed_at.is_some())
                     .valign(gtk::Align::Center)
@@ -903,11 +945,34 @@ where
                         }
                     });
                 });
-                row.add_prefix(&check);
-                row.set_activatable(true);
+                // A flat button carries the title and navigates on click /
+                // keyboard activation; the leading check toggles completion.
+                let nav_button = gtk::Button::builder()
+                    .label(&child.title)
+                    .css_classes(["flat"])
+                    .hexpand(true)
+                    .build();
+                if let Some(lbl) = nav_button.child().and_downcast::<gtk::Label>() {
+                    lbl.set_xalign(0.0);
+                    lbl.set_ellipsize(pango::EllipsizeMode::End);
+                }
                 let uuid = child.uuid.clone();
                 let nav = on_navigate.clone();
-                row.connect_activated(move |_| nav(uuid.clone()));
+                nav_button.connect_clicked(move |_| nav(uuid.clone()));
+                let hbox = gtk::Box::builder()
+                    .orientation(gtk::Orientation::Horizontal)
+                    .spacing(12)
+                    .margin_top(6)
+                    .margin_bottom(6)
+                    .margin_start(12)
+                    .margin_end(12)
+                    .build();
+                hbox.append(&check);
+                hbox.append(&nav_button);
+                let row = gtk::ListBoxRow::builder()
+                    .activatable(false)
+                    .child(&hbox)
+                    .build();
                 list.append(&row);
             }
         }
@@ -916,7 +981,7 @@ where
     {
         let worker = worker.clone();
         let rebuild = rebuild_children.clone();
-        add_subtask_row.connect_entry_activated(move |entry| {
+        add_subtask_entry.connect_activate(move |entry| {
             let title = entry.text().trim().to_string();
             if title.is_empty() {
                 return;
@@ -946,14 +1011,27 @@ where
     // picker over other tasks; selecting one records the edge via
     // worker.add_dependency. The worker rejects self-edges and cycles;
     // the row's Blocked pill and is:blocked / is:available follow.
-    let blocked_group = adw::PreferencesGroup::builder()
-        .title(gettext("Blocked by"))
+    let blocked_heading = gtk::Label::builder()
+        .label(gettext("Blocked by"))
+        .xalign(0.0)
+        .hexpand(true)
+        .css_classes(["heading"])
         .build();
+    let blocked_header = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(12)
+        .build();
+    blocked_header.append(&blocked_heading);
     let blocked_list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .build();
     blocked_list.add_css_class("boxed-list");
-    blocked_group.add(&blocked_list);
+    let blocked_section = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .build();
+    blocked_section.append(&blocked_header);
+    blocked_section.append(&blocked_list);
 
     // Row builder shared by the initial populate and the add path.
     // The remove button drops just its own row on success rather than
@@ -963,10 +1041,22 @@ where
         let worker = worker.clone();
         let on_navigate = on_navigate_uuid.clone();
         move |prereq_id: i64, title: &str, uuid: &str, completed: bool| {
-            let row = adw::ActionRow::builder().title(title).build();
+            let nav_button = gtk::Button::builder()
+                .label(title)
+                .css_classes(["flat"])
+                .hexpand(true)
+                .build();
             if completed {
-                row.add_css_class("dim-label");
+                nav_button.add_css_class("dim-label");
             }
+            if let Some(lbl) = nav_button.child().and_downcast::<gtk::Label>() {
+                lbl.set_xalign(0.0);
+                lbl.set_ellipsize(pango::EllipsizeMode::End);
+            }
+            let uuid = uuid.to_string();
+            let nav = on_navigate.clone();
+            nav_button.connect_clicked(move |_| nav(uuid.clone()));
+
             let remove_btn = gtk::Button::from_icon_name("edit-delete-symbolic");
             remove_btn.add_css_class("flat");
             remove_btn.set_valign(gtk::Align::Center);
@@ -975,6 +1065,22 @@ where
             // v0.35.0 — icon-only: give it an accessible name, not just
             // the tooltip (which a screen reader reads as a description).
             remove_btn.update_property(&[gtk::accessible::Property::Label(&remove_label)]);
+
+            let hbox = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(12)
+                .margin_top(6)
+                .margin_bottom(6)
+                .margin_start(12)
+                .margin_end(12)
+                .build();
+            hbox.append(&nav_button);
+            hbox.append(&remove_btn);
+            let row = gtk::ListBoxRow::builder()
+                .activatable(false)
+                .child(&hbox)
+                .build();
+
             let worker_rm = worker.clone();
             let list_rm = list.clone();
             let row_rm = row.clone();
@@ -991,11 +1097,6 @@ where
                     }
                 });
             });
-            row.add_suffix(&remove_btn);
-            row.set_activatable(true);
-            let uuid = uuid.to_string();
-            let nav = on_navigate.clone();
-            row.connect_activated(move |_| nav(uuid.clone()));
             list.append(&row);
         }
     });
@@ -1046,7 +1147,8 @@ where
     picker_box.append(&picker_scroll);
     add_popover.set_child(Some(&picker_box));
     add_button.set_popover(Some(&add_popover));
-    blocked_group.set_header_suffix(Some(&add_button));
+    add_button.set_valign(gtk::Align::Center);
+    blocked_header.append(&add_button);
 
     // Candidate cache, refreshed on each popover-show so freshly
     // created tasks appear. Excludes the task itself.
@@ -1061,16 +1163,29 @@ where
                 list.remove(&child);
             }
             if tasks.is_empty() {
-                list.append(
-                    &adw::ActionRow::builder()
-                        .title(gettext("(no matching tasks)"))
-                        .build(),
-                );
+                let label = gtk::Label::builder()
+                    .label(gettext("(no matching tasks)"))
+                    .xalign(0.0)
+                    .margin_top(8)
+                    .margin_bottom(8)
+                    .margin_start(12)
+                    .margin_end(12)
+                    .build();
+                label.add_css_class("dim-label");
+                list.append(&label);
                 return;
             }
             for task in tasks.iter().take(50) {
-                let row = adw::ActionRow::builder().title(&task.title).build();
-                row.set_activatable(true);
+                // A flat button so the picker is operable by keyboard —
+                // Enter/Space on the focused button — not just the mouse.
+                let button = gtk::Button::builder()
+                    .label(&task.title)
+                    .css_classes(["flat"])
+                    .build();
+                if let Some(lbl) = button.child().and_downcast::<gtk::Label>() {
+                    lbl.set_xalign(0.0);
+                    lbl.set_ellipsize(pango::EllipsizeMode::End);
+                }
                 let cand_id = task.id;
                 let cand_title = task.title.clone();
                 let cand_uuid = task.uuid.clone();
@@ -1078,10 +1193,7 @@ where
                 let worker_add = worker.clone();
                 let popover = popover.clone();
                 let append_row = append_row.clone();
-                // connect_activated (not a GestureClick) so the picker is
-                // operable by keyboard — Enter/Space on the focused row —
-                // not just the mouse. The row lives in a gtk::ListBox.
-                row.connect_activated(move |_| {
+                button.connect_clicked(move |_| {
                     let worker = worker_add.clone();
                     let popover = popover.clone();
                     let append_row = append_row.clone();
@@ -1097,7 +1209,7 @@ where
                     });
                     popover.popdown();
                 });
-                list.append(&row);
+                list.append(&button);
             }
         }
     });
@@ -1140,22 +1252,24 @@ where
     // Builder" subtitle reads as redundant noise. v0.6.11 dropped
     // the subtitle entirely and renamed the section to a verb
     // phrase that describes what the fields do.
-    let builder_group = adw::PreferencesGroup::builder()
-        .title(gettext("Schedule depth"))
-        .build();
+    let builder_group = crate::ui::rows::group(Some(&gettext("Schedule depth")), None);
 
-    // estimated_minutes — Phase 11 wires the dispatch. SpinRow
+    // estimated_minutes — Phase 11 wires the dispatch. The spin row
     // commits on value-changed via `worker.update_task(
     // TaskUpdate::estimated_minutes_value(_))`. 0 clears the field.
-    let est_row = adw::SpinRow::with_range(0.0, 24.0 * 60.0, 5.0);
-    est_row.set_title(&gettext("Estimated minutes"));
-    est_row.set_subtitle(&gettext("0 leaves the field unset."));
-    est_row.set_value(task.estimated_minutes.unwrap_or(0) as f64);
+    let (est_row, est_spin) = crate::ui::rows::spin_row(
+        &gettext("Estimated minutes"),
+        Some(&gettext("0 leaves the field unset.")),
+        0.0,
+        24.0 * 60.0,
+        5.0,
+    );
+    est_spin.set_value(task.estimated_minutes.unwrap_or(0) as f64);
     let original_estimated = task.estimated_minutes;
     {
         let worker = worker.clone();
-        est_row.connect_changed(move |row| {
-            let raw = row.value().round() as i64;
+        est_spin.connect_value_changed(move |spin| {
+            let raw = spin.value().round() as i64;
             let new = if raw == 0 { None } else { Some(raw) };
             if new == original_estimated {
                 return;
@@ -1196,11 +1310,11 @@ where
         }
     });
     defer_button.add_css_class("flat");
-    let defer_row = adw::ActionRow::builder()
-        .title(gettext("Defer until"))
-        .activatable_widget(&defer_button)
-        .build();
-    defer_row.add_suffix(&defer_button);
+    let defer_row = crate::ui::rows::row(
+        &gettext("Defer until"),
+        None,
+        Some(defer_button.upcast_ref()),
+    );
     builder_group.add(&defer_row);
 
     // Phase 15 — repeat rule editor. Three rows working together:
@@ -1231,19 +1345,19 @@ where
     // entries exist.
     let time_group = build_time_group(&worker, task_id, &clock_entries);
 
-    let page = adw::PreferencesPage::new();
-    page.add_css_class("atrium-inspector-pane");
+    let page = crate::ui::rows::page();
+    page.widget().add_css_class("atrium-inspector-pane");
     page.add(&title_group);
     page.add(&dates_group);
     page.add(&classify_group);
-    page.add(&subtasks_group);
-    page.add(&checklist_group);
-    page.add(&blocked_group);
+    page.add_widget(&subtasks_section);
+    page.add_widget(&checklist_section);
+    page.add_widget(&blocked_section);
     page.add(&notes_group);
     page.add(&time_group);
     page.add(&builder_group);
 
-    (page.upcast(), title_row)
+    (page.widget().clone(), title_entry)
 }
 
 #[cfg(test)]

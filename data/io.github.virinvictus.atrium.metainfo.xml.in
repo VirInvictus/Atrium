@@ -82,15 +82,83 @@
   <content_rating type="oars-1.1"/>
 
   <branding>
-    <color type="primary" scheme_preference="light">#F4F1EA</color>
-    <color type="primary" scheme_preference="dark">#1A1D21</color>
+    <color type="primary" scheme_preference="light">#c4b28a</color>
+    <color type="primary" scheme_preference="dark">#12120f</color>
   </branding>
 
   <!-- TODO: add <screenshots> section once a release build is ready to
        capture against. Phase 9 task. -->
 
   <releases>
-    <release version="0.48.1" date="2026-07-17">
+    <release version="0.65.1" date="2026-07-19">
+      <description translate="no">
+        <p>Documentation only: the tiling-first design audit was re-grounded
+           against the current code after the move off libadwaita.</p>
+      </description>
+    </release>
+    <release version="0.65.0" date="2026-07-17">
+      <description translate="no">
+        <p>Tiling-forward layout, part 1: the task list is capped at a
+           centered column on wide windows again (via an owned width-clamp),
+           so rows stay a calm reading column instead of stretching across a
+           wide tile. Adaptive collapse for narrow tiles follows.</p>
+      </description>
+    </release>
+    <release version="0.64.0" date="2026-07-17">
+      <description translate="no">
+        <p>Completes the move off libadwaita: Atrium is now plain GTK4 with
+           its own Kanagawa Dragon stylesheet, running on GNOME, Hyprland,
+           or any Wayland desktop. No functional change; the app looks and
+           behaves as before, now without the libadwaita dependency.</p>
+      </description>
+    </release>
+    <release version="0.63.0" date="2026-07-17">
+      <description translate="no">
+        <p>Grows Atrium's owned stylesheet into a comprehensive one, so the
+           app looks the same with or without a system GTK theme underneath.
+           It now styles the full widget set in the rounded Kanagawa Dragon
+           language and carries the utility classes it needs, making the
+           look genuinely self-contained ahead of dropping libadwaita.</p>
+      </description>
+    </release>
+    <release version="0.62.2" date="2026-07-17">
+      <description translate="no">
+        <p>Draws task checkboxes as clean circles again (a thin ring when
+           open, a filled disc when done) instead of the square boxes the
+           first owned-stylesheet pass produced.</p>
+      </description>
+    </release>
+    <release version="0.62.1" date="2026-07-17">
+      <description translate="no">
+        <p>Softens the new Kanagawa look: gently rounded controls, cards,
+           popovers, and toasts, rounded checkboxes and switches, and a
+           soft shadow on floating panels, in place of the initial flat
+           square styling. Colours unchanged.</p>
+      </description>
+    </release>
+    <release version="0.62.0" date="2026-07-17">
+      <description translate="no">
+        <p>De-adwaita ladder C9 — the visual flip. An owned Kanagawa Dragon
+           stylesheet replaces adwaita's palette and flattens the widgets
+           (flat, square, hard 1px hairlines). The accent is a warm gold
+           matching the app icon. A schema migration recolours the six
+           built-in tag and area swatches to their Kanagawa counterparts;
+           custom colours are left untouched.</p>
+      </description>
+    </release>
+    <release version="0.61.0" date="2026-07-17">
+      <description translate="no">
+        <p>De-adwaita ladder C8 — the window shell drops libadwaita. The
+           application window, its toolbars, and its header bars become
+           plain GTK widgets, and the four secondary dialogs (Inspector,
+           Import, Quick Entry, Memory Watch) become plain modal windows
+           with Escape-to-close. Tiling-first posture: window buttons are
+           hidden (the compositor owns close / maximize / minimize, Ctrl+Q
+           quits). The task-list width cap returns with the owned
+           stylesheet in the next rung.</p>
+      </description>
+    </release>
+    <release version="0.60.1" date="2026-07-17">
       <description translate="no">
         <p>Seeds the vault write-ledger at launch so the very first save
            after startup never produces a spurious conflict backup: a
@@ -99,13 +167,149 @@
            left unseeded and still backs up correctly.</p>
       </description>
     </release>
+    <release version="0.60.0" date="2026-07-17">
+      <description translate="no">
+        <p>Fixes over-eager vault conflict backups (the same fix shipped on
+           the release line as 0.48.0). Completing or editing a task no
+           longer snapshots the project's Org file as a spurious conflict:
+           Atrium keeps a durable record of what it last wrote to each file
+           and only backs up a genuine external edit.</p>
+      </description>
+    </release>
+    <release version="0.59.2" date="2026-07-17">
+      <description translate="no">
+        <p>Build fix: repairs the dependency lock file, which a
+           release-automation slip had left pointing at a nonexistent
+           version of a platform dependency. No code or behaviour
+           change.</p>
+      </description>
+    </release>
+    <release version="0.59.1" date="2026-07-17">
+      <description translate="no">
+        <p>Documentation: records the decision, ahead of the window-shell
+           rework, to hide the title-bar window buttons on the tiling-first
+           design (the compositor and Ctrl+Q handle closing). No code
+           change.</p>
+      </description>
+    </release>
+    <release version="0.59.0" date="2026-07-17">
+      <description translate="no">
+        <p>The Preferences window is rebuilt on plain GTK4: a page list
+           on the left (General, Capture, Notifications, Backups) beside
+           the settings, replacing the GNOME toolkit's preferences
+           dialog. Every setting keeps its behaviour.</p>
+      </description>
+    </release>
+    <release version="0.58.0" date="2026-07-17">
+      <description translate="no">
+        <p>The two-pane window layout (the Lists sidebar beside the
+           content, and the Builder inspector pane on the right) moves
+           from the GNOME toolkit's split views to a plain resizable
+           divider. Same layout; the divider is now draggable. The
+           small-window collapse behaviour is being reworked as part of
+           the tiling-window polish pass.</p>
+      </description>
+    </release>
+    <release version="0.57.0" date="2026-07-17">
+      <description translate="no">
+        <p>Internal cleanup finishing the list-widget migration: the
+           container hosts for the Forecast, Review, Logbook, board,
+           Agenda, and Calendar pages, and for the inspector pane, move
+           off the GNOME toolkit's bin to a plain GTK container. No
+           visible change.</p>
+      </description>
+    </release>
+    <release version="0.56.0" date="2026-07-17">
+      <description translate="no">
+        <p>The Builder-mode inspector pane — the app's deepest editing
+           surface (title with completion, schedule and deadline with
+           time-of-day and heads-up windows, project, tags, subtasks,
+           checklist, blocked-by dependencies, notes with task links,
+           time tracking, estimate, defer, and the repeat-rule editor)
+           — is rebuilt on the owned list widgets. Every field keeps its
+           autosave and behaviour.</p>
+      </description>
+    </release>
+    <release version="0.55.0" date="2026-07-17">
+      <description translate="no">
+        <p>The Simple-Mode task inspector (the Edit Task dialog: title,
+           schedule, deadline, project, tags, checklist, and notes) is
+           rebuilt on the owned list rows from the previous release.
+           Same fields, same Apply/Cancel behaviour.</p>
+      </description>
+    </release>
+    <release version="0.54.0" date="2026-07-17">
+      <description translate="no">
+        <p>Fifth step of the plain-GTK4 move begins: the settings-style
+           list rows (title, subtitle, dropdowns, switches, text fields
+           grouped into cards) move to an owned toolkit. This release
+           converts the Import dialog; the inspector and other forms
+           follow. Same layout and behaviour.</p>
+      </description>
+    </release>
+    <release version="0.53.0" date="2026-07-17">
+      <description translate="no">
+        <p>Fourth step of the plain-GTK4 move: the confirmation and prompt
+           dialogs (rename, delete confirmations, the tag editor with its
+           colour swatches, the perspective editor, template pickers) are
+           rebuilt on an owned modal instead of the GNOME toolkit's. Same
+           buttons, same keyboard behaviour (Enter confirms, Escape
+           cancels), same wording.</p>
+      </description>
+    </release>
+    <release version="0.52.0" date="2026-07-17">
+      <description translate="no">
+        <p>Third step of the plain-GTK4 move: the pop-up notifications
+           ("toasts", including the one with an Undo button after a bulk
+           delete) are rebuilt on an owned overlay instead of the GNOME
+           toolkit's. Same timing, same newest-wins behaviour, same Undo.</p>
+      </description>
+    </release>
+    <release version="0.51.0" date="2026-07-17">
+      <description translate="no">
+        <p>Second step of the plain-GTK4 move: the empty-state pages (the
+           "no tasks yet" placeholder, the onboarding welcome, and the
+           empty Review, Agenda, and Logbook views) are rebuilt on an
+           owned widget instead of the GNOME toolkit's. Same wording,
+           same behaviour.</p>
+      </description>
+    </release>
+    <release version="0.50.1" date="2026-07-17">
+      <description translate="no">
+        <p>Small copy change: the About window now describes Atrium on
+           its own terms — a local-first task manager with Org-mode
+           internals and a two-way plain-text vault — rather than by
+           comparison. No functional change.</p>
+      </description>
+    </release>
+    <release version="0.50.0" date="2026-07-17">
+      <description translate="no">
+        <p>First step of the move to a flat, tiling-first look on plain
+           GTK4. The About window is rebuilt on the standard toolkit,
+           and the app's styling now takes precedence over a system-wide
+           GTK theme so Atrium looks the way it intends regardless of the
+           desktop's theme. No change to any feature.</p>
+      </description>
+    </release>
+    <release version="0.49.0" date="2026-07-17">
+      <description translate="no">
+        <p>New application icon. The placeholder "A" is redrawn on the
+           standard icon grid in the app's Kanagawa Dragon palette: a
+           dark rounded-square tile, a pale "A" whose open triangular
+           counter reads as an atrium court, and a warm line for the
+           courtyard floor. A monochrome symbolic version is added for
+           sidebars and notifications.</p>
+      </description>
+    </release>
     <release version="0.48.0" date="2026-07-17">
       <description translate="no">
-        <p>Fixes over-eager vault conflict backups. Completing or editing a
-           task no longer snapshots the project's Org file as a spurious
-           ".atrium.bak" conflict: Atrium now keeps a durable record of what
-           it last wrote to each file, so it recognises its own output across
-           edits and restarts and only backs up a genuine external edit.</p>
+        <p>Planning release. The road to 1.0 is re-sequenced: the move
+           to a flat, tiling-first look on plain GTK4 (dropping the
+           GNOME toolkit) now happens before the 1.0 tag rather than
+           after, so the final icon, screenshots, and store metadata
+           are produced against the finished look instead of being
+           redone a release later. Documentation only; no behaviour or
+           schema change.</p>
       </description>
     </release>
     <release version="0.47.0" date="2026-07-16">

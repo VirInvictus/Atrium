@@ -37,14 +37,12 @@ pub(super) fn build_keyword_picker(
     task: &Task,
     worker: WorkerHandle,
     task_id: i64,
-) -> adw::ComboRow {
+) -> gtk::ListBoxRow {
     // Build the choice list. Two halves separated by a dash so
     // the user can tell open keywords from done at a glance.
     let mut choices: Vec<String> = Vec::new();
     choices.extend(sequence.workflow.iter().cloned());
     choices.extend(sequence.done.iter().cloned());
-    let str_refs: Vec<&str> = choices.iter().map(String::as_str).collect();
-    let model = gtk::StringList::new(&str_refs);
 
     // Resolve the task's current keyword. Priority order:
     //   1. orig_keyword (carries non-canonical labels verbatim)
@@ -61,20 +59,20 @@ pub(super) fn build_keyword_picker(
         .position(|c| c == &current_keyword)
         .unwrap_or(0) as u32;
 
-    let row = adw::ComboRow::builder()
-        .title(gettext("Keyword"))
+    let (row, dropdown) = crate::ui::rows::combo_row(
+        &gettext("Keyword"),
         // Translators: "TODO" is an Org-mode keyword; keep it verbatim.
-        .subtitle(gettext("From the vault's configured TODO sequence"))
-        .model(&model)
-        .selected(initial_index)
-        .build();
+        Some(&gettext("From the vault's configured TODO sequence")),
+        &choices.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    dropdown.set_selected(initial_index);
 
     let workflow_set: std::collections::HashSet<String> =
         sequence.workflow.iter().cloned().collect();
     let original_keyword = current_keyword;
     let initial_completed = task.completed_at;
-    row.connect_selected_notify(move |row| {
-        let idx = row.selected() as usize;
+    dropdown.connect_selected_notify(move |dropdown| {
+        let idx = dropdown.selected() as usize;
         let Some(picked) = choices.get(idx).cloned() else {
             return;
         };
@@ -154,7 +152,7 @@ pub(super) fn parse_reminder_input(raw: &str) -> Option<chrono::DateTime<chrono:
 
 /// v0.19.0 — Phase 18.5 Tier-2 Link… picker popover. Builds a
 /// search-field + scrolled list combo. Each row in the list is
-/// an `adw::ActionRow` with the task's title; clicking inserts
+/// a flat button with the task's title; clicking inserts
 /// `[[id:UUID][title]]` into `buffer` at the cursor and dismisses
 /// the popover.
 ///
@@ -220,10 +218,7 @@ pub(super) fn build_task_link_popover(
             while let Some(child) = list_for_show.first_child() {
                 list_for_show.remove(&child);
             }
-            let row = adw::ActionRow::builder()
-                .title(gettext("(database unavailable)"))
-                .build();
-            list_for_show.append(&row);
+            list_for_show.append(&picker_message_row(&gettext("(database unavailable)")));
             return;
         };
         let tasks = pool
@@ -277,33 +272,50 @@ pub(super) fn populate_link_picker_rows(
         list.remove(&child);
     }
     if tasks.is_empty() {
-        let row = adw::ActionRow::builder()
-            .title(gettext("(no matching tasks)"))
-            .build();
-        list.append(&row);
+        list.append(&picker_message_row(&gettext("(no matching tasks)")));
         return;
     }
     for task in tasks.iter().take(50) {
-        let row = adw::ActionRow::builder().title(&task.title).build();
+        // A flat button (not an owned row) so a task link can be inserted by
+        // keyboard — Enter/Space on the focused button — as well as by mouse.
+        // The button lives in the gtk::ListBox, left-aligned to read as a row.
+        let button = gtk::Button::builder()
+            .label(&task.title)
+            .css_classes(["flat"])
+            .build();
+        if let Some(lbl) = button.child().and_downcast::<gtk::Label>() {
+            lbl.set_xalign(0.0);
+            lbl.set_ellipsize(pango::EllipsizeMode::End);
+        }
         let uuid = task.uuid.clone();
         let title = task.title.clone();
         let buffer = buffer.clone();
         let popover = popover.clone();
-        row.set_activatable(true);
-        // connect_activated (not a GestureClick) so a task link can be
-        // inserted by keyboard — Enter/Space on the focused row — not
-        // just the mouse. The row lives in a gtk::ListBox.
-        row.connect_activated(move |_| {
+        button.connect_clicked(move |_| {
             let link_text = format!("[[id:{uuid}][{title}]]");
             // Insert at the cursor's position.
             let mut iter = buffer.iter_at_mark(&buffer.get_insert());
             buffer.insert(&mut iter, &link_text);
             popover.popdown();
         });
-        list.append(&row);
+        list.append(&button);
     }
     // Cap at 50 rows for the picker — typing a couple of letters
     // narrows things; the full list is rarely useful in a popover.
+}
+
+/// A non-interactive message row for the link picker's empty states.
+fn picker_message_row(msg: &str) -> gtk::Label {
+    let label = gtk::Label::builder()
+        .label(msg)
+        .xalign(0.0)
+        .margin_top(8)
+        .margin_bottom(8)
+        .margin_start(12)
+        .margin_end(12)
+        .build();
+    label.add_css_class("dim-label");
+    label
 }
 
 /// v0.17.0 — Phase 18.5 Tier-1 CLOCK time tracking Time group.
@@ -328,19 +340,10 @@ pub(super) fn build_time_group(
     worker: &WorkerHandle,
     task_id: i64,
     entries: &[TaskClockEntry],
-) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::builder()
-        .title(gettext("Time"))
-        .build();
+) -> crate::ui::rows::Group {
+    let group = crate::ui::rows::group(Some(&gettext("Time")), None);
 
     let running = entries.iter().any(|e| e.is_running());
-    let action_row = adw::ActionRow::builder()
-        .title(if running {
-            gettext("Currently running")
-        } else {
-            gettext("Track time on this task")
-        })
-        .build();
     let toggle_button = gtk::Button::builder()
         .label(if running {
             gettext("Stop")
@@ -375,8 +378,16 @@ pub(super) fn build_time_group(
             });
         });
     }
-    action_row.add_suffix(&toggle_button);
-    group.add(&action_row);
+    let action_title = if running {
+        gettext("Currently running")
+    } else {
+        gettext("Track time on this task")
+    };
+    group.add(&crate::ui::rows::row(
+        &action_title,
+        None,
+        Some(toggle_button.upcast_ref()),
+    ));
 
     // Total row + log only when entries exist. A first-time
     // user clocking in should see Stop + nothing else; once
@@ -389,44 +400,41 @@ pub(super) fn build_time_group(
     if total_minutes > 0 {
         let hours = total_minutes / 60;
         let mins = total_minutes % 60;
-        let total_row = adw::ActionRow::builder()
-            .title(gettext("Total"))
-            .subtitle(format!("{hours}:{mins:02}"))
-            .build();
-        group.add(&total_row);
+        group.add(&crate::ui::rows::row(
+            &gettext("Total"),
+            Some(&format!("{hours}:{mins:02}")),
+            None,
+        ));
     }
 
     for entry in entries {
-        let row = adw::ActionRow::builder().build();
         let started_local = entry.started_at.with_timezone(&chrono::Local);
         let started_label = started_local.format("%a %b %-d, %H:%M").to_string();
-        match entry.duration_minutes() {
+        let (title, mut subtitle, is_running) = match entry.duration_minutes() {
             Some(d) => {
                 let h = d / 60;
                 let m = d % 60;
-                row.set_title(&format!("{h}:{m:02}"));
-                row.set_subtitle(&started_label);
+                (format!("{h}:{m:02}"), started_label.clone(), false)
             }
-            None => {
-                // Open entry — surface "Running since…".
-                row.set_title(&gettext("Running"));
+            None => (
+                gettext("Running"),
                 // Translators: {time} is when the running session began,
                 // e.g. "Mon Jul 6, 14:30".
-                row.set_subtitle(&gettext_f("started {time}", &[("time", &started_label)]));
-                row.add_css_class("atrium-clock-running");
-            }
-        }
+                gettext_f("started {time}", &[("time", &started_label)]),
+                true,
+            ),
+        };
         if !entry.note.is_empty() {
-            // Append the note in the subtitle so the user can
-            // see what the session was for.
-            let existing = row.subtitle().unwrap_or_default();
             // Translators: joins a clock session's start time and its
             // note; only the separator is yours to change.
-            let combined = gettext_f(
+            subtitle = gettext_f(
                 "{subtitle} — {note}",
-                &[("subtitle", existing.as_str()), ("note", &entry.note)],
+                &[("subtitle", subtitle.as_str()), ("note", &entry.note)],
             );
-            row.set_subtitle(&combined);
+        }
+        let row = crate::ui::rows::row(&title, Some(&subtitle), None);
+        if is_running {
+            row.add_css_class("atrium-clock-running");
         }
         group.add(&row);
     }
@@ -435,7 +443,7 @@ pub(super) fn build_time_group(
 }
 
 pub(super) fn install_repeat_editor(
-    group: &adw::PreferencesGroup,
+    group: &crate::ui::rows::Group,
     worker: &WorkerHandle,
     task: &Task,
 ) {
@@ -461,44 +469,44 @@ pub(super) fn install_repeat_editor(
         gettext("Yearly"),
         gettext("Custom"),
     ];
-    let freq_refs: Vec<&str> = freq_choices.iter().map(String::as_str).collect();
-    let freq_model = gtk::StringList::new(&freq_refs);
-    let freq_row = adw::ComboRow::builder()
-        .title(gettext("Repeat"))
-        .model(&freq_model)
-        .selected(preset_index(initial_preset))
-        .build();
+    let (freq_row, freq_dd) = crate::ui::rows::combo_row(
+        &gettext("Repeat"),
+        None,
+        &freq_choices.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    freq_dd.set_selected(preset_index(initial_preset));
 
-    let interval_row = adw::SpinRow::with_range(1.0, 365.0, 1.0);
     // Translators: title of the interval spinner; reads as "Every N"
     // where N is the number of frequency units.
-    interval_row.set_title(&gettext("Every"));
-    interval_row.set_subtitle(&gettext("Number of frequency units between occurrences."));
-    interval_row.set_value(initial_interval as f64);
+    let (interval_row, interval_spin) = crate::ui::rows::spin_row(
+        &gettext("Every"),
+        Some(&gettext("Number of frequency units between occurrences.")),
+        1.0,
+        365.0,
+        1.0,
+    );
+    interval_spin.set_value(initial_interval as f64);
 
     let mode_choices = [
         gettext("After completion (Cumulative)"),
         gettext("From completion date (Next)"),
         gettext("Always shift by interval (Basic)"),
     ];
-    let mode_refs: Vec<&str> = mode_choices.iter().map(String::as_str).collect();
-    let mode_model = gtk::StringList::new(&mode_refs);
-    let mode_row = adw::ComboRow::builder()
-        .title(gettext("After completion"))
-        .model(&mode_model)
-        .selected(mode_index(initial_mode))
-        .build();
+    let (mode_row, mode_dd) = crate::ui::rows::combo_row(
+        &gettext("After completion"),
+        None,
+        &mode_choices.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    mode_dd.set_selected(mode_index(initial_mode));
 
-    let custom_row = adw::EntryRow::builder()
-        // Translators: "RRULE" is the RFC 5545 recurrence-rule keyword;
-        // keep it verbatim.
-        .title(gettext("Custom RRULE"))
-        .text(&initial_custom)
-        .build();
+    // Translators: "RRULE" is the RFC 5545 recurrence-rule keyword;
+    // keep it verbatim.
+    let (custom_row, custom_entry) =
+        crate::ui::rows::entry_row(&gettext("Custom RRULE"), &initial_custom);
 
-    let visible = matches!(initial_preset, RepeatPreset::None);
-    interval_row.set_visible(!visible);
-    mode_row.set_visible(!visible);
+    let none_preset = matches!(initial_preset, RepeatPreset::None);
+    interval_row.set_visible(!none_preset);
+    mode_row.set_visible(!none_preset);
     custom_row.set_visible(matches!(initial_preset, RepeatPreset::Custom));
     if matches!(initial_preset, RepeatPreset::Custom) {
         interval_row.set_visible(false);
@@ -515,15 +523,15 @@ pub(super) fn install_repeat_editor(
     // clear stale state); rule is sent as Some(text) / None.
     let commit = {
         let worker = worker.clone();
-        let freq_row = freq_row.clone();
-        let interval_row = interval_row.clone();
-        let mode_row = mode_row.clone();
-        let custom_row = custom_row.clone();
+        let freq_dd = freq_dd.clone();
+        let interval_spin = interval_spin.clone();
+        let mode_dd = mode_dd.clone();
+        let custom_entry = custom_entry.clone();
         Rc::new(move || {
-            let preset = preset_from_index(freq_row.selected());
-            let interval = interval_row.value().round().max(1.0) as u32;
-            let mode = mode_from_index(mode_row.selected());
-            let custom_text = custom_row.text().to_string();
+            let preset = preset_from_index(freq_dd.selected());
+            let interval = interval_spin.value().round().max(1.0) as u32;
+            let mode = mode_from_index(mode_dd.selected());
+            let custom_text = custom_entry.text().to_string();
 
             let new_rule = match preset {
                 RepeatPreset::None => None,
@@ -576,8 +584,8 @@ pub(super) fn install_repeat_editor(
         let mode_row = mode_row.clone();
         let custom_row = custom_row.clone();
         let commit = commit.clone();
-        freq_row.connect_selected_notify(move |row| {
-            let preset = preset_from_index(row.selected());
+        freq_dd.connect_selected_notify(move |dd| {
+            let preset = preset_from_index(dd.selected());
             let none = matches!(preset, RepeatPreset::None);
             let custom = matches!(preset, RepeatPreset::Custom);
             interval_row.set_visible(!none && !custom);
@@ -589,15 +597,18 @@ pub(super) fn install_repeat_editor(
 
     {
         let commit = commit.clone();
-        interval_row.connect_changed(move |_| commit());
+        interval_spin.connect_value_changed(move |_| commit());
     }
     {
         let commit = commit.clone();
-        mode_row.connect_selected_notify(move |_| commit());
+        mode_dd.connect_selected_notify(move |_| commit());
     }
     {
+        // gtk::Entry has no adwaita "apply" button; Enter (activate) commits,
+        // and the entry also commits on focus-out where it is wired by the
+        // caller. Here the recurrence custom rule commits on Enter.
         let commit = commit.clone();
-        custom_row.connect_apply(move |_| commit());
+        custom_entry.connect_activate(move |_| commit());
     }
 }
 
@@ -718,32 +729,31 @@ pub(super) fn format_tag_count(n: usize) -> String {
     }
 }
 
-/// Wire an `AdwEntryRow` to autosave on focus-out and on Enter
-/// (Adwaita's "apply" signal — the enter-key activation). The
-/// closure gets both the row and the worker handle to dispatch
-/// updates with.
+/// Wire a `gtk::Entry` to autosave on focus-out and on Enter (activate) — the
+/// owned successor to adwaita's EntryRow "apply" signal. The closure gets both
+/// the entry and the worker handle to dispatch updates with.
 pub(super) fn wire_entry_autosave<F>(
-    row: &adw::EntryRow,
+    entry: &gtk::Entry,
     worker: WorkerHandle,
     _task_id: i64,
     save: F,
 ) where
-    F: Fn(&adw::EntryRow, &WorkerHandle) + Clone + 'static,
+    F: Fn(&gtk::Entry, &WorkerHandle) + Clone + 'static,
 {
-    let save_for_apply = save.clone();
-    let worker_for_apply = worker.clone();
-    row.connect_apply(move |row| {
-        save_for_apply(row, &worker_for_apply);
+    let save_for_activate = save.clone();
+    let worker_for_activate = worker.clone();
+    entry.connect_activate(move |entry| {
+        save_for_activate(entry, &worker_for_activate);
     });
     let save_for_focus = save.clone();
     let focus_ctrl = gtk::EventControllerFocus::new();
-    let row_weak = row.downgrade();
+    let entry_weak = entry.downgrade();
     focus_ctrl.connect_leave(move |_| {
-        if let Some(row) = row_weak.upgrade() {
-            save_for_focus(&row, &worker);
+        if let Some(entry) = entry_weak.upgrade() {
+            save_for_focus(&entry, &worker);
         }
     });
-    row.add_controller(focus_ctrl);
+    entry.add_controller(focus_ctrl);
 }
 
 pub(super) fn build_schedule_button<F>(
@@ -930,17 +940,17 @@ where
     button
 }
 
-pub(super) fn build_project_combo_row(projects: &[Project], current: Option<i64>) -> adw::ComboRow {
+pub(super) fn build_project_combo_row(
+    projects: &[Project],
+    current: Option<i64>,
+) -> (gtk::ListBoxRow, gtk::DropDown) {
     // Translators: first dropdown entry — the task belongs to no project.
     let inbox_label = gettext("Inbox (no project)");
-    let model = gtk::StringList::new(&[inbox_label.as_str()]);
+    let mut items: Vec<&str> = vec![inbox_label.as_str()];
     for p in projects {
-        model.append(&p.title);
+        items.push(p.title.as_str());
     }
-    let row = adw::ComboRow::builder()
-        .title(gettext("Project"))
-        .model(&model)
-        .build();
+    let (row, dropdown) = crate::ui::rows::combo_row(&gettext("Project"), None, &items);
     let pos: u32 = match current {
         None => 0,
         Some(id) => projects
@@ -948,12 +958,15 @@ pub(super) fn build_project_combo_row(projects: &[Project], current: Option<i64>
             .position(|p| p.id == id)
             .map_or(0, |i| (i + 1) as u32),
     };
-    row.set_selected(pos);
-    row
+    dropdown.set_selected(pos);
+    (row, dropdown)
 }
 
-pub(super) fn project_id_from_combo_row(row: &adw::ComboRow, projects: &[Project]) -> Option<i64> {
-    let selected = row.selected();
+pub(super) fn project_id_from_combo_row(
+    dropdown: &gtk::DropDown,
+    projects: &[Project],
+) -> Option<i64> {
+    let selected = dropdown.selected();
     if selected == 0 {
         return None;
     }

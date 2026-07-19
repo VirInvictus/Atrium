@@ -142,13 +142,13 @@ Seven crates, split so every non-GUI surface stays headless and testable from th
 - **`atrium-inline`** is the inline-syntax parser (`#tag` / `@date` / `!N`) shared by every capture surface.
 - **`atrium-import`** holds the non-Org import/export formats (Todoist, VTODO, Taskwarrior, todo.txt).
 - **`atrium-cli`** is the headless CLI.
-- **`atrium`** is the GTK4 / libadwaita binary.
+- **`atrium`** is the GTK4 binary (plain GTK4; libadwaita dropped at Phase 22, own stylesheet).
 
 Four decisions are load-bearing. **Mode is a view, not a schema:** the OmniFocus superset exists on day one and a flip never migrates data. **One writer:** a dedicated tokio task owns the writable connection, the UI reads through a pool and never blocks on I/O, and updates arrive as deltas, not reloads. **Local-first:** no network sync or telemetry, ever. **The vault is a projection, not the store:** SQLite is canonical and the Org vault mirrors it downstream. The full architecture and schema are in [`spec.md`](spec.md) §3–§4.
 
 ## Stack
 
-- **Rust 2024 Edition**, **GTK 4.16+** / **libadwaita 1.7+**
+- **Rust 2024 Edition**, **GTK 4.16+** (plain GTK4, no libadwaita; owned Kanagawa Dragon stylesheet)
 - **SQLite** via `rusqlite` (`bundled`, `chrono`, `trace`): single-writer worker, WAL mode, FTS5
 - **`tokio`** runtime; **`chrono`** dates; **`serde`** / **`serde_json`**; **`anyhow`** / **`thiserror`**; **`tracing`**
 - **`rrule`** (RRULE iteration), **`regex`** (`tag:~` modifier), **`uuid`** (`:ID:` round-trip), **`notify`** (vault watcher), **`gettext-rs`** (localisation)
@@ -158,10 +158,10 @@ Four decisions are load-bearing. **Mode is a view, not a schema:** the OmniFocus
 
 ## Building
 
-Atrium targets **GNOME 50+ / GTK 4.16 / libadwaita 1.7**. Fedora 44 build dependencies:
+Atrium targets **GTK 4.16+** and runs on GNOME, Hyprland, or any Wayland desktop (no libadwaita). Fedora 44 build dependencies:
 
 ```bash
-sudo dnf install gtk4-devel libadwaita-devel sqlite-devel
+sudo dnf install gtk4-devel sqlite-devel
 ```
 
 ```bash

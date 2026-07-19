@@ -748,7 +748,7 @@ impl AtriumWindow {
                 }
             }
             if let Some(win) = win_weak.upgrade() {
-                let toast = adw::Toast::new(&ngettext_f(
+                win.show_toast(&ngettext_f(
                     "{deleted} of {count} task deleted",
                     "{deleted} of {count} tasks deleted",
                     count as u32,
@@ -757,8 +757,6 @@ impl AtriumWindow {
                         ("count", &count.to_string()),
                     ],
                 ));
-                toast.set_timeout(4);
-                win.imp().toast_overlay.add_toast(toast);
             }
         });
         self.clear_selection();
@@ -785,7 +783,7 @@ impl AtriumWindow {
         let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
         let model = gtk::StringList::new(&label_refs);
         let dropdown = gtk::DropDown::builder().model(&model).build();
-        let dialog = adw::AlertDialog::new(
+        let dialog = crate::ui::dialogs::Alert::new(
             Some(&gettext("Move to Project")),
             Some(&gettext("Move the selected tasks to a project.")),
         );
@@ -794,7 +792,7 @@ impl AtriumWindow {
         dialog.add_response("ok", &gettext("Move"));
         dialog.set_default_response(Some("ok"));
         dialog.set_close_response("cancel");
-        dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dialog.set_response_appearance("ok", crate::ui::dialogs::Appearance::Suggested);
 
         let target_ids: Vec<Option<i64>> = std::iter::once(None)
             .chain(projects.iter().map(|p| Some(p.id)))
@@ -861,7 +859,7 @@ impl AtriumWindow {
             .placeholder_text(gettext("Tag name"))
             .activates_default(true)
             .build();
-        let dialog = adw::AlertDialog::new(
+        let dialog = crate::ui::dialogs::Alert::new(
             Some(&gettext("Tag Tasks")),
             Some(&gettext("Add or remove a tag across the selected tasks.")),
         );
@@ -871,8 +869,8 @@ impl AtriumWindow {
         dialog.add_response("add", &gettext("Add"));
         dialog.set_default_response(Some("add"));
         dialog.set_close_response("cancel");
-        dialog.set_response_appearance("add", adw::ResponseAppearance::Suggested);
-        dialog.set_response_appearance("remove", adw::ResponseAppearance::Destructive);
+        dialog.set_response_appearance("add", crate::ui::dialogs::Appearance::Suggested);
+        dialog.set_response_appearance("remove", crate::ui::dialogs::Appearance::Destructive);
 
         let win = self.clone();
         glib::MainContext::default().spawn_local(async move {

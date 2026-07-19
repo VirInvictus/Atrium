@@ -18,11 +18,11 @@
 
 use std::collections::HashMap;
 
-use adw::prelude::*;
 use atrium_core::{ScheduledFor, Task, TaskUpdate, WorkerHandle};
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
 use gtk::gdk;
 use gtk::glib;
+use gtk::prelude::*;
 use tracing::error;
 
 use crate::i18n::{gettext, gettext_f, ngettext_f};

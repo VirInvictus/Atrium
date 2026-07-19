@@ -76,6 +76,11 @@ use crate::error::DbError;
 /// fired for a `(task, reminder_at)` pair so the service can fire
 /// overdue reminders on launch without re-firing, and so toggling
 /// notifications off no longer permanently swallows one.
+/// Version 19 (v0.46.0, kanban maturity) adds `board_card_position`
+/// for persisted intra-column card ordering. Version 20 (v0.62.0,
+/// Phase 22 C9) is UPDATE-only: it recolours the six built-in tag /
+/// area swatch hexes from the old adwaita palette to their Kanagawa
+/// Dragon counterparts, in lockstep with the owned stylesheet.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
@@ -96,6 +101,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (17, include_str!("0017_task_template.sql")),
     (18, include_str!("0018_task_reminder_fired.sql")),
     (19, include_str!("0019_board_card_position.sql")),
+    (20, include_str!("0020_swatch_kanagawa.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

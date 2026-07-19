@@ -18,15 +18,15 @@
 //! The grouping function lives at module level so it's pure-Rust
 //! testable; the GTK build path is just the renderer on top.
 //!
-//! `build_page` mounts into the window's `logbook_host` AdwBin via
+//! `build_page` mounts into the window's `logbook_host` host box via
 //! `refresh_logbook_page` in `window.rs`.
 
 use std::collections::HashMap;
 
-use adw::prelude::*;
 use atrium_core::Task;
 use chrono::{Duration, NaiveDate};
 use gtk::pango;
+use gtk::prelude::*;
 
 use crate::i18n::{gettext, gettext_f};
 use crate::ui::task_list::TagPillMap;
@@ -109,7 +109,7 @@ pub fn group_by_band(tasks: &[Task], today: NaiveDate) -> Vec<(DateBand, Vec<Tas
 }
 
 /// Build the Logbook page widget. Empty input gets an
-/// `AdwStatusPage` "Nothing logged yet" placeholder that mirrors
+/// owned status-page "Nothing logged yet" placeholder that mirrors
 /// the canonical empty-state copy used elsewhere.
 pub fn build_page(
     today: NaiveDate,
@@ -120,14 +120,15 @@ pub fn build_page(
     tag_pills: &TagPillMap,
 ) -> gtk::Widget {
     if tasks.is_empty() {
-        let status = adw::StatusPage::builder()
-            .icon_name("document-open-recent-symbolic")
-            .title(gettext("Nothing logged yet"))
-            .description(gettext(
+        return crate::ui::status_page::status_page(
+            Some("document-open-recent-symbolic"),
+            &gettext("Nothing logged yet"),
+            Some(&gettext(
                 "Completed tasks settle here, grouped by when you finished them.",
-            ))
-            .build();
-        return status.upcast();
+            )),
+        )
+        .widget()
+        .clone();
     }
 
     let body = gtk::Box::builder()

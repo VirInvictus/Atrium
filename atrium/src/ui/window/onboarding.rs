@@ -15,14 +15,32 @@ use crate::i18n::gettext;
 use super::*;
 
 impl AtriumWindow {
-    /// Build the onboarding `AdwStatusPage` and add it to the content
-    /// stack as the `"onboarding"` page. Called once at window setup.
+    /// Build the owned empty-state page (Phase 22 C2) and parent it into
+    /// the `content_status_host` box the template provides. Called once at
+    /// window setup, before the first content refresh. `update_empty_state`
+    /// swaps its title / description / icon per active list; the defaults
+    /// here mirror the strings the template used to carry, so any fallback
+    /// render still reads sensibly.
+    pub(super) fn setup_content_status(&self) {
+        let status = crate::ui::status_page::status_page(
+            Some("checkmark-symbolic"),
+            &gettext("No tasks yet"),
+            Some(&gettext(
+                "Press Ctrl+N or the + button to create your first task.",
+            )),
+        );
+        self.imp().content_status_host.append(status.widget());
+        let _ = self.imp().content_status.set(status);
+    }
+
+    /// Build the onboarding status page and add it to the content stack
+    /// as the `"onboarding"` page. Called once at window setup.
     pub(super) fn setup_onboarding_page(&self) {
-        let status = adw::StatusPage::builder()
-            .icon_name("io.github.virinvictus.atrium")
-            .title(gettext("Welcome to Atrium"))
-            .description(gettext("Your tasks live here. Start one of three ways:"))
-            .build();
+        let status = crate::ui::status_page::status_page(
+            Some("io.github.virinvictus.atrium"),
+            &gettext("Welcome to Atrium"),
+            Some(&gettext("Your tasks live here. Start one of three ways:")),
+        );
 
         let buttons = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -58,11 +76,11 @@ impl AtriumWindow {
         buttons.append(&create_project);
         buttons.append(&capture);
         buttons.append(&vault);
-        status.set_child(Some(&buttons));
+        status.set_child(&buttons);
 
         self.imp()
             .content_stack
-            .add_named(&status, Some("onboarding"));
+            .add_named(status.widget(), Some("onboarding"));
     }
 
     /// Recompute and cache whether the library is empty. Short-circuits

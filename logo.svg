@@ -1,23 +1,33 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!--
-  Atrium — placeholder logo.
+  Atrium app icon.
+
   A capital "A" rendered as a building silhouette: the A's triangular
-  counter is the atrium itself — an open court with sky above. The flat
-  plateau across the top stands in for a roofline; the solid pedestal at
-  the base reads as the building's plinth. A faint warm line traces the
-  floor of the courtyard. Replace before 1.0.
+  counter is the atrium itself — an open court with sky above. The solid
+  form reads as a plinth-footed structure; a warm line traces the floor
+  of the courtyard. Kanagawa Dragon palette (the app's own): a dark
+  dragonBlack card, the "A" in dragonWhite, the courtyard floor in
+  dragonYellow.
+
+  Drawn on a 128×128 base canvas with a 12px safe margin, rounded-square
+  card at ~22% corner radius (Adwaita app-icon convention). The letter
+  silhouette is sized to hold up at 16×16 (see the -symbolic sibling for
+  the hand-redrawn small mark).
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Atrium">
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="128" height="128"
+     viewBox="0 0 128 128"
+     role="img" aria-label="Atrium">
   <defs>
     <linearGradient id="atrium-shell" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2C3137"/>
-      <stop offset="1" stop-color="#1A1D21"/>
+      <stop offset="0" stop-color="#282727"/>
+      <stop offset="1" stop-color="#12120f"/>
     </linearGradient>
   </defs>
-  <rect x="24" y="24" width="208" height="208" rx="32" fill="url(#atrium-shell)"/>
+  <rect x="12" y="12" width="104" height="104" rx="22" fill="url(#atrium-shell)"/>
   <path
-    d="M 60 200 L 118 56 L 138 56 L 196 200 Z M 128 80 L 102 150 L 154 150 Z"
-    fill="#F4F1EA"
+    d="M 30 100 L 59 28 L 69 28 L 98 100 Z M 64 44 L 51 78 L 77 78 Z"
+    fill="#c5c9c5"
     fill-rule="evenodd"/>
-  <line x1="102" y1="150" x2="154" y2="150" stroke="#C8C0B0" stroke-width="2" stroke-linecap="round"/>
+  <line x1="51" y1="78" x2="77" y2="78" stroke="#c4b28a" stroke-width="2.5" stroke-linecap="round"/>
 </svg>

@@ -1,16 +1,210 @@
 # Atrium — Patch Notes
 
-## v0.48.1 (2026-07-17): seed the vault ledger on launch so the first flush never spuriously backs up
+## v0.65.1 (2026-07-19): re-ground the Phase 21 audit against the post-de-adwaita code
 
-Closes the one remaining gap in the v0.48.0 vault-backup fix. The durable content ledger only knows a file is Atrium's own once Atrium has written it at least once *with the ledger in place*, so on the first launch after the fix, the first flush of each not-yet-tracked project still snapshotted its Org file once (harmless but noisy, and spread across sessions as each project was first touched). The writer now seeds the ledger at startup: for every project whose `.org` file is already byte-identical to what Atrium would write right now (in sync with the DB), it records the hash up front, so that first flush recognises the file as ours and skips the backup. A file that carries a real edit made in Emacs while Atrium was closed will not match the canonical bytes, is left unseeded, and so still trips the conflict backup on its first flush. Safety intact; new regression test `startup_seed_recognises_in_sync_file_without_prior_ledger`. Adds `atrium_org::org::render_project_to_string`, a filesystem-free canonical render that shares the OrgFile-building path with the writer so the two stay byte-identical. `atrium-org` only.
+Documentation only. Phase 21's tiling-first audit was written in early July against a libadwaita shell that the Phase 22 ladder has since dismantled, so a good part of it now cites widgets that no longer exist. Every item was re-checked against the current tree and the stale ones rewritten.
 
-## v0.48.0 (2026-07-17): fix over-eager vault conflict backups
+Four items were superseded outright. The split-view minimum widths became a `GtkPaned` question at C6, and the honest finding is starker than the original: a `GtkPaned` has no collapse behaviour at all, so nothing replaced adwaita's collapse-to-overlay. That item is now the tiling-forward layout part 2. The dialog content widths stopped being an `AdwDialog` adaptive-floor question at C8, when all five dialogs became free-floating `gtk::Window`s; what matters now is whether their content scrolls when a compositor forces them small. The `AdwBreakpoint` sweep is moot, since the hand-rolled `notify::default-width` threshold is the only mechanism left and is therefore the house pattern. And the CSD item, which asked whether the app copes if a user hides the window buttons, was answered by decision rather than audit: C8 hides them everywhere.
+
+One genuine gap surfaced and is now tracked. Phase 22's design bullet called for reading dark/light from `org.freedesktop.portal.Settings` over gio D-Bus in place of `adw::StyleManager`; C10 removed the StyleManager but never added the portal client, so the `"auto"` theme setting no longer follows the system. It is invisible today because Atrium ships only the dark Kanagawa sheet, but it gates the post-1.0 light Lotus palette.
+
+Phase 22's three ladder-completed boxes (go/no-go, spec design decisions, the owned stylesheet) are ticked, and the two phases are formally converged: Phase 21 items needing a running Atrium on a display carry a `(display pass)` tag, and that tagged set is exactly Phase 22's verification tail. The untagged remainder is ordinary code work and does not gate closing Phase 22.
+
+## v0.65.0 (2026-07-17): tiling-forward layout, part 1 — the list width cap returns
+
+First piece of the tiling-forward responsive layout. An owned `AtriumClamp` widget (a plain-GTK4 `AdwClamp` successor) caps the task list at a centered 960px column on wide windows, so the rows stay a calm Things-3 paper column instead of stretching edge-to-edge on a wide tile. It wraps the list's scroller rather than the list itself, so the `GtkListView` keeps native scrolling and row virtualisation (no need to reimplement `GtkScrollable`). This reinstates the cap that Phase 22 C8 dropped with the `AdwClamp`. Part 2 (the adaptive staged collapse: the inspector, then the Lists sidebar, folding to an overlay reveal as the window narrows to a tile) follows next.
+
+## v0.64.0 (2026-07-17): de-adwaita ladder C10 — libadwaita dropped (the toolkit cut)
+
+The last rung. libadwaita is gone from the dependency tree; Atrium is plain GTK4 with its own owned stylesheet. `adw::Application` becomes `gtk::Application`; the boot-time and Preferences theme apply, which drove `adw::StyleManager` / `adw::ColorScheme`, now sets GtkSettings' prefer-dark hint (Atrium ships the dark Kanagawa Dragon sheet, so dark and auto both render dark; a true light Lotus palette is post-1.0 work). Every `use adw::prelude::*` / `adw::subclass::prelude::*` becomes its GTK equivalent, the `libadwaita` workspace dependency is removed, and CI drops the `libadwaita-devel` build package. `cargo tree` shows zero libadwaita.
+
+This completes the Phase 22 de-adwaita ladder (C1 → C10, v0.50.0 → v0.64.0): Atrium now runs on GTK4 with a self-contained, gently-rounded Kanagawa Dragon look it owns outright, on GNOME, Hyprland, or any Wayland desktop, with window controls hidden for the tiling-first posture. Next up: the tiling-forward responsive layout (adaptive narrow-collapse + the list width cap), then the 1.0 asset tail (icon final pass, screenshots, Flathub) and the `v1.0.0` tag.
+
+## v0.63.0 (2026-07-17): comprehensive owned stylesheet (self-contained, C10-ready)
+
+The owned sheet grows from a thin layer into a comprehensive one, so Atrium looks the same with or without a system GTK theme underneath — and, crucially, after libadwaita is dropped at C10, when there is no rich substrate left to lean on. `theme.rs` now styles the full widget vocabulary Atrium uses (window, header bars, panes, list rows and the sidebar, buttons and all their variants, entries and spin buttons, dropdowns, circular checkboxes and radios, switches, scales, popovers and their menus, tooltips, scrollbars, separators, selection, the focus ring) in the gently-rounded Kanagawa Dragon language, and it carries the adwaita utility classes Atrium leans on across the binary (`.title-1`…`.title-4`, `.large-title`, `.heading`, `.caption`, `.caption-heading`, `.dim-label`, `.success`, `.warning`, `.error`, `.accent`, `.numeric`) so those keep working once libadwaita is gone. Font families stay in `data/style.css` (the owned sheet carries no `font-family` rule; a test enforces it), which continues to layer its per-surface tweaks on top.
+
+This makes the app's look genuinely owned rather than dependent on the user's GTK theme, which is both the point of the de-adwaita move and a prerequisite for the toolkit cut. Stylesheet-only.
+
+## v0.62.2 (2026-07-17): checkboxes back to circles
+
+The task-completion checkbox uses the `.selection-mode` style, which renders as a circle (the Things-3 / Reminders idiom). The C9 sheet's generic `check` rule had squared it off, which was the most conspicuously blocky thing on screen. The owned sheet now draws checkboxes as clean circles regardless of what theme sits underneath: a thin outline when open, a filled dragonYellow disc when done. Stylesheet-only.
+
+Context worth noting for the styling still to come: Atrium's owned sheet installs one notch above the user's GTK theme, so on a machine with a full system theme (e.g. a Kanagawa `~/.config/gtk-4.0/gtk.css`) the app's look is that theme with Atrium's sheet on top. To look intentional and identical everywhere (and to survive C10, when libadwaita is no longer underneath), the owned sheet needs to grow more comprehensive; that polish is the immediate follow-up.
+
+## v0.62.1 (2026-07-17): soften the C9 look — gently rounded, not blocky
+
+First live look at the C9 theme read as too blocky, so the owned sheet's "flat and square" stance is softened. Controls (buttons, entries, rows) round to ~8px, cards / popovers / toasts to ~12px, switches / scales / pills go fully round, and checkboxes become rounded squares with a lighter border and a hover-accent hint. Floating panels (popovers, toasts, cards) gain a soft drop shadow for depth, sidebar selection is a rounded inset highlight, and buttons get a short colour transition. Chrome stays flat with 1px hairlines; the palette and the dragonYellow accent are unchanged. spec §3.7 updated to the softened design language (Atrium is a Things-3-style surface, so it carries rounding where the utilitarian de-adwaita siblings stayed square). Stylesheet-only.
+
+## v0.62.0 (2026-07-17): de-adwaita ladder C9 — the visual flip (owned Kanagawa stylesheet + migration 0020)
+
+Atrium stops looking like adwaita. A new owned stylesheet, `atrium/src/ui/theme.rs`, bakes the Kanagawa Dragon palette into one generated sheet and installs it a step above USER priority (just under `data/style.css`, which keeps its per-surface tweaks). The accent is dragonYellow (#c4b28a), matching the app icon's courtyard floor. The base widgets flip to the spec §3.7 design language: flat, square, hard 1px hairlines, no gradients or rounded chrome.
+
+The sheet does two jobs. First, it redefines every adwaita colour name `data/style.css` leans on (`@accent_color`, `@card_shade_color`, `@window_bg_color`, the `@blue_3` / `@yellow_5` palette scale, and the rest) in a Kanagawa hue via `@define-color`. libadwaita supplies those names today and vanishes at C10, so defining them here both recolours adwaita's own widgets now and keeps `style.css` resolving after the toolkit is gone. Second, it carries the flat/square base rules (window, header bars, buttons, rows, entries, switches, scales) that override adwaita's look. Typography stays in `data/style.css` (the three bundled families).
+
+Migration 0020 (schema version 20, UPDATE-only) recolours the six built-in tag and area swatches from the old adwaita hexes to their Kanagawa counterparts, in lockstep with the swatch-class lookups, the colour picker, the fixtures, and the swatch CSS. It only touches those six exact hexes, so a user's own custom colours are untouched; and since the sidecar carries tag colours DB-to-disk only (never back), the migration is authoritative with no stale-sidecar revert.
+
+The task-list width cap (the 960px `AdwClamp` dropped in C8) needs an owned custom-layout widget rather than the stylesheet, and it wants on-display verification, so it joins the narrow-collapse in the Phase 21 geometry audit rather than shipping here.
+
+libadwaita is still linked (this rung recolours and reshapes through overrides); the toolkit itself, `adw::Application`, and the last `adw::StyleManager` theme call come out in C10.
+
+## v0.61.0 (2026-07-17): de-adwaita ladder C8 — the shell cut
+
+The window shell drops libadwaita. `AdwApplicationWindow` becomes a plain `gtk::ApplicationWindow`; the three `AdwToolbarView` stacks become vertical `GtkBox`es; the three `AdwHeaderBar`s become `gtk::HeaderBar`s; the two empty `AdwWindowTitle`s become empty `GtkLabel` title-widgets; and `data/window.ui` no longer requires libadwaita. This lands the tiling-first decoration posture from spec §3.7: an invisible headerbar suppresses GTK's default titlebar, and window controls are hidden everywhere (the compositor owns close / maximize / minimize, and Ctrl+Q quits), so each headerbar keeps only its functional buttons.
+
+The five secondary shells (the Simple-Mode Inspector, the Tag editor, the Import dialog, Quick Entry, and the debug Memory Watch) move from `adw::Dialog` / `adw::Window` to modal or transient `gtk::Window`s with an in-content `gtk::HeaderBar`. A new shared helper, `dialogs::close_on_escape`, restores the Escape-to-dismiss that the adwaita shells provided automatically (Memory Watch, which had no keyboard close, gains one). Quick Entry keeps its non-modal shape and its static "Quick Entry" title so the Hyprland window rule still matches.
+
+One deliberate deferral: the 960px `AdwClamp` that kept the task list from stretching into runway on wide windows is dropped in this rung. For now the list fills the pane; the plain-GTK width cap returns with the owned stylesheet in C9. `adw::Application` and the last `adw::StyleManager` theme call stay until C10, the toolkit cut.
+
+## v0.60.1 (2026-07-17): seed the vault ledger on launch so the first flush never spuriously backs up
+
+Closes the one remaining gap in the v0.60.0 vault-backup fix. The durable content ledger only knows a file is Atrium's own once Atrium has written it at least once *with the ledger in place*, so on the first launch after the fix, the first flush of each not-yet-tracked project still snapshotted its Org file once (harmless but noisy, and spread across sessions as each project was first touched). The writer now seeds the ledger at startup: for every project whose `.org` file is already byte-identical to what Atrium would write right now (in sync with the DB), it records the hash up front, so that first flush recognises the file as ours and skips the backup. A file that carries a real edit made in Emacs while Atrium was closed will not match the canonical bytes, is left unseeded, and so still trips the conflict backup on its first flush. Safety intact; new regression test `startup_seed_recognises_in_sync_file_without_prior_ledger`. Adds `atrium_org::org::render_project_to_string`, a filesystem-free canonical render that shares the OrgFile-building path with the writer so the two stay byte-identical. `atrium-org` only; no interaction with the de-adwaita toolkit work.
+
+The completion-*revert* seen before the vault fix (a task un-completing on this branch) is resolved: it was a side effect of the backup churn, not a de-adwaita UI regression. Completing a task now sticks.
+
+## v0.60.0 (2026-07-17): fix over-eager vault conflict backups
 
 The vault writer was snapshotting projects' Org files as spurious `.atrium.bak.<timestamp>` "conflicts" on ordinary edits — most visibly, completing a task backed up its project file every time, with a toast, because the conflict check only remembered Atrium's own writes for a two-second in-memory window (and forgot them entirely across a restart). After that window lapsed, the writer mistook its own previous output for an external edit.
 
 The fix gives the writer a durable content ledger, persisted under `<vault>/.atrium/write-ledger`: it records a stable hash of what it writes to each file, and the pre-overwrite conflict check compares the on-disk content against that record. Atrium's own output — however long ago it wrote it, and across restarts — is recognised and never backed up; only content that differs from the last thing Atrium wrote (a real external edit in Emacs, vim-orgmode, etc.) is preserved to a `.bak` before the overwrite, exactly as before. The `recent_writes` inotify-echo suppressor is unchanged.
 
 The safety direction is intact (the external-edit and concurrent-edit conflict tests still pass) and a new regression test (`fresh_writer_recognises_own_prior_write_via_ledger`) proves a brand-new writer no longer backs up its own prior on-disk write. FNV-1a hashing, no new dependency.
+
+Note: this is orthogonal to the de-adwaita ladder. The completion-*revert* observed on this branch (distinct from the backup spam, which was pre-existing on both branches) is a separate de-adwaita UI regression still to be pinned.
+
+## v0.59.2 (2026-07-17): fix Cargo.lock corruption
+
+A build fix, no code change. The per-release version bumps had been rewriting `Cargo.lock` with a text substitution (`version = "X" -> "Y"`), which also rewrote any third-party crate that happened to share the old version string. At v0.59.1 that clobbered `windows-sys` 0.59.0 into a nonexistent 0.59.1, breaking `cargo run` with a resolution error (harmless on Linux builds, since it is a Windows-only transitive dependency, which is why the earlier per-rung builds and tests stayed green). The lock is restored from `main` (all third-party pins pristine) and re-stamped for the seven `atrium` crates by cargo itself. Going forward the lock is updated via `cargo build`, never a text substitution.
+
+## v0.59.1 (2026-07-17): spec — decoration posture for the shell cut
+
+A documentation patch, recording a design decision ahead of the C8 window-shell rework so it lands in spec first (per the roadmap). Atrium's tiling-first posture hides the title-bar window-control buttons: the compositor owns close / maximize / minimize, `Ctrl+Q` quits, and the headerbars keep only their functional controls. This matches the portfolio (Hermitage's Hyprland-native phases, Viaduct v3.0.0). Spec §3.7 updated; no code change.
+
+## v0.59.0 (2026-07-17): de-adwaita ladder C7 — the Preferences window
+
+The Preferences surface moves off `AdwPreferencesDialog` onto a plain modal `gtk::Window`. A `GtkStackSidebar` lists the four pages (General, Capture, Notifications, Backups) beside a `GtkStack` holding them, each an owned `rows::page`. The mode and theme dropdowns, the high-legibility and notification and weekly-backup switches, and the Quick Entry shortcut entry all convert to the owned combo / switch / entry rows; the vault-path row is hand-built (a label, a filling entry, and the folder-picker button) since it pairs an entry with a trailing button. Escape closes the window, and it opens transient over the main window.
+
+Every handler body is unchanged: settings still write straight through to GSettings, the vault and backup file pickers still use `gtk::FileDialog`, "Back up now" still snapshots and prunes, and "Restore…" still queues the marker for the next launch. The one adwaita call that stays is `apply_theme`, which drives `adw::StyleManager` for the light/dark override; that becomes a direct desktop-portal read at the C10 toolkit cut.
+
+`fmt`, `clippy -D warnings`, and the 1028-test suite are green. The window is a GUI surface pending a display pass. Remaining adwaita: the window and dialog shells (C8), the stylesheet (C9), then the toolkit drop (C10).
+
+## v0.58.0 (2026-07-17): de-adwaita ladder C6 — the split views
+
+The two-pane window layout moves off Adwaita's split views onto plain `GtkPaned`. The outer `AdwOverlaySplitView` (which held the Builder inspector pane on the right) and the inner `AdwNavigationSplitView` (Lists sidebar beside the content) both become `GtkPaned`, wired through the `start-child` / `end-child` properties. The two `AdwNavigationPage` wrappers that Adwaita required are unwrapped (their titles were already suppressed), and the now-unused `content_page` template child is dropped along with the redundant `set_title` call it fed. The inspector still appears only in Builder Mode, now by toggling the pane host's visibility rather than an Adwaita show-sidebar flag.
+
+The visible difference: the dividers are draggable. Adwaita's split views managed their sidebar widths and collapsed to an overlay on narrow windows; the plain paned gives a resizable divider instead. The hand-rolled narrow-collapse (hiding or revealing a pane below a width threshold) is deliberately deferred to the Phase 21 tiling-geometry pass, because a good collapse needs a reveal affordance and hands-on verification at real tile sizes on a tiling compositor — exactly what that phase is for. Shipping the divider now keeps the app fully usable at normal window sizes without guessing the collapse behaviour blind.
+
+This is a core-window-layout change, so while it is statically verified (the `window.ui` template is well-formed, the template-child bindings match, and `fmt` / `clippy -D warnings` / the 1028-test suite are green), the runtime template inflation and the rendered geometry are a GUI surface that wants a launch on Brandon's display. Remaining adwaita: the window and dialog shells (C8), the Preferences window (C7), the stylesheet (C9), then the toolkit drop (C10).
+
+## v0.57.0 (2026-07-17): de-adwaita ladder C5d — the bin hosts (C5 complete)
+
+The last C5 step, closing out the whole list-widget rung. The seven `adw::Bin` single-child hosts (the inspector pane's sidebar host, and the Forecast / Review / Logbook / board / Agenda / Calendar stack-page hosts) become plain `GtkBox` in `data/window.ui` and `TemplateChild<gtk::Box>` in the window's template struct. A small `rows::set_box_child` helper (remove-then-append) replaces `adw::Bin::set_child` at the roughly thirteen call sites in `views.rs` and the inspector pane's `install`.
+
+With the hosts converted, the inspector pane no longer names a single adwaita type, so its prelude drops from `adw::prelude` to `gtk::prelude`. No visible change: each host still holds exactly one child that the window swaps as the active view or selection changes.
+
+That completes C5, the largest rung of the de-adwaita ladder: the entire `adw` list-row and container-host family (`ActionRow`, `PreferencesGroup`, `PreferencesPage`, `ComboRow`, `EntryRow`, `SwitchRow`, `SpinRow`, `Bin`) is gone from the import dialog, both inspectors, and the page hosts, all rebuilt on the owned `rows` module. `fmt`, `clippy -D warnings`, and the 1028-test suite are green. What remains adwaita: the split views (C6), the Preferences window (C7), the window/dialog shells (C8), the stylesheet (C9), and then the toolkit drop (C10).
+
+## v0.56.0 (2026-07-17): de-adwaita ladder C5c — the Builder inspector pane
+
+The heaviest rung: the Builder-mode inspector pane (`inspector_pane/mod.rs` + `fields.rs`, about 2,220 lines) moves off the entire `adw` row family. This is the app's deepest editing surface, and every field converts while keeping its live autosave.
+
+The owned rows module gained what this pane needed: `spin_row` and the group header-suffix helper return, plus an owned single-child `Bin` (the editor host that swaps its child as the selection changes) and a `Page::add_widget` for bespoke sections. The field builders in `fields.rs` (keyword picker, time-tracking group, the repeat-rule editor, the project combo, the task-link picker) now return owned rows and dropdowns; the recurrence editor's frequency/interval/mode/custom rows drive the same commit logic through `gtk::DropDown` / `gtk::SpinButton` / `gtk::Entry` handles.
+
+The genuinely non-mechanical parts: the title row is a hand-built leading-checkbox beside a `gtk::Entry`; the dynamic subtasks, checklist, and blocked-by sections are bespoke heading-over-list boxes whose rows are hand-built (a leading check, a flat button that navigates on click or keyboard, a trailing remove button); and autosave moves from adwaita's `EntryRow` apply-signal to `gtk::Entry` activate plus a focus-out controller. The link and dependency pickers render their candidates as flat buttons so they stay keyboard-operable.
+
+Behaviour is preserved throughout: title/notes/reminder autosave on focus-out and Enter, schedule and deadline pickers toggle their dependent time and heads-up rows, the completion check and subtask checks dispatch through the worker, checkbox toggles rewrite the note body, dependency add/remove and cycle rejection are unchanged, and the repeat editor still validates custom RRULEs locally before dispatch. It compiled clean on the first attempt; `fmt`, `clippy -D warnings`, and the 1028-test suite are green. The one remaining adwaita reference is the window.ui `Bin` host parameter, which converts at C5d. The rendered pane is a GUI surface pending a display pass.
+
+## v0.55.0 (2026-07-17): de-adwaita ladder C5b — the Simple-Mode inspector
+
+The second C5 consumer. The Edit Task dialog (`inspector.rs`) moves its whole form off the `adw` row family onto the owned rows from v0.54.0: the title entry, the schedule / deadline / project group, the tags row, the checklist, and the notes section are now owned groups and rows, and the project picker is an owned combo (a `gtk::DropDown` behind the same `selected` surface).
+
+Two spots needed more than a mechanical swap. The checklist rebuilds its rows whenever the note text changes, so its group is shared through an `Rc` and cleared through a new `Group::clear`; its checkbox rows are hand-built (a leading `GtkCheckButton` beside the label) since the owned row builder trails its suffix. And the title field's validation (reject an empty title, flash the error class, refocus) now targets the owned entry directly rather than the adwaita row wrapper.
+
+Behaviour is unchanged: Apply still diffs against the opened snapshot and dispatches one `update_task`, Cancel still discards, the notes checkboxes still edit the buffer transactionally, and the Org-link click-through still closes the dialog and navigates. The dialog's own shell (`adw::Dialog` / `HeaderBar` / `ToolbarView`) stays for the C8 shell cut. `fmt`, `clippy -D warnings`, and the 1028-test suite are green; the rendered dialog is a GUI surface pending a display pass.
+
+## v0.54.0 (2026-07-17): de-adwaita ladder C5a — the owned rows module + the Import dialog
+
+C5 is the big rung: the whole `adw` list-row family (`ActionRow`, `PreferencesGroup`, `PreferencesPage`, `ComboRow`, `EntryRow`, `SwitchRow`, `SpinRow`) appears ~95 times across the inspector, the forms, and preferences. It converts over several releases rather than one. This is the first: the owned module plus its first consumer.
+
+The module, `atrium/src/ui/rows.rs` (ported from Conservatory's Phase 26 version), gives free-function builders that return a `gtk::ListBoxRow` alongside the interactive control it carries, so call sites keep the exact surface they wired against: `row` / `action_row` (returns the subtitle label for runtime updates) / `switch_row` (→ `gtk::Switch`) / `combo_row` (→ `gtk::DropDown`) / `entry_row` (→ `gtk::Entry`), a `group` (the `PreferencesGroup` successor: heading + description over a `.boxed-list`), and a `page` (the `PreferencesPage` successor: a self-scrolling column of groups). Unlike the earlier rungs these conversions are not mechanical, since the adw rows are builders with `title` / `subtitle` / `model` properties that each have to be rewritten into the owned calls.
+
+The first consumer is the Import dialog. Its source-format and UDA dropdowns, the project-name entry, the dry-run switch, the file row with its "Choose…" suffix, and the result pane all move to the owned rows and groups; the redundant outer scroller drops because the owned `Page` brings its own. Behaviour is unchanged: the dropdowns still drive the same importer dispatch, the file chooser still fills the subtitle, dry-run still gates writing. The dialog's own shell (`adw::Dialog` / `HeaderBar` / `ToolbarView`) stays for the C8 shell cut. `spin_row` and the group header-suffix helper are omitted here and return with their first real consumers (the inspector rungs) to keep this release free of unused code.
+
+`fmt`, `clippy -D warnings`, and the 1028-test workspace suite are green; the rendered dialog is a GUI surface pending a display pass. Remaining C5 consumers (the Simple-Mode inspector, the Builder inspector pane, the stack-page `Bin` hosts) are tracked as C5b–C5d on the roadmap.
+
+## v0.53.0 (2026-07-17): de-adwaita ladder C4 — owned modal alert dialogs
+
+The fourth rung, and the biggest so far. `adw::AlertDialog` is gone: a new `atrium/src/ui/dialogs.rs` provides an owned `Alert` (a small modal `gtk::Window`), cribbed from Conservatory's Phase 26 version with the async chooser Atrium's call sites need. Its surface mirrors adwaita's, heading and body, an optional extra child, named responses with per-response `Appearance` (suggested / destructive), a default response for Enter and a close response for Escape and the window-manager close, so all eight call sites converted by swapping only the constructor and the appearance enum.
+
+The async part is the interesting bit. Every dialog in Atrium is driven by `dialog.choose_future(parent).await`, which resolves to the chosen response id. The owned `choose_future` reproduces that over a `tokio::sync::oneshot`: it wires a one-shot response handler that sends the id, presents the modal, and awaits the receiver; a button click, Escape, or the WM close all resolve it exactly once. Enter activates the default response through the window's default widget (entries still opt in with `activates_default`), and Escape or a WM close answer with the close response, matching adwaita's semantics.
+
+The eight sites: the two task confirmations (a destructive-delete confirm and an add/remove prompt) in `tasks.rs`, the four `widgets.rs` prompts (a plain text entry, the tag editor with its colour-swatch extra child, the Name+Filter perspective form, and a review-interval prompt), the shared `confirm_destructive` helper, and the template-picker confirm in `actions.rs`. Behaviour and copy are unchanged; the swatch picker and the perspective form keep their custom content through `set_extra_child`.
+
+Stock `gtk::AlertDialog` was considered and rejected for the reason Conservatory found: it offers no extra child, no per-response styling, and only index-addressed buttons. `fmt`, `clippy -D warnings`, and the workspace test suite (now 1028 with the appearance-mapping unit test) are green. Runtime dialog behaviour is a GUI surface pending a display pass. (Note: the atrium binary's test harness prints a pre-existing `g_static_resource_init` GLib critical from libadwaita's static resources under parallel test load; it is unrelated to this change and goes away at the C10 toolkit cut.)
+
+## v0.52.0 (2026-07-17): de-adwaita ladder C3 — owned toasts
+
+The third rung. `AdwToastOverlay` and `adw::Toast` are gone; toasts now ride an owned overlay. The content stack in `data/window.ui` is wrapped in a `GtkOverlay` whose overlay child is a crossfading `GtkRevealer` holding a label and an optional Undo button. `show_toast` and `show_undo_toast` (in `search.rs`) drive it through a small `present_toast` / `hide_toast` pair: a new toast cancels the pending auto-hide and re-arms it, so a burst of confirmations keeps the latest message up for its full window (4 seconds plain, 6 for the undo variant), matching the old newest-wins behaviour.
+
+The Undo button needed care. With adwaita, each `adw::Toast` carried its own button and click signal; the owned model has one persistent button, so it is wired once at setup (`wire_toast`) and consumes the window's shared `last_undo` cell — the exact slot `Ctrl+Z` (`win.undo`) already reads. Whichever fires first takes the closure and the other no-ops, and a button click also hides the toast. The three call sites (the filter-parse warning, the "task deleted" bulk confirmation, and the undo-bearing edits) are unchanged in behaviour.
+
+A temporary `.toast` pill style lands in `style.css` to sit close to the adwaita look; like the other rungs, the exact styling converges when the owned stylesheet arrives at C9. `fmt`, `clippy -D warnings`, and the 1027-test suite are green; the overlay and its revealer are runtime GUI surfaces whose hands-on pass rides Brandon's display.
+
+## v0.51.0 (2026-07-17): de-adwaita ladder C2 — owned empty-state pages
+
+The second rung. Every `adw::StatusPage` in the app is replaced by an owned composite (`atrium/src/ui/status_page.rs`, cribbed from Conservatory's Phase 26 version): a centered icon / title / description column with an optional call-to-action child, exposing the same `set_title` / `set_description` / `set_icon_name` / `set_child` setters so call sites converted mechanically.
+
+Five sites moved. Four were imperative builders and became one-line `status_page(...)` calls: the empty Review ("All caught up"), Agenda ("Nothing on the agenda"), and Logbook ("Nothing logged yet") views, plus the first-run onboarding welcome (which keeps its three next-steps pill buttons via `set_child`).
+
+The fifth is the one that carried real structure. The main empty-list placeholder (`content_status`) was an `AdwStatusPage` embedded in `data/window.ui` and mutated at runtime by `update_empty_state` (which swaps its copy per active list: "Inbox zero", "Clear plate today", and so on). It becomes a plain `GtkBox` host in the template; the window builds the owned page in code at setup, parents it into that host, and keeps it in a `OnceCell` so the per-list swaps keep working unchanged.
+
+Same copy, same behaviour throughout. The composite does not pixel-match adwaita's status page (icon weight, spacing) and is not meant to yet: the exact styling converges when the owned stylesheet lands at C9, matching how Conservatory sequenced the same work. `fmt`, `clippy -D warnings`, and the 1027-test workspace suite are green; the `window.ui` template binding and the rendered pages are GUI surfaces whose hands-on pass rides Brandon's display.
+
+## v0.50.1 (2026-07-17): About-window copy
+
+Follows the C1 About rebuild with a copy pass. The one-line description dropped its toolkit framing and its side-by-side comparison; it now says what Atrium is on its own terms: a local-first task manager with Org-mode internals and a two-way plain-text vault, switchable between Simple and Builder modes. The "Built on the shoulders of" credits (Things 3, OmniFocus, Org-mode, NetNewsWire) stay, since those are attribution, not a claim about Atrium.
+
+Copy only; no code path, schema, or behaviour change. (The metainfo summary still reads "native GNOME design"; that line is left for the broader plain-GTK posture sweep rather than changed piecemeal here.)
+
+## v0.50.0 (2026-07-17): de-adwaita ladder C1 — foundations + the stylesheet-priority fix
+
+The first rung of the Phase 22 sub-phase ladder (roadmap C1). Deliberately small and low-risk: no visual change, no schema, no feature touched.
+
+**About dialog → `gtk::AboutDialog`.** The in-window `adw::AboutDialog` sheet becomes a plain-GTK toplevel. The mapping is faithful bar two adwaita-only niceties: the acknowledgement section ("Built on the shoulders of") and the bundled-fonts legal section both become `add_credit_section` entries, and since `gtk::AboutDialog` has no `issue_url` field the tracker rides the website label instead. Contents are otherwise unchanged: version, MIT license, the influences (Things 3, OmniFocus, Org-mode, NetNewsWire), the three bundled typefaces under SIL OFL 1.1. `onboarding.rs` and the icon references are untouched.
+
+**Stylesheet priority fix.** Atrium loaded its stylesheet at `STYLE_PROVIDER_PRIORITY_APPLICATION` (600), below `PRIORITY_USER` (800). A user's themed `~/.config/gtk-4.0/gtk.css` therefore outranked Atrium and silently half-overrode its styling — most visibly, a system-wide Kanagawa GTK theme bleeding into the app. The provider now installs at `STYLE_PROVIDER_PRIORITY_USER + 1`, keeping Atrium's own sheet authoritative (this was the "Colophon discovery"; Conservatory carries the same fix). It is also the future home of the owned generated sheet that lands at C9.
+
+**What's deferred.** The keyboard-shortcuts window stays as-is this rung. It is already a plain `gtk::ShortcutsWindow` with no adwaita to remove, and the `GtkShortcuts*` deprecation only warns at the `v4_18` feature gate while Atrium pins `v4_16`. Hand-rolling a replacement now — before the owned-rows module arrives at C5 — would be throwaway work, so it rides C5 (or a later `v4_18` bump) instead. Recorded on the roadmap so it isn't lost.
+
+Verification: `cargo fmt --check`, `cargo clippy --all-targets -D warnings`, and the workspace build are clean. The About dialog and `Ctrl+?` are GUI surfaces exercised on launch; a hands-on pass rides Brandon's display.
+
+## v0.49.0 (2026-07-17): new application icon
+
+The day-one placeholder is replaced. The icon comment had said "Replace before 1.0" since v0.0.0, and with the de-adwaita re-theme now landing before the tag, the icon is drawn in the palette it will actually keep.
+
+The concept is unchanged: a capital "A" as a building silhouette, its triangular counter the atrium itself, an open court with a warm line for the courtyard floor. What changed is the craft. The old mark sat on a 256 grid with an off-standard margin and colours borrowed from libadwaita's accent set. The redraw moves to the house 128 canvas with a 12px safe margin and a rounded-square card at the Adwaita ~22% corner radius, and recolours to Kanagawa Dragon: a dragonBlack card gradient (`#282727` → `#12120f`), the "A" in dragonWhite (`#c5c9c5`), the floor line in dragonYellow (`#c4b28a`). The letterform is weighted to hold up at 16px.
+
+A hand-redrawn 16×16 symbolic sibling lands alongside it (`io.github.virinvictus.atrium-symbolic.svg`), following the portfolio pattern (Colophon, Viaduct): same "A"-with-counter silhouette, but the card, the floor line, and the safe margin drop because they collapse to noise at that scale. It recolours through the GNOME symbolic mechanism for sidebars, menus, and notifications. `onboarding.rs` and the About dialog already reference the app icon by name, so both pick up the new art with no code change; meson now installs the symbolic variant beside the scalable one.
+
+`logo.svg` is refreshed to match (kept byte-identical to the app icon), and the metainfo `<branding>` colours are re-sampled from the redraw (`#c4b28a` light, `#12120f` dark) since the old values were lifted from the placeholder. `appstreamcli validate` stays clean.
+
+No code, no schema, no behaviour change; asset-only.
+
+## v0.48.0 (2026-07-17): re-sequence the 1.0 endgame, de-adwaita moves in front of the tag
+
+A planning release: documentation only, no code, no schema, no behaviour change. It records a sequencing decision and lays out the runway for the work it unblocks.
+
+The call (Brandon, 2026-07-17): pull Phase 22, the de-adwaita and Kanagawa Dragon re-theme, in front of the `v1.0.0` tag instead of running it post-1.0. The reasoning is that the three remaining 1.0 items, the final icon pass, the AppStream screenshots, and the Flathub metadata, are all assets a toolkit swap invalidates. Ship 1.0 wearing GNOME's look and every one of them gets redone one release later; the roadmap already conceded as much ("metadata/screenshots refresh rides along" once libadwaita is gone). Doing the re-theme first means 1.0 is shot against the look it actually keeps.
+
+The gate that held Phase 22 back is satisfied. It was gated on the Colophon pilot, which has landed (Colophon's Phase 6 shipped at v2.0.0, now v2.1.0, its stylesheet generated from `colophon/src/theme.rs` with zero `.css` files); Conservatory went the whole distance at Phase 26 / v0.3.8 ("zero libadwaita symbols in the workspace") across a twelve-release sub-phase ladder. Conservatory's `theme.rs` and its 26b→26m ladder are the proven template Atrium adapts.
+
+What changed on disk:
+
+- **`roadmap.md`** — the pre-1.0 order is now de-adwaita ladder → icon/screenshots/Flathub asset tail → the tag. Phase 20's remaining items are reframed as that asset tail; Phase 22's four design bullets gain a concrete ten-step sub-phase ladder (C1 foundations through C10 toolkit cut), a migration-0020 note for the swatch recolour, and a schema-impact line. Phase 21 (the post-1.0 Hyprland audit) stays where it is; its number is lower than Phase 22 but its execution is later, and the note about the two possibly running together was already there.
+- **`spec.md`** — new §3.7 documents the owned-stylesheet design language (flat, square, 1px hairlines, Kanagawa Dragon, generated `theme.rs` at `USER + 1` priority, the scoped-not-universal focus ring, portal-driven dark/light in place of `adw::StyleManager`) as the Phase 22 target.
+- The six persisted tag/area swatch hexes are flagged as the one "never break userspace" tripwire in the re-theme: they live in SQLite and in the Org sidecar, so the recolour rides a real UPDATE-only migration (`0020`) rather than a silent CSS change that would drop every existing tag to the grey fallback.
+
+No `VERSION`-consuming code moved; `Cargo.toml` and the metainfo track the bump per the release discipline.
 
 ## v0.47.0 (2026-07-16): localisation scaffolding (Phase 20)
 

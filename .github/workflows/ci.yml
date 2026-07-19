@@ -25,7 +25,6 @@ jobs:
             pkgconf-pkg-config \
             glib2-devel \
             gtk4-devel \
-            libadwaita-devel \
             sqlite-devel \
             xorg-x11-server-Xvfb
 

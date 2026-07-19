@@ -16,14 +16,14 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 
-use adw::prelude::*;
 use gtk::glib;
+use gtk::prelude::*;
 
 /// Open a top-level Memory Watch window. The window owns its own
 /// 1-second sampler timeout via `glib::timeout_add_local`; the
 /// timeout self-terminates when the window is dropped.
 pub fn open_memory_watch(parent: &impl IsA<gtk::Window>) {
-    let window = adw::Window::builder()
+    let window = gtk::Window::builder()
         .title("Atrium Debug — Memory Watch")
         .transient_for(parent)
         .modal(false)
@@ -32,12 +32,21 @@ pub fn open_memory_watch(parent: &impl IsA<gtk::Window>) {
         .resizable(false)
         .css_classes(["atrium-debug-pane"])
         .build();
+    // Tiling-first (spec §3.7): suppress GTK's default titlebar. The
+    // window closes via Escape (wired below) or the compositor.
+    window.set_titlebar(Some(&gtk::HeaderBar::builder().visible(false).build()));
+    crate::ui::dialogs::close_on_escape(&window);
 
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(
-        &adw::HeaderBar::builder()
-            .show_start_title_buttons(false)
-            .show_end_title_buttons(true)
+    let toolbar = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    toolbar.append(
+        &gtk::HeaderBar::builder()
+            .show_title_buttons(false)
+            .title_widget(
+                &gtk::Label::builder()
+                    .label("Atrium Debug — Memory Watch")
+                    .css_classes(["title"])
+                    .build(),
+            )
             .build(),
     );
 
@@ -71,8 +80,9 @@ pub fn open_memory_watch(parent: &impl IsA<gtk::Window>) {
     hint.add_css_class("caption");
     body.append(&hint);
 
-    toolbar.set_content(Some(&body));
-    window.set_content(Some(&toolbar));
+    body.set_vexpand(true);
+    toolbar.append(&body);
+    window.set_child(Some(&toolbar));
 
     // Shared sample count + timeout id. The id lives in a RefCell so
     // we can remove the source on close (otherwise it'd keep firing

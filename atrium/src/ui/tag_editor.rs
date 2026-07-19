@@ -13,10 +13,10 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use adw::prelude::*;
 use atrium_core::{Tag, WorkerHandle};
 use gtk::glib;
 use gtk::glib::clone;
+use gtk::prelude::*;
 use tracing::error;
 
 use crate::i18n::{gettext, gettext_f};
@@ -37,14 +37,30 @@ pub fn open(
     current_tag_ids: Vec<i64>,
     all_tags: Vec<Tag>,
 ) {
-    let dialog = adw::Dialog::builder()
+    let dialog = gtk::Window::builder()
         .title(gettext("Edit Tags"))
-        .content_width(380)
-        .content_height(420)
+        .modal(true)
+        .default_width(380)
+        .default_height(420)
         .build();
+    if let Some(win) = parent.root().and_downcast::<gtk::Window>() {
+        dialog.set_transient_for(Some(&win));
+    }
+    // Tiling-first (spec §3.7): suppress GTK's default titlebar.
+    dialog.set_titlebar(Some(&gtk::HeaderBar::builder().visible(false).build()));
 
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&adw::HeaderBar::new());
+    let toolbar = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    toolbar.append(
+        &gtk::HeaderBar::builder()
+            .show_title_buttons(false)
+            .title_widget(
+                &gtk::Label::builder()
+                    .label(gettext("Edit Tags"))
+                    .css_classes(["title"])
+                    .build(),
+            )
+            .build(),
+    );
 
     // Header: which task we're editing. Truncated so a long title
     // doesn't break layout; the full text is on the tooltip.
@@ -151,8 +167,10 @@ pub fn open(
     footer.append(&apply_button);
     body.append(&footer);
 
-    toolbar.set_content(Some(&body));
+    body.set_vexpand(true);
+    toolbar.append(&body);
     dialog.set_child(Some(&toolbar));
+    crate::ui::dialogs::close_on_escape(&dialog);
 
     // Cancel dismisses without writes. AdwDialog handles Esc-to-close
     // itself, so we don't install a manual key controller.
@@ -257,13 +275,13 @@ pub fn open(
                     error!(?e, task_id, "set_task_tags failed during tag editor apply");
                     return;
                 }
-                let _ = dialog.close();
+                dialog.close();
             });
         }
     ));
 
     new_entry.grab_focus();
-    dialog.present(Some(parent));
+    dialog.present();
 }
 
 fn build_tag_row(tag: &Tag, selected: &Rc<RefCell<HashSet<i64>>>) -> gtk::ListBoxRow {

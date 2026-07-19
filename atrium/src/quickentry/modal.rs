@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 //! Quick Entry capture modal.
 //!
-//! `Ctrl+Alt+Space` opens a small `adw::Window` with a single entry.
+//! `Ctrl+Alt+Space` opens a small `gtk::Window` (Phase 22 C8 — was an
+//! `adw::Window`) with a single entry.
 //! Type a task description (with optional inline `#tag` / `@today` /
 //! `@yyyy-mm-dd` / `@deadline …` syntax — the same parser the
 //! bottom-of-list entry uses), press Enter, and the task lands in
@@ -15,11 +16,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use adw::prelude::*;
 use atrium_core::db::read_pool::ReadPool;
 use atrium_core::{NewTask, QuickEntryTemplate, WorkerHandle};
 use gtk::glib;
 use gtk::glib::clone;
+use gtk::prelude::*;
 use tracing::{debug, error, warn};
 
 use atrium_inline as parser;
@@ -54,7 +55,7 @@ pub fn open(
         .unwrap_or_default();
     let active_template: Rc<RefCell<Option<QuickEntryTemplate>>> = Rc::new(RefCell::new(None));
 
-    let dialog = adw::Window::builder()
+    let dialog = gtk::Window::builder()
         .title(gettext("Quick Entry"))
         .transient_for(parent)
         .modal(false)
@@ -63,12 +64,20 @@ pub fn open(
         .resizable(false)
         .css_classes(["atrium-quickentry-window"])
         .build();
+    // Tiling-first (spec §3.7): suppress GTK's default titlebar. The
+    // static "Quick Entry" title is preserved for the Hyprland window rule.
+    dialog.set_titlebar(Some(&gtk::HeaderBar::builder().visible(false).build()));
 
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(
-        &adw::HeaderBar::builder()
-            .show_start_title_buttons(false)
-            .show_end_title_buttons(false)
+    let toolbar = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    toolbar.append(
+        &gtk::HeaderBar::builder()
+            .show_title_buttons(false)
+            .title_widget(
+                &gtk::Label::builder()
+                    .label(gettext("Quick Entry"))
+                    .css_classes(["title"])
+                    .build(),
+            )
             .build(),
     );
 
@@ -192,8 +201,9 @@ pub fn open(
     body.append(&picker);
     body.append(&entry);
     body.append(&hint);
-    toolbar.set_content(Some(&body));
-    dialog.set_content(Some(&toolbar));
+    body.set_vexpand(true);
+    toolbar.append(&body);
+    dialog.set_child(Some(&toolbar));
 
     // Esc dismisses.
     let key_controller = gtk::EventControllerKey::new();

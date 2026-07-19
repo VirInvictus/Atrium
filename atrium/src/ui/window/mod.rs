@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-//! `AtriumWindow` — the application's `AdwApplicationWindow` subclass.
+//! `AtriumWindow` — the application's `gtk::ApplicationWindow` subclass
+//! (Phase 22 C8 reparented it off `gtk::ApplicationWindow`).
 //!
 //! Phase 4 turns the static sidebar / placeholder content from Phase 3
 //! into a real working surface:
@@ -7,8 +8,8 @@
 //! - Sidebar is built programmatically so we can attach click handlers
 //!   and (Phase 5+) count badges.
 //! - Content pane hosts a `GtkStack` between an empty-state
-//!   `AdwStatusPage` and a `GtkListView` rendering tasks via the
-//!   `task_list` factory.
+//!   status page (the owned `status_page` composite) and a
+//!   `GtkListView` rendering tasks via the `task_list` factory.
 //! - `switch_to_list` re-populates the store from the read pool.
 //! - `apply_task_changes` runs the diff applier on the active store
 //!   when the worker emits a delta.
@@ -21,8 +22,6 @@ use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use adw::prelude::*;
-use adw::subclass::prelude::*;
 use atrium_core::db::read::CanonicalCounts;
 use atrium_core::db::read_pool::ReadPool;
 use atrium_core::{
@@ -33,6 +32,8 @@ use atrium_core::{
 use chrono::Local;
 use gtk::glib::Propagation;
 use gtk::glib::clone;
+use gtk::prelude::*;
+use gtk::subclass::prelude::*;
 use gtk::{CompositeTemplate, gio, glib};
 use tracing::{debug, error, warn};
 
@@ -53,11 +54,11 @@ mod imp {
     #[template(file = "../../../../data/window.ui")]
     pub struct AtriumWindow {
         #[template_child]
-        pub overlay_split: TemplateChild<adw::OverlaySplitView>,
+        pub overlay_split: TemplateChild<gtk::Paned>,
         #[template_child]
-        pub inspector_pane_host: TemplateChild<adw::Bin>,
+        pub inspector_pane_host: TemplateChild<gtk::Box>,
         #[template_child]
-        pub split_view: TemplateChild<adw::NavigationSplitView>,
+        pub split_view: TemplateChild<gtk::Paned>,
         #[template_child]
         pub menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
@@ -72,39 +73,42 @@ mod imp {
         #[template_child]
         pub sidebar_empty_hint: TemplateChild<gtk::Revealer>,
         #[template_child]
-        pub content_page: TemplateChild<adw::NavigationPage>,
-        #[template_child]
         pub content_stack: TemplateChild<gtk::Stack>,
         #[template_child]
         pub task_list_view: TemplateChild<gtk::ListView>,
+        /// Host box for the owned empty-state page (Phase 22 C2). The
+        /// `adw::StatusPage` that used to live here in the template was
+        /// replaced by [`crate::ui::status_page::StatusPage`], built in
+        /// code at setup and parented into this box; the owned page
+        /// itself lives in `content_status` below.
         #[template_child]
-        pub content_status: TemplateChild<adw::StatusPage>,
+        pub content_status_host: TemplateChild<gtk::Box>,
         #[template_child]
-        pub forecast_host: TemplateChild<adw::Bin>,
+        pub forecast_host: TemplateChild<gtk::Box>,
         #[template_child]
-        pub review_host: TemplateChild<adw::Bin>,
+        pub review_host: TemplateChild<gtk::Box>,
         /// v0.6.0 (Slice C2) — Logbook page host. Window mounts the
         /// day-band layout from `logbook::build_page` here whenever
         /// `ActiveList::Logbook` is selected.
         #[template_child]
-        pub logbook_host: TemplateChild<adw::Bin>,
+        pub logbook_host: TemplateChild<gtk::Box>,
         /// v0.6.0 (Slice D1 GUI) — kanban board page host. Window
         /// mounts the column layout from `board::build_page` here
         /// whenever the active Perspective has `renderer = "board"`.
         #[template_child]
-        pub board_host: TemplateChild<adw::Bin>,
+        pub board_host: TemplateChild<gtk::Box>,
         /// v0.6.4 (Slice D2) — Agenda canonical page host. Window
         /// mounts the chronological-section layout from
         /// `agenda::build_page` here whenever `ActiveList::Agenda`
         /// is selected.
         #[template_child]
-        pub agenda_host: TemplateChild<adw::Bin>,
+        pub agenda_host: TemplateChild<gtk::Box>,
         /// Phase 12.5 (v0.11.0) — Calendar Month View host.
         /// Window mounts the 7×N grid from `calendar::build_page`
         /// here whenever `ActiveList::Calendar` is selected.
         /// Builder-only.
         #[template_child]
-        pub calendar_host: TemplateChild<adw::Bin>,
+        pub calendar_host: TemplateChild<gtk::Box>,
         // v0.7.0 — magazine-spread page title strip that lives
         // between the header bar and the content stack. Bound in
         // set_active_list (big label = view title, subtitle =
@@ -128,8 +132,15 @@ mod imp {
         /// `wire_search_bar`.
         #[template_child]
         pub search_help_button: TemplateChild<gtk::MenuButton>,
+        /// Owned toast host (Phase 22 C3) — the crossfading revealer, its
+        /// label, and its optional Undo button, replacing `adw::Toast` /
+        /// `AdwToastOverlay`. Driven by `show_toast` / `show_undo_toast`.
         #[template_child]
-        pub toast_overlay: TemplateChild<adw::ToastOverlay>,
+        pub toast_revealer: TemplateChild<gtk::Revealer>,
+        #[template_child]
+        pub toast_label: TemplateChild<gtk::Label>,
+        #[template_child]
+        pub toast_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub selection_revealer: TemplateChild<gtk::Revealer>,
         #[template_child]
@@ -140,6 +151,11 @@ mod imp {
         pub project_sequential_switch: TemplateChild<gtk::Switch>,
         #[template_child]
         pub project_review_spin: TemplateChild<gtk::SpinButton>,
+
+        /// The owned empty-state page parented into `content_status_host`
+        /// (Phase 22 C2). Built once at setup; `update_empty_state` swaps
+        /// its title / description / icon per active list.
+        pub content_status: OnceCell<crate::ui::status_page::StatusPage>,
 
         pub debug_enabled: Cell<bool>,
         /// v0.31.0 — cached "the library has nothing in it" flag
@@ -229,6 +245,11 @@ mod imp {
         /// wins; the loser sees an empty cell and no-ops). Phase 7f.
         pub last_undo: RefCell<Option<UndoCell>>,
 
+        /// Phase 22 C3 — pending auto-hide timer for the owned toast.
+        /// A new toast cancels the old timer (newest-wins) so a burst of
+        /// confirmations keeps the latest up for its full window.
+        pub toast_timeout: RefCell<Option<glib::SourceId>>,
+
         /// v0.2.2 — fingerprint of the last filter-parse warning we
         /// surfaced as a toast. Refreshes of the same query (e.g.
         /// TaskChanges arrivals on a SearchResults view) check this
@@ -285,9 +306,12 @@ mod imp {
     impl ObjectSubclass for AtriumWindow {
         const NAME: &'static str = "AtriumWindow";
         type Type = super::AtriumWindow;
-        type ParentType = adw::ApplicationWindow;
+        type ParentType = gtk::ApplicationWindow;
 
         fn class_init(klass: &mut Self::Class) {
+            // Register the custom `AtriumClamp` type before the template that
+            // names it inflates (it wraps the task list for the width cap).
+            crate::ui::clamp::Clamp::ensure_registered();
             klass.bind_template();
         }
 
@@ -324,12 +348,11 @@ mod imp {
         }
     }
     impl ApplicationWindowImpl for AtriumWindow {}
-    impl AdwApplicationWindowImpl for AtriumWindow {}
 }
 
 glib::wrapper! {
     pub struct AtriumWindow(ObjectSubclass<imp::AtriumWindow>)
-        @extends gtk::Widget, gtk::Window, gtk::ApplicationWindow, adw::ApplicationWindow,
+        @extends gtk::Widget, gtk::Window, gtk::ApplicationWindow,
         @implements gio::ActionGroup, gio::ActionMap;
 }
 
@@ -386,7 +409,7 @@ fn icon_for(list: &ActiveList) -> &'static str {
 }
 
 impl AtriumWindow {
-    pub fn new(app: &adw::Application, debug: bool) -> Self {
+    pub fn new(app: &gtk::Application, debug: bool) -> Self {
         let win: Self = glib::Object::builder().property("application", app).build();
         win.imp().debug_enabled.set(debug);
         if debug {

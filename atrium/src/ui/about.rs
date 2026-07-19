@@ -2,38 +2,39 @@
 //! "About Atrium" dialog. Built imperatively (no .ui template) since
 //! it's small and benefits from carrying the runtime version directly.
 
-use adw::prelude::*;
 use gtk::glib;
+use gtk::prelude::*;
 
 use crate::i18n::gettext;
 
 const REPO_URL: &str = "https://github.com/VirInvictus/Atrium";
-const ISSUE_URL: &str = "https://github.com/VirInvictus/Atrium/issues";
 const COPYRIGHT: &str = "© 2026 Brandon LaRocque";
 
 pub fn show(parent: &impl IsA<gtk::Widget>) {
-    let about = adw::AboutDialog::builder()
-        .application_name("Atrium")
-        .application_icon(atrium_core::APP_ID)
-        .developer_name("Brandon LaRocque")
+    // Plain GTK since Phase 22 (C1): gtk::AboutDialog is a real toplevel,
+    // not an in-window sheet. issue_url has no gtk::AboutDialog equivalent,
+    // so the tracker rides the website label; the adwaita acknowledgement /
+    // legal sections map onto credit sections.
+    let about = gtk::AboutDialog::builder()
+        .program_name("Atrium")
+        .logo_icon_name(atrium_core::APP_ID)
         .version(env!("CARGO_PKG_VERSION"))
         .website(REPO_URL)
-        .issue_url(ISSUE_URL)
+        .website_label(gettext("Website & issue tracker"))
         .license_type(gtk::License::MitX11)
         .copyright(COPYRIGHT)
-        // Translators: "Things 3" and "OmniFocus" are product names — keep them as-is.
         .comments(gettext(
-            "A native GNOME task manager — Things 3 clarity, OmniFocus depth, mode-switched.",
+            "A local-first task manager with Org-mode internals and a two-way plain-text vault, switchable between Simple and Builder modes.",
         ))
+        .authors(vec!["Brandon LaRocque <larocque.brandon@gmail.com>"])
+        .artists(vec!["Brandon LaRocque"])
+        .modal(true)
         .build();
-
-    about.set_developers(&["Brandon LaRocque <larocque.brandon@gmail.com>"]);
-    about.set_designers(&["Brandon LaRocque"]);
 
     // Acknowledge the upstream influences explicitly — this is a
     // portfolio-piece detail that matters to the project's framing.
-    about.add_acknowledgement_section(
-        Some(&gettext("Built on the shoulders of")),
+    about.add_credit_section(
+        &gettext("Built on the shoulders of"),
         &[
             "Things 3 by Cultured Code",
             "OmniFocus by The Omni Group",
@@ -42,26 +43,29 @@ pub fn show(parent: &impl IsA<gtk::Widget>) {
         ],
     );
 
-    about.add_legal_section(
-        &gettext("Bundled fonts"),
-        // Translators: "SIL OFL 1.1" is a license identifier — keep it as-is.
-        Some(&gettext(
-            "These typefaces ship with Atrium under SIL OFL 1.1.",
-        )),
-        gtk::License::Custom,
-        Some(
-            "Inter — © The Inter Project Authors\n\
-             Source Serif 4 — © Adobe\n\
-             JetBrains Mono — © JetBrains s.r.o.\n\n\
-             See data/fonts/*-LICENSE.* for the full SIL OFL 1.1 terms.",
-        ),
+    // Bundled fonts: adwaita's dedicated legal section has no gtk::AboutDialog
+    // analogue, so the attributions ride a credit section. Full SIL OFL 1.1
+    // terms travel in data/fonts/*-LICENSE.* as before.
+    // Translators: "SIL OFL 1.1" is a license identifier — keep it as-is.
+    about.add_credit_section(
+        &gettext("Bundled fonts (SIL OFL 1.1)"),
+        &[
+            "Inter — The Inter Project Authors",
+            "Source Serif 4 — Adobe",
+            "JetBrains Mono — JetBrains s.r.o.",
+        ],
     );
 
-    about.present(Some(&parent.upcast_ref::<gtk::Widget>().clone()));
+    let window = parent
+        .upcast_ref::<gtk::Widget>()
+        .root()
+        .and_downcast::<gtk::Window>();
+    about.set_transient_for(window.as_ref());
+    about.present();
 }
 
 /// Glib action handler — wired into the application as `app.about`.
-pub fn install_action(app: &adw::Application) {
+pub fn install_action(app: &gtk::Application) {
     let action = gtk::gio::SimpleAction::new("about", None);
     action.connect_activate(glib::clone!(
         #[weak]

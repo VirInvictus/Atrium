@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Atrium symbolic icon — hand-redrawn for 16×16, not a shrink of the
+  colour mark. Same construction as the colour "A" (a solid triangle
+  with a triangular counter — the atrium court — punched out by
+  fill-rule evenodd), but the gradient card, the floor line, and the
+  safe margin all drop, because at this scale they collapse to noise.
+  Recolours through the GNOME symbolic mechanism for sidebars / menus /
+  notifications.
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="16" height="16"
+     viewBox="0 0 16 16"
+     fill="#2e3436">
+  <path fill-rule="evenodd"
+        d="M 3 14 L 7.4 2.5 L 8.6 2.5 L 13 14 Z M 8 6 L 6 11 L 10 11 Z"/>
+</svg>

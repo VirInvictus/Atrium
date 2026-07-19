@@ -123,6 +123,12 @@ install_data(
   install_dir: datadir / 'icons' / 'hicolor' / 'scalable' / 'apps',
 )
 
+# Monochrome symbolic variant for sidebars / menus / notifications.
+install_data(
+  'data/icons/hicolor/symbolic/apps/' + application_id + '-symbolic.svg',
+  install_dir: datadir / 'icons' / 'hicolor' / 'symbolic' / 'apps',
+)
+
 # Bundled fonts. Variable TTFs land at $datadir/atrium/fonts/ where the
 # typography module's exe-relative resolver finds them. License files
 # travel alongside.
