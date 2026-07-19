@@ -90,6 +90,12 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.65.1" date="2026-07-19">
+      <description translate="no">
+        <p>Documentation only: the tiling-first design audit was re-grounded
+           against the current code after the move off libadwaita.</p>
+      </description>
+    </release>
     <release version="0.65.0" date="2026-07-17">
       <description translate="no">
         <p>Tiling-forward layout, part 1: the task list is capped at a

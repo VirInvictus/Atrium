@@ -1,5 +1,15 @@
 # Atrium — Patch Notes
 
+## v0.65.1 (2026-07-19): re-ground the Phase 21 audit against the post-de-adwaita code
+
+Documentation only. Phase 21's tiling-first audit was written in early July against a libadwaita shell that the Phase 22 ladder has since dismantled, so a good part of it now cites widgets that no longer exist. Every item was re-checked against the current tree and the stale ones rewritten.
+
+Four items were superseded outright. The split-view minimum widths became a `GtkPaned` question at C6, and the honest finding is starker than the original: a `GtkPaned` has no collapse behaviour at all, so nothing replaced adwaita's collapse-to-overlay. That item is now the tiling-forward layout part 2. The dialog content widths stopped being an `AdwDialog` adaptive-floor question at C8, when all five dialogs became free-floating `gtk::Window`s; what matters now is whether their content scrolls when a compositor forces them small. The `AdwBreakpoint` sweep is moot, since the hand-rolled `notify::default-width` threshold is the only mechanism left and is therefore the house pattern. And the CSD item, which asked whether the app copes if a user hides the window buttons, was answered by decision rather than audit: C8 hides them everywhere.
+
+One genuine gap surfaced and is now tracked. Phase 22's design bullet called for reading dark/light from `org.freedesktop.portal.Settings` over gio D-Bus in place of `adw::StyleManager`; C10 removed the StyleManager but never added the portal client, so the `"auto"` theme setting no longer follows the system. It is invisible today because Atrium ships only the dark Kanagawa sheet, but it gates the post-1.0 light Lotus palette.
+
+Phase 22's three ladder-completed boxes (go/no-go, spec design decisions, the owned stylesheet) are ticked, and the two phases are formally converged: Phase 21 items needing a running Atrium on a display carry a `(display pass)` tag, and that tagged set is exactly Phase 22's verification tail. The untagged remainder is ordinary code work and does not gate closing Phase 22.
+
 ## v0.65.0 (2026-07-17): tiling-forward layout, part 1 — the list width cap returns
 
 First piece of the tiling-forward responsive layout. An owned `AtriumClamp` widget (a plain-GTK4 `AdwClamp` successor) caps the task list at a centered 960px column on wide windows, so the rows stay a calm Things-3 paper column instead of stretching edge-to-edge on a wide tile. It wraps the list's scroller rather than the list itself, so the `GtkListView` keeps native scrolling and row virtualisation (no need to reimplement `GtkScrollable`). This reinstates the cap that Phase 22 C8 dropped with the `AdwClamp`. Part 2 (the adaptive staged collapse: the inspector, then the Lists sidebar, folding to an overlay reveal as the window narrows to a tile) follows next.
