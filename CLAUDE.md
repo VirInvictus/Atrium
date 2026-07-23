@@ -10,7 +10,7 @@ Phases 0 through 19.5 are complete: the full OmniFocus-superset data layer, dual
 
 **Phase 20 (the 1.0 endgame) is in flight,** and its tail is re-sequenced as of v0.48.0. Localisation scaffolding shipped at v0.47.0 (gettext text domain `atrium`, `po/` + meson `i18n.gettext`, a full marking sweep of the GTK binary through `atrium/src/i18n.rs`, `en` as the first catalogue; spec §3.6). Two conventions started there: every new metainfo `<release><description>` carries `translate="no"`, and new `.rs` files with user-facing strings join `po/POTFILES`.
 
-**Sequencing (Brandon, 2026-07-17): Phase 22 — the de-adwaita + Kanagawa Dragon re-theme — is pulled in front of the `v1.0.0` tag** rather than run post-1.0, because the remaining 1.0 assets (final icon, screenshots, Flathub metadata) are all invalidated by the toolkit swap. Pre-1.0 order is now: the de-adwaita sub-phase ladder (roadmap Phase 22, C1 foundations → C10 toolkit cut) → the icon/screenshots/Flathub asset tail → the `v1.0.0` tag. The pilot gate is satisfied (Colophon Phase 6 at v2.0.0; Conservatory Phase 26 at v0.3.8). Template: `~/.gitrepos/Conservatory/conservatory/src/theme.rs` + its 26b→26m ladder. Design language: spec §3.7. **Ladder progress (branch `phase-22-de-adwaita`): C1–C9 shipped (v0.50.0 → v0.62.0); C10 (drop libadwaita) is the last rung.** C8 (shell cut) and C9 (the owned Kanagawa `theme.rs` + the flat/square visual flip, accent dragonYellow `#c4b28a`) are not yet display-verified — needs a launch before C10, the irreversible toolkit drop. The one schema touch in the whole phase, migration `0020` (swatch recolour, UPDATE-only), shipped at C9. Phase 21 (the Hyprland audit) stays post-1.0; its number is lower than Phase 22 but its execution is later. Flathub readiness is now verifiable locally (flatpak-builder + GNOME Platform/Sdk 50 are installed); only the screenshot capture and the Flathub PR need Brandon's display/account.
+**Sequencing (Brandon, 2026-07-17): Phase 22 — the de-adwaita + Kanagawa Dragon re-theme — is pulled in front of the `v1.0.0` tag** rather than run post-1.0, because the remaining 1.0 assets (final icon, screenshots, Flathub metadata) are all invalidated by the toolkit swap. Pre-1.0 order is now: the de-adwaita sub-phase ladder (roadmap Phase 22, C1 foundations → C10 toolkit cut) → the icon/screenshots/Flathub asset tail → the `v1.0.0` tag. The pilot gate is satisfied (Colophon Phase 6 at v2.0.0; Conservatory Phase 26 at v0.3.8). Template: `~/.gitrepos/Conservatory/conservatory/src/theme.rs` + its 26b→26m ladder. Design language: spec §3.7. **Ladder complete: C1–C9 shipped (v0.50.0 → v0.62.0) and C10 (drop libadwaita) landed at v0.64.0; the branch merged back and was deleted at v0.65.1.** C8 and C9 were display-verified and the look approved. The one schema touch in the whole phase, migration `0020` (swatch recolour, UPDATE-only), shipped at C9. Phase 21 (the Hyprland audit) stays post-1.0; its number is lower than Phase 22 but its execution is later. Flathub readiness is now verifiable locally (flatpak-builder + GNOME Platform/Sdk 50 are installed); only the screenshot capture and the Flathub PR need Brandon's display/account.
 
 **The per-release history lives in `patchnotes.md` (newest at top); do not restate it here.** When precision on a specific version matters, read that file, `roadmap.md`, and `VERSION`.
 
@@ -87,16 +87,19 @@ The non-obvious mechanics that aren't visible from the code alone:
 
 > `gtk4`, `libadwaita`, `tokio`, `rusqlite` (`bundled`, `chrono` features), `serde`, `serde_json`, `chrono`, `anyhow`, `thiserror`, `tracing`, `tracing-subscriber`
 
+That blockquote is the historical v0.1 lock, not the current tree: `libadwaita` was **removed** at Phase 22 C10 (v0.64.0) and nothing replaced it.
+
 Sign-off granted in subsequent phases:
 
 - `uuid` (Phase 1) — UUID v4 for `:ID:` round-trip; `v5` feature added v0.12.0 for deterministic Todoist UUIDs (pulls in sha1_smol).
 - `rrule` (Phase 15) — RFC 5545 RRULE parsing + iteration.
 - `regex` (Phase 15.5) — `tag:~regex` modifier; promoted to direct dep of `atrium-search`.
 - `notify` (Phase 17) — cross-platform filesystem watcher; direct dep of `atrium-org`. Default features only — uses inotify on Linux.
+- `gettext-rs` (Phase 20, added v0.47.0): localisation runtime. `gettext-system` feature only: it links glibc's built-in gettext rather than vendoring GNU gettext, which matters for CI and the Flatpak. Binary-only, never in the library crates.
 
-Pending: `ical` / `rustical` (Phase 19).
+Resolved against (won't be added): `orgize` / `starsector` (both dormant). The hand-rolled subset at `atrium-org/src/org/` is the answer. `ical` / `rustical` (evaluated at v0.25.0 and declined; the hand-rolled RFC 5545 parser at `atrium-import/src/vtodo/` is the answer, for the same reason).
 
-Resolved against (won't be added): `orgize` / `starsector` (both dormant). The hand-rolled subset at `atrium-org/src/org/` is the answer.
+Pending: `libecal` / `libedataserver` bindings, or a hand-rolled `zbus` client, for the read-only EDS calendar overlay. That is the one open Phase 19.5 item and the only dependency question still unanswered.
 
 If a task pushes you toward a crate that isn't already in `Cargo.toml`, **stop and ask** — don't add it speculatively, and don't hand-roll a wide subset to dodge the conversation.
 
@@ -147,7 +150,7 @@ A Meson wrapper over Cargo lives at `meson.build` for Flatpak packaging. Native 
 - **Database:** `$XDG_DATA_HOME/atrium/atrium.db`
 - **Cache:** `$XDG_CACHE_HOME/atrium/`
 - **Default Quick Entry shortcut:** `Ctrl+Alt+Space` (user-configurable via GSettings)
-- **Default vault path:** unset (DB-only mode); set via `gsettings set io.github.virinvictus.atrium vault-path /path/to/vault`. A graphical Settings UI for this lands in Phase 19.5's `AdwPreferencesWindow`.
+- **Default vault path:** unset (DB-only mode); set via `gsettings set io.github.virinvictus.atrium vault-path /path/to/vault`. A graphical Settings UI for this shipped in Phase 19.5 (v0.20.0 as `AdwPreferencesDialog`, replaced by a plain `gtk::Window` at Phase 22 C10).
 
 ## Performance budget (spec.md §8)
 
@@ -163,7 +166,7 @@ Features that miss budget get gated or revised. If a proposed approach has obvio
 ## Sibling project context
 
 - **`~/.gitrepos/Viaduct/`** — the reference for the single-writer SQLite worker pattern. Look at the queue, command enum, and `TaskChanges`-equivalent delta shape before reinventing data-layer pieces.
-- **`~/.gitrepos/Hermitage/` and `~/.gitrepos/Framework/`** — the other native GTK4 / libadwaita apps in the portfolio. Useful for cross-checking GTK idioms, Flatpak manifest shape, and AppStream metainfo conventions.
+- **`~/.gitrepos/Hermitage/` and `~/.gitrepos/Framework/`**: the other native GTK4 apps in the portfolio. Both dropped libadwaita too (Hermitage at v0.17.0, Framework at v0.80.0), so they are current cross-references for the plain-GTK4 idiom, not just for Flatpak manifest shape and AppStream metainfo conventions.
 
 ## Codebase map
 
