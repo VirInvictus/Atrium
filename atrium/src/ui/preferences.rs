@@ -437,18 +437,25 @@ fn theme_to_index(value: &str) -> u32 {
     }
 }
 
-/// Apply the persisted theme preference. Called when the user picks a
-/// theme in Preferences; the boot path also calls it once with the stored
-/// value. Was `adw::StyleManager` / `adw::ColorScheme` before the C10
-/// toolkit cut; now it sets GtkSettings' prefer-dark hint.
+/// Apply the persisted theme preference.
 ///
-/// Atrium ships the dark Kanagawa Dragon sheet (`theme.rs`), so "dark" and
-/// the "auto" default both render dark; "light" only nudges the prefer-dark
-/// hint for any GTK-default-drawn bits the owned sheet doesn't cover. A true
-/// light (Lotus) palette is post-1.0 work.
-pub fn apply_theme(value: &str) {
-    let Some(settings) = gtk::Settings::default() else {
-        return;
-    };
-    settings.set_gtk_application_prefer_dark_theme(!matches!(value, "light"));
+/// Since v0.66.0 this is a thin delegate: `ui::color_scheme` owns the
+/// resolution, because "auto" has to consult
+/// `org.freedesktop.portal.Settings` and that needs the D-Bus subscription
+/// and cached preference that live there. Between the C10 toolkit cut and
+/// v0.66.0 this function was the whole story and set nothing but the
+/// prefer-dark hint from the stored string, which quietly made "auto" a
+/// synonym for dark (`AdwStyleManager` had been doing the portal read).
+///
+/// Kept as the entry point the dropdown handler calls so that path reads
+/// the same as it always did. `color_scheme` also watches the `theme` key
+/// directly, so the write alone would resolve; calling through here is
+/// harmless (the resolve dedupes) and keeps the intent legible.
+///
+/// Atrium ships only the dark Kanagawa Dragon sheet (`theme.rs`), so a
+/// resolved "light" still nudges the prefer-dark hint rather than swapping
+/// palettes. The true light (Lotus) palette is post-1.0, and it is the real
+/// consumer this read exists for.
+pub fn apply_theme(_value: &str) {
+    super::color_scheme::resolve_now();
 }

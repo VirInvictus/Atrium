@@ -90,6 +90,13 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.66.0" date="2026-07-29">
+      <description translate="no">
+        <p>The Automatic theme setting follows your desktop's dark or light
+           preference again, reading it through the standard desktop portal
+           and switching live when you change it.</p>
+      </description>
+    </release>
     <release version="0.65.1" date="2026-07-19">
       <description translate="no">
         <p>Documentation only: the tiling-first design audit was re-grounded

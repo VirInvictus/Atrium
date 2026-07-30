@@ -16,6 +16,7 @@ pub mod agenda;
 pub mod board;
 pub mod calendar;
 pub mod clamp;
+pub mod color_scheme;
 pub mod dialogs;
 pub mod filter;
 pub mod forecast;

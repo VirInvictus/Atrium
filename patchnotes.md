@@ -1,5 +1,15 @@
 # Atrium — Patch Notes
 
+## v0.66.0 (2026-07-29): Automatic theme follows the desktop again
+
+The Theme setting's **Automatic** option does what it says once more. It had quietly stopped: dropping libadwaita at C10 also removed the piece that was watching the desktop's dark or light preference, and nothing took over, so "Automatic" had become another way of spelling "Dark". Nobody could see it, because Atrium only has a dark palette to show, which is exactly why it survived a release.
+
+Atrium now asks the desktop directly, through the same standard portal every toolkit uses, so this works on GNOME, on Hyprland, or on any session with a portal answering. It reads the preference once at startup before drawing anything, so the window never appears in the wrong polarity and then corrects itself, and it listens for changes afterwards, so flipping your desktop to light switches Atrium live rather than at next launch.
+
+Your own choice still wins. Picking **Dark** or **Light** pins it, and a later change to the system preference will not override you. Only **Automatic** follows along. On a session with no portal answering at all, Atrium stays dark rather than guessing.
+
+Groundwork as much as a fix: the light Lotus palette is post-1.0 work, and it could not follow the desktop until something was reading the desktop. That reading is what landed here.
+
 ## v0.65.1 (2026-07-19): re-ground the Phase 21 audit against the post-de-adwaita code
 
 Documentation only. Phase 21's tiling-first audit was written in early July against a libadwaita shell that the Phase 22 ladder has since dismantled, so a good part of it now cites widgets that no longer exist. Every item was re-checked against the current tree and the stale ones rewritten.

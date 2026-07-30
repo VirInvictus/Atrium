@@ -129,14 +129,14 @@ fn connect_startup(app: &gtk::Application) {
         ui::theme::install();
         ui::typography::apply_bundled_stylesheet();
         ui::typography::register_icon_search_paths();
-        // v0.20.0 — Phase 19.5 boot-time theme apply. Reads
-        // the persisted `theme` GSetting and applies it (GtkSettings
-        // prefer-dark since the C10 toolkit cut) so the user's pinned
-        // scheme takes effect on every launch, not just after they
-        // re-open Preferences.
-        let settings = gio::Settings::new(atrium_core::APP_ID);
-        let theme = settings.string("theme");
-        ui::preferences::apply_theme(&theme);
+        // v0.20.0 — Phase 19.5 boot-time theme apply, rewired in v0.66.0.
+        // `color_scheme::init` reads `org.freedesktop.portal.Settings` once
+        // synchronously (before the first frame, so the polarity is never
+        // corrected mid-paint), subscribes to `SettingChanged` for live
+        // switching, and folds the persisted `theme` GSetting over the
+        // system value so a pinned scheme still wins. It also watches the
+        // key, which is what makes the Preferences dropdown take effect.
+        ui::color_scheme::init(Some(gio::Settings::new(atrium_core::APP_ID)));
     });
 }
 
