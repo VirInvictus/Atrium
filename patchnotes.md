@@ -1,5 +1,35 @@
 # Atrium — Patch Notes
 
+## v0.67.0 (2026-08-06): maintenance sweep — seven fixes, one restored setting, and the GNOME identity retired
+
+A full sweep of the tree: a bug hunt across the data layer and the GTK binary, an adversarial pass through the CLI and the importers, and the first screenshot-by-screenshot visual walk of the app on Hyprland. Seven fixes came out of it, one lost setting came back, and the last "native GNOME" self-descriptions caught up with the post-Phase-22 reality.
+
+**Fixed: `Ctrl+6` opens the Logbook again.** The accel had been dead since the v0.6.x sidebar reorder moved Logbook out of the indexed canonical-list tier; the shortcut's index lookup silently found nothing. It now jumps by list identity, the same shape the Calendar accel uses.
+
+**Fixed: adding a task to an empty list.** The Add task bar lived inside the same page as the task rows, so an empty list (a fresh Someday, an empty Upcoming) swapped the whole page for the empty-state placard, bar included, and the + button focused an entry that was not on screen. The empty state now swaps only the rows; the bar stays put, so + and `Ctrl+N` work everywhere.
+
+**Fixed: Quick Entry no longer leaks a window per open.** The inline-completion popover captured a strong reference to its own entry inside the entry's signal handlers, a self-referential cycle that kept every Quick Entry window, entry, and popover alive for the life of the process. Weak references break the cycle; the popover is also unparented on destroy now that the entry can actually die.
+
+**Fixed: search parity between the SQL fast path and the evaluator, twice.** A task parked in Someday stores the `'__someday__'` sentinel, which sorts above every ISO date, so `scheduled:>2026-01-01` wrongly matched Someday tasks when the query ran through SQL and correctly excluded them when it ran through the in-memory evaluator. And `!=` on a date field matched tasks with no date at all in SQL while the evaluator excluded them. Both now agree with the evaluator, with regression tests pinning each side.
+
+**Fixed: two projects with the same title no longer fight over one vault file.** Titles are not unique, but the projected `.org` filename was derived purely from the title, so each flush of one project clobbered the other's file, and the two-way watcher could read the survivor back as deletions. The lowest-id project keeps the bare filename; later collisions get a stable `-<id>` suffix.
+
+**Fixed: a newline smuggled into a task title (possible via `atrium-cli add`) broke the emitted Org headline** and silently lost the remainder on the next round-trip. Titles fold to single lines at the emit boundary; project-title directives (`#+TITLE:`) get the same guard.
+
+**Fixed: the vault sidecar's TOML writer and reader disagreed about control characters.** The writer escaped them as `\uXXXX`; the reader had no case for it and leaked the escape as literal text. The reader decodes them now, round-trip tested.
+
+**Fixed: adding from Someday now lands in Someday.** The bottom entry's contract is "new task in the active list", and it honoured that for Today and project pages but not Someday, so a task captured there fell through to the Inbox. Someday now parks the task as scheduled-to-Someday; an explicit `@today` or `@someday` typed inline still wins.
+
+**Owned icons.** Atrium now ships its own thirteen symbolic icons (inbox tray, star, calendar, list, crescent moon, clock, folder, tag, bell, check, magnifier, grid, bulleted list) instead of asking the user's icon theme for stock names. Outside a GNOME theme those names resolve unreliably; `inbox-symbolic` exists in no commonly-installed theme at all, and on a real Hyprland session with the kora theme the sidebar rendered missing-image placeholders and every empty list showed a broken 96px placard. Hand-drawn, MIT like the rest of the tree, app-prefixed so they can never shadow a theme, and covered by the same machine-independence rule as the bundled fonts.
+
+**Restored: the sidebar remembers its width again.** The `sidebar-width` GSettings key stopped being read when Phase 22 C6 replaced the adwaita split view with a plain `GtkPaned`; the pane position was hardcoded and the user's drag never persisted. Bound again on boot and save.
+
+**Polish:** empty-state text wraps inside narrow panes instead of clipping mid-word (Builder Mode's content column made this visible), and the sidebar rows lost their double-spacing: the row widgets carried their own vertical margins on top of the stylesheet's row padding, adding up to ~46px per row. The widget margins are now hairlines, the stylesheet padding stands alone, and the section headers pulled in to match.
+
+**Identity and docs.** Every user-facing "native GNOME task manager" became "native Linux task manager": the AppStream summary and description, the README tagline (and the GNOME badge is now a GTK4 badge), the spec's mission statement and core mandates (which still claimed libadwaita 1.7+ as a target), the mdbook, `--help`, and the crate description. The spec header re-grounded from its stale v0.47.0 snapshot to v0.66.0 / schema 20. The Preferences Theme description stopped claiming "Adwaita auto-tracks the system" (the portal read from v0.66.0 is what tracks it). `docs/schema.md`'s migration history backfilled the thirteen missing rows (0008 through 0020), including an honest note on migration 0018's same-day backfill flaw. Stale adwaita-era comments in `style.css` and two doc comments were rewritten against the post-C10 reality.
+
+Found by the sweep and deliberately deferred, tracked in the roadmap: Org body lines beginning with `*` reparsing as headlines on round-trip (needs a spec-level escaping decision), `SCHEDULED` warning suffixes and `DEADLINE` repeaters hand-authored in Emacs being dropped on re-emit (needs a schema decision), the Builder-mode first-run pane split giving the Inspector most of a wide window, and the sidebar filter not matching the derived pages (Agenda, Calendar, Review, Logbook).
+
 ## v0.66.0 (2026-07-29): Automatic theme follows the desktop again
 
 The Theme setting's **Automatic** option does what it says once more. It had quietly stopped: dropping libadwaita at C10 also removed the piece that was watching the desktop's dark or light preference, and nothing took over, so "Automatic" had become another way of spelling "Dark". Nobody could see it, because Atrium only has a dark palette to show, which is exactly why it survived a release.

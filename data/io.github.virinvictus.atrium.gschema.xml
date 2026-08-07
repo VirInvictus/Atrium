@@ -37,7 +37,7 @@
     <key name="sidebar-width" type="i">
       <default>240</default>
       <summary>Sidebar pane width</summary>
-      <description>Width of the navigation split view's sidebar in pixels.</description>
+      <description>Width of the sidebar pane in pixels.</description>
     </key>
 
     <key name="quick-entry-shortcut" type="s">

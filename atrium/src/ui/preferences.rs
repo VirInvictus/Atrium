@@ -140,7 +140,7 @@ fn general_page(settings: &gio::Settings) -> gtk::Widget {
     let (theme_row, theme_dd) = rows::combo_row(
         &gettext("Theme"),
         Some(&gettext(
-            "Override the system colour scheme. Adwaita auto-tracks the system; pin one here if you want it constant.",
+            "Override the system colour scheme. Follow system tracks the desktop's dark/light preference; pin one here if you want it constant.",
         )),
         &[
             theme_follow.as_str(),

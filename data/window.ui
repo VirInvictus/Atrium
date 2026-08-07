@@ -316,21 +316,6 @@
                             <property name="transition-type">crossfade</property>
 
                             <child>
-                              <object class="GtkStackPage">
-                                <property name="name">empty</property>
-                                <property name="child">
-                                  <!-- Host for the owned empty-state page (Phase 22 C2).
-                                       The window builds a crate::ui::status_page::StatusPage
-                                       in code and appends it here; update_empty_state swaps
-                                       its title / description / icon per active list. -->
-                                  <object class="GtkBox" id="content_status_host">
-                                    <property name="orientation">vertical</property>
-                                  </object>
-                                </property>
-                              </object>
-                            </child>
-
-                            <child>
                               <!-- Phase 12 — Forecast view container. The window
                                    builds the actual forecast widget in code via
                                    `forecast::build_page` and parents it here as
@@ -584,28 +569,59 @@
                                       </object>
                                     </child>
                                     <child>
-                                      <!-- v0.5.0 (Slice B1) capped the list width so the
-                                           rows don't stretch into runway on wide windows —
-                                           Things-3-style paper-list calm. Phase 22 C8
-                                           dropped the AdwClamp; the owned AtriumClamp
-                                           (max 960) reinstates it as part of the
-                                           tiling-forward layout work. It wraps the
-                                           ScrolledWindow so the ListView keeps native
-                                           scrolling + row virtualisation. -->
-                                      <object class="AtriumClamp">
+                                      <!-- The list body is a stack so an empty list swaps
+                                           the rows for the empty-state page while the
+                                           quick-add bar below stays visible — the bar used
+                                           to live-and-die with the whole "list" page, which
+                                           left the + button focusing a hidden entry on any
+                                           empty list. -->
+                                      <object class="GtkStack" id="list_body_stack">
+                                        <property name="transition-type">crossfade</property>
                                         <property name="vexpand">true</property>
                                         <child>
-                                          <object class="GtkScrolledWindow">
-                                            <property name="hscrollbar-policy">never</property>
-                                            <property name="vexpand">true</property>
+                                          <object class="GtkStackPage">
+                                            <property name="name">rows</property>
                                             <property name="child">
-                                              <object class="GtkListView" id="task_list_view">
-                                                <property name="show-separators">true</property>
-                                                <property name="single-click-activate">false</property>
-                                                <property name="margin-top">12</property>
-                                                <style>
-                                                  <class name="atrium-task-listview"/>
-                                                </style>
+                                              <!-- v0.5.0 (Slice B1) capped the list width so the
+                                                   rows don't stretch into runway on wide windows —
+                                                   Things-3-style paper-list calm. Phase 22 C8
+                                                   dropped the AdwClamp; the owned AtriumClamp
+                                                   (max 960) reinstates it as part of the
+                                                   tiling-forward layout work. It wraps the
+                                                   ScrolledWindow so the ListView keeps native
+                                                   scrolling + row virtualisation. -->
+                                              <object class="AtriumClamp">
+                                                <property name="vexpand">true</property>
+                                                <child>
+                                                  <object class="GtkScrolledWindow">
+                                                    <property name="hscrollbar-policy">never</property>
+                                                    <property name="vexpand">true</property>
+                                                    <property name="child">
+                                                      <object class="GtkListView" id="task_list_view">
+                                                        <property name="show-separators">true</property>
+                                                        <property name="single-click-activate">false</property>
+                                                        <property name="margin-top">12</property>
+                                                        <style>
+                                                          <class name="atrium-task-listview"/>
+                                                        </style>
+                                                      </object>
+                                                    </property>
+                                                  </object>
+                                                </child>
+                                              </object>
+                                            </property>
+                                          </object>
+                                        </child>
+                                        <child>
+                                          <object class="GtkStackPage">
+                                            <property name="name">empty</property>
+                                            <property name="child">
+                                              <!-- Host for the owned empty-state page (Phase 22 C2).
+                                                   The window builds a crate::ui::status_page::StatusPage
+                                                   in code and appends it here; update_empty_state swaps
+                                                   its title / description / icon per active list. -->
+                                              <object class="GtkBox" id="content_status_host">
+                                                <property name="orientation">vertical</property>
                                               </object>
                                             </property>
                                           </object>

@@ -2,7 +2,7 @@
 
 This document is the **rationale** for the schema. The **contract** lives in [`spec.md`](../spec.md) §4 and the canonical SQL in [`atrium-core/src/db/migrations/0001_initial.sql`](../atrium-core/src/db/migrations/0001_initial.sql). When in doubt, the SQL wins.
 
-> **Schema discipline.** Migration `0001_initial.sql` shipped the full OmniFocus superset. The v0.1 line was schema-frozen — every Builder-mode column already existed. The freeze ended at v0.2.0. Migrations are now **append-only and backwards-compatible**: add columns / tables / triggers / indexes; renames + drops are major-bump-only. Current `user_version`: **7**. Migration history below.
+> **Schema discipline.** Migration `0001_initial.sql` shipped the full OmniFocus superset. The v0.1 line was schema-frozen — every Builder-mode column already existed. The freeze ended at v0.2.0. Migrations are now **append-only and backwards-compatible**: add columns / tables / triggers / indexes; renames + drops are major-bump-only. Current `user_version`: **20**. Migration history below.
 
 ## Migration history
 
@@ -15,6 +15,19 @@ This document is the **rationale** for the schema. The **contract** lives in [`s
 | `0005_perspective_renderer.sql` | Phase 15.75 Slice A / v0.5.0 | Adds `perspective.renderer` (`'list'` / `'board'`, default `'list'`) + `perspective.renderer_config` (TEXT, JSON config — used by the kanban renderer for column definitions) |
 | `0006_task_last_reviewed_at.sql` | Phase 13 follow-up / v0.7.4 | Adds `task.last_reviewed_at` (TEXT NULL) for the canonical Review page's task-level Mark Reviewed action. Mirror of `project.last_reviewed_at`; rows reviewed within the last 7 days hide from the weekly walk. |
 | `0007_task_orig_keyword.sql` | Phase 16 / v0.7.12 | Adds `task.orig_keyword` (TEXT NULL) so the Org importer can stash non-canonical Org keywords (`WAITING`, `BLOCKED`, `IN-PROGRESS`, etc.) for round-trip preservation by the writer. Atrium's domain keeps three canonical states (TODO / DONE / CANCELLED); this column is the file-level label round-trip anchor only. |
+| `0008_task_deadline_warn_days.sql` | Phase 18.5 Tier 1 / v0.14.0 | Adds `task.deadline_warn_days` (INTEGER NULL) — per-task override of the global Today deadline window; round-trips as the `-Nd` warning suffix on the Org DEADLINE cookie |
+| `0009_task_clock_entry.sql` | Phase 18.5 Tier 1 / v0.17.0 | Adds the `task_clock_entry` side table — actual time spent per work session (vs. `estimated_minutes` intent); round-trips as `CLOCK:` lines in Org's `:LOGBOOK:` drawer |
+| `0010_quick_entry_template.sql` | Phase 18.5 Tier 1 / v0.18.0 | Adds the `quick_entry_template` table — named Quick Entry captures with pre-filled project / prefix / tags |
+| `0011_task_scheduled_time.sql` | Phase 18.5 Tier 2 / v0.19.0 | Adds `task.scheduled_time` (TEXT NULL, `HH:MM`) — optional time-of-day companion to the date-only `scheduled_for` |
+| `0012_task_reminder_at.sql` | Phase 19.5 / v0.20.0 | Adds `task.reminder_at` (TEXT NULL, RFC 3339) — system-notification reminders via `gio::Notification` |
+| `0013_task_clock_entry_timestamps.sql` | v0.21.0 maintenance | Backfills `created_at` / `modified_at` + the modified-at trigger onto `task_clock_entry`, closing the audit-trail gap left by 0009 |
+| `0014_task_extra_properties.sql` | Post-v0.22.0 Tier 1 / v0.24.0 | Adds `task.extra_properties` (TEXT, JSON object) — verbatim passthrough for custom Org `:KEY: value` drawer entries the importer used to drop |
+| `0015_area_default_review_interval.sql` | Tier 3 polish / v0.28.0 | Adds `area.default_review_interval_days` (INTEGER NULL) — per-area Review default that cascades to projects without their own interval |
+| `0016_task_dependency.sql` | Tier 2 / v0.29.0 | Adds the `task_dependency` join table (`blocked_by`) — prerequisites gate availability; powers `is:blocked` / `is:available` |
+| `0017_task_template.sql` | Phase 19.5 / v0.33.0 | Adds `task_template` + `task_template_item` — reusable project shapes instantiated into fresh projects (distinct from 0010's one-line captures) |
+| `0018_task_reminder_fired.sql` | Phase 19.5 follow-up / v0.41.0 | Adds the `task_reminder_fired` side table so launch catch-up can fire overdue reminders exactly once. ⚠ Known flaw, shipped and unfixable in place (append-only discipline): the backfill compared `reminder_at` against a `T`-separated boundary string while the column stores space-separated timestamps, so a reminder due later the *same day* as the upgrade was marked already-fired and never notified. One-time upgrade damage only; lesson recorded here — string date comparisons in migrations must match rusqlite's actual serialization format |
+| `0019_board_card_position.sql` | Kanban maturity 2d / v0.46.0 | Adds the `board_card_position` side table — persisted manual within-column card order per (perspective, column, task); columns themselves stay projections |
+| `0020_swatch_kanagawa.sql` | Phase 22 C9 / v0.62.0 | UPDATE-only recolour of the six built-in tag / area swatch hexes from the adwaita palette to Kanagawa Dragon, in lockstep with the owned stylesheet |
 
 ## Entity-Relationship diagram
 

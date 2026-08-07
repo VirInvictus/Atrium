@@ -149,11 +149,20 @@ pub fn attach(entry: &gtk::Entry, tag_pool: Option<ReadPool>) {
     let state = State::new(entry);
 
     // Re-evaluate the context every time text or cursor changes.
+    // The closures below are held by the entry's own signal table and
+    // key controller, so a strong capture of the entry would be a
+    // self-referential cycle that leaks the whole widget subtree
+    // (one per Quick Entry open). Weak captures only — the same
+    // discipline as `dialogs::close_on_escape`.
     let refresh = {
-        let entry = entry.clone();
+        let entry = entry.downgrade();
         let state = state.clone();
         let tag_pool = tag_pool.clone();
-        move || refresh_state(&entry, &state, tag_pool.as_ref())
+        move || {
+            if let Some(entry) = entry.upgrade() {
+                refresh_state(&entry, &state, tag_pool.as_ref());
+            }
+        }
     };
 
     // `notify::text` fires on every character typed/deleted; the
@@ -174,9 +183,12 @@ pub fn attach(entry: &gtk::Entry, tag_pool: Option<ReadPool>) {
     let key_ctrl = gtk::EventControllerKey::new();
     key_ctrl.set_propagation_phase(gtk::PropagationPhase::Capture);
     {
-        let entry = entry.clone();
+        let entry = entry.downgrade();
         let state = state.clone();
         key_ctrl.connect_key_pressed(move |_, key, _, _| {
+            let Some(entry) = entry.upgrade() else {
+                return Propagation::Proceed;
+            };
             if !state.is_open() {
                 // Down opens the popover from a still-empty state
                 // when the cursor is on a recognised token —
@@ -240,6 +252,11 @@ pub fn attach(entry: &gtk::Entry, tag_pool: Option<ReadPool>) {
         focus_ctrl.connect_leave(move |_| state.hide());
     }
     entry.add_controller(focus_ctrl);
+
+    // The popover was `set_parent(entry)` and GTK4 never unparents it
+    // for us; without this the entry warns (and leaks the popover) at
+    // dispose now that the weak captures let it actually die.
+    entry.connect_destroy(move |_| state.popover.unparent());
 }
 
 fn refresh_state(entry: &gtk::Entry, state: &Rc<State>, tag_pool: Option<&ReadPool>) {

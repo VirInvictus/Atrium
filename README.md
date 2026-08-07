@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Language-Rust-blue" alt="Language: Rust"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/GNOME-50%2B-4a86cf" alt="GNOME 50+">
+  <img src="https://img.shields.io/badge/GTK4-4.16%2B-4a86cf" alt="GTK4 4.16+">
   <img src="https://img.shields.io/badge/status-feature--complete%20%C2%B7%20heading%20to%201.0-2ea44f" alt="Status: feature-complete, heading to 1.0">
 </p>
 
@@ -13,7 +13,7 @@
 
 # Atrium
 
-**The native GNOME task manager you grow into, not out of.**
+**The native Linux task manager you grow into, not out of.**
 
 Atrium pairs Org-mode's data discipline (UUIDs on every node, plain-text round-trip, three repeater semantics, a full bidirectional `.org` vault) with a Things 3 / OmniFocus surface, over a single local-first SQLite store. Two surfaces share one schema: **Simple Mode** for *what am I doing right now* (six calm lists, no defer dates, no review queue), and **Builder Mode** for when the system needs to do the work (Forecast, Calendar, Review, Perspectives, repeating tasks, sequential projects, the always-visible Inspector). Mode is a UI-layer flip that never touches the database; the schema is the OmniFocus superset on day one, so Simple Mode hides Builder fields, it doesn't lack them.
 
@@ -57,7 +57,7 @@ Atrium pairs Org-mode's data discipline (UUIDs on every node, plain-text round-t
 
 ## Simple Mode
 
-A Things 3 analogue for GNOME: calm, opinionated, keyboard-first.
+A Things 3 analogue for Linux: calm, opinionated, keyboard-first.
 
 | | |
 |---|---|

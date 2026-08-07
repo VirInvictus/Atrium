@@ -2096,6 +2096,62 @@ mod tests {
         assert_eq!(rows[0].uuid, "a");
     }
 
+    /// The `'__someday__'` sentinel sorts above every ISO date, so the
+    /// SQL fast path used to include Someday tasks in `scheduled:>…`
+    /// while the in-memory evaluator excluded them. Parity rule: a
+    /// Someday task has no comparable date. The WHERE fragment here is
+    /// the translator's verbatim output for `scheduled:>2020-01-01`
+    /// (atrium-core deliberately doesn't depend on atrium-search, so
+    /// the string is inlined; `sql_translate::tests` pins the same
+    /// shape on the emitting side).
+    #[test]
+    fn scheduled_comparison_sql_excludes_someday_sentinel() {
+        let conn = fresh_conn();
+        conn.execute(
+            "INSERT INTO task (uuid, title, scheduled_for, position) VALUES \
+             ('someday', 'parked', '__someday__', 1.0), \
+             ('dated', 'dated', '2026-06-01', 2.0)",
+            [],
+        )
+        .unwrap();
+        let col = "(CASE WHEN t.scheduled_for = '__someday__' THEN NULL ELSE t.scheduled_for END)";
+        let rows = list_tasks_matching(
+            &conn,
+            &format!("({col} IS NOT NULL AND {col} > ?1)"),
+            &[SqlBindValue::Text("2020-01-01".into())],
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].uuid, "dated");
+    }
+
+    /// `!=` on a date field must not match tasks that have no date at
+    /// all — the evaluator returns false for every comparator when the
+    /// field is empty, and the SQL fast path has to agree. WHERE
+    /// fragment is the translator's verbatim `due:!=2026-01-01` output.
+    #[test]
+    fn date_ne_sql_excludes_dateless_tasks() {
+        let conn = fresh_conn();
+        conn.execute(
+            "INSERT INTO task (uuid, title, deadline, position) VALUES \
+             ('nodate', 'free floating', NULL, 1.0), \
+             ('other', 'due elsewhere', '2026-07-01', 2.0)",
+            [],
+        )
+        .unwrap();
+        let rows = list_tasks_matching(
+            &conn,
+            "(t.deadline IS NOT NULL AND (t.deadline < ?1 OR t.deadline > ?2))",
+            &[
+                SqlBindValue::Text("2026-01-01".into()),
+                SqlBindValue::Text("2026-01-01".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].uuid, "other");
+    }
+
     #[test]
     fn list_projects_groups_unfiled_first() {
         let conn = fresh_conn();

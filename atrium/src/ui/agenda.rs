@@ -162,7 +162,7 @@ pub fn build_page<F: Fn(i64) + 'static + Clone>(
     let groups = group_by_section(tasks, today);
     if groups.is_empty() {
         return crate::ui::status_page::status_page(
-            Some("checkmark-symbolic"),
+            Some("atrium-review-symbolic"),
             &gettext("Nothing on the agenda"),
             Some(&gettext("No overdue, today, or near-term scheduled tasks.")),
         )

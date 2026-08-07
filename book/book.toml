@@ -1,6 +1,6 @@
 [book]
 title = "Atrium"
-description = "A native GNOME task manager: Org-mode internals wrapped in a Things 3 / OmniFocus surface."
+description = "A native Linux task manager: Org-mode internals wrapped in a Things 3 / OmniFocus surface."
 authors = ["Brandon LaRocque"]
 language = "en"
 src = "src"

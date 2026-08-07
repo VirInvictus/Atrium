@@ -170,7 +170,9 @@ impl AtriumWindow {
             .spacing(4)
             .margin_start(8)
             .margin_end(4)
-            .margin_top(14)
+            // Matches .atrium-sidebar-section's tightened top
+            // margin (v0.67.0 sidebar-density feedback).
+            .margin_top(10)
             .margin_bottom(4)
             .build();
         row_box.append(&label);
@@ -498,7 +500,7 @@ impl AtriumWindow {
             for p in &perspectives {
                 perspective_titles.insert(p.id, p.name.clone());
                 perspective_meta.insert(p.id, p.clone());
-                let icon = p.icon.as_deref().unwrap_or("view-grid-symbolic");
+                let icon = p.icon.as_deref().unwrap_or("atrium-perspective-symbolic");
                 let (row, _badge) = sidebar_row(icon, &p.name, 8);
                 self.install_perspective_context_menu(&row, p.id);
                 list_box.append(&row);

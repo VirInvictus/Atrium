@@ -121,7 +121,7 @@ pub fn build_page(
 ) -> gtk::Widget {
     if tasks.is_empty() {
         return crate::ui::status_page::status_page(
-            Some("document-open-recent-symbolic"),
+            Some("atrium-logbook-symbolic"),
             &gettext("Nothing logged yet"),
             Some(&gettext(
                 "Completed tasks settle here, grouped by when you finished them.",

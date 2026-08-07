@@ -60,7 +60,7 @@ where
 {
     if queue.is_empty() && weekly_tasks.is_empty() {
         return crate::ui::status_page::status_page(
-            Some("checkmark-symbolic"),
+            Some("atrium-review-symbolic"),
             &gettext("All caught up"),
             Some(&gettext(
                 "No projects need review and nothing is pressing this week.",

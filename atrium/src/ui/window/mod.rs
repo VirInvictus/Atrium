@@ -76,6 +76,14 @@ mod imp {
         pub content_stack: TemplateChild<gtk::Stack>,
         #[template_child]
         pub task_list_view: TemplateChild<gtk::ListView>,
+        /// Inner stack of the list page: "rows" (the clamped
+        /// ListView) vs "empty" (the status page). Lives *inside*
+        /// the "list" content page so the quick-add bar stays
+        /// visible when a list is empty — the empty state used to
+        /// be a sibling `content_stack` page and took the bar (and
+        /// the + button's focus target) down with it.
+        #[template_child]
+        pub list_body_stack: TemplateChild<gtk::Stack>,
         /// Host box for the owned empty-state page (Phase 22 C2). The
         /// `adw::StatusPage` that used to live here in the template was
         /// replaced by [`crate::ui::status_page::StatusPage`], built in
@@ -390,21 +398,29 @@ const CANONICAL_LISTS: &[ActiveList] = &[
 
 fn icon_for(list: &ActiveList) -> &'static str {
     match list {
-        ActiveList::Inbox => "inbox-symbolic",
-        ActiveList::Today => "starred-symbolic",
-        ActiveList::Upcoming => "x-office-calendar-symbolic",
-        ActiveList::Anytime => "view-list-symbolic",
-        ActiveList::Someday => "weather-clear-night-symbolic",
-        ActiveList::Logbook => "document-open-recent-symbolic",
-        ActiveList::Project(_) => "view-list-bullet-symbolic",
-        ActiveList::Area(_) => "folder-symbolic",
-        ActiveList::Tag(_) => "tag-symbolic",
-        ActiveList::SearchResults(_) => "system-search-symbolic",
-        ActiveList::Forecast => "x-office-calendar-symbolic",
-        ActiveList::Review => "object-select-symbolic",
-        ActiveList::Agenda => "alarm-symbolic",
-        ActiveList::Calendar => "x-office-calendar-symbolic",
-        ActiveList::Perspective(_) => "view-grid-symbolic",
+        // Owned, bundled icons (v0.67.0). The stock names these
+        // replaced (`inbox-symbolic`, `starred-symbolic`, …) resolve
+        // on a GNOME icon theme but not reliably elsewhere —
+        // `inbox-symbolic` exists in no commonly-installed theme, and
+        // kora misses several more, so the sidebar rendered
+        // missing-image placeholders on a real Hyprland session. Same
+        // machine-independence rule as the bundled fonts: never
+        // depend on the user's theme for anything semantic.
+        ActiveList::Inbox => "atrium-inbox-symbolic",
+        ActiveList::Today => "atrium-today-symbolic",
+        ActiveList::Upcoming => "atrium-calendar-symbolic",
+        ActiveList::Anytime => "atrium-anytime-symbolic",
+        ActiveList::Someday => "atrium-someday-symbolic",
+        ActiveList::Logbook => "atrium-logbook-symbolic",
+        ActiveList::Project(_) => "atrium-project-symbolic",
+        ActiveList::Area(_) => "atrium-area-symbolic",
+        ActiveList::Tag(_) => "atrium-tag-symbolic",
+        ActiveList::SearchResults(_) => "atrium-search-symbolic",
+        ActiveList::Forecast => "atrium-calendar-symbolic",
+        ActiveList::Review => "atrium-review-symbolic",
+        ActiveList::Agenda => "atrium-agenda-symbolic",
+        ActiveList::Calendar => "atrium-calendar-symbolic",
+        ActiveList::Perspective(_) => "atrium-perspective-symbolic",
     }
 }
 
@@ -431,7 +447,16 @@ impl AtriumWindow {
         if maximized {
             self.maximize();
         }
-        debug!(width, height, maximized, "restored window state");
+        // The sidebar-width key predates Phase 22; C6's swap from
+        // AdwNavigationSplitView to GtkPaned left it unread, so the
+        // user's sidebar width silently stopped persisting. The
+        // template's position (260) stays the schema default's
+        // fallback shape; anything the user dragged wins here.
+        let sidebar = settings.int("sidebar-width");
+        if sidebar > 0 {
+            self.imp().split_view.set_position(sidebar);
+        }
+        debug!(width, height, maximized, sidebar, "restored window state");
     }
 
     fn save_window_state(&self) {
@@ -440,6 +465,7 @@ impl AtriumWindow {
         let _ = settings.set_int("window-width", width);
         let _ = settings.set_int("window-height", height);
         let _ = settings.set_boolean("window-maximized", self.is_maximized());
+        let _ = settings.set_int("sidebar-width", self.imp().split_view.position());
     }
 }
 

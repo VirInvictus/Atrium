@@ -289,7 +289,12 @@ fn compare_clause(
                     let lo_ph = placeholder(params.len());
                     params.push(SqlValue::Date(hi));
                     let hi_ph = placeholder(params.len());
-                    format!("({column} IS NULL OR {column} < {lo_ph} OR {column} > {hi_ph})")
+                    // NOT NULL, not `IS NULL OR`: the in-memory
+                    // evaluator returns false for every comparator
+                    // when the field has no date (match_compare),
+                    // so a dateless task must not match `!=` here
+                    // either.
+                    format!("({column} IS NOT NULL AND ({column} < {lo_ph} OR {column} > {hi_ph}))")
                 }
                 Comparator::Lt => {
                     params.push(SqlValue::Date(lo));
@@ -340,7 +345,15 @@ fn range_clause(
 fn date_column(field: Field) -> Option<&'static str> {
     Some(match field {
         Field::Due => "t.deadline",
-        Field::Scheduled => "t.scheduled_for",
+        // The `'__someday__'` sentinel must read as "no date" in
+        // comparisons, matching the evaluator's field_date_value
+        // (None unless ScheduledFor::Date). Without the CASE, the
+        // sentinel — which sorts above every ISO date because `_`
+        // > any digit — wrongly matches `scheduled:>…` in the SQL
+        // fast path while the in-memory fallback excludes it.
+        Field::Scheduled => {
+            "(CASE WHEN t.scheduled_for = '__someday__' THEN NULL ELSE t.scheduled_for END)"
+        }
         Field::Defer => "t.defer_until",
         // The created/modified/completed columns store a full
         // RFC3339 timestamp; we compare the date prefix so semantics
@@ -527,6 +540,44 @@ mod tests {
         assert!(!blocked.sql.contains("NOT EXISTS"));
         assert!(blocked.sql.contains("task_dependency"));
         assert!(blocked.params.is_empty());
+    }
+
+    // ── date comparisons: sentinel + missing-date parity ───
+
+    /// `scheduled:` comparisons must read the `'__someday__'`
+    /// sentinel as "no date", matching the evaluator's
+    /// field_date_value. The sentinel sorts above every ISO date,
+    /// so an unguarded column wrongly matches `scheduled:>…`.
+    /// `atrium-core`'s `scheduled_comparison_sql_excludes_someday_sentinel`
+    /// executes this exact shape against a real DB.
+    #[test]
+    fn scheduled_comparison_nulls_someday_sentinel() {
+        let expr = Expr::Compare {
+            field: Field::Scheduled,
+            comp: Comparator::Gt,
+            value: Value::Date(NaiveDate::from_ymd_opt(2020, 1, 1).unwrap()),
+        };
+        let clause = try_translate(&expr, today()).unwrap();
+        let col = "(CASE WHEN t.scheduled_for = '__someday__' THEN NULL ELSE t.scheduled_for END)";
+        assert_eq!(clause.sql, format!("({col} IS NOT NULL AND {col} > ?1)"));
+    }
+
+    /// `!=` on a date field must not match dateless tasks — the
+    /// evaluator returns false for every comparator when the field
+    /// is empty, so the SQL may not carry an `IS NULL OR` escape.
+    /// Executed-side twin: `date_ne_sql_excludes_dateless_tasks`.
+    #[test]
+    fn date_ne_requires_a_date() {
+        let expr = Expr::Compare {
+            field: Field::Due,
+            comp: Comparator::Ne,
+            value: Value::Date(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()),
+        };
+        let clause = try_translate(&expr, today()).unwrap();
+        assert_eq!(
+            clause.sql,
+            "(t.deadline IS NOT NULL AND (t.deadline < ?1 OR t.deadline > ?2))"
+        );
     }
 
     #[test]

@@ -583,7 +583,15 @@ impl AtriumWindow {
 
     pub(super) fn update_empty_state(&self, store: &gio::ListStore) {
         let active = self.active_list();
-        let stack = self.imp().content_stack.clone();
+        // This call is what lands list surfaces on the "list"
+        // content page (pre-v0.67.0 its else-branch did that; the
+        // empty branch showed the since-removed top-level "empty"
+        // page). The rows-vs-empty choice then happens on the inner
+        // list_body_stack, so the quick-add bar below it stays
+        // visible (and the + button keeps a focusable entry) on an
+        // empty list.
+        self.imp().content_stack.set_visible_child_name("list");
+        let stack = self.imp().list_body_stack.clone();
 
         if store.n_items() == 0 {
             if let Some(status) = self.imp().content_status.get() {
@@ -594,7 +602,7 @@ impl AtriumWindow {
             }
             stack.set_visible_child_name("empty");
         } else {
-            stack.set_visible_child_name("list");
+            stack.set_visible_child_name("rows");
         }
     }
 

@@ -33,15 +33,21 @@ pub fn status_page(icon_name: Option<&str>, title: &str, description: Option<&st
     icon.set_icon_name(icon_name);
     icon.set_visible(icon_name.is_some());
 
+    // max-width-chars bounds the *natural* width; without it a long
+    // description reports its full single-line width, and inside a
+    // narrow pane (Builder Mode's content column) the centered box
+    // overflowed and clipped instead of wrapping.
     let title_label = gtk::Label::builder()
         .label(title)
         .wrap(true)
+        .max_width_chars(40)
         .justify(gtk::Justification::Center)
         .css_classes(["title-1"])
         .build();
 
     let description_label = gtk::Label::builder()
         .wrap(true)
+        .max_width_chars(50)
         .justify(gtk::Justification::Center)
         .css_classes(["dim-label"])
         .build();

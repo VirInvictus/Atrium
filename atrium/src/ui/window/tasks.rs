@@ -418,12 +418,16 @@ impl AtriumWindow {
             return;
         }
         glib::MainContext::default().spawn_local(async move {
-            let scheduled = parsed.scheduled_for.or({
-                if matches!(active, ActiveList::Today) {
+            // The bottom entry creates "in the active list" (keymap
+            // contract for Ctrl+N): Today schedules today, Someday
+            // parks the task, a project page files into the project.
+            // An explicit @today / @someday typed inline still wins.
+            let scheduled = parsed.scheduled_for.or(match active {
+                ActiveList::Today => {
                     Some(atrium_core::ScheduledFor::Date(Local::now().date_naive()))
-                } else {
-                    None
                 }
+                ActiveList::Someday => Some(atrium_core::ScheduledFor::Someday),
+                _ => None,
             });
             let project_id = match active {
                 ActiveList::Project(id) => Some(id),

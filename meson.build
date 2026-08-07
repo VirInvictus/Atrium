@@ -129,6 +129,20 @@ install_data(
   install_dir: datadir / 'icons' / 'hicolor' / 'symbolic' / 'apps',
 )
 
+# Owned semantic icons (v0.67.0). Hand-drawn, MIT like the rest of the
+# tree; the stock names they replace don't resolve reliably outside a
+# GNOME icon theme (same machine-independence rule as the bundled
+# fonts). App-prefixed, so they can never shadow a theme's own names.
+foreach icon : [
+  'agenda', 'anytime', 'area', 'calendar', 'inbox', 'logbook',
+  'perspective', 'project', 'review', 'search', 'someday', 'tag', 'today',
+]
+  install_data(
+    'data/icons/hicolor/symbolic/apps/atrium-' + icon + '-symbolic.svg',
+    install_dir: datadir / 'icons' / 'hicolor' / 'symbolic' / 'apps',
+  )
+endforeach
+
 # Bundled fonts. Variable TTFs land at $datadir/atrium/fonts/ where the
 # typography module's exe-relative resolver finds them. License files
 # travel alongside.

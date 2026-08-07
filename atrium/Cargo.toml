@@ -1,6 +1,6 @@
 [package]
 name = "atrium"
-description = "Native GNOME task manager — Things 3 clarity, OmniFocus depth, mode-switched."
+description = "Native Linux task manager — Things 3 clarity, OmniFocus depth, mode-switched."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -2,8 +2,8 @@
 //! v0.31.0 — first-run / onboarding.
 //!
 //! A brand-new database (no tasks, no projects, no areas) shows a
-//! welcoming `AdwStatusPage` with three next-steps instead of an empty
-//! Inbox. It clears itself the moment the user creates anything — no
+//! welcoming status page (the owned `crate::ui::status_page`) with
+//! three next-steps instead of an empty Inbox. It clears itself the moment the user creates anything — no
 //! GSetting, no seeding. The page is a named child of the existing
 //! `content_stack`; `refresh_active_list` yields to it while the
 //! cached `db_empty` flag is set, and the task / library change
@@ -23,7 +23,7 @@ impl AtriumWindow {
     /// render still reads sensibly.
     pub(super) fn setup_content_status(&self) {
         let status = crate::ui::status_page::status_page(
-            Some("checkmark-symbolic"),
+            Some("atrium-review-symbolic"),
             &gettext("No tasks yet"),
             Some(&gettext(
                 "Press Ctrl+N or the + button to create your first task.",

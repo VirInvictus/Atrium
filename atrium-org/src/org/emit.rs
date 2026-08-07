@@ -63,7 +63,10 @@ pub fn emit_org_text_with_meta(file: &OrgFile) -> String {
         out.push(':');
         if !value.is_empty() {
             out.push(' ');
-            out.push_str(value);
+            // Directive values are single-line (`#+TITLE: …`); a
+            // newline in a project title would truncate the
+            // directive and orphan the rest as stray body text.
+            out.push_str(&value.replace(['\n', '\r'], " "));
         }
         out.push('\n');
     }
@@ -165,7 +168,16 @@ fn emit_task(task: &OrgTask, out: &mut String) {
         out.push_str(kw.as_str());
         out.push(' ');
     }
-    out.push_str(&task.title);
+    // A headline is one line by definition; a newline smuggled into
+    // the title (reachable via `atrium-cli add`, never via the GTK
+    // entries or the parser) would break the headline here and the
+    // remainder would be silently lost on the next round-trip. Fold
+    // to spaces at the emit boundary.
+    if task.title.contains(['\n', '\r']) {
+        out.push_str(&task.title.replace(['\n', '\r'], " "));
+    } else {
+        out.push_str(&task.title);
+    }
     // v0.15.0 — statistics cookie sits between title and tags
     // per Org spec. Whitespace-separated from both sides so
     // `parse_headline`'s strip_trailing_cookie pass picks it up
@@ -531,6 +543,42 @@ SCHEDULED: <2026-05-15 Fri> DEADLINE: <2026-06-01 Mon>
             reparsed[0].statistics_cookie,
             Some(StatisticsCookie::Counter { done: 2, total: 5 })
         );
+    }
+
+    /// A newline in a DB-side title (reachable through `atrium-cli
+    /// add`) must not break the emitted headline — the tail used to
+    /// land on its own line and vanish on the next round-trip.
+    #[test]
+    fn title_newline_folds_to_space_in_headline() {
+        let task = OrgTask {
+            depth: 1,
+            keyword: Some(OrgKeyword::Todo),
+            title: "newline\nheadline attack".to_string(),
+            tags: Vec::new(),
+            scheduled: None,
+            scheduled_time: None,
+            scheduled_repeater: None,
+            scheduled_warning: None,
+            deadline: None,
+            deadline_repeater: None,
+            deadline_warning: None,
+            statistics_cookie: None,
+            clock_entries: Vec::new(),
+            logbook_unknown_lines: Vec::new(),
+            closed: None,
+            properties: HashMap::new(),
+            body: String::new(),
+            unknown_lines: Vec::new(),
+            children: Vec::new(),
+        };
+        let text = emit_org_text(&[task]);
+        assert!(
+            text.starts_with("* TODO newline headline attack"),
+            "headline not folded:\n{text}"
+        );
+        let reparsed = super::super::parse::parse_org_text(&text);
+        assert_eq!(reparsed.len(), 1);
+        assert_eq!(reparsed[0].title, "newline headline attack");
     }
 
     #[test]

@@ -1191,8 +1191,12 @@ pub(super) fn sidebar_row(
         .spacing(12)
         .margin_start(margin_start)
         .margin_end(8)
-        .margin_top(6)
-        .margin_bottom(6)
+        // Vertical inset comes from the stylesheet's row padding
+        // (`.navigation-sidebar > row`, 6px); these margins stack on
+        // top of that, so anything more than a hairline here reads
+        // as airy double-spacing (v0.67.0 feedback).
+        .margin_top(2)
+        .margin_bottom(2)
         .build();
     row_box.append(&icon_widget);
     row_box.append(&label_widget);

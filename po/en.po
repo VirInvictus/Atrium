@@ -1400,11 +1400,11 @@ msgstr "Theme"
 
 #: atrium/src/ui/preferences.rs:99
 msgid ""
-"Override the system colour scheme. Adwaita auto-tracks the system; pin one "
-"here if you want it constant."
+"Override the system colour scheme. Follow system tracks the desktop's "
+"dark/light preference; pin one here if you want it constant."
 msgstr ""
-"Override the system colour scheme. Adwaita auto-tracks the system; pin one "
-"here if you want it constant."
+"Override the system colour scheme. Follow system tracks the desktop's "
+"dark/light preference; pin one here if you want it constant."
 
 #: atrium/src/ui/preferences.rs:119
 msgid "High-legibility font"

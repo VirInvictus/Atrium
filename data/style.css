@@ -303,20 +303,21 @@ window.atrium-high-legibility .atrium-task-deadline {
 }
 
 /* Phase 8d — animation audit & Quick Entry fade-in.
+ * (Rewritten post-Phase 22: the audit predates the toolkit cut and
+ * originally framed these as libadwaita defaults.)
  *
- * Animation policy: match libadwaita timings rather than override
- * them. The platform's defaults already cover most surfaces:
- *   - content_stack (window.ui)             crossfade (libadwaita)
- *   - selection_revealer (window.ui)        slide-down (libadwaita)
+ * Animation policy: lean on native GTK4 transition properties rather
+ * than hand-rolled animation. Current coverage:
+ *   - content_stack (window.ui)             GtkStack crossfade
+ *   - selection_revealer (window.ui)        GtkRevealer slide-down
  *   - .atrium-task-row.completed            opacity 180ms (Phase 8a)
- *   - adw::Toast (undo + bulk summary)      libadwaita defaults
- *   - adw::AlertDialog (rename / delete)    libadwaita defaults
+ *   - .toast (undo + bulk summary)          owned pill, C3
+ *   - dialogs::Alert (rename / delete)      owned modal, C4
  *
- * Atrium adds custom transitions only where libadwaita's defaults
- * don't apply. Quick Entry uses a plain adw::Window (not adw::Dialog)
- * because we want non-modal, transient-for-main behaviour — which
- * means we lose the dialog presentation animation. We add a 150 ms
- * opacity fade-in via a keyframe so the modal appears smoothly. */
+ * Atrium adds custom transitions only where GTK's defaults don't
+ * apply. Quick Entry is a non-modal transient gtk::Window, which has
+ * no dialog presentation animation — so a 150 ms opacity fade-in
+ * keyframe makes the modal appear smoothly. */
 
 @keyframes atrium-quickentry-fade-in {
   from { opacity: 0; }
@@ -474,7 +475,10 @@ window.atrium-debug-pane {
   letter-spacing: 0.005em;
   text-transform: none;
   font-size: 0.85em;
-  margin-top: 14px;
+  /* 14px top read as too much air once the rows tightened
+   * (v0.67.0 sidebar-density feedback); 10px still separates the
+   * section from the rows above without the gap feeling dead. */
+  margin-top: 10px;
   margin-bottom: 4px;
 }
 
@@ -928,8 +932,8 @@ listview.navigation-sidebar > row:focus-visible,
   opacity: 1;
 }
 
-/* Phase 22 C3 — owned toast pill. Temporary styling to sit close to the
- * adwaita toast look until the owned stylesheet lands at C9. */
+/* Phase 22 C3 — owned toast pill. Kept the familiar floating-pill
+ * shape through the C9 owned-sheet pass; this is the settled look. */
 .toast {
   background-color: @card_bg_color;
   color: @window_fg_color;

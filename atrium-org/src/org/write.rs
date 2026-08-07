@@ -205,7 +205,8 @@ fn build_project_org_file(
         headlines: tree,
     };
 
-    let path = build_project_vault_path(vault_root, area_title.as_deref(), &project.title);
+    let stem = project_file_stem(conn, &project)?;
+    let path = build_project_vault_path(vault_root, area_title.as_deref(), &stem);
 
     Ok(BuiltProject {
         file,
@@ -231,24 +232,44 @@ pub fn project_vault_path(
         Some(aid) => atrium_core::db::read::area_by_id(conn, aid)?.map(|a| a.title),
         None => None,
     };
+    let stem = project_file_stem(conn, &project)?;
     Ok(build_project_vault_path(
         vault_root,
         area_title.as_deref(),
-        &project.title,
+        &stem,
     ))
 }
 
 fn build_project_vault_path(
     vault_root: &Path,
     area_title: Option<&str>,
-    project_title: &str,
+    file_stem: &str,
 ) -> PathBuf {
     let mut path = vault_root.to_path_buf();
     if let Some(area) = area_title {
         path.push(sanitize_filename(area));
     }
-    path.push(format!("{}.org", sanitize_filename(project_title)));
+    path.push(format!("{file_stem}.org"));
     path
+}
+
+/// File stem for a project's vault file. Titles are not unique in
+/// the schema, and two projects in the same area whose titles
+/// sanitize to the same stem used to silently share one `.org`
+/// file — each flush overwrote the other project's tasks, and the
+/// two-way watcher could then read the survivor back as deletions.
+/// The lowest-id project keeps the bare stem; later ones append
+/// `-<id>`, which is stable across renames of unrelated projects.
+fn project_file_stem(conn: &Connection, project: &Project) -> Result<String, WriteError> {
+    let stem = sanitize_filename(&project.title);
+    let collides = atrium_core::db::read::list_projects(conn)?.iter().any(|q| {
+        q.id < project.id && q.area_id == project.area_id && sanitize_filename(&q.title) == stem
+    });
+    Ok(if collides {
+        format!("{stem}-{}", project.id)
+    } else {
+        stem
+    })
 }
 
 /// Write every project in the DB to `vault_root`. Used by the
@@ -744,6 +765,47 @@ const _: fn() -> Option<DateTime<Utc>> = || None;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two projects whose titles sanitize to the same stem must not
+    /// share a vault file — the second flush used to clobber the
+    /// first project's `.org` file wholesale.
+    #[test]
+    fn duplicate_project_titles_get_distinct_vault_paths() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        atrium_core::db::configure_pragmas(&conn).unwrap();
+        atrium_core::db::migrations::migrate(&mut conn).unwrap();
+        conn.execute(
+            "INSERT INTO project (uuid, title, position) VALUES \
+             ('p1', 'Stress Project', 1.0), \
+             ('p2', 'Stress Project', 2.0), \
+             ('p3', 'Stress/Project', 3.0)",
+            [],
+        )
+        .unwrap();
+        let ids: Vec<i64> = conn
+            .prepare("SELECT id FROM project ORDER BY position")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let root = Path::new("/vault");
+        let paths: Vec<PathBuf> = ids
+            .iter()
+            .map(|id| project_vault_path(&conn, root, *id).unwrap())
+            .collect();
+        // Lowest id keeps the bare name; later collisions (including
+        // the sanitized 'Stress/Project' → 'Stress_Project' one,
+        // which does NOT collide) stay unique.
+        assert_eq!(paths[0], root.join("Stress Project.org"));
+        assert_eq!(
+            paths[1],
+            root.join(format!("Stress Project-{}.org", ids[1]))
+        );
+        assert_eq!(paths[2], root.join("Stress_Project.org"));
+        let unique: std::collections::HashSet<_> = paths.iter().collect();
+        assert_eq!(unique.len(), 3);
+    }
 
     // v0.15.0 — Phase 18.5 statistics cookies. The projection
     // walks an OrgTask tree post-order; every parent gets a

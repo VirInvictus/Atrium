@@ -332,6 +332,16 @@ impl AtriumWindow {
         self.set_active_list(ActiveList::Calendar);
     }
 
+    /// `Ctrl+6` / `app.show-list::logbook`. Logbook left
+    /// `CANONICAL_LISTS` in the v0.6.x sidebar reorder (it lives in
+    /// `top_tier_extras` now), which silently turned the accel's
+    /// index lookup into a no-op — so jump by `ActiveList` directly,
+    /// the same shape as `show_calendar`. No mode gate: Logbook
+    /// exists in both Simple and Builder.
+    pub fn show_logbook(&self) {
+        self.set_active_list(ActiveList::Logbook);
+    }
+
     /// Phase 12.5 — return the cached calendar viewed-month, or
     /// today's first-of-month if the user hasn't navigated yet.
     /// Lazy init keeps the field default-clean (NaiveDate has no

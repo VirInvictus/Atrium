@@ -1,6 +1,6 @@
 # Atrium
 
-Atrium is a native GNOME task manager. It pairs **Org-mode internals**
+Atrium is a native Linux task manager. It pairs **Org-mode internals**
 (stable UUIDs, a plain-text round-trip, three repeater semantics) with
 a **Things 3 / OmniFocus surface** (a calm Simple Mode and a deeper
 Builder Mode over one OmniFocus-superset schema). It is local-first:

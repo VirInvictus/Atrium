@@ -5,11 +5,11 @@
   <project_license>MIT</project_license>
 
   <name>Atrium</name>
-  <summary>Local-first GTD task manager with a native GNOME design</summary>
+  <summary>Local-first GTD task manager for the Linux desktop</summary>
 
   <description>
     <p>
-      Atrium is a native GNOME task manager that fuses Things 3 clarity with
+      Atrium is a native Linux task manager that fuses Things 3 clarity with
       OmniFocus depth via a mode switch over a shared local-first data store.
       Pick Simple Mode for what-am-I-doing-right-now; switch to Builder Mode
       when you want full GTD review, deferral, sequential projects, and
@@ -90,6 +90,20 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.67.0" date="2026-08-06">
+      <description translate="no">
+        <p>Maintenance sweep. Ctrl+6 opens the Logbook again; the Add task
+           bar (and the + button) works on empty lists, and adding from
+           Someday lands in Someday; Quick Entry no longer leaks a window
+           per open; search comparisons agree between the SQL fast path and
+           the evaluator around Someday and missing dates; two projects
+           with the same title no longer overwrite each other's vault file;
+           the sidebar remembers its width again, tightens its row spacing,
+           and draws its own bundled icons so nothing depends on the
+           desktop's icon theme. The app also stops calling itself a GNOME
+           app: it is a native Linux task manager on plain GTK4.</p>
+      </description>
+    </release>
     <release version="0.66.0" date="2026-07-29">
       <description translate="no">
         <p>The Automatic theme setting follows your desktop's dark or light

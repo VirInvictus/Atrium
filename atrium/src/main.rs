@@ -683,7 +683,8 @@ fn install_show_task_action(app: &gtk::Application) {
 }
 
 /// v0.20.0 — Phase 19.5 `app.preferences` action. Opens the
-/// AdwPreferencesWindow anchored to the active window. Wired
+/// Preferences window (a plain `gtk::Window` since Phase 22 C10)
+/// anchored to the active window. Wired
 /// to the primary menu's "Preferences…" entry; also accel-bound
 /// in `install_keyboard_accels`.
 fn install_preferences_action(app: &gtk::Application) {
@@ -966,13 +967,19 @@ fn install_show_list_action(app: &gtk::Application) {
                 win.show_calendar();
                 return;
             }
+            // Logbook is no longer in CANONICAL_LISTS (v0.6.x moved it
+            // to the sidebar's top-tier extras), so the index lookup
+            // below can't reach it.
+            if name == "logbook" {
+                win.show_logbook();
+                return;
+            }
             let idx = match name.as_str() {
                 "inbox" => 0,
                 "today" => 1,
                 "upcoming" => 2,
                 "anytime" => 3,
                 "someday" => 4,
-                "logbook" => 5,
                 _ => return,
             };
             win.show_list_at(idx);
@@ -1114,7 +1121,7 @@ impl Config {
 }
 
 fn print_help() {
-    println!("Atrium — native GNOME task manager.");
+    println!("Atrium — native Linux task manager.");
     println!();
     println!("USAGE:");
     println!("    atrium [OPTIONS]");

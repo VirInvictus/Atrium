@@ -436,6 +436,20 @@ fn unquote_string(s: &str) -> String {
                     Some('\\') => out.push('\\'),
                     Some('n') => out.push('\n'),
                     Some('t') => out.push('\t'),
+                    // `\u{:04X}` — quote_string emits this for control
+                    // characters below 0x20; without this arm the `u`
+                    // and four hex digits leaked through as literal
+                    // text on the next read.
+                    Some('u') => {
+                        let hex: String = chars.by_ref().take(4).collect();
+                        match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                            Some(decoded) => out.push(decoded),
+                            None => {
+                                out.push('u');
+                                out.push_str(&hex);
+                            }
+                        }
+                    }
                     Some(other) => out.push(other),
                     None => break,
                 }
@@ -725,6 +739,16 @@ work = \"#3584e4\"
         let quoted = quote_string(value);
         let unquoted = unquote_string(&quoted);
         assert_eq!(unquoted, value);
+    }
+
+    /// Control chars below 0x20 emit as `\uXXXX`; the reader must
+    /// decode them back rather than leaking `u0001` as literal text.
+    #[test]
+    fn quoted_string_round_trips_control_characters() {
+        let value = "bell\u{0007}and\u{0001}unit";
+        let quoted = quote_string(value);
+        assert!(quoted.contains("\\u0007"), "escape missing in {quoted}");
+        assert_eq!(unquote_string(&quoted), value);
     }
 
     #[test]
