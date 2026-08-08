@@ -86,10 +86,37 @@
     <color type="primary" scheme_preference="dark">#12120f</color>
   </branding>
 
-  <!-- TODO: add <screenshots> section once a release build is ready to
-       capture against. Phase 9 task. -->
+  <!-- Screenshots scaffold (Flathub readiness, 2026-08-08). Brandon
+       captures against the final Kanagawa Dragon look; uncomment and
+       fill the URLs, then re-run `appstreamcli validate`. Flathub
+       wants 16:9, at least 620px wide, hosted at stable URLs (the
+       convention is raw.githubusercontent.com paths pinned to a tag).
+       One screenshot per mode so Simple and Builder both feature.
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Simple Mode: today's list with Quick Entry open</caption>
+      <image>https://raw.githubusercontent.com/VirInvictus/Atrium/v1.0.0/docs/screenshots/simple-today.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Builder Mode: Forecast, Perspectives, and the Inspector pane</caption>
+      <image>https://raw.githubusercontent.com/VirInvictus/Atrium/v1.0.0/docs/screenshots/builder-forecast.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>A kanban board perspective with keyboard-movable cards</caption>
+      <image>https://raw.githubusercontent.com/VirInvictus/Atrium/v1.0.0/docs/screenshots/board.png</image>
+    </screenshot>
+  </screenshots>
+  -->
 
   <releases>
+    <release version="0.69.0" date="2026-08-08">
+      <description translate="no">
+        <p>The Flatpak now builds fully offline from vendored cargo
+           sources, the Flathub requirement. Packaging only; no
+           behavior change.</p>
+      </description>
+    </release>
     <release version="0.68.0" date="2026-08-08">
       <description translate="no">
         <p>Keyboard-first boards: kanban cards are now Tab-focusable and

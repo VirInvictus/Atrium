@@ -14,10 +14,15 @@
 # alongside the desktop / icon / metainfo data files we install
 # directly here.
 #
-# The vendored-cargo-sources approach for offline Flathub builds
-# isn't wired yet — Phase 9 task. For local developer builds the
-# default `--share=network` flatpak-builder permission lets cargo
-# fetch from crates.io.
+# Offline build (Flathub-shaped): `data/cargo-sources.json` is
+# generated from Cargo.lock by the vendored
+# `scripts/flatpak-cargo-generator.py` (MIT, from
+# flatpak/flatpak-builder-tools) via
+#   uv run scripts/flatpak-cargo-generator.py Cargo.lock -o data/cargo-sources.json
+# and checked in. flatpak-builder fetches the crates itself and lays
+# them into $CARGO_HOME/vendor with a source-replacement config, so
+# the build sandbox needs no network (CARGO_NET_OFFLINE pins it).
+# Regenerate whenever Cargo.lock changes.
 ---
 app-id: io.github.virinvictus.atrium
 runtime: org.gnome.Platform
@@ -34,12 +39,13 @@ command: atrium
 appstream-compose: false
 
 # Build-time PATH/CARGO env so the rust-stable extension is visible.
+# No `--share=network` build-arg: the build runs offline against the
+# vendored cargo sources (the Flathub requirement).
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
-  build-args:
-    - --share=network
   env:
     CARGO_HOME: /run/build/atrium/cargo
+    CARGO_NET_OFFLINE: 'true'
 
 # Sandbox permissions — minimal. Display + DRI for GTK4/Wayland;
 # home for $XDG_DATA_HOME / $XDG_CONFIG_HOME / $XDG_CACHE_HOME so
@@ -72,18 +78,38 @@ modules:
       append-path: /usr/lib/sdk/rust-stable/bin
       env:
         CARGO_HOME: /run/build/atrium/cargo
+        CARGO_NET_OFFLINE: 'true'
     sources:
+      # Local builds use the working tree. For the Flathub submission
+      # PR, replace the dir source with the tagged release, e.g.:
+      #   - type: git
+      #     url: https://github.com/VirInvictus/Atrium.git
+      #     tag: v1.0.0
+      #     commit: <tag commit sha>
       - type: dir
         path: ..
+        # Don't copy build artifacts into the sandbox; a warm
+        # target/ is multiple GB and the offline build must not
+        # see it anyway.
+        skip:
+          - .git
+          - target
+          - .flatpak-builder
+          - build-dir
+      - cargo-sources.json
     post-install:
       # Pre-render PNG sizes from the master SVG so software centers
       # and the GNOME shell get rasterised icons without depending on
       # gdk-pixbuf's librsvg loader at runtime. GTK4 itself is happy
       # with the SVG, but Flathub validators prefer the PNG ladder.
+      # Absolute source path: with `buildsystem: meson` post-install
+      # runs from the meson build dir, so the old relative
+      # `data/icons/...` never resolved (caught by the first full
+      # offline build, 2026-08-08).
       - |
         for sz in 32 48 64 128 256 512; do
           mkdir -p ${FLATPAK_DEST}/share/icons/hicolor/${sz}x${sz}/apps
           rsvg-convert -w ${sz} -h ${sz} \
-            data/icons/hicolor/scalable/apps/io.github.virinvictus.atrium.svg \
+            /run/build/atrium/data/icons/hicolor/scalable/apps/io.github.virinvictus.atrium.svg \
             -o ${FLATPAK_DEST}/share/icons/hicolor/${sz}x${sz}/apps/io.github.virinvictus.atrium.png
         done

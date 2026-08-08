@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## v0.69.0 (2026-08-08): the Flatpak builds offline
+
+Flathub readiness, the last engineering item before the 1.0 asset tail. The Flatpak manifest no longer needs `--share=network` at build time: `data/cargo-sources.json` (generated from `Cargo.lock` by the newly vendored `scripts/flatpak-cargo-generator.py`, 407 crates, no git dependencies) lets flatpak-builder lay the vendored sources into the sandbox, and `CARGO_NET_OFFLINE` pins the build to them. Verified by a full offline `flatpak-builder` run, which also caught a latent manifest bug: the icon-ladder `post-install` runs from the meson build directory, so its relative SVG path had never actually resolved; it now uses the absolute source path, and the PNG ladder renders. The dir source also learned to skip `target/` (copying a warm multi-gigabyte build tree into the sandbox helped nobody). The metainfo gains a commented `<screenshots>` scaffold with captions and tag-pinned URL conventions, ready for the capture pass; `appstreamcli validate` stays clean. Regenerate the JSON with `uv run scripts/flatpak-cargo-generator.py Cargo.lock -o data/cargo-sources.json` whenever `Cargo.lock` changes.
+
 ## v0.68.0 (2026-08-08): keyboard-first boards, and one Quick Entry window
 
 Two Phase 21 items off the keyboard-first ledger, both long-flagged in the roadmap.
