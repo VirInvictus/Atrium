@@ -34,6 +34,7 @@
 //! `atrium-cli kanban` subcommand uses.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::rc::Rc;
 
 use atrium_core::{Column, ScheduledFor, Task, WorkerHandle};
 use gtk::gdk;
@@ -54,6 +55,12 @@ use crate::i18n::{gettext, gettext_f, ngettext_f};
 pub enum DropDestination {
     Column(String),
     Other,
+}
+
+// A16 — the card a keyboard move just relocated, so the re-rendered
+// board can restore focus to it (the move rebuilds the widget tree).
+thread_local! {
+    static PENDING_FOCUS: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
 }
 
 /// Build the board page widget. Returns a horizontally-scrolling
@@ -162,6 +169,15 @@ where
         .margin_top(4)
         .build();
 
+    // A16 — display-order column snapshot for the keyboard move path
+    // (`keyboard_move`). Shared by every row's key controller.
+    let nav: Rc<Vec<(String, Vec<i64>)>> = Rc::new(
+        columns
+            .iter()
+            .map(|c| (c.label.clone(), c.tasks.iter().map(|t| t.id).collect()))
+            .collect(),
+    );
+
     for col in columns {
         // Case-insensitive limit lookup, matching the core's `limit_for`.
         let limit = limits
@@ -179,6 +195,7 @@ where
             on_row_click.clone(),
             on_drop.clone(),
             on_add.clone(),
+            nav.clone(),
         ));
     }
 
@@ -206,6 +223,7 @@ fn build_column<F, D, A>(
     on_row_click: F,
     on_drop: D,
     on_add: A,
+    nav: Rc<Vec<(String, Vec<i64>)>>,
 ) -> gtk::Widget
 where
     F: Fn(i64) + 'static + Clone,
@@ -304,6 +322,7 @@ where
                 on_row_click.clone(),
                 destination.clone(),
                 on_drop.clone(),
+                nav.clone(),
             ));
         }
     }
@@ -371,13 +390,16 @@ fn build_row<F, D>(
     on_row_click: F,
     destination: DropDestination,
     on_drop: D,
+    nav: Rc<Vec<(String, Vec<i64>)>>,
 ) -> gtk::Widget
 where
     F: Fn(i64) + 'static,
-    D: Fn(i64, DropDestination, Option<i64>) + 'static,
+    D: Fn(i64, DropDestination, Option<i64>) + 'static + Clone,
 {
     // Rows are drag *sources* only; the matching drop target lives
     // on the parent column card so the destination is unambiguous.
+    // A16: rows are Tab-focusable so the keyboard path below can
+    // reach them without a pointer.
     let row = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(2)
@@ -385,8 +407,51 @@ where
         .margin_end(4)
         .margin_top(4)
         .margin_bottom(4)
+        .focusable(true)
         .build();
     row.add_css_class("atrium-board-task-row");
+
+    // A16 — keyboard path between columns: Alt+Left / Alt+Right move
+    // the focused card into the neighbouring column, through the SAME
+    // on_drop callback a pointer drag uses (tag/status change + order
+    // persist + re-render). Edge moves are silent no-ops.
+    let key = gtk::EventControllerKey::new();
+    let nav_for_key = nav.clone();
+    let drop_for_key = on_drop.clone();
+    let key_task_id = task.id;
+    key.connect_key_pressed(move |_, keyval, _, state| {
+        if !state.contains(gdk::ModifierType::ALT_MASK) {
+            return glib::Propagation::Proceed;
+        }
+        let dir = match keyval {
+            gdk::Key::Left => MoveDirection::Left,
+            gdk::Key::Right => MoveDirection::Right,
+            _ => return glib::Propagation::Proceed,
+        };
+        let Some(dest_label) = keyboard_move(&nav_for_key, key_task_id, dir) else {
+            return glib::Propagation::Stop;
+        };
+        let dest = if dest_label == atrium_core::OTHER_COLUMN_LABEL {
+            DropDestination::Other
+        } else {
+            DropDestination::Column(dest_label)
+        };
+        // The re-render tears this row down; remember the card so the
+        // rebuilt board can put keyboard focus back on it.
+        PENDING_FOCUS.with(|c| c.set(Some(key_task_id)));
+        drop_for_key(key_task_id, dest, None);
+        glib::Propagation::Stop
+    });
+    row.add_controller(key);
+
+    // Focus restore for the card a keyboard move just relocated.
+    if PENDING_FOCUS.with(|c| c.get()) == Some(task.id) {
+        PENDING_FOCUS.with(|c| c.set(None));
+        let row_for_focus = row.clone();
+        glib::idle_add_local_once(move || {
+            row_for_focus.grab_focus();
+        });
+    }
 
     // Top line: checkbox + title.
     let top = gtk::Box::builder()
@@ -575,3 +640,40 @@ fn format_date_chip(task: &Task) -> Option<String> {
         None => None,
     }
 }
+
+/// Direction of a keyboard card move (A16).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoveDirection {
+    Left,
+    Right,
+}
+
+/// Compute the destination of a keyboard card move: given the board's
+/// columns as `(label, ordered task ids)` in display order, the card
+/// being moved, and a direction, return the destination column's
+/// label. `None` when the move falls off the board's edge or the task
+/// isn't on it. Pure — the GTK wiring maps the label back onto a
+/// [`DropDestination`] and routes it through the same drop callback a
+/// pointer drag uses.
+pub fn keyboard_move(
+    columns: &[(String, Vec<i64>)],
+    task_id: i64,
+    dir: MoveDirection,
+) -> Option<String> {
+    let here = columns.iter().position(|(_, ids)| ids.contains(&task_id))?;
+    let dest = match dir {
+        MoveDirection::Left => here.checked_sub(1)?,
+        MoveDirection::Right => {
+            let d = here + 1;
+            if d >= columns.len() {
+                return None;
+            }
+            d
+        }
+    };
+    Some(columns[dest].0.clone())
+}
+
+#[cfg(test)]
+#[path = "board_tests.rs"]
+mod tests;

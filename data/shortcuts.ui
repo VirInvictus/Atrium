@@ -155,6 +155,18 @@
 
         <child>
           <object class="GtkShortcutsGroup">
+            <property name="title" translatable="yes">Board</property>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Move focused card to the previous / next column</property>
+                <property name="accelerator">&lt;Alt&gt;Left &lt;Alt&gt;Right</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkShortcutsGroup">
             <property name="title" translatable="yes">Library</property>
             <child>
               <object class="GtkShortcutsShortcut">

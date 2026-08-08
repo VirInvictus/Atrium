@@ -1,5 +1,14 @@
 # Atrium — Patch Notes
 
+## v0.68.0 (2026-08-08): keyboard-first boards, and one Quick Entry window
+
+Two Phase 21 items off the keyboard-first ledger, both long-flagged in the roadmap.
+
+- **A16 — a keyboard path to move a kanban card between columns.** The roadmap called this "the single largest keyboard-first gap in the app": card movement was wired exclusively through drag-and-drop. Cards are now Tab-focusable (with the same keyboard-only `:focus-visible` ring the sidebar rows use), and `Alt+Left` / `Alt+Right` move the focused card into the neighbouring column. The move rides the exact `on_drop` path a pointer drag uses, so tag-axis boards rewrite tags, status-axis boards change real state, the intra-column order persists through `reorder_board_column`, and after the re-render focus lands back on the moved card. Edge moves are silent no-ops. The destination computation is a pure `keyboard_move` function with its own headless test file (`board_tests.rs`, five tests, mutation-checked). Documented in `docs/keymap.md` and the `Ctrl+?` shortcuts window (new Board group).
+- **Quick Entry is a singleton.** Non-modal since C8, nothing stopped `Ctrl+Alt+Space` from stacking a second (then a third) capture window. `open` now holds thread-local weak handles to the live window and entry, and re-triggering raises the existing window. A drag-to-capture prefill that arrives while the modal is open lands in the live entry only when it is empty, so it can never clobber text mid-composition. Preferences and Memory Watch share the old rebuild-per-call shape; they are noted in the roadmap as follow-up candidates rather than changed here.
+
+Workspace suite green (1000+ tests, clippy `-D warnings`, fmt), `keyboard_move` mutation-checked. The two-keystroke display pass (Ctrl+Alt+Space twice; Alt+Left/Right on a focused card) is pending a quiet desktop, per the roadmap's "(display pass)" convention.
+
 ## v0.67.0 (2026-08-06): maintenance sweep — seven fixes, one restored setting, and the GNOME identity retired
 
 A full sweep of the tree: a bug hunt across the data layer and the GTK binary, an adversarial pass through the CLI and the importers, and the first screenshot-by-screenshot visual walk of the app on Hyprland. Seven fixes came out of it, one lost setting came back, and the last "native GNOME" self-descriptions caught up with the post-Phase-22 reality.

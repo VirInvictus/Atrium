@@ -27,8 +27,19 @@ use atrium_inline as parser;
 
 use crate::i18n::gettext;
 
-/// Open the Quick Entry modal anchored to `parent`. Returns
-/// immediately; commit/dismiss runs through the GTK event loop.
+// v0.68.0 — Quick Entry is a singleton. Non-modal since C8, so
+// nothing blocked a second `Ctrl+Alt+Space` from stacking a second
+// window; `open` now raises the live one instead of rebuilding.
+// Weak refs (the color_scheme.rs thread-local idiom): the modal
+// still owns its own lifetime, this cell never extends it.
+thread_local! {
+    static LIVE: RefCell<Option<(glib::WeakRef<gtk::Window>, glib::WeakRef<gtk::Entry>)>> =
+        const { RefCell::new(None) };
+}
+
+/// Open the Quick Entry modal anchored to `parent`, or raise the
+/// already-open one. Returns immediately; commit/dismiss runs
+/// through the GTK event loop.
 ///
 /// `tag_pool` is consulted by the v0.13 Slice 3 tab-completion
 /// popover for `#tag` candidates — pass `None` to disable tag
@@ -39,6 +50,22 @@ pub fn open(
     tag_pool: Option<ReadPool>,
     initial_text: Option<String>,
 ) {
+    let live = LIVE.with(|cell| cell.borrow().clone());
+    if let Some((window_weak, entry_weak)) = live
+        && let Some(window) = window_weak.upgrade()
+    {
+        // A drag-to-capture prefill still lands in the live modal,
+        // but never clobbers text the user is mid-typing.
+        if let Some(text) = initial_text
+            && let Some(entry) = entry_weak.upgrade()
+            && entry.text().is_empty()
+        {
+            entry.set_text(&text);
+            entry.set_position(-1);
+        }
+        window.present();
+        return;
+    }
     // v0.18.0 — Phase 18.5 Tier-1 Quick Entry templates. Pre-load
     // the configured templates once. Empty Vec = no picker bar
     // (the modal renders the standard Quick Entry shape exactly
@@ -323,6 +350,13 @@ pub fn open(
     // parent is registered while the entry is still being set up.
     crate::ui::inline_complete::attach(&entry, tag_pool);
 
+    LIVE.with(|cell| {
+        let window_weak = glib::WeakRef::new();
+        window_weak.set(Some(&dialog));
+        let entry_weak = glib::WeakRef::new();
+        entry_weak.set(Some(&entry));
+        *cell.borrow_mut() = Some((window_weak, entry_weak));
+    });
     dialog.present();
     entry.grab_focus();
 }

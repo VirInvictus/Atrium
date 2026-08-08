@@ -38,6 +38,7 @@ These act on the focused row in the current list. From Phase 7h, the three input
 | `Ctrl+T` | Open the tag editor for the focused / first-selected task (Phase 7g). Right-click on a task row also surfaces *Edit Tags…* |
 | `Ctrl+I` | Open the Inspector (full task editor — title, notes, schedule, deadline, project, tags) for the focused / first-selected task (Phase 7i). Right-click → *Edit Details…* is the menu equivalent. |
 | `Alt+Up` / `Alt+Down` | Move the focused task up / down — a keyboard alternative to drag-reorder. Position-ordered lists only (Inbox, Anytime, Someday, project and area pages); on a date-sorted list it declines with the same toast a drag would (v0.40.x, Tier D). |
+| `Alt+Left` / `Alt+Right` | Board views: move the focused card into the previous / next column — the keyboard alternative to a cross-column drag, through the same move path (tag or status change + persisted order). Cards are Tab-focusable; edge moves are silent no-ops. Contextual to the focused card (a key controller on the row, not an `install_accels` entry). (v0.68.0, A16.) |
 | `Ctrl+Click` | Toggle row in the multi-selection (Phase 7c) |
 | `Shift+Click` | Extend the multi-selection range (Phase 7c) |
 | `Ctrl+A` | Select all in the active list (Phase 7c) |
@@ -84,7 +85,7 @@ Not all interactions are keyboard accels. The mouse gestures worth knowing (a ke
 | **Shift**-drag a task onto another task | Nest it as a subtask of the target (same project only; cycles are rejected with a toast). A plain drop still reorders. |
 | Drag a task onto another day | Reschedule it — in the Forecast "Strip" layout and the Calendar Month View. |
 | Drag a task onto a sidebar project / area | Move it there. |
-| Drag a card between kanban columns | Tag-axis boards rewrite the task's tags; status-axis boards change the task's real state (and complete it on a "done" column). |
+| Drag a card between kanban columns | Tag-axis boards rewrite the task's tags; status-axis boards change the task's real state (and complete it on a "done" column). Keyboard equivalent: `Alt+Left` / `Alt+Right` on a focused card (v0.68.0). |
 | Drop files / URLs / text onto the window | Opens Quick Entry pre-filled, so the capture is reviewable before it lands. |
 
 ## Reserved (stub bindings)

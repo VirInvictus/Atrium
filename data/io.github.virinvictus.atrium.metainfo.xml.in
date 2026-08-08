@@ -90,6 +90,14 @@
        capture against. Phase 9 task. -->
 
   <releases>
+    <release version="0.68.0" date="2026-08-08">
+      <description translate="no">
+        <p>Keyboard-first boards: kanban cards are now Tab-focusable and
+           Alt+Left / Alt+Right move the focused card between columns,
+           through the same move path a drag uses. Quick Entry raises the
+           already-open window instead of stacking a second one.</p>
+      </description>
+    </release>
     <release version="0.67.0" date="2026-08-06">
       <description translate="no">
         <p>Maintenance sweep. Ctrl+6 opens the Logbook again; the Add task

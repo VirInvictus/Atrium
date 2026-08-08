@@ -542,6 +542,13 @@ window.atrium-debug-pane {
 .atrium-board-task-row:hover {
   background-color: alpha(@card_shade_color, 0.08);
 }
+/* A16 (v0.68.0): cards are Tab-focusable for the Alt+Left/Right
+ * keyboard move. Same keyboard-only ring idiom as the sidebar rows:
+ * :focus-visible so a mouse click never draws it. */
+.atrium-board-task-row:focus-visible {
+  outline: 2px solid @accent_color;
+  outline-offset: -2px;
+}
 .atrium-board-row-scroll {
   background: transparent;
 }
