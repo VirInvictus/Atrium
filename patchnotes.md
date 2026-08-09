@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## v0.69.2 (2026-08-08): CI checks out on actions/checkout@v5
+
+Every run since GitHub's Node 20 deprecation carried the same annotation: `actions/checkout@v4` targets Node 20 and was being force-run on Node 24. The pin moves to `@v5`, which targets Node 24 natively, and the annotation goes with it. The workflow interpolates no `${{ }}` expressions anywhere, so the bump carries no script-injection surface to review alongside it. CI configuration only; no product change.
+
 ## v0.69.1 (2026-08-08): the deadline-warning test stops corrupting its own fixture
 
 CI went red on `external_deadline_warning_suffix_round_trips_through_db`, reporting that the vault writer had failed to normalise a `--14d` deadline warning down to `-14d`. It had not failed. The DEADLINE line in the dumped file read `<2026-04-15 Wed -14d>`, exactly as expected. The `--14d` the assertion caught was inside an `:ID:`: `0d76e7fc-2ab8-473b-9e80--14dca07832082`, a UUID carrying a double hyphen, which UUID v4 cannot generate.

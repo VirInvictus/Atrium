@@ -110,6 +110,13 @@
   -->
 
   <releases>
+    <release version="0.69.2" date="2026-08-08">
+      <description translate="no">
+        <p>Build infrastructure only: the CI checkout action moved to a
+           release that targets a supported Node runtime. No behavior
+           change.</p>
+      </description>
+    </release>
     <release version="0.69.1" date="2026-08-08">
       <description translate="no">
         <p>Test-only fix: a vault-watcher integration test corrupted its own
