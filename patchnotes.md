@@ -1,5 +1,15 @@
 # Atrium — Patch Notes
 
+## v0.69.1 (2026-08-08): the deadline-warning test stops corrupting its own fixture
+
+CI went red on `external_deadline_warning_suffix_round_trips_through_db`, reporting that the vault writer had failed to normalise a `--14d` deadline warning down to `-14d`. It had not failed. The DEADLINE line in the dumped file read `<2026-04-15 Wed -14d>`, exactly as expected. The `--14d` the assertion caught was inside an `:ID:`: `0d76e7fc-2ab8-473b-9e80--14dca07832082`, a UUID carrying a double hyphen, which UUID v4 cannot generate.
+
+The test wrote it. The step that simulates the external Emacs edit was a whole-file `after_first.replace("-7d", "--14d")`, and a UUID's group separator is a hyphen, so any `:ID:` whose group happened to begin `7d` got rewritten alongside the cookie. Reconstructing the original as `…-9e80-7dca07832082` and applying that replace reproduces the CI string character for character. Two eligible boundaries per UUID (the version and variant nibbles rule out the other two) across the three `:ID:`s in the file put the odds of a red run near 2%. There was no product bug in it at any point.
+
+Every match in the test is now anchored on the cookie's closing `>`, which cannot occur inside a UUID. The poll and the two assertions that searched for a bare `-14d` are anchored the same way: a UUID group beginning `14d` could have satisfied those, which would have been a silent false pass rather than a visible red run.
+
+This is the third deflake of this one test. v0.46.1 swapped its fixed sleeps for adaptive polling and v0.46.2 serialized the vault-watcher binary behind a file-level mutex; both addressed a real thread-starvation cause and held through a month of green CI. This failure shares nothing with them but the test name. Test-only change, no behavior change, and `data/cargo-sources.json` needs no regeneration (a workspace version bump touches no registry crate).
+
 ## v0.69.0 (2026-08-08): the Flatpak builds offline
 
 Flathub readiness, the last engineering item before the 1.0 asset tail. The Flatpak manifest no longer needs `--share=network` at build time: `data/cargo-sources.json` (generated from `Cargo.lock` by the newly vendored `scripts/flatpak-cargo-generator.py`, 407 crates, no git dependencies) lets flatpak-builder lay the vendored sources into the sandbox, and `CARGO_NET_OFFLINE` pins the build to them. Verified by a full offline `flatpak-builder` run, which also caught a latent manifest bug: the icon-ladder `post-install` runs from the meson build directory, so its relative SVG path had never actually resolved; it now uses the absolute source path, and the PNG ladder renders. The dir source also learned to skip `target/` (copying a warm multi-gigabyte build tree into the sandbox helped nobody). The metainfo gains a commented `<screenshots>` scaffold with captions and tag-pinned URL conventions, ready for the capture pass; `appstreamcli validate` stays clean. Regenerate the JSON with `uv run scripts/flatpak-cargo-generator.py Cargo.lock -o data/cargo-sources.json` whenever `Cargo.lock` changes.

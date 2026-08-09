@@ -1145,21 +1145,27 @@ async fn external_deadline_warning_suffix_round_trips_through_db() {
     // landed). Re-read the file to confirm.
     let after_first = std::fs::read_to_string(&project_path).unwrap();
     assert!(
-        after_first.contains("-7d"),
+        after_first.contains("-7d>"),
         "writer must preserve -7d on round-trip; got:\n{after_first}"
     );
 
     // External flip: change `-7d` to `--14d`. Atrium normalises
     // both prefixes onto the same column, so the DB should land
     // at 14 and the writer's next flush emits canonical `-14d`.
-    let edited = after_first.replace("-7d", "--14d");
+    //
+    // Every match here is anchored on the cookie's closing `>`. A
+    // bare `-7d` replace also rewrites any `:ID:` whose UUID group
+    // happens to start with `7d` (`…-9e80-7dca…` → `…-9e80--14dca…`),
+    // which corrupted the file and made this test flaky in CI. The
+    // `>` cannot occur inside a UUID, so the edits stay on the cookie.
+    let edited = after_first.replace("-7d>", "--14d>");
     std::fs::write(&project_path, edited).unwrap();
 
     // Poll on the writer's canonicalised re-emit (`-14d`, no
     // `--14d`), which follows the DB sync to 14.
     wait_until(SETTLE, || {
         std::fs::read_to_string(&project_path)
-            .map(|t| t.contains("-14d") && !t.contains("--14d"))
+            .map(|t| t.contains("-14d>") && !t.contains("--14d>"))
             .unwrap_or(false)
     })
     .await;
@@ -1179,11 +1185,11 @@ async fn external_deadline_warning_suffix_round_trips_through_db() {
 
     let final_text = std::fs::read_to_string(&project_path).unwrap();
     assert!(
-        final_text.contains("-14d"),
+        final_text.contains("-14d>"),
         "writer must re-emit canonical -14d after sync; got:\n{final_text}"
     );
     assert!(
-        !final_text.contains("--14d"),
+        !final_text.contains("--14d>"),
         "writer must normalise --14d to -14d; got:\n{final_text}"
     );
 

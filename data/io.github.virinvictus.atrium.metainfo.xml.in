@@ -110,6 +110,13 @@
   -->
 
   <releases>
+    <release version="0.69.1" date="2026-08-08">
+      <description translate="no">
+        <p>Test-only fix: a vault-watcher integration test corrupted its own
+           fixture roughly one run in fifty, turning CI red. No behavior
+           change.</p>
+      </description>
+    </release>
     <release version="0.69.0" date="2026-08-08">
       <description translate="no">
         <p>The Flatpak now builds fully offline from vendored cargo
