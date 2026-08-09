@@ -32,7 +32,7 @@ Atrium pairs Org-mode's data discipline (UUIDs on every node, plain-text round-t
 ## Screenshots
 
 <p align="center">
-  <img src="docs/Screenshots/Today%20View%20-%20Simple%20Mode.png" alt="Today View, Simple Mode" width="820">
+  <img src="docs/Screenshots/Today%20-%20v0.69.0.png" alt="Today View, Simple Mode" width="820">
 </p>
 
 <p align="center"><em>Today, Simple Mode: six canonical lists, coloured <code>#tag</code> pills, the Area › Project chip on each row, the per-area accent stripe.</em></p>
