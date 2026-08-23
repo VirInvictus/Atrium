@@ -14,7 +14,7 @@ Phases 0 through 19.5 are complete: the full OmniFocus-superset data layer, dual
 
 **The per-release history lives in `patchnotes.md` (newest at top); do not restate it here.** When precision on a specific version matters, read that file, `roadmap.md`, and `VERSION`.
 
-Seven workspace crates: `atrium-core` (data layer), `atrium-search` (Calibre-style search expression language), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-import` (non-Org import/export formats, extracted v0.34.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary.
+Seven workspace crates: `atrium-core` (data layer), `vir-search` (Calibre-style search expression language), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-import` (non-Org import/export formats, extracted v0.34.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary.
 
 The next-up plan lives in `roadmap.md`; the current front is the Phase 22 de-adwaita ladder (running inside the Phase 20 endgame, before the tag).
 
@@ -72,7 +72,7 @@ The non-obvious mechanics that aren't visible from the code alone:
 - **VaultWatcher self-write filter is mtime-based, not path-TTL-based.** The first design recorded `(path, recorded_at)` and matched on path within a TTL — it lost external edits inside the TTL window. Fixed design: `RecentWrites` stores `(path, mtime_just_written)`; the watcher reads the file's actual mtime and matches on exact tuple equality. Linux ext4 stores nanosecond mtimes so two distinct writes never collide. **Don't revert to a path-only filter** — it's been tried; it loses external edits.
 - **Atomic-write helper.** `atrium-core/src/sync/atomic.rs` does `write-temp + fsync + rename` for every vault write. Crash-safe; non-Org consumers (JSON snapshot) use it too. **Never** write a vault file without going through it.
 - **Post-write integrity check.** Every `emit_org_file_with_meta` re-reads the file and verifies it parses cleanly through Atrium's own reader; failure propagates as `io::Error`. Catches emitter regressions immediately.
-- **SQL-translation fast-path.** `atrium_search::sql_translate::try_translate(&Expr, today)` converts an `Expr` to a SQL `WHERE` fragment + bound params when every node maps cleanly. Returns `None` for `~regex`, fuzzy `?word`, `is:today`, and `Field::Project|Area` — the in-memory evaluator is the fallback. Both GUI and CLI use this; parity is pinned by integration tests in `atrium-search`.
+- **SQL-translation fast-path.** `atrium_search::sql_translate::try_translate(&Expr, today)` converts an `Expr` to a SQL `WHERE` fragment + bound params when every node maps cleanly. Returns `None` for `~regex`, fuzzy `?word`, `is:today`, and `Field::Project|Area` — the in-memory evaluator is the fallback. Both GUI and CLI use this; parity is pinned by integration tests in `vir-search`.
 - **`modified_at` triggers with `WHEN old = new`.** The triggers prevent recursion *and* let explicit writes survive — important for import-time timestamp preservation. Don't drop the `WHEN` clause.
 - **`ScheduledFor` enum, not string.** Schema's "TEXT (ISO date OR `__someday__` sentinel)" maps to a Rust enum (`Someday | Date(NaiveDate)`) via custom `ToSql` / `FromSql`. Type-safe at the boundary; round-trip-clean. Don't reach for the raw string.
 - **`NewTask.completed_at` is additive.** When the importer parses a source CLOSED cookie, it threads the timestamp directly into `NewTask.completed_at` instead of calling `toggle_complete` after create (which would stamp `now()`). All `NewTask` call sites need to set or default it; the GUI undo path also threads it.
@@ -93,7 +93,7 @@ Sign-off granted in subsequent phases:
 
 - `uuid` (Phase 1) — UUID v4 for `:ID:` round-trip; `v5` feature added v0.12.0 for deterministic Todoist UUIDs (pulls in sha1_smol).
 - `rrule` (Phase 15) — RFC 5545 RRULE parsing + iteration.
-- `regex` (Phase 15.5) — `tag:~regex` modifier; promoted to direct dep of `atrium-search`.
+- `regex` (Phase 15.5) — `tag:~regex` modifier; promoted to direct dep of `vir-search`.
 - `notify` (Phase 17) — cross-platform filesystem watcher; direct dep of `atrium-org`. Default features only — uses inotify on Linux.
 - `gettext-rs` (Phase 20, added v0.47.0): localisation runtime. `gettext-system` feature only: it links glibc's built-in gettext rather than vendoring GNU gettext, which matters for CI and the Flatpak. Binary-only, never in the library crates.
 
@@ -170,7 +170,7 @@ Features that miss budget get gated or revised. If a proposed approach has obvio
 
 ## Codebase map
 
-Seven workspace crates split by responsibility. The data layer (`atrium-core`), search engine (`atrium-search`), Org projection (`atrium-org`), inline-syntax parser (`atrium-inline`), non-Org importers (`atrium-import`), and headless CLI (`atrium-cli`) all stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them. atrium-core knows nothing about Org or inline syntax; both projections plug in through their own crates.
+Seven workspace crates split by responsibility. The data layer (`atrium-core`), search engine (`vir-search`), Org projection (`atrium-org`), inline-syntax parser (`atrium-inline`), non-Org importers (`atrium-import`), and headless CLI (`atrium-cli`) all stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them. atrium-core knows nothing about Org or inline syntax; both projections plug in through their own crates.
 
 ```
 atrium-inline/                        ← inline-syntax parser shared by every capture surface (extracted v0.13.0)

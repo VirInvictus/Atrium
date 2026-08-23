@@ -525,7 +525,7 @@ impl AtriumWindow {
         let project_areas = self.project_areas_map();
         let area_titles = self.imp().area_titles.borrow().clone();
         let mut filtered: Vec<atrium_core::Task> = if let Some(expr) = &parsed.expr
-            && let Some(clause) = atrium_search::try_translate(expr, today)
+            && let Some(clause) = atrium_core::search::sql_translate::try_translate(expr, today)
         {
             // SQL fast-path: load only the matching rows. Saves the
             // load-everything + iterate-in-Rust cost on every drop.
@@ -562,7 +562,7 @@ impl AtriumWindow {
         if parsed.sorts.is_empty()
             && let Some(expr) = &parsed.expr
         {
-            let terms = atrium_search::collect_text_terms(expr);
+            let terms = vir_search::rank::collect_text_terms(expr);
             if !terms.is_empty() {
                 let scores = pool
                     .with(|conn| atrium_core::db::read::bm25_for_terms(conn, &terms))

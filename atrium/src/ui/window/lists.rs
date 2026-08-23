@@ -159,7 +159,7 @@ impl AtriumWindow {
             let tag_map: TagMap = crate::ui::task_list::tag_names_from_pills(&tag_pills);
             let project_areas = self.project_areas_map();
             let mut tasks: Vec<Task> = if let Some(expr) = &parsed.expr
-                && let Some(clause) = atrium_search::try_translate(expr, today)
+                && let Some(clause) = atrium_core::search::sql_translate::try_translate(expr, today)
             {
                 let params: Vec<atrium_core::SqlBindValue> =
                     clause.params.iter().map(Into::into).collect();
@@ -206,7 +206,7 @@ impl AtriumWindow {
                 let terms = parsed
                     .expr
                     .as_ref()
-                    .map(atrium_search::collect_text_terms)
+                    .map(vir_search::rank::collect_text_terms)
                     .unwrap_or_default();
                 if !terms.is_empty() {
                     let scores = pool
@@ -276,7 +276,7 @@ impl AtriumWindow {
                 let Some(expr) = parsed.expr.as_ref() else {
                     return Ok(Vec::new());
                 };
-                if let Some(clause) = atrium_search::try_translate(expr, today) {
+                if let Some(clause) = atrium_core::search::sql_translate::try_translate(expr, today) {
                     let params: Vec<atrium_core::SqlBindValue> =
                         clause.params.iter().map(Into::into).collect();
                     atrium_core::db::read::list_tasks_matching(conn, &clause.sql, &params)
@@ -330,7 +330,7 @@ impl AtriumWindow {
                         let terms = parsed
                             .expr
                             .as_ref()
-                            .map(atrium_search::collect_text_terms)
+                            .map(vir_search::rank::collect_text_terms)
                             .unwrap_or_default();
                         if !terms.is_empty() {
                             let scores = pool

@@ -3,18 +3,35 @@ import re
 with open("atrium-core/src/search/eval.rs", "r") as f:
     text = f.read()
 
-# Replace imports
-old_import = """use super::ast::{Comparator, DateKeyword, Expr, Field, MatchKind, State, Value};"""
-new_import = """use vir_search::ast::{Comparator, Expr, MatchKind, Value};
-use super::domain::{Field, State};"""
-text = text.replace(old_import, new_import)
+text = text.replace("use vir_search::dates::{matches as compare_date, resolve_range as value_to_range};", "")
 
-text = text.replace("use super::dates;", "use vir_search::dates;")
-text = text.replace("use super::fold::fold;", "use vir_search::fold::fold;")
-text = text.replace("use super::rank::fuzzy_threshold;", "")
-text = text.replace("use super::rank::fuzzy_hit;", "")
-text = text.replace("Expr::Pass => true,", "")
-text = text.replace("Expr::Pass =>", "")
+adapter = """
+fn value_to_range(val: &vir_search::ast::Value, today: chrono::NaiveDate) -> (chrono::NaiveDate, chrono::NaiveDate) {
+    if let vir_search::ast::Value::Date(spec) = val {
+        let (lo_epoch, hi_epoch) = vir_search::dates::resolve_range(spec, today);
+        let lo = chrono::DateTime::from_timestamp(lo_epoch, 0).unwrap().naive_utc().date();
+        let hi = chrono::DateTime::from_timestamp(hi_epoch, 0).unwrap().naive_utc().date();
+        (lo, hi)
+    } else {
+        unreachable!()
+    }
+}
 
-# The DateKeyword is handled by Value::Date. Atrium parser mapped keywords to Value::DateKeyword, vir-search maps everything directly to Value::Date in ast (actually ast::DateSpec).
-# Wait, let's see how vir-search handles DateSpec vs DateKeyword.
+fn compare_date(
+    d: chrono::NaiveDate,
+    start: chrono::NaiveDate,
+    end: chrono::NaiveDate,
+    comp: &vir_search::ast::Comparator,
+) -> bool {
+    let d = d.and_time(chrono::NaiveTime::MIN).and_utc().timestamp();
+    let start = start.and_time(chrono::NaiveTime::MIN).and_utc().timestamp();
+    let end = end.and_time(chrono::NaiveTime::MIN).and_utc().timestamp();
+    vir_search::dates::matches(*comp, d, start, end)
+}
+"""
+
+text = text + adapter
+
+with open("atrium-core/src/search/eval.rs", "w") as f:
+    f.write(text)
+

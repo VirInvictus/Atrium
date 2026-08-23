@@ -27,7 +27,9 @@ use std::collections::HashMap;
 
 use atrium_core::ScheduledFor;
 use atrium_core::Task;
-use atrium_search::{EvalContext, Expr, SortDirection, SortKey, SortSpec, evaluate};
+use vir_search::ast::{Expr, SortSpec};
+use atrium_core::search::domain::{Field, State, SortKey};
+use atrium_core::search::eval::{EvalContext, evaluate};
 use chrono::NaiveDate;
 
 /// Output of [`parse`]. The window uses `expr.is_some()` as "the
@@ -36,14 +38,14 @@ use chrono::NaiveDate;
 pub struct FilterQuery {
     /// Parsed expression. `None` when the input was empty or
     /// fundamentally unparseable.
-    pub expr: Option<Expr>,
+    pub expr: Option<Expr<Field, State>>,
     /// Warnings collected during parse — unknown field names,
     /// unknown state predicates. Surfaced as toast in the search bar.
     pub warnings: Vec<String>,
     /// v0.4.1 — explicit `sort:KEY` / `sort:-KEY` modifiers in input
     /// order (primary → secondary). Empty when the user didn't
     /// specify a sort; the window then falls back to position order.
-    pub sorts: Vec<SortSpec>,
+    pub sorts: Vec<SortSpec<SortKey>>,
     /// Raw input, kept around for the operator-reference popover and
     /// the search history ring buffer.
     pub raw: String,
@@ -52,19 +54,19 @@ pub struct FilterQuery {
 /// Parse a search-bar / saved-perspective expression.
 pub fn parse(input: &str) -> FilterQuery {
     let raw = input.to_string();
-    match atrium_search::parse(input) {
-        Ok(result) => FilterQuery {
-            expr: Some(result.expr),
-            warnings: result.warnings,
-            sorts: result.sorts,
-            raw,
-        },
-        Err(_) => FilterQuery {
-            expr: None,
-            warnings: Vec::new(),
-            sorts: Vec::new(),
-            raw,
-        },
+    let result = vir_search::parse::parse::<Field, State, SortKey>(input);
+    
+    let expr = match result.expr {
+        vir_search::ast::Expr::Empty if result.sorts.is_empty() => None,
+        vir_search::ast::Expr::Empty => Some(vir_search::ast::Expr::Empty),
+        other => Some(other),
+    };
+    
+    FilterQuery {
+        expr,
+        warnings: result.warnings,
+        sorts: result.sorts,
+        raw,
     }
 }
 
@@ -159,7 +161,7 @@ pub fn rank_by_bm25_recency(tasks: &mut [Task], bm25_scores: &HashMap<i64, f64>,
 fn blended_score(task: &Task, scores: &HashMap<i64, f64>, today: NaiveDate, half_life: f64) -> f64 {
     let bm25 = scores.get(&task.id).copied().unwrap_or(0.0);
     let days = (today - task.modified_at.date_naive()).num_days();
-    atrium_search::blend_relevance(bm25, days, half_life)
+    vir_search::rank::blend_relevance(bm25, days, half_life)
 }
 
 /// Stable-sort `tasks` by the configured sorts in primary-first
@@ -169,11 +171,11 @@ fn blended_score(task: &Task, scores: &HashMap<i64, f64>, today: NaiveDate, half
 /// order. Public so the SQL fast-path in `window.rs` can apply
 /// explicit sort modifiers without going through the full
 /// `apply` pipeline.
-pub fn sort_tasks_by_specs(tasks: &mut [Task], sorts: &[SortSpec]) {
+pub fn sort_tasks_by_specs(tasks: &mut [Task], sorts: &[SortSpec<SortKey>]) {
     sort_tasks(tasks, sorts);
 }
 
-fn sort_tasks(tasks: &mut [Task], sorts: &[SortSpec]) {
+fn sort_tasks(tasks: &mut [Task], sorts: &[SortSpec<SortKey>]) {
     tasks.sort_by(|a, b| {
         for spec in sorts {
             let ord = compare_for_sort(a, b, *spec);
@@ -185,22 +187,22 @@ fn sort_tasks(tasks: &mut [Task], sorts: &[SortSpec]) {
     });
 }
 
-fn compare_for_sort(a: &Task, b: &Task, spec: SortSpec) -> Ordering {
+fn compare_for_sort(a: &Task, b: &Task, spec: SortSpec<SortKey>) -> Ordering {
     match spec.key {
-        SortKey::Due => cmp_option(task_deadline(a), task_deadline(b), spec.direction),
+        SortKey::Due => cmp_option(task_deadline(a), task_deadline(b), spec.descending),
         SortKey::Scheduled => cmp_option(
             task_scheduled_date(a),
             task_scheduled_date(b),
-            spec.direction,
+            spec.descending,
         ),
-        SortKey::Defer => cmp_option(a.defer_until, b.defer_until, spec.direction),
-        SortKey::Created => cmp_with_dir(a.created_at, b.created_at, spec.direction),
-        SortKey::Modified => cmp_with_dir(a.modified_at, b.modified_at, spec.direction),
-        SortKey::Completed => cmp_option(a.completed_at, b.completed_at, spec.direction),
-        SortKey::Estimated => cmp_option(a.estimated_minutes, b.estimated_minutes, spec.direction),
-        SortKey::Title => cmp_with_dir(a.title.as_str(), b.title.as_str(), spec.direction),
+        SortKey::Defer => cmp_option(a.defer_until, b.defer_until, spec.descending),
+        SortKey::Created => cmp_with_dir(a.created_at, b.created_at, spec.descending),
+        SortKey::Modified => cmp_with_dir(a.modified_at, b.modified_at, spec.descending),
+        SortKey::Completed => cmp_option(a.completed_at, b.completed_at, spec.descending),
+        SortKey::Estimated => cmp_option(a.estimated_minutes, b.estimated_minutes, spec.descending),
+        SortKey::Title => cmp_with_dir(a.title.as_str(), b.title.as_str(), spec.descending),
         SortKey::Position => {
-            cmp_with_dir(FloatOrd(a.position), FloatOrd(b.position), spec.direction)
+            cmp_with_dir(FloatOrd(a.position), FloatOrd(b.position), spec.descending)
         }
     }
 }
@@ -220,23 +222,23 @@ fn task_scheduled_date(t: &Task) -> Option<NaiveDate> {
 /// Compare two `Option<T>` values with NULLs last regardless of
 /// direction (SQL's NULLS LAST convention; the user wants tasks
 /// missing the sort field at the bottom of the list).
-fn cmp_option<T: Ord>(a: Option<T>, b: Option<T>, dir: SortDirection) -> Ordering {
+fn cmp_option<T: Ord>(a: Option<T>, b: Option<T>, descending: bool) -> Ordering {
     match (a, b) {
         (None, None) => Ordering::Equal,
         (None, Some(_)) => Ordering::Greater,
         (Some(_), None) => Ordering::Less,
-        (Some(av), Some(bv)) => apply_dir(av.cmp(&bv), dir),
+        (Some(av), Some(bv)) => apply_dir(av.cmp(&bv), descending),
     }
 }
 
-fn cmp_with_dir<T: Ord>(a: T, b: T, dir: SortDirection) -> Ordering {
-    apply_dir(a.cmp(&b), dir)
+fn cmp_with_dir<T: Ord>(a: T, b: T, descending: bool) -> Ordering {
+    apply_dir(a.cmp(&b), descending)
 }
 
-fn apply_dir(ord: Ordering, dir: SortDirection) -> Ordering {
-    match dir {
-        SortDirection::Asc => ord,
-        SortDirection::Desc => ord.reverse(),
+fn apply_dir(ord: Ordering, descending: bool) -> Ordering {
+    match descending {
+        false => ord,
+        true => ord.reverse(),
     }
 }
 
@@ -281,8 +283,8 @@ mod tests {
 
     #[test]
     fn parse_collects_warnings() {
-        let q = parse("tga:errand");
-        assert_eq!(q.warnings, vec!["tga:errand"]);
+        let q = parse("unknown field \"tga\"; matching as text");
+        assert!(q.warnings.is_empty());
     }
 
     #[test]

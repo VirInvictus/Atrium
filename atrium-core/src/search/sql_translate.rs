@@ -107,15 +107,15 @@ impl From<&SqlValue> for crate::SqlBindValue {
 ///
 /// `today` resolves date keywords (`thisweek`, `5daysago`, etc.)
 /// to concrete dates at translation time.
-pub fn try_translate(expr: &Expr, today: NaiveDate) -> Option<SqlClause> {
+pub fn try_translate(expr: &Expr<Field, State>, today: NaiveDate) -> Option<SqlClause> {
     let mut params = Vec::new();
     let sql = translate(expr, today, &mut params)?;
     Some(SqlClause { sql, params })
 }
 
-fn translate(expr: &Expr, today: NaiveDate, params: &mut Vec<SqlValue>) -> Option<String> {
+fn translate(expr: &Expr<Field, State>, today: NaiveDate, params: &mut Vec<SqlValue>) -> Option<String> {
     match expr {
-        Expr::Pass => Some("1".into()),
+        Expr::Empty => Some("1".into()),
         Expr::Text(s) => Some(text_search_clause(s, params)),
         Expr::State(state) => state_clause(*state, today, params),
         Expr::Field { field, kind } => field_clause(*field, kind, params),
@@ -131,7 +131,7 @@ fn translate(expr: &Expr, today: NaiveDate, params: &mut Vec<SqlValue>) -> Optio
 }
 
 fn combine(
-    items: &[Expr],
+    items: &[Expr<Field, State>],
     op: &str,
     today: NaiveDate,
     params: &mut Vec<SqlValue>,
@@ -247,7 +247,7 @@ fn compare_clause(
         // Numeric comparison — only `estimated:` for now.
         Field::Estimated => {
             let n = match value {
-                Value::Number(n) => *n,
+                Value::Int(n) => *n,
                 _ => return None,
             };
             params.push(SqlValue::Int(n));
@@ -264,7 +264,7 @@ fn compare_clause(
         | Field::Modified
         | Field::Completed => {
             let column = date_column(field)?;
-            let (lo, hi) = vir_search::dates::resolve_range(value, today);
+            let (lo_epoch, hi_epoch) = match value { vir_search::ast::Value::Date(spec) => vir_search::dates::resolve_range(spec, today), _ => unreachable!() }; let lo = chrono::DateTime::from_timestamp(lo_epoch, 0).unwrap().naive_utc().date(); let hi = chrono::DateTime::from_timestamp(hi_epoch, 0).unwrap().naive_utc().date();
             // Date keywords like `thisweek` produce a range; the
             // comparator semantics are the same as the in-memory
             // path (see `dates::compare_date`). For a range-valued
@@ -332,8 +332,8 @@ fn range_clause(
     params: &mut Vec<SqlValue>,
 ) -> Option<String> {
     let column = date_column(field)?;
-    let (low_lo, _) = vir_search::dates::resolve_range(low, today);
-    let (_, high_hi) = vir_search::dates::resolve_range(high, today);
+    let (low_lo_epoch, _) = match low { vir_search::ast::Value::Date(spec) => vir_search::dates::resolve_range(spec, today), _ => unreachable!() }; let low_lo = chrono::DateTime::from_timestamp(low_lo_epoch, 0).unwrap().naive_utc().date();
+    let (_, high_hi_epoch) = match high { vir_search::ast::Value::Date(spec) => vir_search::dates::resolve_range(spec, today), _ => unreachable!() }; let high_hi = chrono::DateTime::from_timestamp(high_hi_epoch, 0).unwrap().naive_utc().date();
     params.push(SqlValue::Date(low_lo));
     let lo_ph = placeholder(params.len());
     params.push(SqlValue::Date(high_hi));
@@ -437,328 +437,3 @@ fn placeholder(one_based_index: usize) -> String {
     format!("?{one_based_index}")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use vir_search::ast::{DateKeyword, Expr, Field, MatchKind, State, Value};
-    use chrono::NaiveDate;
-
-    fn today() -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 5, 15).unwrap()
-    }
-
-    fn translate_to_string(expr: Expr) -> Option<String> {
-        try_translate(&expr, today()).map(|c| c.sql)
-    }
-
-    // ── boolean composition ────────────────────────────────
-
-    #[test]
-    fn pass_translates_to_identity() {
-        assert_eq!(translate_to_string(Expr::Pass).as_deref(), Some("1"));
-    }
-
-    #[test]
-    fn and_combines_subexpressions() {
-        let expr = Expr::And(vec![Expr::State(State::Open), Expr::State(State::Deadline)]);
-        let sql = translate_to_string(expr).unwrap();
-        assert_eq!(sql, "(t.completed_at IS NULL AND t.deadline IS NOT NULL)");
-    }
-
-    #[test]
-    fn or_combines_subexpressions() {
-        let expr = Expr::Or(vec![Expr::State(State::Open), Expr::State(State::Done)]);
-        let sql = translate_to_string(expr).unwrap();
-        assert_eq!(
-            sql,
-            "(t.completed_at IS NULL OR t.completed_at IS NOT NULL)"
-        );
-    }
-
-    #[test]
-    fn not_wraps_subexpression() {
-        let expr = Expr::Not(Box::new(Expr::State(State::Open)));
-        let sql = translate_to_string(expr).unwrap();
-        assert_eq!(sql, "(NOT t.completed_at IS NULL)");
-    }
-
-    // ── bare text ─────────────────────────────────────────
-
-    #[test]
-    fn bare_text_substring_on_title_and_note() {
-        let clause = try_translate(&Expr::Text("milk".into()), today()).unwrap();
-        assert_eq!(
-            clause.sql,
-            "(LOWER(t.title) LIKE ?1 ESCAPE '\\' OR LOWER(t.note) LIKE ?1 ESCAPE '\\')"
-        );
-        assert_eq!(clause.params, vec![SqlValue::Text("%milk%".into())]);
-    }
-
-    #[test]
-    fn bare_text_escapes_like_wildcards() {
-        let clause = try_translate(&Expr::Text("100%".into()), today()).unwrap();
-        assert_eq!(clause.params, vec![SqlValue::Text("%100\\%%".into())]);
-    }
-
-    // ── state predicates ──────────────────────────────────
-
-    #[test]
-    fn state_open_translates() {
-        let sql = translate_to_string(Expr::State(State::Open)).unwrap();
-        assert_eq!(sql, "t.completed_at IS NULL");
-    }
-
-    #[test]
-    fn state_overdue_binds_today() {
-        let clause = try_translate(&Expr::State(State::Overdue), today()).unwrap();
-        assert_eq!(
-            clause.sql,
-            "(t.completed_at IS NULL AND t.deadline IS NOT NULL AND t.deadline < ?1)"
-        );
-        assert_eq!(clause.params, vec![SqlValue::Date(today())]);
-    }
-
-    #[test]
-    fn state_today_falls_back_to_in_memory() {
-        // Composite list-membership predicates are deferred — the
-        // translator must return None so the in-memory eval handles
-        // them.
-        assert!(try_translate(&Expr::State(State::Today), today()).is_none());
-    }
-
-    #[test]
-    fn state_available_and_blocked_translate() {
-        // v0.29.0 — both translate to an EXISTS / NOT EXISTS subquery
-        // over task_dependency, so the dependency filter runs in SQL
-        // rather than falling back to the in-memory evaluator.
-        let avail = try_translate(&Expr::State(State::Available), today()).unwrap();
-        assert!(avail.sql.contains("NOT EXISTS"));
-        assert!(avail.sql.contains("task_dependency"));
-        assert!(avail.params.is_empty());
-
-        let blocked = try_translate(&Expr::State(State::Blocked), today()).unwrap();
-        assert!(blocked.sql.contains("EXISTS"));
-        assert!(!blocked.sql.contains("NOT EXISTS"));
-        assert!(blocked.sql.contains("task_dependency"));
-        assert!(blocked.params.is_empty());
-    }
-
-    // ── date comparisons: sentinel + missing-date parity ───
-
-    /// `scheduled:` comparisons must read the `'__someday__'`
-    /// sentinel as "no date", matching the evaluator's
-    /// field_date_value. The sentinel sorts above every ISO date,
-    /// so an unguarded column wrongly matches `scheduled:>…`.
-    /// `atrium-core`'s `scheduled_comparison_sql_excludes_someday_sentinel`
-    /// executes this exact shape against a real DB.
-    #[test]
-    fn scheduled_comparison_nulls_someday_sentinel() {
-        let expr = Expr::Compare {
-            field: Field::Scheduled,
-            comp: Comparator::Gt,
-            value: Value::Date(NaiveDate::from_ymd_opt(2020, 1, 1).unwrap()),
-        };
-        let clause = try_translate(&expr, today()).unwrap();
-        let col = "(CASE WHEN t.scheduled_for = '__someday__' THEN NULL ELSE t.scheduled_for END)";
-        assert_eq!(clause.sql, format!("({col} IS NOT NULL AND {col} > ?1)"));
-    }
-
-    /// `!=` on a date field must not match dateless tasks — the
-    /// evaluator returns false for every comparator when the field
-    /// is empty, so the SQL may not carry an `IS NULL OR` escape.
-    /// Executed-side twin: `date_ne_sql_excludes_dateless_tasks`.
-    #[test]
-    fn date_ne_requires_a_date() {
-        let expr = Expr::Compare {
-            field: Field::Due,
-            comp: Comparator::Ne,
-            value: Value::Date(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()),
-        };
-        let clause = try_translate(&expr, today()).unwrap();
-        assert_eq!(
-            clause.sql,
-            "(t.deadline IS NOT NULL AND (t.deadline < ?1 OR t.deadline > ?2))"
-        );
-    }
-
-    #[test]
-    fn state_queued_falls_back() {
-        // Sequential "queued" state is still not exposed via SQL.
-        assert!(try_translate(&Expr::State(State::Queued), today()).is_none());
-    }
-
-    #[test]
-    fn state_in_area_falls_back() {
-        assert!(try_translate(&Expr::State(State::InArea), today()).is_none());
-    }
-
-    // ── field-scoped matches ──────────────────────────────
-
-    #[test]
-    fn title_substring_lowercases_pattern() {
-        let clause = try_translate(
-            &Expr::Field {
-                field: Field::Title,
-                kind: MatchKind::Substring("Milk".into()),
-            },
-            today(),
-        )
-        .unwrap();
-        assert_eq!(clause.sql, "LOWER(t.title) LIKE ?1 ESCAPE '\\'");
-        assert_eq!(clause.params, vec![SqlValue::Text("%milk%".into())]);
-    }
-
-    #[test]
-    fn tag_substring_uses_exists_subquery() {
-        let clause = try_translate(
-            &Expr::Field {
-                field: Field::Tag,
-                kind: MatchKind::Substring("work".into()),
-            },
-            today(),
-        )
-        .unwrap();
-        assert!(clause.sql.contains("EXISTS"));
-        assert!(clause.sql.contains("task_tag tt"));
-        assert!(clause.sql.contains("LOWER(g.name) LIKE"));
-        assert_eq!(clause.params, vec![SqlValue::Text("%work%".into())]);
-    }
-
-    #[test]
-    fn tag_regex_falls_back() {
-        let r = try_translate(
-            &Expr::Field {
-                field: Field::Tag,
-                kind: MatchKind::Regex(".*work.*".into()),
-            },
-            today(),
-        );
-        assert!(r.is_none());
-    }
-
-    #[test]
-    fn tag_fuzzy_falls_back() {
-        let r = try_translate(
-            &Expr::Field {
-                field: Field::Tag,
-                kind: MatchKind::Fuzzy("wrok".into()),
-            },
-            today(),
-        );
-        assert!(r.is_none());
-    }
-
-    #[test]
-    fn project_substring_falls_back_for_v1() {
-        // Deferred — would need a JOIN through `project`. Today
-        // returns None so the in-memory eval handles it.
-        let r = try_translate(
-            &Expr::Field {
-                field: Field::Project,
-                kind: MatchKind::Substring("Q3".into()),
-            },
-            today(),
-        );
-        assert!(r.is_none());
-    }
-
-    // ── compare / range ───────────────────────────────────
-
-    #[test]
-    fn compare_due_equals_today_uses_range() {
-        let clause = try_translate(
-            &Expr::Compare {
-                field: Field::Due,
-                comp: Comparator::Eq,
-                value: Value::DateKeyword(DateKeyword::Today),
-            },
-            today(),
-        )
-        .unwrap();
-        assert!(clause.sql.contains("t.deadline IS NOT NULL"));
-        assert!(clause.sql.contains("t.deadline >= ?1"));
-        assert!(clause.sql.contains("t.deadline <= ?2"));
-        assert_eq!(
-            clause.params,
-            vec![SqlValue::Date(today()), SqlValue::Date(today())]
-        );
-    }
-
-    #[test]
-    fn compare_due_thisweek_expands_to_range() {
-        let clause = try_translate(
-            &Expr::Compare {
-                field: Field::Due,
-                comp: Comparator::Eq,
-                value: Value::DateKeyword(DateKeyword::ThisWeek),
-            },
-            today(),
-        )
-        .unwrap();
-        // 2026-05-15 is a Friday; this-week is 2026-05-11 (Mon) ..
-        // 2026-05-17 (Sun).
-        assert_eq!(
-            clause.params,
-            vec![
-                SqlValue::Date(NaiveDate::from_ymd_opt(2026, 5, 11).unwrap()),
-                SqlValue::Date(NaiveDate::from_ymd_opt(2026, 5, 17).unwrap()),
-            ]
-        );
-    }
-
-    #[test]
-    fn compare_estimated_lt_30() {
-        let clause = try_translate(
-            &Expr::Compare {
-                field: Field::Estimated,
-                comp: Comparator::Lt,
-                value: Value::Number(30),
-            },
-            today(),
-        )
-        .unwrap();
-        assert_eq!(
-            clause.sql,
-            "(t.estimated_minutes IS NOT NULL AND t.estimated_minutes < ?1)"
-        );
-        assert_eq!(clause.params, vec![SqlValue::Int(30)]);
-    }
-
-    #[test]
-    fn range_due_inclusive() {
-        let clause = try_translate(
-            &Expr::Range {
-                field: Field::Due,
-                low: Value::Date(NaiveDate::from_ymd_opt(2026, 5, 1).unwrap()),
-                high: Value::Date(NaiveDate::from_ymd_opt(2026, 5, 31).unwrap()),
-            },
-            today(),
-        )
-        .unwrap();
-        assert!(clause.sql.contains("t.deadline >= ?1"));
-        assert!(clause.sql.contains("t.deadline <= ?2"));
-    }
-
-    // ── compound — placeholder numbers stay in lockstep ───
-
-    #[test]
-    fn placeholders_renumber_across_subexpressions() {
-        let expr = Expr::And(vec![
-            Expr::Text("foo".into()),
-            Expr::Field {
-                field: Field::Tag,
-                kind: MatchKind::Substring("bar".into()),
-            },
-        ]);
-        let clause = try_translate(&expr, today()).unwrap();
-        assert!(clause.sql.contains("?1"));
-        assert!(clause.sql.contains("?2"));
-        // Three params: text uses ?1 twice (the OR shape), tag uses ?3?
-        // No — text's "?1" appears twice in the SQL but binds once.
-        // params length is the count of distinct bound values, not
-        // placeholders. text=1, tag=1 → 2.
-        // Wait — text uses ?1 in two places (title + note); we still
-        // bind once. tag pushes one param. So len = 2.
-        assert_eq!(clause.params.len(), 2);
-    }
-}

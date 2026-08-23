@@ -26,7 +26,7 @@ The four source traditions fail in opposite ways. Things makes you outgrow it (n
 - **Native GTK4.** Plain GTK4 under an owned stylesheet (no libadwaita since Phase 22). No web tech in the UI surface.
 - **Performance.** 10,000 tasks render at the same speed as 100. Single-writer SQLite worker; UI thread never blocks on I/O.
 - **Mode-as-view.** Mode is a per-app preference. Schema and data are universal. Builder fields exist on every task; Simple Mode hides them.
-- **Headless surfaces stay scriptable.** The data layer (`atrium-core`), search engine (`atrium-search`), and Org projection (`atrium-org`) are GUI-free. `atrium-cli` exposes them; the post-1.0 TUI (`atrium-tui`) and Phase 20 capture daemon (`atriumd`) reuse the same crates without dragging GTK along.
+- **Headless surfaces stay scriptable.** The data layer (`atrium-core`), search engine (`vir-search`), and Org projection (`atrium-org`) are GUI-free. `atrium-cli` exposes them; the post-1.0 TUI (`atrium-tui`) and Phase 20 capture daemon (`atriumd`) reuse the same crates without dragging GTK along.
 - **Quick Entry sacred.** Capture is one shortcut, one keystroke. Quick Entry is identical in both modes.
 - **No data loss on mode switch.** Round-trip Simple → Builder → Simple preserves everything Builder set.
 - **Plain-text interop is bidirectional.** Org-mode is a first-class *peer* — import, export, and live two-way vault sync. Atrium does not silo your data, and edits made in Emacs against the vault flow back into the SQLite store.
@@ -77,7 +77,7 @@ GTK main thread ──direct read──▶ SQLite read-only connection pool (sep
 The workspace ships seven crates (six as of v0.13.0; `atrium-import` added v0.34.0):
 
 - **`atrium-core`** — headless data layer (domain types, SQLite worker, paths, repeat-rule wrapper). GUI-free; the foundation every other crate builds on.
-- **`atrium-search`** — Calibre-style search expression language (lex / parse / ast / eval). Extracted from atrium-core in v0.4.2 so the engine can be exercised, fuzzed, and reused independently.
+- **`vir-search`** — Calibre-style search expression language (lex / parse / ast / eval). Extracted from atrium-core in v0.4.2 so the engine can be exercised, fuzzed, and reused independently.
 - **`atrium-org`**: Org-mode projection (parser, emitter, importer, vault writer + `inotify` watcher) plus the RRULE / Org-cookie helpers and the `.atrium/config.toml` sidecar. Extracted from `atrium-core::sync` at v0.9.0 so the data layer stays Org-agnostic behind the `VaultDirtyNotifier` trait.
 - **`atrium-inline`**: inline-syntax parser (`#tag` / `@date` / `@<weekday>` / `!N` priority) shared by Quick Entry, the bottom-of-list entry, inline rename, and the CLI `capture` subcommand. Extracted at v0.13.0; `atrium-core` stays inline-syntax-agnostic.
 - **`atrium-import`**: non-Org import/export formats — Todoist CSV, Taskwarrior `task export` JSON, todo.txt, and VTODO `.ics`. Hand-rolled stdlib parsers + mappers that drive the `atrium-core` worker. Extracted from `atrium-cli` at v0.34.0 so the GTK binary's import dialog and the CLI share one implementation (Org import/export stays in `atrium-org`).
@@ -237,7 +237,7 @@ Things-style lists are SELECTs, not stored rows:
 
 ### 4.3 Search Expression Language
 
-Phase 15.5 (v0.4.0) replaced the v0.1 flat filter parser with a Calibre-shaped expression grammar in what is now the `atrium-search` crate (extracted from `atrium-core` at v0.4.2). The language is the contract for the search bar, saved Perspectives (which store filter expressions verbatim), and any future scripting / import surface that wants to express a task query.
+Phase 15.5 (v0.4.0) replaced the v0.1 flat filter parser with a Calibre-shaped expression grammar in what is now the `vir-search` crate (extracted from `atrium-core` at v0.4.2). The language is the contract for the search bar, saved Perspectives (which store filter expressions verbatim), and any future scripting / import surface that wants to express a task query.
 
 #### 4.3.1 Grammar
 

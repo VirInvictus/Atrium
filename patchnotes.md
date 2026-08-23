@@ -1,5 +1,14 @@
 # Atrium — Patch Notes
 
+## v0.70.0 (2026-08-23)
+
+- **Refactor:** Migrated internal search parser (`atrium-search`) to the shared `vir-search` crate.
+- **Refactor:** Extracted common GTK UI components and theming into the shared `vir-gtk` crate.
+
+## v0.69.3 (2026-08-23)
+
+- **Build:** chore: format source code to fix CI
+
 ## v0.69.2 (2026-08-08): CI checks out on actions/checkout@v5
 
 Every run since GitHub's Node 20 deprecation carried the same annotation: `actions/checkout@v4` targets Node 20 and was being force-run on Node 24. The pin moves to `@v5`, which targets Node 24 natively, and the annotation goes with it. The workflow interpolates no `${{ }}` expressions anywhere, so the bump carries no script-injection surface to review alongside it. CI configuration only; no product change.

@@ -21,8 +21,9 @@ use regex::Regex;
 
 use crate::domain::{ScheduledFor, Task};
 
-use super::ast::{Comparator, Expr, Field, MatchKind, State, Value};
-use vir_search::dates::{matches as compare_date, resolve_range as value_to_range};
+use vir_search::ast::{Comparator, Expr, MatchKind, Value};
+use crate::search::domain::{Field, State};
+
 
 /// Read-only context the evaluator needs to resolve fields like
 /// `area:` and tag matches. Built once per query in the window-side
@@ -108,7 +109,7 @@ impl<'a> EvalContext<'a> {
 
 /// Evaluate an expression against a single task. Returns `true` when
 /// the task matches.
-pub fn evaluate(expr: &Expr, task: &Task, ctx: &EvalContext<'_>) -> bool {
+pub fn evaluate(expr: &Expr<Field, State>, task: &Task, ctx: &EvalContext<'_>) -> bool {
     match expr {
         Expr::Text(s) => match_text(task, s),
         Expr::State(state) => match_state(task, *state, ctx),
@@ -121,7 +122,7 @@ pub fn evaluate(expr: &Expr, task: &Task, ctx: &EvalContext<'_>) -> bool {
         // v0.4.1 — Pass is the parser's placeholder for tokens that
         // don't filter (e.g., a sort modifier). Always-true makes it
         // act as identity in And/Or composition.
-        Expr::Pass => true,
+        Expr::Empty => true,
     }
 }
 
@@ -357,10 +358,10 @@ fn match_compare(
 ) -> bool {
     if let Some(d) = field_date_value(task, field) {
         let (lo, hi) = value_to_range(value, ctx.today);
-        return compare_date(d, lo, hi, comp);
+        return compare_date(d, lo, hi, &comp);
     }
     if let Some(n) = field_numeric_value(task, field)
-        && let Value::Number(target) = value
+        && let Value::Int(target) = value
     {
         return compare_number(n, *target, comp);
     }
@@ -419,4 +420,27 @@ fn compare_number(n: i64, target: i64, comp: Comparator) -> bool {
         Comparator::Gt => n > target,
         Comparator::Ge => n >= target,
     }
+}
+
+fn value_to_range(val: &vir_search::ast::Value, today: chrono::NaiveDate) -> (chrono::NaiveDate, chrono::NaiveDate) {
+    if let vir_search::ast::Value::Date(spec) = val {
+        let (lo_epoch, hi_epoch) = vir_search::dates::resolve_range(spec, today);
+        let lo = chrono::DateTime::from_timestamp(lo_epoch, 0).unwrap().naive_utc().date();
+        let hi = chrono::DateTime::from_timestamp(hi_epoch, 0).unwrap().naive_utc().date();
+        (lo, hi)
+    } else {
+        unreachable!()
+    }
+}
+
+fn compare_date(
+    d: chrono::NaiveDate,
+    start: chrono::NaiveDate,
+    end: chrono::NaiveDate,
+    comp: &vir_search::ast::Comparator,
+) -> bool {
+    let d = d.and_time(chrono::NaiveTime::MIN).and_utc().timestamp();
+    let start = start.and_time(chrono::NaiveTime::MIN).and_utc().timestamp();
+    let end = end.and_time(chrono::NaiveTime::MIN).and_utc().timestamp();
+    vir_search::dates::matches(*comp, d, start, end)
 }
