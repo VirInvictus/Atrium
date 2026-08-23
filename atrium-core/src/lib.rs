@@ -46,3 +46,4 @@ pub use render::{
     status_keyword, status_move,
 };
 pub use repeat::{RepeatMode, RepeatRule};
+pub mod search;

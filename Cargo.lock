@@ -40,14 +40,13 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "atrium"
-version = "0.69.2"
+version = "0.70.0"
 dependencies = [
  "anyhow",
  "atrium-core",
  "atrium-import",
  "atrium-inline",
  "atrium-org",
- "atrium-search",
  "chrono",
  "gettext-rs",
  "gtk4",
@@ -56,17 +55,17 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vir-gtk",
+ "vir-search",
 ]
 
 [[package]]
 name = "atrium-cli"
-version = "0.69.2"
+version = "0.70.0"
 dependencies = [
  "atrium-core",
  "atrium-import",
  "atrium-inline",
  "atrium-org",
- "atrium-search",
  "chrono",
  "rusqlite",
  "serde",
@@ -74,11 +73,12 @@ dependencies = [
  "thiserror",
  "tokio",
  "uuid",
+ "vir-search",
 ]
 
 [[package]]
 name = "atrium-core"
-version = "0.69.2"
+version = "0.70.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "atrium-import"
-version = "0.69.2"
+version = "0.70.0"
 dependencies = [
  "atrium-core",
  "atrium-org",
@@ -109,7 +109,7 @@ dependencies = [
 
 [[package]]
 name = "atrium-inline"
-version = "0.69.2"
+version = "0.70.0"
 dependencies = [
  "atrium-core",
  "chrono",
@@ -117,7 +117,7 @@ dependencies = [
 
 [[package]]
 name = "atrium-org"
-version = "0.69.2"
+version = "0.70.0"
 dependencies = [
  "anyhow",
  "atrium-core",
@@ -130,15 +130,6 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "atrium-search"
-version = "0.69.2"
-dependencies = [
- "atrium-core",
- "chrono",
- "regex",
 ]
 
 [[package]]
@@ -1372,6 +1363,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinyvec"
+version = "1.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb4ebadaa0af04fab11ae01eb5f9fdb5f9c5b875506e210e71c07873528baa7f"
+dependencies = [
+ "tinyvec_macros",
+]
+
+[[package]]
+name = "tinyvec_macros"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
 name = "tokio"
 version = "1.52.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1518,6 +1524,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
+name = "unicode-normalization"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
 name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1567,6 +1582,16 @@ source = "git+https://github.com/VirInvictus/vir-gtk.git#4899f273c9a03ff105cb85b
 dependencies = [
  "gtk4",
  "tracing",
+]
+
+[[package]]
+name = "vir-search"
+version = "1.0.0"
+source = "git+https://github.com/VirInvictus/vir-search.git#1a821cdacd5dc6fdab8df4cc6bca6fe8c1d2bfa9"
+dependencies = [
+ "chrono",
+ "regex",
+ "unicode-normalization",
 ]
 
 [[package]]

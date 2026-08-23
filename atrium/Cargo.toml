@@ -14,7 +14,7 @@ atrium-core = { path = "../atrium-core" }
 # v0.4.2 — the search expression engine ships as its own workspace
 # crate so it can be exercised independently and reused from a
 # future TUI / atriumd / search server.
-atrium-search = { path = "../atrium-search" }
+vir-search = { git = "https://github.com/VirInvictus/vir-search.git" }
 # v0.9.0 — Phase 16 Org projection (parser, emitter, importer,
 # vault writer task) lives in its own crate so atrium-core stays
 # Org-agnostic. The GTK binary uses `spawn_org_vault` to wire the

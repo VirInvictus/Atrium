@@ -136,7 +136,11 @@ fn connect_startup(app: &gtk::Application) {
         // switching, and folds the persisted `theme` GSetting over the
         // system value so a pinned scheme still wins. It also watches the
         // key, which is what makes the Preferences dropdown take effect.
-        vir_gtk::portal::init(Some(gio::Settings::new(atrium_core::APP_ID)), Some("theme"), true);
+        vir_gtk::portal::init(
+            Some(gio::Settings::new(atrium_core::APP_ID)),
+            Some("theme"),
+            true,
+        );
     });
 }
 

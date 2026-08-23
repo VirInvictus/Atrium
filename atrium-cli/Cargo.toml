@@ -13,7 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 atrium-core = { path = "../atrium-core" }
-atrium-search = { path = "../atrium-search" }
+vir-search = { git = "https://github.com/VirInvictus/vir-search.git" }
 # v0.9.0 — Phase 16 Org/JSON import + export commands moved out
 # of atrium-core::sync::org into atrium-org. atrium-cli pulls the
 # new crate in directly so the `import org` / `export org` paths
