@@ -82,6 +82,7 @@ version = "0.70.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "regex",
  "rrule",
  "rusqlite",
  "serde",
@@ -90,6 +91,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "vir-search",
 ]
 
 [[package]]

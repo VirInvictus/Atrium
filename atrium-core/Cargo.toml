@@ -8,6 +8,8 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+vir-search = { git = "https://github.com/VirInvictus/vir-search.git" }
+regex = "1.10"
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
