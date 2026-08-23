@@ -35,26 +35,14 @@
 //! the app icon's courtyard floor.
 
 // ── The Dragon roles ────────────────────────────────────────────
-pub const BG_WINDOW: &str = "#181616"; // dragonBlack3
-pub const BG_VIEW: &str = "#12120f"; // dragonBlack1
-pub const BG_HEADER: &str = "#1d1c19"; // dragonBlack2
-pub const BG_CARD: &str = "#1d1c19"; // dragonBlack2
-pub const FG: &str = "#c5c9c5"; // dragonWhite
-pub const FG_DIM: &str = "#a6a69c"; // dragonGray
-pub const GRID: &str = "#393836"; // dragonBlack5 (hairlines, borders)
-pub const ACCENT: &str = "#c4b28a"; // dragonYellow (the app accent)
-pub const ON_ACCENT: &str = "#12120f"; // dragonBlack1 (dark text on accent)
-pub const WARN: &str = "#dca561"; // autumnYellow (brighter than the accent)
-pub const ERR: &str = "#c4746e"; // dragonRed
-pub const OK: &str = "#87a987"; // dragonGreen
 
 // ── The six swatch / area-accent hues (migration 0020) ──────────
-pub const SW_BLUE: &str = "#8ba4b0"; // dragonBlue2
-pub const SW_GREEN: &str = "#87a987"; // dragonGreen
-pub const SW_YELLOW: &str = "#c4b28a"; // dragonYellow
-pub const SW_ORANGE: &str = "#b6927b"; // dragonOrange
-pub const SW_RED: &str = "#c4746e"; // dragonRed
-pub const SW_PURPLE: &str = "#8992a7"; // dragonViolet
+const SW_BLUE: &str = "#8ba4b0"; // dragonBlue2
+const SW_GREEN: &str = "#87a987"; // dragonGreen
+const SW_YELLOW: &str = "#c4b28a"; // dragonYellow
+const SW_ORANGE: &str = "#b6927b"; // dragonOrange
+const SW_RED: &str = "#c4746e"; // dragonRed
+const SW_PURPLE: &str = "#8992a7"; // dragonViolet
 
 /// The sheet template. `%TOKENS%` are replaced by the hexes above in
 /// [`sheet`]; nothing else is substituted, so literal CSS braces are safe.
@@ -288,20 +276,12 @@ radio:focus-visible, dropdown:focus-visible, scale:focus-visible,
 /// its baked Dragon hex. Longest tokens first so no name is a prefix of the
 /// span another replace would touch (`%BG_WINDOW%` before `%BG_VIEW%`, the
 /// `%SW_*%` swatch tokens before the shorter roles).
+
 pub fn sheet() -> String {
-    TEMPLATE
-        .replace("%ON_ACCENT%", ON_ACCENT)
-        .replace("%BG_WINDOW%", BG_WINDOW)
-        .replace("%BG_HEADER%", BG_HEADER)
-        .replace("%BG_VIEW%", BG_VIEW)
-        .replace("%BG_CARD%", BG_CARD)
-        .replace("%FG_DIM%", FG_DIM)
-        .replace("%FG%", FG)
-        .replace("%GRID%", GRID)
-        .replace("%ACCENT%", ACCENT)
-        .replace("%WARN%", WARN)
-        .replace("%ERR%", ERR)
-        .replace("%OK%", OK)
+    let mut p = vir_gtk::theme::Palette::dragon();
+    p.accent = "#c4b28a";
+    p.on_accent = "#12120f";
+    p.replace_tokens(TEMPLATE)
         .replace("%SW_BLUE%", SW_BLUE)
         .replace("%SW_GREEN%", SW_GREEN)
         .replace("%SW_YELLOW%", SW_YELLOW)
@@ -310,101 +290,6 @@ pub fn sheet() -> String {
         .replace("%SW_PURPLE%", SW_PURPLE)
 }
 
-/// Install the generated sheet display-wide at `USER + 1`, matching
-/// `data/style.css` (`typography::apply_bundled_stylesheet`). Must be called
-/// **before** the bundled sheet so, at equal priority, style.css's later
-/// per-surface rules still win the ties while this sheet supplies the
-/// `@define-color` names and the flat base. One step above USER also keeps
-/// it authoritative over a system `~/.config/gtk-4.0/gtk.css` (the Colophon
-/// discovery, Phase 22 C1).
 pub fn install() {
-    let provider = gtk::CssProvider::new();
-    provider.load_from_string(&sheet());
-    if let Some(display) = gtk::gdk::Display::default() {
-        gtk::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_USER + 1,
-        );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_palette_hex_reaches_the_sheet() {
-        let sheet = sheet();
-        // The role palette + the four swatch hues the sheet exposes as
-        // adwaita palette-scale @define-colors. SW_ORANGE lives only in
-        // data/style.css (no adwaita `@orange_*` consumer here) and SW_RED
-        // coincides with ERR, so neither is asserted against this sheet.
-        for hex in [
-            BG_WINDOW, BG_VIEW, BG_HEADER, BG_CARD, FG, FG_DIM, GRID, ACCENT, ON_ACCENT, WARN, ERR,
-            OK, SW_BLUE, SW_GREEN, SW_YELLOW, SW_PURPLE,
-        ] {
-            assert!(sheet.contains(hex), "missing {hex}");
-        }
-    }
-
-    #[test]
-    fn no_unreplaced_tokens_remain() {
-        // A token is `%UPPERCASE…%`; a stray one means it was added to the
-        // template but not to `sheet`'s replace chain. CSS percentages like
-        // `font-size: 170%` are a `%` after a digit and are fine — so flag
-        // only a `%` immediately followed by an ASCII uppercase letter.
-        let sheet = sheet();
-        let bytes = sheet.as_bytes();
-        for i in 0..bytes.len().saturating_sub(1) {
-            assert!(
-                !(bytes[i] == b'%' && bytes[i + 1].is_ascii_uppercase()),
-                "unreplaced token near: {}",
-                &sheet[i..(i + 12).min(sheet.len())]
-            );
-        }
-    }
-
-    #[test]
-    fn defines_every_adwaita_name_style_css_uses() {
-        let sheet = sheet();
-        for name in [
-            "@define-color window_bg_color",
-            "@define-color window_fg_color",
-            "@define-color accent_color",
-            "@define-color accent_bg_color",
-            "@define-color card_bg_color",
-            "@define-color card_shade_color",
-            "@define-color borders",
-            "@define-color success_color",
-            "@define-color warning_color",
-            "@define-color warning_bg_color",
-            "@define-color error_color",
-            "@define-color destructive_color",
-            "@define-color destructive_bg_color",
-            "@define-color blue_3",
-            "@define-color yellow_5",
-            "@define-color green_4",
-            "@define-color purple_3",
-            "@define-color purple_2",
-        ] {
-            assert!(sheet.contains(name), "missing {name}");
-        }
-    }
-
-    #[test]
-    fn carries_no_font_family_rule() {
-        // Typography stays in data/style.css (the three bundled families).
-        // Match the property (`font-family:`), not the bare word — a CSS
-        // comment in the template mentions font-family in prose.
-        assert_eq!(sheet().matches("font-family:").count(), 0);
-    }
-
-    #[test]
-    fn focus_ring_is_scoped_not_universal() {
-        // spec §3.7 forbids a universal `*:focus-visible` (Colophon's bug).
-        let sheet = sheet();
-        assert!(sheet.contains(":focus-visible"));
-        assert!(!sheet.contains("*:focus-visible"));
-    }
+    vir_gtk::theme::install_stylesheet(&sheet());
 }

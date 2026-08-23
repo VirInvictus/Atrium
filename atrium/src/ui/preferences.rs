@@ -457,5 +457,5 @@ fn theme_to_index(value: &str) -> u32 {
 /// palettes. The true light (Lotus) palette is post-1.0, and it is the real
 /// consumer this read exists for.
 pub fn apply_theme(_value: &str) {
-    super::color_scheme::resolve_now();
+    vir_gtk::portal::resolve_now();
 }
