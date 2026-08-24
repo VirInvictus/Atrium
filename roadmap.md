@@ -494,3 +494,19 @@ Rough shape, to flesh out closer to the time:
 ### Not currently slated
 
 Items in spec §9 (network sync of any kind, mobile/web clients, multi-user, time-tracking, calendar event creation, AI features) remain out of scope through 1.0 and are not on this horizon either. Adding any of them is a separate conversation.
+
+## Phase 12: Codebase Sweep & Fixes (2026-08-23)
+*Context: Found broken two-way Org sync logic, spurious UI updates, and broken CLI builds.*
+
+### Bugs to Fix
+- [ ] **Two-Way Sync Data Loss:** Fix `diff_from` to accurately detect and persist changes to task notes (`body`), `:EFFORT:`, and `:DEFER_UNTIL:` made in external Org editors.
+- [ ] **Spurious Creation Events:** Use the inner insert-status boolean returned by `ensure_tag_inner` and `ensure_area_inner` rather than the flawed `created_at == modified_at` heuristic to prevent duplicate UI creation signals.
+- [ ] **CLI Build Failure:** Update `atrium-cli` to use `vir_search` and `atrium_core::search` instead of the extracted `atrium_search` crate.
+- [ ] **Timezone Shift:** Standardize epoch translation in `sql_translate.rs` to use local boundaries rather than `naive_utc()` to prevent 1-day boundary shifts in searches.
+- [ ] **Mid-Token Autocomplete:** Fix `replace_token` in `atrium-inline` to replace the entire token when the cursor is in the middle of a word.
+
+### Refactoring & Growth
+- [ ] **Consolidate Org Properties:** Unify task serialization logic and duration parsing across `import.rs` and `vault_watcher.rs`.
+- [ ] **Two-Way Project Metadata:** Sync project-level properties (like `:REVIEW_INTERVAL:`) back to SQLite when edited in Emacs.
+- [ ] **Headless Daemon:** Implement `atriumd` for OS-level hotkey capture and reminders independent of the GTK GUI.
+- [ ] **Docs Sync:** Update version numbers across files, reflect the removal of `atrium-search` from the workspace, and document all DB schema tables in `spec.md`.
