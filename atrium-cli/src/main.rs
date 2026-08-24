@@ -2630,22 +2630,22 @@ fn sort_tasks(tasks: &mut [Task], sorts: &[atrium_core::search::SortSpec], _ctx:
     tasks.sort_by(|a, b| {
         for spec in sorts {
             let ord = match spec.key {
-                SortKey::Due => cmp_opt(a.deadline, b.deadline, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
+                SortKey::Due => cmp_opt(a.deadline, b.deadline, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
                 SortKey::Scheduled => cmp_opt(
                     scheduled_date(&a.scheduled_for),
                     scheduled_date(&b.scheduled_for),
-                    (if spec.descending { SortDirection::Desc } else { SortDirection::Asc }),
+                    (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc }),
                 ),
-                SortKey::Defer => cmp_opt(a.defer_until, b.defer_until, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
-                SortKey::Created => cmp_dir(a.created_at, b.created_at, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
-                SortKey::Modified => cmp_dir(a.modified_at, b.modified_at, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
-                SortKey::Completed => cmp_opt(a.completed_at, b.completed_at, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
+                SortKey::Defer => cmp_opt(a.defer_until, b.defer_until, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
+                SortKey::Created => cmp_dir(a.created_at, b.created_at, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
+                SortKey::Modified => cmp_dir(a.modified_at, b.modified_at, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
+                SortKey::Completed => cmp_opt(a.completed_at, b.completed_at, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
                 SortKey::Estimated => {
-                    cmp_opt(a.estimated_minutes, b.estimated_minutes, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc }))
+                    cmp_opt(a.estimated_minutes, b.estimated_minutes, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc }))
                 }
-                SortKey::Title => cmp_dir(a.title.as_str(), b.title.as_str(), (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
+                SortKey::Title => cmp_dir(a.title.as_str(), b.title.as_str(), (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
                 SortKey::Position => match a.position.partial_cmp(&b.position) {
-                    Some(o) => apply_dir(o, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
+                    Some(o) => apply_dir(o, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
                     None => Ordering::Equal,
                 },
             };
