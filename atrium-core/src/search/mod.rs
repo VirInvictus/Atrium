@@ -2,9 +2,9 @@ pub mod domain;
 pub mod eval;
 pub mod sql_translate;
 
-pub use domain::{Field, State, SortKey};
+pub use domain::{Field, SortKey, State};
+pub use eval::{EvalContext, evaluate};
 pub use sql_translate::try_translate;
-pub use eval::{evaluate, EvalContext};
 
 pub type Expr = vir_search::ast::Expr<Field, State>;
 pub type SortSpec = vir_search::ast::SortSpec<SortKey>;

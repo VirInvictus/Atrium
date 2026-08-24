@@ -310,8 +310,7 @@ fn open_db_readonly(path: &Path) -> rusqlite::Result<Connection> {
 }
 
 fn run_search(conn: &Connection, expression: &str, format: Format) -> CliResult<()> {
-    let parsed =
-        atrium_core::search::parse(expression);
+    let parsed = atrium_core::search::parse(expression);
     if !parsed.warnings.is_empty() {
         for w in &parsed.warnings {
             eprintln!("warning: unrecognised token: {w}");
@@ -434,8 +433,7 @@ fn run_kanban(conn: &Connection, name: &str, format: Format) -> CliResult<()> {
     // Run the stored filter expression to get the candidate task
     // set. Same code path as the search subcommand — uses the SQL
     // fast-path when translatable, falls back to in-memory eval.
-    let parsed = atrium_core::search::parse(&perspective.filter_expr)
-        ;
+    let parsed = atrium_core::search::parse(&perspective.filter_expr);
     if !parsed.warnings.is_empty() {
         for w in &parsed.warnings {
             eprintln!("warning: unrecognised token: {w}");
@@ -2630,22 +2628,87 @@ fn sort_tasks(tasks: &mut [Task], sorts: &[atrium_core::search::SortSpec], _ctx:
     tasks.sort_by(|a, b| {
         for spec in sorts {
             let ord = match spec.key {
-                SortKey::Due => cmp_opt(a.deadline, b.deadline, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
+                SortKey::Due => cmp_opt(
+                    a.deadline,
+                    b.deadline,
+                    if spec.descending {
+                        atrium_core::search::SortDirection::Desc
+                    } else {
+                        atrium_core::search::SortDirection::Asc
+                    },
+                ),
                 SortKey::Scheduled => cmp_opt(
                     scheduled_date(&a.scheduled_for),
                     scheduled_date(&b.scheduled_for),
-                    (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc }),
+                    if spec.descending {
+                        atrium_core::search::SortDirection::Desc
+                    } else {
+                        atrium_core::search::SortDirection::Asc
+                    },
                 ),
-                SortKey::Defer => cmp_opt(a.defer_until, b.defer_until, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
-                SortKey::Created => cmp_dir(a.created_at, b.created_at, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
-                SortKey::Modified => cmp_dir(a.modified_at, b.modified_at, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
-                SortKey::Completed => cmp_opt(a.completed_at, b.completed_at, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
-                SortKey::Estimated => {
-                    cmp_opt(a.estimated_minutes, b.estimated_minutes, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc }))
-                }
-                SortKey::Title => cmp_dir(a.title.as_str(), b.title.as_str(), (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
+                SortKey::Defer => cmp_opt(
+                    a.defer_until,
+                    b.defer_until,
+                    if spec.descending {
+                        atrium_core::search::SortDirection::Desc
+                    } else {
+                        atrium_core::search::SortDirection::Asc
+                    },
+                ),
+                SortKey::Created => cmp_dir(
+                    a.created_at,
+                    b.created_at,
+                    if spec.descending {
+                        atrium_core::search::SortDirection::Desc
+                    } else {
+                        atrium_core::search::SortDirection::Asc
+                    },
+                ),
+                SortKey::Modified => cmp_dir(
+                    a.modified_at,
+                    b.modified_at,
+                    if spec.descending {
+                        atrium_core::search::SortDirection::Desc
+                    } else {
+                        atrium_core::search::SortDirection::Asc
+                    },
+                ),
+                SortKey::Completed => cmp_opt(
+                    a.completed_at,
+                    b.completed_at,
+                    if spec.descending {
+                        atrium_core::search::SortDirection::Desc
+                    } else {
+                        atrium_core::search::SortDirection::Asc
+                    },
+                ),
+                SortKey::Estimated => cmp_opt(
+                    a.estimated_minutes,
+                    b.estimated_minutes,
+                    if spec.descending {
+                        atrium_core::search::SortDirection::Desc
+                    } else {
+                        atrium_core::search::SortDirection::Asc
+                    },
+                ),
+                SortKey::Title => cmp_dir(
+                    a.title.as_str(),
+                    b.title.as_str(),
+                    if spec.descending {
+                        atrium_core::search::SortDirection::Desc
+                    } else {
+                        atrium_core::search::SortDirection::Asc
+                    },
+                ),
                 SortKey::Position => match a.position.partial_cmp(&b.position) {
-                    Some(o) => apply_dir(o, (if spec.descending { atrium_core::search::SortDirection::Desc } else { atrium_core::search::SortDirection::Asc })),
+                    Some(o) => apply_dir(
+                        o,
+                        if spec.descending {
+                            atrium_core::search::SortDirection::Desc
+                        } else {
+                            atrium_core::search::SortDirection::Asc
+                        },
+                    ),
                     None => Ordering::Equal,
                 },
             };
@@ -2682,7 +2745,10 @@ fn cmp_dir<T: Ord>(a: T, b: T, dir: atrium_core::search::SortDirection) -> std::
     apply_dir(a.cmp(&b), dir)
 }
 
-fn apply_dir(ord: std::cmp::Ordering, dir: atrium_core::search::SortDirection) -> std::cmp::Ordering {
+fn apply_dir(
+    ord: std::cmp::Ordering,
+    dir: atrium_core::search::SortDirection,
+) -> std::cmp::Ordering {
     match dir {
         atrium_core::search::SortDirection::Asc => ord,
         atrium_core::search::SortDirection::Desc => ord.reverse(),
@@ -2737,7 +2803,7 @@ impl ContextData {
 #[derive(Debug)]
 pub(crate) enum CliError {
     Args(String),
-    Search(String),
+
     Db(atrium_core::DbError),
     NotFound(i64),
     /// `delete --where EXPR` ran without `--force`. Carries the
