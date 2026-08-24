@@ -21,9 +21,8 @@ use regex::Regex;
 
 use crate::domain::{ScheduledFor, Task};
 
-use vir_search::ast::{Comparator, Expr, MatchKind, Value};
 use crate::search::domain::{Field, State};
-
+use vir_search::ast::{Comparator, Expr, MatchKind, Value};
 
 /// Read-only context the evaluator needs to resolve fields like
 /// `area:` and tag matches. Built once per query in the window-side
@@ -422,11 +421,20 @@ fn compare_number(n: i64, target: i64, comp: Comparator) -> bool {
     }
 }
 
-fn value_to_range(val: &vir_search::ast::Value, today: chrono::NaiveDate) -> (chrono::NaiveDate, chrono::NaiveDate) {
+fn value_to_range(
+    val: &vir_search::ast::Value,
+    today: chrono::NaiveDate,
+) -> (chrono::NaiveDate, chrono::NaiveDate) {
     if let vir_search::ast::Value::Date(spec) = val {
         let (lo_epoch, hi_epoch) = vir_search::dates::resolve_range(spec, today);
-        let lo = chrono::DateTime::from_timestamp(lo_epoch, 0).unwrap().naive_utc().date();
-        let hi = chrono::DateTime::from_timestamp(hi_epoch, 0).unwrap().naive_utc().date();
+        let lo = chrono::DateTime::from_timestamp(lo_epoch, 0)
+            .unwrap()
+            .naive_utc()
+            .date();
+        let hi = chrono::DateTime::from_timestamp(hi_epoch, 0)
+            .unwrap()
+            .naive_utc()
+            .date();
         (lo, hi)
     } else {
         unreachable!()

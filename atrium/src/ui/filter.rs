@@ -27,10 +27,10 @@ use std::collections::HashMap;
 
 use atrium_core::ScheduledFor;
 use atrium_core::Task;
-use vir_search::ast::{Expr, SortSpec};
-use atrium_core::search::domain::{Field, State, SortKey};
+use atrium_core::search::domain::{Field, SortKey, State};
 use atrium_core::search::eval::{EvalContext, evaluate};
 use chrono::NaiveDate;
+use vir_search::ast::{Expr, SortSpec};
 
 /// Output of [`parse`]. The window uses `expr.is_some()` as "the
 /// query is non-empty"; uses `warnings` to surface a toast.
@@ -55,13 +55,13 @@ pub struct FilterQuery {
 pub fn parse(input: &str) -> FilterQuery {
     let raw = input.to_string();
     let result = vir_search::parse::parse::<Field, State, SortKey>(input);
-    
+
     let expr = match result.expr {
         vir_search::ast::Expr::Empty if result.sorts.is_empty() => None,
         vir_search::ast::Expr::Empty => Some(vir_search::ast::Expr::Empty),
         other => Some(other),
     };
-    
+
     FilterQuery {
         expr,
         warnings: result.warnings,

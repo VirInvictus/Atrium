@@ -276,7 +276,8 @@ impl AtriumWindow {
                 let Some(expr) = parsed.expr.as_ref() else {
                     return Ok(Vec::new());
                 };
-                if let Some(clause) = atrium_core::search::sql_translate::try_translate(expr, today) {
+                if let Some(clause) = atrium_core::search::sql_translate::try_translate(expr, today)
+                {
                     let params: Vec<atrium_core::SqlBindValue> =
                         clause.params.iter().map(Into::into).collect();
                     atrium_core::db::read::list_tasks_matching(conn, &clause.sql, &params)

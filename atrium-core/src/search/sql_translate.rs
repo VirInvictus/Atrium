@@ -50,9 +50,8 @@
 
 use chrono::NaiveDate;
 
-use vir_search::ast::{Comparator, Expr, MatchKind, Value};
 use crate::search::domain::{Field, State};
-
+use vir_search::ast::{Comparator, Expr, MatchKind, Value};
 
 /// Output of [`try_translate`]. The SQL fragment goes inside a
 /// `WHERE …` clause; params are bound positionally.
@@ -113,7 +112,11 @@ pub fn try_translate(expr: &Expr<Field, State>, today: NaiveDate) -> Option<SqlC
     Some(SqlClause { sql, params })
 }
 
-fn translate(expr: &Expr<Field, State>, today: NaiveDate, params: &mut Vec<SqlValue>) -> Option<String> {
+fn translate(
+    expr: &Expr<Field, State>,
+    today: NaiveDate,
+    params: &mut Vec<SqlValue>,
+) -> Option<String> {
     match expr {
         Expr::Empty => Some("1".into()),
         Expr::Text(s) => Some(text_search_clause(s, params)),
@@ -264,7 +267,18 @@ fn compare_clause(
         | Field::Modified
         | Field::Completed => {
             let column = date_column(field)?;
-            let (lo_epoch, hi_epoch) = match value { vir_search::ast::Value::Date(spec) => vir_search::dates::resolve_range(spec, today), _ => unreachable!() }; let lo = chrono::DateTime::from_timestamp(lo_epoch, 0).unwrap().naive_utc().date(); let hi = chrono::DateTime::from_timestamp(hi_epoch, 0).unwrap().naive_utc().date();
+            let (lo_epoch, hi_epoch) = match value {
+                vir_search::ast::Value::Date(spec) => vir_search::dates::resolve_range(spec, today),
+                _ => unreachable!(),
+            };
+            let lo = chrono::DateTime::from_timestamp(lo_epoch, 0)
+                .unwrap()
+                .naive_utc()
+                .date();
+            let hi = chrono::DateTime::from_timestamp(hi_epoch, 0)
+                .unwrap()
+                .naive_utc()
+                .date();
             // Date keywords like `thisweek` produce a range; the
             // comparator semantics are the same as the in-memory
             // path (see `dates::compare_date`). For a range-valued
@@ -332,8 +346,22 @@ fn range_clause(
     params: &mut Vec<SqlValue>,
 ) -> Option<String> {
     let column = date_column(field)?;
-    let (low_lo_epoch, _) = match low { vir_search::ast::Value::Date(spec) => vir_search::dates::resolve_range(spec, today), _ => unreachable!() }; let low_lo = chrono::DateTime::from_timestamp(low_lo_epoch, 0).unwrap().naive_utc().date();
-    let (_, high_hi_epoch) = match high { vir_search::ast::Value::Date(spec) => vir_search::dates::resolve_range(spec, today), _ => unreachable!() }; let high_hi = chrono::DateTime::from_timestamp(high_hi_epoch, 0).unwrap().naive_utc().date();
+    let (low_lo_epoch, _) = match low {
+        vir_search::ast::Value::Date(spec) => vir_search::dates::resolve_range(spec, today),
+        _ => unreachable!(),
+    };
+    let low_lo = chrono::DateTime::from_timestamp(low_lo_epoch, 0)
+        .unwrap()
+        .naive_utc()
+        .date();
+    let (_, high_hi_epoch) = match high {
+        vir_search::ast::Value::Date(spec) => vir_search::dates::resolve_range(spec, today),
+        _ => unreachable!(),
+    };
+    let high_hi = chrono::DateTime::from_timestamp(high_hi_epoch, 0)
+        .unwrap()
+        .naive_utc()
+        .date();
     params.push(SqlValue::Date(low_lo));
     let lo_ph = placeholder(params.len());
     params.push(SqlValue::Date(high_hi));
@@ -436,4 +464,3 @@ fn escape_like(s: &str) -> String {
 fn placeholder(one_based_index: usize) -> String {
     format!("?{one_based_index}")
 }
-
