@@ -1,5 +1,8 @@
 # Atrium — Patch Notes
 
+## v0.70.1 (2026-08-24)
+
+- **Build:** Fixed CLI compilation errors following vir-search migration; fixed lint errors.
 ## v0.70.0 (2026-08-23)
 
 - **Refactor:** Migrated internal search parser (`atrium-search`) to the shared `vir-search` crate.
