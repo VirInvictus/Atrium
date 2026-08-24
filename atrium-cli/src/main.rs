@@ -2823,7 +2823,7 @@ impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CliError::Args(m) => write!(f, "{m}"),
-            CliError::Search(m) => write!(f, "search expression: {m}"),
+
             CliError::Db(e) => write!(f, "database: {e}"),
             CliError::NotFound(id) => write!(f, "task {id} not found"),
             CliError::DryRun(n) => write!(f, "dry run: {n} task(s) would be deleted"),
