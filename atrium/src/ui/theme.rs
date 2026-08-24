@@ -33,9 +33,7 @@
 //!
 //! The accent is **dragonYellow** (`#c4b28a`) — Brandon's pick, matching
 //! the app icon's courtyard floor.
-
 // ── The Dragon roles ────────────────────────────────────────────
-
 // ── The six swatch / area-accent hues (migration 0020) ──────────
 const SW_BLUE: &str = "#8ba4b0"; // dragonBlue2
 const SW_GREEN: &str = "#87a987"; // dragonGreen
@@ -43,7 +41,6 @@ const SW_YELLOW: &str = "#c4b28a"; // dragonYellow
 const SW_ORANGE: &str = "#b6927b"; // dragonOrange
 const SW_RED: &str = "#c4746e"; // dragonRed
 const SW_PURPLE: &str = "#8992a7"; // dragonViolet
-
 /// The sheet template. `%TOKENS%` are replaced by the hexes above in
 /// [`sheet`]; nothing else is substituted, so literal CSS braces are safe.
 const TEMPLATE: &str = "\
@@ -70,7 +67,6 @@ const TEMPLATE: &str = "\
 @define-color green_4 %SW_GREEN%;
 @define-color purple_3 %SW_PURPLE%;
 @define-color purple_2 %SW_PURPLE%;
-
 /* ── Base widgets — the owned flat-but-rounded replacement for the
    adwaita / GTK-default widget styling. Comprehensive on purpose: Atrium
    must look the same with or without a system GTK theme underneath, and
@@ -78,7 +74,6 @@ const TEMPLATE: &str = "\
    tweaks on top (same priority, loaded later, so its specifics win). */
 window, .background { background-color: %BG_WINDOW%; color: %FG%; }
 window.csd, decoration { box-shadow: none; }
-
 headerbar {
   background-color: %BG_HEADER%;
   background-image: none;
@@ -89,14 +84,12 @@ headerbar {
   padding: 0 4px;
 }
 headerbar button { min-height: 24px; }
-
 paned > separator {
   background-color: %GRID%;
   background-image: none;
   min-width: 1px;
   min-height: 1px;
 }
-
 listview, list, columnview { background-color: %BG_VIEW%; color: %FG%; }
 row { border-radius: 8px; }
 row.activatable:hover { background-color: alpha(currentColor, 0.05); }
@@ -107,7 +100,6 @@ row:selected { background-color: alpha(%ACCENT%, 0.26); color: %FG%; }
   border-radius: 8px;
   margin: 1px 0;
 }
-
 .card, list.boxed-list {
   background-color: %BG_CARD%;
   color: %FG%;
@@ -117,7 +109,6 @@ row:selected { background-color: alpha(%ACCENT%, 0.26); color: %FG%; }
 }
 list.boxed-list > row { border-bottom: 1px solid alpha(%GRID%, 0.6); }
 list.boxed-list > row:last-child { border-bottom: none; }
-
 button {
   background-color: %BG_CARD%;
   background-image: none;
@@ -147,7 +138,6 @@ button.pill { border-radius: 999px; padding: 5px 16px; }
 .linked > button:not(:first-child) { border-left-width: 0; }
 .toolbar { padding: 4px 6px; }
 .osd { background-color: alpha(%BG_WINDOW%, 0.85); color: %FG%; border-radius: 12px; }
-
 entry, spinbutton, .entry {
   background-color: %BG_VIEW%;
   background-image: none;
@@ -162,7 +152,6 @@ entry > image { color: %FG_DIM%; }
 spinbutton > button { border-width: 0; border-radius: 6px; background-color: transparent; }
 spinbutton > button:hover { background-color: %GRID%; }
 dropdown > button { background-color: %BG_CARD%; }
-
 /* Checkboxes render as clean circles (the Things-3 / Reminders idiom, and
    what the .selection-mode task checkbox wants). An outline when open, a
    filled dragonYellow disc when done. Radios are already round. Owned here
@@ -183,7 +172,6 @@ check:checked, radio:checked, .selection-mode check:checked {
   color: %ON_ACCENT%;
   border-color: %ACCENT%;
 }
-
 switch {
   border-radius: 999px;
   background-color: %BG_VIEW%;
@@ -198,12 +186,10 @@ switch > slider {
   min-width: 18px;
   min-height: 18px;
 }
-
 scale { padding: 4px 0; }
 scale > trough { background-color: %GRID%; border-radius: 999px; min-height: 4px; }
 scale > trough > highlight { background-color: %ACCENT%; border-radius: 999px; }
 scale > trough > slider { border-radius: 999px; background-color: %FG%; min-width: 14px; min-height: 14px; }
-
 popover > arrow { background-color: %BG_CARD%; border: 1px solid %GRID%; }
 popover > contents, .popover > contents {
   background-color: %BG_CARD%;
@@ -216,7 +202,6 @@ popover > contents, .popover > contents {
 popover.menu modelbutton { border-radius: 6px; padding: 5px 8px; }
 modelbutton:hover { background-color: %ACCENT%; color: %ON_ACCENT%; }
 popover.menu separator, menu separator { background-color: %GRID%; min-height: 1px; margin: 4px 2px; }
-
 tooltip, tooltip.background {
   background-color: %BG_HEADER%;
   color: %FG%;
@@ -225,14 +210,11 @@ tooltip, tooltip.background {
   box-shadow: none;
   padding: 4px 8px;
 }
-
 scrollbar { background-color: transparent; }
 scrollbar slider { background-color: %GRID%; border-radius: 999px; min-width: 6px; min-height: 6px; }
 scrollbar slider:hover { background-color: %FG_DIM%; }
-
 separator { background-color: %GRID%; min-width: 1px; min-height: 1px; }
 selection { background-color: alpha(%ACCENT%, 0.35); color: %FG%; }
-
 /* Adwaita utility classes Atrium leans on across the binary (weight / size /
    colour only; font-family stays in data/style.css). They vanish when
    libadwaita is dropped at C10, so the owned sheet carries them. */
@@ -250,7 +232,6 @@ selection { background-color: alpha(%ACCENT%, 0.35); color: %FG%; }
 .error { color: %ERR%; }
 .accent { color: %ACCENT%; }
 .numeric { font-feature-settings: 'tnum'; }
-
 /* The single, deliberately scoped focus ring. spec §3.7 forbids a
    universal star-selector focus ring (it lit up every row and label
    in Colophon's sheet), so this names its targets explicitly. */
@@ -261,7 +242,6 @@ radio:focus-visible, dropdown:focus-visible, scale:focus-visible,
   outline: 2px solid %ACCENT%;
   outline-offset: -1px;
 }
-
 .toast {
   background-color: %BG_CARD%;
   color: %FG%;
@@ -271,12 +251,10 @@ radio:focus-visible, dropdown:focus-visible, scale:focus-visible,
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.38);
 }
 ";
-
 /// The full generated sheet: the template with every `%TOKEN%` replaced by
 /// its baked Dragon hex. Longest tokens first so no name is a prefix of the
 /// span another replace would touch (`%BG_WINDOW%` before `%BG_VIEW%`, the
 /// `%SW_*%` swatch tokens before the shorter roles).
-
 pub fn sheet() -> String {
     let mut p = vir_gtk::theme::Palette::dragon();
     p.accent = "#c4b28a";
@@ -289,7 +267,6 @@ pub fn sheet() -> String {
         .replace("%SW_RED%", SW_RED)
         .replace("%SW_PURPLE%", SW_PURPLE)
 }
-
 pub fn install() {
     vir_gtk::theme::install_stylesheet(&sheet());
 }

@@ -37,7 +37,7 @@ use std::process::ExitCode;
 
 use atrium_core::db::read;
 use atrium_core::domain::{NewTask, ScheduledFor, Task, TaskUpdate};
-use atrium_search::{EvalContext, evaluate};
+use atrium_core::search::{EvalContext, evaluate};
 use chrono::{Local, NaiveDate};
 use rusqlite::{Connection, OpenFlags};
 
@@ -311,7 +311,7 @@ fn open_db_readonly(path: &Path) -> rusqlite::Result<Connection> {
 
 fn run_search(conn: &Connection, expression: &str, format: Format) -> CliResult<()> {
     let parsed =
-        atrium_search::parse(expression).map_err(|e| CliError::Search(format!("{e:?}")))?;
+        atrium_core::search::parse(expression);
     if !parsed.warnings.is_empty() {
         for w in &parsed.warnings {
             eprintln!("warning: unrecognised token: {w}");
@@ -337,17 +337,17 @@ fn run_search(conn: &Connection, expression: &str, format: Format) -> CliResult<
 }
 
 /// Filter the full task set against `expr`. Uses the SQL-translation
-/// fast-path when `atrium_search::try_translate` succeeds (every
+/// fast-path when `atrium_core::search::try_translate` succeeds (every
 /// node maps to SQL); otherwise falls back to loading every row
 /// and running the in-memory evaluator. Both paths return the
 /// same set — verified by an integration test pair in atrium-core.
 fn filtered_tasks(
     conn: &Connection,
-    expr: &atrium_search::Expr,
+    expr: &atrium_core::search::Expr,
     today: NaiveDate,
     ctx: &EvalContext<'_>,
 ) -> CliResult<Vec<Task>> {
-    if let Some(clause) = atrium_search::try_translate(expr, today) {
+    if let Some(clause) = atrium_core::search::try_translate(expr, today) {
         let params: Vec<atrium_core::SqlBindValue> = clause.params.iter().map(Into::into).collect();
         return read::list_tasks_matching(conn, &clause.sql, &params).map_err(CliError::from);
     }
@@ -363,11 +363,11 @@ fn filtered_tasks(
 /// order (stable sort) at the bottom of the list.
 fn rank_by_bm25_and_recency(
     conn: &Connection,
-    expr: &atrium_search::Expr,
+    expr: &atrium_core::search::Expr,
     tasks: &mut [Task],
     today: NaiveDate,
 ) -> CliResult<()> {
-    let terms = atrium_search::collect_text_terms(expr);
+    let terms = atrium_core::search::collect_text_terms(expr);
     if terms.is_empty() {
         return Ok(());
     }
@@ -396,7 +396,7 @@ fn blended_score(task: &Task, scores: &HashMap<i64, f64>, today: NaiveDate, half
     // among themselves.
     let bm25 = scores.get(&task.id).copied().unwrap_or(0.0);
     let days = (today - task.modified_at.date_naive()).num_days();
-    atrium_search::blend_relevance(bm25, days, half_life)
+    atrium_core::search::blend_relevance(bm25, days, half_life)
 }
 
 /// Slice D1 (v0.5.4) — render a saved Perspective whose
@@ -434,8 +434,8 @@ fn run_kanban(conn: &Connection, name: &str, format: Format) -> CliResult<()> {
     // Run the stored filter expression to get the candidate task
     // set. Same code path as the search subcommand — uses the SQL
     // fast-path when translatable, falls back to in-memory eval.
-    let parsed = atrium_search::parse(&perspective.filter_expr)
-        .map_err(|e| CliError::Search(format!("{e:?}")))?;
+    let parsed = atrium_core::search::parse(&perspective.filter_expr)
+        ;
     if !parsed.warnings.is_empty() {
         for w in &parsed.warnings {
             eprintln!("warning: unrecognised token: {w}");
@@ -2281,7 +2281,7 @@ fn run_delete_bulk(
 /// Run a search expression against the full task set and return
 /// the matches. Shared by complete --where and delete --where.
 fn resolve_matching_tasks(read_conn: &Connection, expr: &str) -> CliResult<Vec<Task>> {
-    let parsed = atrium_search::parse(expr).map_err(|e| CliError::Search(format!("{e:?}")))?;
+    let parsed = atrium_core::search::parse(expr);
     if !parsed.warnings.is_empty() {
         for w in &parsed.warnings {
             eprintln!("warning: unrecognised token: {w}");
@@ -2624,28 +2624,28 @@ fn scheduled_iso(s: &Option<ScheduledFor>) -> String {
 /// reuses atrium-search's filter semantics for predicates, but the
 /// sort path lives here because it needs `ContextData` for things
 /// like project / area title comparisons (future use).
-fn sort_tasks(tasks: &mut [Task], sorts: &[atrium_search::SortSpec], _ctx: &ContextData) {
-    use atrium_search::SortKey;
+fn sort_tasks(tasks: &mut [Task], sorts: &[atrium_core::search::SortSpec], _ctx: &ContextData) {
+    use atrium_core::search::SortKey;
     use std::cmp::Ordering;
     tasks.sort_by(|a, b| {
         for spec in sorts {
             let ord = match spec.key {
-                SortKey::Due => cmp_opt(a.deadline, b.deadline, spec.direction),
+                SortKey::Due => cmp_opt(a.deadline, b.deadline, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
                 SortKey::Scheduled => cmp_opt(
                     scheduled_date(&a.scheduled_for),
                     scheduled_date(&b.scheduled_for),
-                    spec.direction,
+                    (if spec.descending { SortDirection::Desc } else { SortDirection::Asc }),
                 ),
-                SortKey::Defer => cmp_opt(a.defer_until, b.defer_until, spec.direction),
-                SortKey::Created => cmp_dir(a.created_at, b.created_at, spec.direction),
-                SortKey::Modified => cmp_dir(a.modified_at, b.modified_at, spec.direction),
-                SortKey::Completed => cmp_opt(a.completed_at, b.completed_at, spec.direction),
+                SortKey::Defer => cmp_opt(a.defer_until, b.defer_until, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
+                SortKey::Created => cmp_dir(a.created_at, b.created_at, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
+                SortKey::Modified => cmp_dir(a.modified_at, b.modified_at, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
+                SortKey::Completed => cmp_opt(a.completed_at, b.completed_at, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
                 SortKey::Estimated => {
-                    cmp_opt(a.estimated_minutes, b.estimated_minutes, spec.direction)
+                    cmp_opt(a.estimated_minutes, b.estimated_minutes, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc }))
                 }
-                SortKey::Title => cmp_dir(a.title.as_str(), b.title.as_str(), spec.direction),
+                SortKey::Title => cmp_dir(a.title.as_str(), b.title.as_str(), (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
                 SortKey::Position => match a.position.partial_cmp(&b.position) {
-                    Some(o) => apply_dir(o, spec.direction),
+                    Some(o) => apply_dir(o, (if spec.descending { SortDirection::Desc } else { SortDirection::Asc })),
                     None => Ordering::Equal,
                 },
             };
@@ -2667,7 +2667,7 @@ fn scheduled_date(s: &Option<ScheduledFor>) -> Option<NaiveDate> {
 fn cmp_opt<T: Ord>(
     a: Option<T>,
     b: Option<T>,
-    dir: atrium_search::SortDirection,
+    dir: atrium_core::search::SortDirection,
 ) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     match (a, b) {
@@ -2678,14 +2678,14 @@ fn cmp_opt<T: Ord>(
     }
 }
 
-fn cmp_dir<T: Ord>(a: T, b: T, dir: atrium_search::SortDirection) -> std::cmp::Ordering {
+fn cmp_dir<T: Ord>(a: T, b: T, dir: atrium_core::search::SortDirection) -> std::cmp::Ordering {
     apply_dir(a.cmp(&b), dir)
 }
 
-fn apply_dir(ord: std::cmp::Ordering, dir: atrium_search::SortDirection) -> std::cmp::Ordering {
+fn apply_dir(ord: std::cmp::Ordering, dir: atrium_core::search::SortDirection) -> std::cmp::Ordering {
     match dir {
-        atrium_search::SortDirection::Asc => ord,
-        atrium_search::SortDirection::Desc => ord.reverse(),
+        atrium_core::search::SortDirection::Asc => ord,
+        atrium_core::search::SortDirection::Desc => ord.reverse(),
     }
 }
 

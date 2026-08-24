@@ -1445,7 +1445,7 @@ fn parse_export_vtodo_round_trips() {
 
 mod sql_parity {
     use atrium_core::db::{self, read};
-    use atrium_search::{EvalContext, evaluate};
+    use atrium_core::search::{EvalContext, evaluate};
     use chrono::NaiveDate;
     use rusqlite::{Connection, params};
     use std::collections::{HashMap, HashSet};
@@ -1595,7 +1595,7 @@ mod sql_parity {
     /// (sql_path_ids, in_memory_ids) pair as `HashSet<i64>` so the
     /// caller asserts equality independent of ordering.
     fn ids_from_both_paths(conn: &Connection, query: &str) -> (HashSet<i64>, HashSet<i64>) {
-        let parsed = atrium_search::parse(query).unwrap();
+        let parsed = atrium_core::search::parse(query);
 
         // In-memory path.
         let tag_names = read::tag_names_per_task(conn).unwrap_or_default();
@@ -1615,7 +1615,7 @@ mod sql_parity {
 
         // SQL path — only valid when try_translate returns Some.
         let sql_path: HashSet<i64> =
-            if let Some(clause) = atrium_search::try_translate(&parsed.expr, today()) {
+            if let Some(clause) = atrium_core::search::try_translate(&parsed.expr, today()) {
                 let params: Vec<atrium_core::SqlBindValue> =
                     clause.params.iter().map(Into::into).collect();
                 read::list_tasks_matching(conn, &clause.sql, &params)
@@ -1741,21 +1741,21 @@ mod sql_parity {
 
     #[test]
     fn falls_back_for_regex() {
-        let parsed = atrium_search::parse("tag:~wo").unwrap();
-        assert!(atrium_search::try_translate(&parsed.expr, today()).is_none());
+        let parsed = atrium_core::search::parse("tag:~wo");
+        assert!(atrium_core::search::try_translate(&parsed.expr, today()).is_none());
     }
 
     #[test]
     fn falls_back_for_fuzzy() {
-        let parsed = atrium_search::parse("tag:?wrok").unwrap();
-        assert!(atrium_search::try_translate(&parsed.expr, today()).is_none());
+        let parsed = atrium_core::search::parse("tag:?wrok");
+        assert!(atrium_core::search::try_translate(&parsed.expr, today()).is_none());
     }
 
     #[test]
     fn falls_back_for_is_today() {
         // is:today is composite (mirrors list_today's deadline
         // window etc.); deferred from v1 SQL translation.
-        let parsed = atrium_search::parse("is:today").unwrap();
-        assert!(atrium_search::try_translate(&parsed.expr, today()).is_none());
+        let parsed = atrium_core::search::parse("is:today");
+        assert!(atrium_core::search::try_translate(&parsed.expr, today()).is_none());
     }
 }
