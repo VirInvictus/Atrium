@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## v0.70.2 (2026-08-25)
+
+- **Build:** Refreshed dependency locks: `vir-search` 1.0.2 (parser fixes from the post-extraction bug sweep) and `vir-gtk` 1.0.2.
+
 ## v0.70.1 (2026-08-24)
 
 - **Build:** Fixed CLI compilation errors following vir-search migration; fixed lint errors.
