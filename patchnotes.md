@@ -1,5 +1,13 @@
 # Atrium — Patch Notes
 
+## v0.71.1 (2026-09-04): the note-body serif resolves on fresh installs
+
+One line of stylesheet, found by the Phase 8 carryover font verification run inside the Flatpak sandbox. The note-body serif stack requested `"Source Serif 4"`, but the bundled file is the variable font, which registers under the family name `"Source Serif 4 Variable"`. On a fresh install (the Flatpak, or any new machine) fontconfig therefore fell through the stack to the generic `serif` alias, and note bodies rendered in the system serif while everything looked fine to anyone whose machine had older fonts lying around. Existing installs were masked by a static Source Serif 4 from years past, which is why the look had passed every visual pass. The stack now carries the Variable name alongside the static one, mirroring the UI and mono stacks (which already listed both spellings for Inter and JetBrains Mono).
+
+Verified inside the GNOME 50 sandbox: after the app's first-run font install into the app-scoped data dir, fc-match resolves all four bundled families. The verification run also confirmed the offline Flatpak compile works against the regenerated `data/cargo-sources.json`, including the two git dependencies. One environment gap is recorded rather than fixed: the final `flatpak-builder --install` export fails on current Fedora because librsvg dropped its pixbuf SVG loader, which the host-side icon validator needs (the manifest's appstream-compose note anticipated the sibling case; Flathub's own toolchain does its own validation).
+
+One CSS line; no code, schema, or dependency change.
+
 ## v0.71.0 (2026-09-04): the Phase 23 sweep closes, and the Builder pane learns the keyboard
 
 The 2026-08-23 codebase sweep's bug list is now fully closed, plus the agent-executable half of the Phase 21 tiling-first audit. No schema change (schema version stays 20); no new dependencies.

@@ -110,6 +110,14 @@
   -->
 
   <releases>
+    <release version="0.71.1" date="2026-09-04">
+      <description translate="no">
+        <p>Fixes a fresh-install typography miss: note bodies fell
+           back to the generic system serif because the bundled
+           variable font registers under a slightly different family
+           name than the one the stylesheet requested.</p>
+      </description>
+    </release>
     <release version="0.71.0" date="2026-09-04">
       <description translate="no">
         <p>Six fixes and a Builder polish pass. Tasks edited in an

@@ -20,7 +20,12 @@
 
 :root {
   --atrium-font-ui:    "Inter", "Inter Variable", system-ui, sans-serif;
-  --atrium-font-serif: "Source Serif 4", "Source Serif Pro", serif;
+  /* v0.71.1 — the bundled file is the VARIABLE font, which registers
+   * under the family name "Source Serif 4 Variable"; without that
+   * name in the stack a fresh install (the Flatpak, any new machine)
+   * fell through to the generic serif. Found by the Phase 8-carryover
+   * sandbox font verification. */
+  --atrium-font-serif: "Source Serif 4", "Source Serif 4 Variable", "Source Serif Pro", serif;
   --atrium-font-mono:  "JetBrains Mono", "JetBrainsMono", monospace;
 
   /* Inter looks best with these alternates: cv11 = curved-l (kills the
