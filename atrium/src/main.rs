@@ -803,6 +803,9 @@ fn install_accels(app: &gtk::Application) {
     // Phase 7i — Ctrl+I (or double-click on a row) opens the Inspector.
     app.set_accels_for_action("win.edit-details-focused", &["<Primary>i"]);
 
+    // Phase 21 — Ctrl+Shift+I toggles the Builder Inspector pane.
+    app.set_accels_for_action("win.toggle-inspector", &["<Primary><Shift>i"]);
+
     // Tier D (v0.40.x) — Alt+Up / Alt+Down keyboard-reorder the focused
     // task on position-ordered lists (a keyboard alternative to drag).
     app.set_accels_for_action("win.move-task-up", &["<Alt>Up"]);

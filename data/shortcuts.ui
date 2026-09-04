@@ -146,6 +146,12 @@
             </child>
             <child>
               <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Show / hide the Builder Inspector pane</property>
+                <property name="accelerator">&lt;Primary&gt;&lt;Shift&gt;i</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
                 <property name="title" translatable="yes">Move focused task up / down (position-ordered lists)</property>
                 <property name="accelerator">&lt;Alt&gt;Up &lt;Alt&gt;Down</property>
               </object>

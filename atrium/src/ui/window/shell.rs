@@ -361,6 +361,26 @@ impl AtriumWindow {
         }
     }
 
+    /// Phase 21 — keyboard dismiss for the Builder Inspector pane.
+    /// `Ctrl+I` opens the pane's editor for the focused task, but
+    /// until now nothing closed it: the pane is non-modal and
+    /// always-visible, so it can't borrow the dialogs' Escape path.
+    /// `win.toggle-inspector` (`Ctrl+Shift+I`) flips the pane host's
+    /// visibility — the same `set_visible` call `apply_mode` makes —
+    /// gated to Builder Mode, and hands focus back to the task list
+    /// when hiding so the next keystroke lands in the content.
+    pub(crate) fn toggle_inspector_pane(&self) {
+        if !self.imp().current_mode_is_builder.get() {
+            return;
+        }
+        let host = &self.imp().inspector_pane_host;
+        let now_visible = !host.is_visible();
+        host.set_visible(now_visible);
+        if !now_visible {
+            self.imp().task_list_view.grab_focus();
+        }
+    }
+
     /// Phase 10 — Builder-mode-aware project metadata cache.
     /// `rebuild_dynamic_sidebar` calls this so the project_extras
     /// toolbar can populate correctly when the user selects a

@@ -218,6 +218,17 @@ impl AtriumWindow {
             move |_, _| win.open_inspector_focused()
         ));
         self.add_action(&edit_details);
+
+        // Phase 21 — Ctrl+Shift+I toggles the Builder Inspector pane
+        // (open/close). The pane is non-modal, so it can't borrow the
+        // dialogs' Escape-to-dismiss; it carries its own binding.
+        let toggle_inspector = gio::SimpleAction::new("toggle-inspector", None);
+        toggle_inspector.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.toggle_inspector_pane()
+        ));
+        self.add_action(&toggle_inspector);
         let edit_details_for =
             gio::SimpleAction::new("edit-details-for", Some(&i64::static_variant_type()));
         edit_details_for.connect_activate(clone!(

@@ -37,6 +37,7 @@ These act on the focused row in the current list. From Phase 7h, the three input
 | `Double-click` | Start inline editing on the row's title (v0.1.10). Single click selects + holds focus. |
 | `Ctrl+T` | Open the tag editor for the focused / first-selected task (Phase 7g). Right-click on a task row also surfaces *Edit Tags…* |
 | `Ctrl+I` | Open the Inspector (full task editor — title, notes, schedule, deadline, project, tags) for the focused / first-selected task (Phase 7i). Right-click → *Edit Details…* is the menu equivalent. |
+| `Ctrl+Shift+I` | Builder Mode: show / hide the right-hand Inspector pane. The pane is non-modal, so it carries its own binding rather than borrowing the dialogs' Escape; hiding returns focus to the task list. (Phase 21.) |
 | `Alt+Up` / `Alt+Down` | Move the focused task up / down — a keyboard alternative to drag-reorder. Position-ordered lists only (Inbox, Anytime, Someday, project and area pages); on a date-sorted list it declines with the same toast a drag would (v0.40.x, Tier D). |
 | `Alt+Left` / `Alt+Right` | Board views: move the focused card into the previous / next column — the keyboard alternative to a cross-column drag, through the same move path (tag or status change + persisted order). Cards are Tab-focusable; edge moves are silent no-ops. Contextual to the focused card (a key controller on the row, not an `install_accels` entry). (v0.68.0, A16.) |
 | `Ctrl+Click` | Toggle row in the multi-selection (Phase 7c) |
