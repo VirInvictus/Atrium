@@ -1,0 +1,1 @@
+{{#include ../../docs/hyprland.md}}

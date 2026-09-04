@@ -14,6 +14,7 @@
 # Reference
 
 - [Keyboard map](keymap.md)
+- [Hyprland notes](hyprland.md)
 - [Database schema](schema.md)
 - [Accessibility](accessibility.md)
 - [Performance](performance.md)

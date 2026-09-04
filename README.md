@@ -185,7 +185,7 @@ scripts/regression.sh
 - [`spec.md`](spec.md): the contract (architecture, schema, search grammar, import/export mapping, perf budget).
 - [`roadmap.md`](roadmap.md): the phase plan, what shipped and what's next.
 - [`patchnotes.md`](patchnotes.md): release notes, newest first.
-- [`docs/`](docs/): references including [keymap](docs/keymap.md), [schema](docs/schema.md), [Org round-trip](docs/org-roundtrip.md), [accessibility](docs/accessibility.md), [performance](docs/perf-baseline.md), and [GTD patterns](docs/gtd-patterns.md).
+- [`docs/`](docs/): references including [keymap](docs/keymap.md), [Hyprland window rules](docs/hyprland.md), [schema](docs/schema.md), [Org round-trip](docs/org-roundtrip.md), [accessibility](docs/accessibility.md), [performance](docs/perf-baseline.md), and [GTD patterns](docs/gtd-patterns.md).
 
 ## Influences
 
