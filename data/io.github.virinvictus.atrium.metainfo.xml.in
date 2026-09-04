@@ -110,6 +110,15 @@
   -->
 
   <releases>
+    <release version="0.72.0" date="2026-09-04">
+      <description translate="no">
+        <p>Org round-trip hardening and a narrow-window layout. Notes
+           starting with a star, hand-authored schedule warnings, and
+           deadline repeaters all survive the two-way sync now; and on
+           narrow tiles the side panes fold out of the way, with
+           keyboard chords to bring each back.</p>
+      </description>
+    </release>
     <release version="0.71.1" date="2026-09-04">
       <description translate="no">
         <p>Fixes a fresh-install typography miss: note bodies fell

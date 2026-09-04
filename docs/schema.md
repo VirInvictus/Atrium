@@ -2,7 +2,7 @@
 
 This document is the **rationale** for the schema. The **contract** lives in [`spec.md`](../spec.md) §4 and the canonical SQL in [`atrium-core/src/db/migrations/0001_initial.sql`](../atrium-core/src/db/migrations/0001_initial.sql). When in doubt, the SQL wins.
 
-> **Schema discipline.** Migration `0001_initial.sql` shipped the full OmniFocus superset. The v0.1 line was schema-frozen — every Builder-mode column already existed. The freeze ended at v0.2.0. Migrations are now **append-only and backwards-compatible**: add columns / tables / triggers / indexes; renames + drops are major-bump-only. Current `user_version`: **20**. Migration history below.
+> **Schema discipline.** Migration `0001_initial.sql` shipped the full OmniFocus superset. The v0.1 line was schema-frozen — every Builder-mode column already existed. The freeze ended at v0.2.0. Migrations are now **append-only and backwards-compatible**: add columns / tables / triggers / indexes; renames + drops are major-bump-only. Current `user_version`: **21**. Migration history below.
 
 ## Migration history
 
@@ -28,6 +28,7 @@ This document is the **rationale** for the schema. The **contract** lives in [`s
 | `0018_task_reminder_fired.sql` | Phase 19.5 follow-up / v0.41.0 | Adds the `task_reminder_fired` side table so launch catch-up can fire overdue reminders exactly once. ⚠ Known flaw, shipped and unfixable in place (append-only discipline): the backfill compared `reminder_at` against a `T`-separated boundary string while the column stores space-separated timestamps, so a reminder due later the *same day* as the upgrade was marked already-fired and never notified. One-time upgrade damage only; lesson recorded here — string date comparisons in migrations must match rusqlite's actual serialization format |
 | `0019_board_card_position.sql` | Kanban maturity 2d / v0.46.0 | Adds the `board_card_position` side table — persisted manual within-column card order per (perspective, column, task); columns themselves stay projections |
 | `0020_swatch_kanagawa.sql` | Phase 22 C9 / v0.62.0 | UPDATE-only recolour of the six built-in tag / area swatch hexes from the adwaita palette to Kanagawa Dragon, in lockstep with the owned stylesheet |
+| `0021_task_org_cookie_fields.sql` | Phase 24 / v0.72.0 | Adds `task.scheduled_warning_days` (INTEGER NULL — the `-Nd` suffix on the SCHEDULED cookie; mirrors 0008's deadline-side column) and `task.deadline_repeater` (TEXT NULL — the DEADLINE cookie's repeater fragment stored verbatim, `+1m` shaped), so hand-authored cookie fragments stop being dropped on re-emit |
 
 ## Entity-Relationship diagram
 

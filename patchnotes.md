@@ -1,5 +1,17 @@
 # Atrium — Patch Notes
 
+## v0.72.0 (2026-09-04): the vault stops losing things, and narrow tiles get usable
+
+Three items from the codebase sweep's deferred findings, plus the first real feature of the tiling-forward pass. Schema version 20 → 21 (migration 0021, additive). No new dependencies.
+
+**Fixed: notes starting with `*` no longer destroy themselves.** A note line beginning with `* ` (a natural bullet to type) was written to the vault verbatim, so the next read parsed it as a new headline: the note was gone and a phantom heading had appeared. The writer now indents such lines exactly one space and the reader strips that space back off — self-consistent, invisible in Atrium, and inert in Emacs, where ` * text` is plain body text. Spec §7.3.3 rule 1 documents the carve-out the Org grammar forces.
+
+**Fixed: hand-authored SCHEDULED warning suffixes and DEADLINE repeaters survive.** Writing `SCHEDULED: <2026-09-10 Thu -3d>` or a `+1m` repeater on a DEADLINE cookie in Emacs used to be pointless: neither fragment had a column, so every Atrium flush deleted it. Migration 0021 adds `task.scheduled_warning_days` and `task.deadline_repeater` (the cookie text, stored verbatim), the importer and the two-way sync both populate them, the writer projects them back onto the emitted cookies, and repeat-task respawns plus delete/undo carry them forward. The SCHEDULED repeater stays canonical-RRULE-driven per §7.3.3 rule 3.
+
+**New: staged pane collapse for narrow tiles.** The Builder layout had no adaptive escape: with both panes up, a quarter-tile window was sidebar + content + inspector with no way through. The window now works in three width bands off the same resize watcher the Calendar uses: wide (unchanged), compact below 600 px (the Inspector pane folds, joining the existing toolbar tightening and calendar strip), and narrow below 420 px (the Lists sidebar folds too). Folding is a default, not a lockdown: `Ctrl+Shift+I` and a new `Ctrl+Shift+L` toggle either pane while folded, with the pin lasting for the narrow episode; `Ctrl+L` also reveals a folded sidebar by focusing its filter. Closing a narrow window no longer clobbers the last saved pane widths.
+
+Workspace suite green; `scripts/regression.sh` PASS. New coverage: star-body and older-file round-trip tests, a watcher integration test driving hand-authored cookie fragments through sync, DB, and re-emit.
+
 ## v0.71.1 (2026-09-04): the note-body serif resolves on fresh installs
 
 One line of stylesheet, found by the Phase 8 carryover font verification run inside the Flatpak sandbox. The note-body serif stack requested `"Source Serif 4"`, but the bundled file is the variable font, which registers under the family name `"Source Serif 4 Variable"`. On a fresh install (the Flatpak, or any new machine) fontconfig therefore fell through the stack to the generic `serif` alias, and note bodies rendered in the system serif while everything looked fine to anyone whose machine had older fonts lying around. Existing installs were masked by a static Source Serif 4 from years past, which is why the look had passed every visual pass. The stack now carries the Variable name alongside the static one, mirroring the UI and mono stacks (which already listed both spellings for Inter and JetBrains Mono).

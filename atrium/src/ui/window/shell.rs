@@ -259,7 +259,9 @@ impl AtriumWindow {
 
         let inspector_visible = self.imp().current_mode_is_builder.get()
             && (!compact || self.imp().inspector_revealed_compact.get());
-        self.imp().inspector_pane_host.set_visible(inspector_visible);
+        self.imp()
+            .inspector_pane_host
+            .set_visible(inspector_visible);
 
         let sidebar_visible = !narrow || self.imp().sidebar_revealed_narrow.get();
         self.imp().sidebar_pane.set_visible(sidebar_visible);
@@ -439,8 +441,8 @@ impl AtriumWindow {
     /// narrow, an explicit toggle pins it for the episode, exactly
     /// like the Inspector's compact pin.
     pub(crate) fn toggle_sidebar_pane(&self) {
-        let narrow = self.default_width() > 0
-            && self.default_width() < crate::ui::NARROW_WIDTH_THRESHOLD;
+        let narrow =
+            self.default_width() > 0 && self.default_width() < crate::ui::NARROW_WIDTH_THRESHOLD;
         if narrow {
             let revealed = self.imp().sidebar_revealed_narrow.get();
             self.imp().sidebar_revealed_narrow.set(!revealed);
