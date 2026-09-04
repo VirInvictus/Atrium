@@ -1,5 +1,17 @@
 [
     {
+        "type": "git",
+        "url": "https://github.com/virinvictus/vir-gtk",
+        "commit": "1ac027a46c2e4f0a37399041132eb0f597e3fc1a",
+        "dest": "flatpak-cargo/git/vir-gtk-1ac027a"
+    },
+    {
+        "type": "git",
+        "url": "https://github.com/virinvictus/vir-search",
+        "commit": "0b377bdb4ce552360bcd1d1e06cd16d284bc5a5e",
+        "dest": "flatpak-cargo/git/vir-search-0b377bd"
+    },
+    {
         "type": "archive",
         "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/ahash/ahash-0.8.12.crate",
@@ -1705,6 +1717,32 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/tinyvec/tinyvec-1.12.0.crate",
+        "sha256": "bb4ebadaa0af04fab11ae01eb5f9fdb5f9c5b875506e210e71c07873528baa7f",
+        "dest": "cargo/vendor/tinyvec-1.12.0"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"bb4ebadaa0af04fab11ae01eb5f9fdb5f9c5b875506e210e71c07873528baa7f\", \"files\": {}}",
+        "dest": "cargo/vendor/tinyvec-1.12.0",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/tinyvec_macros/tinyvec_macros-0.1.1.crate",
+        "sha256": "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20",
+        "dest": "cargo/vendor/tinyvec_macros-0.1.1"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20\", \"files\": {}}",
+        "dest": "cargo/vendor/tinyvec_macros-0.1.1",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/tokio/tokio-1.52.2.crate",
         "sha256": "110a78583f19d5cdb2c5ccf321d1290344e71313c6c37d43520d386027d18386",
         "dest": "cargo/vendor/tokio-1.52.2"
@@ -1874,6 +1912,19 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/unicode-normalization/unicode-normalization-0.1.25.crate",
+        "sha256": "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8",
+        "dest": "cargo/vendor/unicode-normalization-0.1.25"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8\", \"files\": {}}",
+        "dest": "cargo/vendor/unicode-normalization-0.1.25",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/unicode-xid/unicode-xid-0.2.6.crate",
         "sha256": "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853",
         "dest": "cargo/vendor/unicode-xid-0.2.6"
@@ -1947,6 +1998,42 @@
         "type": "inline",
         "contents": "{\"package\": \"0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a\", \"files\": {}}",
         "dest": "cargo/vendor/version_check-0.9.5",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "shell",
+        "commands": [
+            "cp -r --reflink=auto \"flatpak-cargo/git/vir-gtk-1ac027a/.\" \"cargo/vendor/vir-gtk\""
+        ]
+    },
+    {
+        "type": "inline",
+        "contents": "[package]\nname = \"vir-gtk\"\nversion = \"1.0.2\"\nedition = \"2021\"\n\n[dependencies]\ntracing = \"0.1\"\n\n[dependencies.gtk4]\nversion = \"0.9\"\nfeatures = [\"v4_14\"]\n",
+        "dest": "cargo/vendor/vir-gtk",
+        "dest-filename": "Cargo.toml"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": null, \"files\": {}}",
+        "dest": "cargo/vendor/vir-gtk",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "shell",
+        "commands": [
+            "cp -r --reflink=auto \"flatpak-cargo/git/vir-search-0b377bd/.\" \"cargo/vendor/vir-search\""
+        ]
+    },
+    {
+        "type": "inline",
+        "contents": "[package]\nname = \"vir-search\"\nversion = \"1.0.2\"\nedition = \"2024\"\nrust-version = \"1.85\"\nlicense = \"MIT\"\nrepository = \"https://github.com/VirInvictus/vir-search\"\nauthors = [\"Brandon LaRocque\"]\ndescription = \"Calibre-style search expression parser, AST, and relevance engine.\"\n\n[dependencies]\nregex = \"1.10\"\nchrono = \"0.4\"\nunicode-normalization = \"0.1\"\n",
+        "dest": "cargo/vendor/vir-search",
+        "dest-filename": "Cargo.toml"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": null, \"files\": {}}",
+        "dest": "cargo/vendor/vir-search",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -2640,7 +2727,7 @@
     },
     {
         "type": "inline",
-        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n",
+        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/virinvictus/vir-gtk\"]\ngit = \"https://github.com/virinvictus/vir-gtk\"\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/virinvictus/vir-search\"]\ngit = \"https://github.com/virinvictus/vir-search\"\nreplace-with = \"vendored-sources\"\n",
         "dest": "cargo",
         "dest-filename": "config"
     }
