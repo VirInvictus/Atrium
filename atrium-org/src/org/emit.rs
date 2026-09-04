@@ -283,8 +283,20 @@ fn emit_task(task: &OrgTask, out: &mut String) {
 
     // Body. Already stored without the trailing newline (parser
     // strips it on read); we add one here to terminate.
+    //
+    // Phase 24 (v0.72.0) — body lines beginning with `*` are indented
+    // exactly one space so the next read sees body text instead of a
+    // phantom headline; the parser strips the same space on read,
+    // making the indent invisible to every consumer (Emacs renders
+    // " * bullet" as plain body text). This is the emit half of the
+    // parse.rs body_line rule — change them together.
     if !task.body.is_empty() {
-        out.push_str(&task.body);
+        for line in task.body.split_inclusive('\n') {
+            if line.starts_with('*') {
+                out.push(' ');
+            }
+            out.push_str(line);
+        }
         out.push('\n');
     }
 
@@ -749,6 +761,50 @@ fn foo() {}
 #+END_SRC
 ",
         );
+    }
+
+    #[test]
+    fn body_line_starting_with_star_survives_round_trip() {
+        // The v0.67.0 sweep's data-destroyer: a note line starting
+        // with `* ` used to re-parse as a headline on the next read,
+        // destroying the note and spawning a phantom heading. The
+        // emitter now indents such lines exactly one space; the
+        // parser strips the same space, so a note stored in the DB
+        // round-trips and the indent is never visible to Emacs or
+        // back in Atrium. (A literal column-0 `* text` in a
+        // hand-authored file remains an Org headline by definition —
+        // that's what the syntax means; the fix protects the
+        // Atrium DB → vault → DB loop, which is where notes lived.)
+        let first = parse_org_text("* TODO Notes\n * bullet one\nplain line\n");
+        assert_eq!(first.len(), 1, "escaped star body must not become a headline");
+        let task = &first[0];
+        assert_eq!(task.body, "* bullet one\nplain line");
+
+        let emitted = emit_org_text(&first);
+        assert!(
+            emitted.contains("\n * bullet one\n"),
+            "emitted body must indent the star line:\n{emitted}"
+        );
+
+        let second = parse_org_text(&emitted);
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].body, task.body);
+        assert_eq!(first, second, "post-fix round-trip must be stable");
+    }
+
+    #[test]
+    fn indented_body_lines_from_older_files_stay_stable() {
+        // A line the OLD writer left as " * text" (literal leading
+        // space, no star) is body text under both regimes and keeps
+        // its bytes. A line " * star" written by an older version
+        // loses its one-space indent once on first read (the
+        // documented cost of the repair) and is stable thereafter.
+        let first = parse_org_text("* TODO T\n  indented prose\n * star note\n");
+        let task = &first[0];
+        assert_eq!(task.body, "  indented prose\n* star note");
+        let emitted = emit_org_text(&first);
+        let second = parse_org_text(&emitted);
+        assert_eq!(first, second);
     }
 
     #[test]

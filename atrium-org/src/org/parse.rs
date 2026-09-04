@@ -415,10 +415,19 @@ pub fn parse_org_text_with_meta(text: &str) -> OrgFile {
         }
 
         // Otherwise the line is body content; preserve verbatim.
+        // Phase 24 (v0.72.0) — a body line beginning with `*` would
+        // re-parse as a headline on the next read and destroy the
+        // note. The emitter indents such lines one space; strip
+        // exactly that one space here. Lines with any other shape
+        // keep their bytes, so existing bodies are untouched.
+        let body_line = match raw_line.strip_prefix(' ') {
+            Some(rest) if rest.starts_with('*') => rest,
+            _ => raw_line,
+        };
         if !task.body.is_empty() {
             task.body.push('\n');
         }
-        task.body.push_str(raw_line);
+        task.body.push_str(body_line);
     }
 
     if let Some(task) = current.take() {
