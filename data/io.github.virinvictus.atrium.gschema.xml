@@ -40,6 +40,18 @@
       <description>Width of the sidebar pane in pixels.</description>
     </key>
 
+    <key name="inspector-width" type="i">
+      <default>-1</default>
+      <summary>Builder Inspector pane width</summary>
+      <description>
+        Width of the Builder Mode Inspector pane in pixels, saved on
+        close. -1 means never set: the divider is then derived from
+        the restored window width (about 380 pixels from the end)
+        instead of the template's fixed position, which hands the
+        pane over half of a wide window on first run.
+      </description>
+    </key>
+
     <key name="quick-entry-shortcut" type="s">
       <default>"&lt;Control&gt;&lt;Alt&gt;space"</default>
       <summary>Global Quick Entry shortcut</summary>

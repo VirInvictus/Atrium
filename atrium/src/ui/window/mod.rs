@@ -47,6 +47,17 @@ use crate::ui::task_list::{
 /// the cell be replaced wholesale every time `show_undo_toast` runs.
 type UndoCell = Rc<RefCell<Option<Box<dyn FnOnce()>>>>;
 
+/// Phase 21 — first-run Inspector pane width, measured from the
+/// window's end edge, used when `inspector-width` has never been
+/// saved. The template's fixed divider position handed the pane over
+/// half of a 1920 px window on first boot.
+const DEFAULT_INSPECTOR_WIDTH: i32 = 380;
+
+/// The content column never shrinks below this when deriving the
+/// first-run Inspector divider; below the sum the template position
+/// stays.
+const MIN_CONTENT_WIDTH: i32 = 560;
+
 mod imp {
     use super::*;
 
@@ -456,7 +467,23 @@ impl AtriumWindow {
         if sidebar > 0 {
             self.imp().split_view.set_position(sidebar);
         }
-        debug!(width, height, maximized, sidebar, "restored window state");
+        // Phase 21 — the content/Inspector divider. The template's
+        // 760 px position hands the Builder pane over half of a
+        // 1920 px window on first run; key it to the restored window
+        // width instead (about 380 px from the end). Once the user
+        // has dragged the divider, save_window_state persists the
+        // pane's width and that wins. Positions are honored by
+        // GtkPaned even when set before the first allocation.
+        let inspector = settings.int("inspector-width");
+        let target = if inspector > 0 {
+            inspector
+        } else {
+            DEFAULT_INSPECTOR_WIDTH
+        };
+        if width - target >= MIN_CONTENT_WIDTH {
+            self.imp().overlay_split.set_position(width - target);
+        }
+        debug!(width, height, maximized, sidebar, inspector, "restored window state");
     }
 
     fn save_window_state(&self) {
@@ -466,6 +493,15 @@ impl AtriumWindow {
         let _ = settings.set_int("window-height", height);
         let _ = settings.set_boolean("window-maximized", self.is_maximized());
         let _ = settings.set_int("sidebar-width", self.imp().split_view.position());
+        // The Inspector's user intent is its WIDTH (stable across
+        // window sizes), not the divider position (which depends on
+        // the window width), so store the derived width. Skipped in
+        // Simple Mode, where the hidden pane's position degenerates
+        // and would clobber the last Builder-dragged width.
+        if self.imp().inspector_pane_host.is_visible() {
+            let inspector = (width - self.imp().overlay_split.position()).max(0);
+            let _ = settings.set_int("inspector-width", inspector);
+        }
     }
 }
 
