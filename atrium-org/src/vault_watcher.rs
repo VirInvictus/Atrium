@@ -522,23 +522,56 @@ impl VaultWatcher {
         project_id: i64,
         parsed: &OrgFile,
     ) -> Result<(), DbError> {
-        // Title-only sync today — `#+TITLE:` flows back when it
-        // changes. The other file-level fields (`:SEQUENTIAL:`,
-        // `:REVIEW_INTERVAL:`, `:LAST_REVIEWED:`, `:ARCHIVED:`)
-        // round-trip on import, but we don't pick up their
-        // mutations from external edits yet. roadmap.md §17
-        // follow-up.
-        let parsed_title = match parsed.directives.get("TITLE") {
-            Some(t) => t.clone(),
-            None => return Ok(()),
-        };
         let existing = self
             .pool
             .with(|conn| atrium_core::db::read::project_by_id(conn, project_id))?;
-        if let Some(p) = existing
-            && p.title != parsed_title
+        let Some(p) = existing else {
+            return Ok(());
+        };
+
+        let mut update = ProjectUpdate::new(project_id);
+
+        // #+TITLE: flows back when it changes.
+        if let Some(t) = parsed.directives.get("TITLE")
+            && *t != p.title
         {
-            let update = ProjectUpdate::new(project_id).title(parsed_title);
+            update = update.title(t.clone());
+        }
+
+        // The file-level drawer's project fields follow. The watcher
+        // synced only the title for years; :SEQUENTIAL: and
+        // :REVIEW_INTERVAL: edits in Emacs never reached the DB.
+        // Semantics mirror the importer (org::import): SEQUENTIAL's
+        // truthy spellings map true and absence maps false (matching
+        // what an import of this file would produce); an absent
+        // REVIEW_INTERVAL clears the cadence, but a present-yet-
+        // unparseable one is left alone — a typo must not wipe the
+        // schedule. :LAST_REVIEWED: / :ARCHIVED: stay write-path-only:
+        // mark_reviewed and archive are the intended writers, and a
+        // watcher override would fight them.
+        let sequential_truthy = parsed
+            .file_properties
+            .get("SEQUENTIAL")
+            .is_some_and(|v| matches!(v.as_str(), "t" | "T" | "true" | "TRUE" | "1"));
+        if sequential_truthy != p.sequential {
+            update = update.sequential(sequential_truthy);
+        }
+        match parsed.file_properties.get("REVIEW_INTERVAL") {
+            Some(v) => {
+                if let Ok(days) = v.parse::<i64>()
+                    && p.review_interval_days != Some(days)
+                {
+                    update = update.review_interval_days(Some(days));
+                }
+            }
+            None => {
+                if p.review_interval_days.is_some() {
+                    update = update.review_interval_days(None);
+                }
+            }
+        }
+
+        if !update.is_noop() {
             self.handle.update_project(update).await?;
         }
         Ok(())

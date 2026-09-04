@@ -348,6 +348,75 @@ async fn external_create_with_effort_and_defer_keeps_them() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn external_project_metadata_edits_sync_to_db() {
+    // Regression for title-only project sync: :SEQUENTIAL: and
+    // :REVIEW_INTERVAL: edited in Emacs never reached the DB.
+    let _serial = serialize().await;
+    let (conn, vault, pool) = fresh_setup("ext-project-meta");
+    let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
+    let project_path = vault.join("Errands.org");
+
+    // External edit: two project-level keys into the file-level
+    // drawer (the first drawer in the file, above the headline).
+    let text = std::fs::read_to_string(&project_path).unwrap();
+    let pos = text.find(":PROPERTIES:\n").expect("file-level drawer present");
+    let insert_at = pos + ":PROPERTIES:\n".len();
+    let mut edited = String::with_capacity(text.len() + 64);
+    edited.push_str(&text[..insert_at]);
+    edited.push_str(":SEQUENTIAL: t\n:REVIEW_INTERVAL: 14\n");
+    edited.push_str(&text[insert_at..]);
+    std::fs::write(&project_path, edited).unwrap();
+
+    // The watcher syncs both into the project row.
+    let settled = wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::project_by_id(conn, project_id))
+            .map(|p| p.is_some_and(|p| p.sequential && p.review_interval_days == Some(14)))
+            .unwrap_or(false)
+    })
+    .await;
+    assert!(
+        settled,
+        "external :SEQUENTIAL: / :REVIEW_INTERVAL: edits never synced to the DB"
+    );
+
+    // The writer then re-emits the file from canonical, carrying the
+    // keys. Wait for THAT rewrite — not just for the keys' presence,
+    // which my own insert above already satisfies — by watching for
+    // the writer's sorted-key layout (:REVIEW_INTERVAL: before
+    // :SEQUENTIAL:); my inserted order was the reverse. Stripping
+    // before this flush lands would race it and restore the keys.
+    wait_until(SETTLE, || {
+        std::fs::read_to_string(&project_path)
+            .map(|t| t.contains(":REVIEW_INTERVAL: 14\n:SEQUENTIAL: t"))
+            .unwrap_or(false)
+    })
+    .await;
+
+    // Reverse direction: strip the keys (as deleting those lines in
+    // Emacs would); the DB fields clear, mirroring what an import of
+    // the file would produce.
+    let text = std::fs::read_to_string(&project_path).unwrap();
+    let cleared = text
+        .replace(":SEQUENTIAL: t\n", "")
+        .replace(":REVIEW_INTERVAL: 14\n", "");
+    std::fs::write(&project_path, cleared).unwrap();
+
+    let settled = wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::project_by_id(conn, project_id))
+            .map(|p| p.is_some_and(|p| !p.sequential && p.review_interval_days.is_none()))
+            .unwrap_or(false)
+    })
+    .await;
+    assert!(
+        settled,
+        "removing the drawer keys never cleared the project fields"
+    );
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&vault);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn external_add_under_subheading_creates_db_task() {
     let _serial = serialize().await;
     // Regression for the flatten_one early-return: TODOs nested
