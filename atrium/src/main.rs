@@ -806,6 +806,10 @@ fn install_accels(app: &gtk::Application) {
     // Phase 21 — Ctrl+Shift+I toggles the Builder Inspector pane.
     app.set_accels_for_action("win.toggle-inspector", &["<Primary><Shift>i"]);
 
+    // Phase 24 — Ctrl+Shift+L toggles the Lists sidebar (staged
+    // collapse reveal in the narrow band).
+    app.set_accels_for_action("win.toggle-sidebar", &["<Primary><Shift>l"]);
+
     // Tier D (v0.40.x) — Alt+Up / Alt+Down keyboard-reorder the focused
     // task on position-ordered lists (a keyboard alternative to drag).
     app.set_accels_for_action("win.move-task-up", &["<Alt>Up"]);

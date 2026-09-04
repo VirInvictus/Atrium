@@ -244,6 +244,17 @@ impl AtriumWindow {
         ));
         self.add_action(&edit_details_for);
 
+        // Phase 24 — Ctrl+Shift+L toggles the Lists sidebar. Only
+        // meaningful in the narrow band (where the staged collapse
+        // folds it); elsewhere it re-applies the same visible state.
+        let toggle_sidebar = gio::SimpleAction::new("toggle-sidebar", None);
+        toggle_sidebar.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |_, _| win.toggle_sidebar_pane()
+        ));
+        self.add_action(&toggle_sidebar);
+
         // Tier D (v0.39.3) — quick reschedule from the row context
         // menu's Schedule submenu. Target is `(task_id, keyword)` where
         // keyword is today / tomorrow / weekend / nextweek / someday /
@@ -319,12 +330,18 @@ impl AtriumWindow {
         ));
         self.add_action(&undo);
 
-        // Phase 7e — focus the sidebar filter (Ctrl+L).
+        // Phase 7e — focus the sidebar filter (Ctrl+L). Phase 24: if
+        // the staged collapse has the sidebar folded, focusing the
+        // filter reveals it first.
         let focus_sidebar_filter = gio::SimpleAction::new("focus-sidebar-filter", None);
         focus_sidebar_filter.connect_activate(clone!(
             #[weak(rename_to = win)]
             self,
             move |_, _| {
+                if !win.imp().sidebar_pane.is_visible() {
+                    win.imp().sidebar_revealed_narrow.set(true);
+                    win.update_compact_panes();
+                }
                 let entry = win.imp().sidebar_filter.clone();
                 entry.grab_focus();
                 entry.select_region(0, -1);

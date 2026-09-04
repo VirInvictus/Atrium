@@ -75,12 +75,14 @@
             <property name="shrink-start-child">false</property>
 
             <property name="start-child">
-                  <object class="GtkBox">
+                  <object class="GtkBox" id="sidebar_pane">
                     <!-- Phase 22 C8 — was AdwToolbarView. v0.7.1 — the
                          class scopes the sidebar's flat atmospheric tint
                          (.atrium-sidebar-pane in data/style.css) to the
                          whole surface so the headerbar, filter entry, and
-                         listbox all share one continuous tone. -->
+                         listbox all share one continuous tone. Phase 24:
+                         the id lets the window fold the sidebar in the
+                         narrow band (staged collapse). -->
                     <property name="orientation">vertical</property>
                     <style>
                       <class name="atrium-sidebar-pane"/>

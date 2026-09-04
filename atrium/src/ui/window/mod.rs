@@ -70,6 +70,11 @@ mod imp {
         pub inspector_pane_host: TemplateChild<gtk::Box>,
         #[template_child]
         pub split_view: TemplateChild<gtk::Paned>,
+        /// Phase 24 — the sidebar's host box (the split_view
+        /// start-child). Hidden wholesale when the window enters the
+        /// narrow band; revealed via `win.toggle-sidebar` or Ctrl+L.
+        #[template_child]
+        pub sidebar_pane: TemplateChild<gtk::Box>,
         #[template_child]
         pub menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
@@ -319,6 +324,15 @@ mod imp {
         /// programmatically, so the value-changed handlers don't
         /// echo back as worker writes.
         pub project_extras_syncing: Cell<bool>,
+        /// Phase 24 (staged collapse) — the user explicitly revealed
+        /// the Inspector pane while the window was compact (a
+        /// Ctrl+Shift+I toggle). Pins the pane open for the current
+        /// compact episode; cleared automatically when the window
+        /// leaves the compact band.
+        pub inspector_revealed_compact: Cell<bool>,
+        /// Phase 24 — same pin for the Lists sidebar while the
+        /// window is inside the narrow band.
+        pub sidebar_revealed_narrow: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -483,6 +497,10 @@ impl AtriumWindow {
         if width - target >= MIN_CONTENT_WIDTH {
             self.imp().overlay_split.set_position(width - target);
         }
+        // Phase 24 — a restored narrow window starts folded (the
+        // width notify may not have fired yet at construct time);
+        // apply_mode re-runs this once the mode flag is live.
+        self.update_compact_panes();
         debug!(
             width,
             height, maximized, sidebar, inspector, "restored window state"
@@ -495,7 +513,6 @@ impl AtriumWindow {
         let _ = settings.set_int("window-width", width);
         let _ = settings.set_int("window-height", height);
         let _ = settings.set_boolean("window-maximized", self.is_maximized());
-        let _ = settings.set_int("sidebar-width", self.imp().split_view.position());
         // The Inspector's user intent is its WIDTH (stable across
         // window sizes), not the divider position (which depends on
         // the window width), so store the derived width. Skipped in
@@ -504,6 +521,12 @@ impl AtriumWindow {
         if self.imp().inspector_pane_host.is_visible() {
             let inspector = (width - self.imp().overlay_split.position()).max(0);
             let _ = settings.set_int("inspector-width", inspector);
+        }
+        // Phase 24 — likewise, a folded sidebar's position
+        // degenerates; skip the save so the last real divider
+        // position survives a narrow-window close.
+        if self.imp().sidebar_pane.is_visible() {
+            let _ = settings.set_int("sidebar-width", self.imp().split_view.position());
         }
     }
 }

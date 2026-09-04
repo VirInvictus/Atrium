@@ -194,38 +194,75 @@ impl AtriumWindow {
         self.apply_mode(&mode);
     }
 
-    /// Phase 12.5, extended in Phase 21 — when the window crosses
-    /// `crate::ui::COMPACT_WIDTH_THRESHOLD`, refresh the calendar
-    /// page if it's the active view (grid → week strip) and toggle
-    /// the window-level `compact` class so the bulk toolbars tighten
-    /// (the "N selected" label hides; margins and button padding
-    /// shrink via data/style.css). The notify::default-width signal
-    /// fires on every pixel of resize, so we cache the last-observed
-    /// compact-mode flag in a Cell and only rebuild when it actually
-    /// flips.
+    /// Phase 12.5, extended in Phase 21/24 — the width-band watcher.
+    /// Three bands, widest to narrowest: wide (no behaviour change),
+    /// compact (below `crate::ui::COMPACT_WIDTH_THRESHOLD`: calendar
+    /// grid → week strip, `compact` CSS class tightens the bulk
+    /// toolbars, Inspector pane folds), and narrow (below
+    /// `crate::ui::NARROW_WIDTH_THRESHOLD`: the Lists sidebar folds
+    /// too — the Phase 21 staged collapse). Crossing a band calls
+    /// [`Self::update_compact_panes`]; the calendar page also
+    /// refreshes when the compact edge is crossed. The
+    /// notify::default-width signal fires on every pixel of resize,
+    /// so the last band is cached and nothing runs until it changes.
     pub(super) fn install_compact_width_watcher(&self) {
-        let last_compact: std::rc::Rc<Cell<Option<bool>>> = std::rc::Rc::new(Cell::new(None));
+        let last_band: std::rc::Rc<Cell<u8>> = std::rc::Rc::new(Cell::new(u8::MAX));
         let win_weak = self.downgrade();
         self.connect_default_width_notify(move |w| {
             let Some(win) = win_weak.upgrade() else {
                 return;
             };
-            let now_compact =
-                w.default_width() > 0 && w.default_width() < crate::ui::COMPACT_WIDTH_THRESHOLD;
-            if last_compact.get() == Some(now_compact) {
+            let width = w.default_width();
+            let band = if width > 0 && width < crate::ui::NARROW_WIDTH_THRESHOLD {
+                2
+            } else if width > 0 && width < crate::ui::COMPACT_WIDTH_THRESHOLD {
+                1
+            } else {
+                0
+            };
+            if last_band.get() == band {
                 return;
             }
-            last_compact.set(Some(now_compact));
-            if now_compact {
-                w.add_css_class("compact");
-            } else {
-                w.remove_css_class("compact");
-            }
-            win.imp().selection_label.set_visible(!now_compact);
-            if matches!(win.active_list(), ActiveList::Calendar) {
+            let calendar_flips = (band >= 1) != (last_band.get().min(2) >= 1);
+            last_band.set(band);
+            win.update_compact_panes();
+            if calendar_flips && matches!(win.active_list(), ActiveList::Calendar) {
                 win.refresh_calendar_page();
             }
         });
+    }
+
+    /// Phase 24 (staged collapse) — recompute the pane visibilities
+    /// for the current width band. Each pane folds once its band is
+    /// entered, unless the user explicitly revealed it during this
+    /// episode (a toggle while compact/narrow pins it; leaving the
+    /// band clears the pin). Inspector folding is Builder-only — in
+    /// Simple Mode the host is hidden by `apply_mode` regardless.
+    pub(crate) fn update_compact_panes(&self) {
+        let width = self.default_width();
+        let compact = width > 0 && width < crate::ui::COMPACT_WIDTH_THRESHOLD;
+        let narrow = width > 0 && width < crate::ui::NARROW_WIDTH_THRESHOLD;
+
+        if !compact {
+            self.imp().inspector_revealed_compact.set(false);
+        }
+        if !narrow {
+            self.imp().sidebar_revealed_narrow.set(false);
+        }
+
+        if compact {
+            self.add_css_class("compact");
+        } else {
+            self.remove_css_class("compact");
+        }
+        self.imp().selection_label.set_visible(!compact);
+
+        let inspector_visible = self.imp().current_mode_is_builder.get()
+            && (!compact || self.imp().inspector_revealed_compact.get());
+        self.imp().inspector_pane_host.set_visible(inspector_visible);
+
+        let sidebar_visible = !narrow || self.imp().sidebar_revealed_narrow.get();
+        self.imp().sidebar_pane.set_visible(sidebar_visible);
     }
 
     /// Mount the Inspector pane into the host box host declared in
@@ -328,14 +365,16 @@ impl AtriumWindow {
 
         // Right-side Inspector pane (Phase 22 C6: the overlay_split is now a
         // plain GtkPaned, so hiding the end-child host is the whole story —
-        // no adwaita show-sidebar toggle to coordinate).
-        self.imp().inspector_pane_host.set_visible(builder);
+        // no adwaita show-sidebar toggle to coordinate). Phase 24: the
+        // visibility decision routes through update_compact_panes, which
+        // folds the pane when compact unless explicitly pinned.
         if !builder && let Some(pane) = self.imp().inspector_pane.borrow().clone() {
             // Don't keep a stale per-task editor around when
             // there's no pane to render it in. A future flip back
             // to Builder repopulates from the live selection.
             pane.clear();
         }
+        self.update_compact_panes();
 
         // Builder-only sidebar entries (Forecast / Review / Perspectives).
         // The rebuild_dynamic_sidebar pass below appends them when
@@ -370,24 +409,43 @@ impl AtriumWindow {
         }
     }
 
-    /// Phase 21 — keyboard dismiss for the Builder Inspector pane.
-    /// `Ctrl+I` opens the pane's editor for the focused task, but
-    /// until now nothing closed it: the pane is non-modal and
-    /// always-visible, so it can't borrow the dialogs' Escape path.
-    /// `win.toggle-inspector` (`Ctrl+Shift+I`) flips the pane host's
-    /// visibility — the same `set_visible` call `apply_mode` makes —
-    /// gated to Builder Mode, and hands focus back to the task list
-    /// when hiding so the next keystroke lands in the content.
+    /// Phase 21, reworked in Phase 24 — keyboard toggle for the
+    /// Builder Inspector pane. `Ctrl+I` opens the pane's editor for
+    /// the focused task, but until Phase 21 nothing closed it: the
+    /// pane is non-modal, so it can't borrow the dialogs' Escape
+    /// path. `win.toggle-inspector` (`Ctrl+Shift+I`) flips the pane;
+    /// while the window is compact the toggle pins the pane for the
+    /// current narrow episode (otherwise the staged collapse keeps
+    /// it folded), and leaving the compact band clears the pin.
     pub(crate) fn toggle_inspector_pane(&self) {
         if !self.imp().current_mode_is_builder.get() {
             return;
         }
-        let host = &self.imp().inspector_pane_host;
-        let now_visible = !host.is_visible();
-        host.set_visible(now_visible);
-        if !now_visible {
+        let compact =
+            self.default_width() > 0 && self.default_width() < crate::ui::COMPACT_WIDTH_THRESHOLD;
+        if compact {
+            let revealed = self.imp().inspector_revealed_compact.get();
+            self.imp().inspector_revealed_compact.set(!revealed);
+        }
+        self.update_compact_panes();
+        if !self.imp().inspector_pane_host.is_visible() {
             self.imp().task_list_view.grab_focus();
         }
+    }
+
+    /// Phase 24 (staged collapse) — keyboard toggle for the Lists
+    /// sidebar, `win.toggle-sidebar` (`Ctrl+Shift+L`). The sidebar
+    /// only folds below `crate::ui::NARROW_WIDTH_THRESHOLD`; while
+    /// narrow, an explicit toggle pins it for the episode, exactly
+    /// like the Inspector's compact pin.
+    pub(crate) fn toggle_sidebar_pane(&self) {
+        let narrow = self.default_width() > 0
+            && self.default_width() < crate::ui::NARROW_WIDTH_THRESHOLD;
+        if narrow {
+            let revealed = self.imp().sidebar_revealed_narrow.get();
+            self.imp().sidebar_revealed_narrow.set(!revealed);
+        }
+        self.update_compact_panes();
     }
 
     /// Phase 10 — Builder-mode-aware project metadata cache.

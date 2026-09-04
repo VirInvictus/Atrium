@@ -44,3 +44,10 @@ pub mod window;
 /// flag so resizes don't thrash (`window/shell.rs`). Originally a
 /// Calendar-only constant; promoted once a second consumer landed.
 pub const COMPACT_WIDTH_THRESHOLD: i32 = 600;
+
+/// Phase 24 (staged collapse) — below this the Lists sidebar folds
+/// too, after the Inspector has already folded at the compact
+/// threshold. Chosen so the sidebar (260 px) never starves the
+/// content column below a readable width; final value is the
+/// display pass's to tune.
+pub const NARROW_WIDTH_THRESHOLD: i32 = 420;
