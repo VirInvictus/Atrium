@@ -465,7 +465,7 @@ impl AtriumWindow {
             win.set_active_list(ActiveList::SearchResults(expr));
         };
         let compact = self.default_width() > 0
-            && self.default_width() < crate::ui::calendar::COMPACT_WIDTH_THRESHOLD;
+            && self.default_width() < crate::ui::COMPACT_WIDTH_THRESHOLD;
         let widget = crate::ui::calendar::build_page(
             viewed,
             today,

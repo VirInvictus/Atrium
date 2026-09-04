@@ -442,6 +442,9 @@
                                             <property name="margin-bottom">8</property>
                                             <style>
                                               <class name="toolbar"/>
+                                              <!-- Phase 21 — tightened under the
+                                                   window's `compact` class. -->
+                                              <class name="atrium-bulk-toolbar"/>
                                             </style>
                                             <child>
                                               <object class="GtkLabel" id="selection_label">
@@ -518,6 +521,9 @@
                                             <property name="margin-bottom">8</property>
                                             <style>
                                               <class name="toolbar"/>
+                                              <!-- Phase 21 — tightened under the
+                                                   window's `compact` class. -->
+                                              <class name="atrium-bulk-toolbar"/>
                                             </style>
                                             <child>
                                               <object class="GtkLabel">

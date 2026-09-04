@@ -175,7 +175,7 @@ impl AtriumWindow {
         // shows / hides correctly on first paint.
         self.install_inspector_pane(worker);
         self.install_mode_observer();
-        self.install_calendar_width_watcher();
+        self.install_compact_width_watcher();
         self.install_drop_target();
         self.wire_toast();
         self.setup_content_status();
@@ -194,13 +194,16 @@ impl AtriumWindow {
         self.apply_mode(&mode);
     }
 
-    /// Phase 12.5 — when the window crosses
-    /// `crate::ui::calendar::COMPACT_WIDTH_THRESHOLD`, refresh the
-    /// calendar page if it's the active view. The notify::default-
-    /// width signal fires on every pixel of resize, so we cache the
-    /// last-observed compact-mode flag in a Cell and only rebuild
-    /// when it actually flips.
-    pub(super) fn install_calendar_width_watcher(&self) {
+    /// Phase 12.5, extended in Phase 21 — when the window crosses
+    /// `crate::ui::COMPACT_WIDTH_THRESHOLD`, refresh the calendar
+    /// page if it's the active view (grid → week strip) and toggle
+    /// the window-level `compact` class so the bulk toolbars tighten
+    /// (the "N selected" label hides; margins and button padding
+    /// shrink via data/style.css). The notify::default-width signal
+    /// fires on every pixel of resize, so we cache the last-observed
+    /// compact-mode flag in a Cell and only rebuild when it actually
+    /// flips.
+    pub(super) fn install_compact_width_watcher(&self) {
         let last_compact: std::rc::Rc<Cell<Option<bool>>> = std::rc::Rc::new(Cell::new(None));
         let win_weak = self.downgrade();
         self.connect_default_width_notify(move |w| {
@@ -208,11 +211,17 @@ impl AtriumWindow {
                 return;
             };
             let now_compact = w.default_width() > 0
-                && w.default_width() < crate::ui::calendar::COMPACT_WIDTH_THRESHOLD;
+                && w.default_width() < crate::ui::COMPACT_WIDTH_THRESHOLD;
             if last_compact.get() == Some(now_compact) {
                 return;
             }
             last_compact.set(Some(now_compact));
+            if now_compact {
+                w.add_css_class("compact");
+            } else {
+                w.remove_css_class("compact");
+            }
+            win.imp().selection_label.set_visible(!now_compact);
             if matches!(win.active_list(), ActiveList::Calendar) {
                 win.refresh_calendar_page();
             }

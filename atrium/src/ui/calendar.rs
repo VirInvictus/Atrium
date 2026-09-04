@@ -206,13 +206,6 @@ pub fn month_name(month: u32) -> String {
 /// the full list. Matches OmniFocus's default cell density.
 const INLINE_PER_CELL: usize = 3;
 
-/// Width in CSS pixels at which the month grid collapses to a
-/// vertical week strip. Tuned for phone-portrait sizes — desktop
-/// / tablet windows always show the full month. Public so the
-/// window can use the same threshold when watching its own
-/// allocation.
-pub const COMPACT_WIDTH_THRESHOLD: i32 = 600;
-
 /// Pick the focal week for the compact strip layout. If the
 /// viewed month contains today, the week containing today wins;
 /// otherwise we anchor on the first week of the viewed month so
@@ -270,7 +263,7 @@ where
 /// (used by tests / future read-only contexts). `compact` swaps
 /// the 7×N month grid for a vertical week strip — the window
 /// flips this on under phone-shaped portrait widths
-/// ([`COMPACT_WIDTH_THRESHOLD`]).
+/// ([`crate::ui::COMPACT_WIDTH_THRESHOLD`]).
 pub fn build_page<PrevFn, NextFn, TodayFn, PickFn, RowFn, DrillFn>(
     viewed: NaiveDate,
     today: NaiveDate,

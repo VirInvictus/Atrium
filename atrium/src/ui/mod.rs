@@ -35,3 +35,12 @@ pub mod task_object;
 pub mod theme;
 pub mod typography;
 pub mod window;
+
+/// Phase 21 — the app-wide compact-width idiom. Below this width a
+/// window counts as "compact" and surfaces trade chrome for fit: the
+/// Calendar Month View swaps its grid for a week strip (Phase 12.5),
+/// and the window carries a `compact` CSS class the bulk toolbars
+/// tighten under. The window watches `default-width` and caches the
+/// flag so resizes don't thrash (`window/shell.rs`). Originally a
+/// Calendar-only constant; promoted once a second consumer landed.
+pub const COMPACT_WIDTH_THRESHOLD: i32 = 600;

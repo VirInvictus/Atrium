@@ -949,3 +949,24 @@ listview.navigation-sidebar > row:focus-visible,
   margin: 6px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
+
+/* Phase 21 — compact-width tightening. The window toggles a
+   `compact` class when it drops below ui::COMPACT_WIDTH_THRESHOLD
+   (the same threshold the Calendar grid collapse keys on; the
+   watcher in window/shell.rs owns the flip). The bulk toolbars —
+   the multi-select action bar and the project-extras toolbar — are
+   single-row boxes that would otherwise clip their trailing buttons
+   on a narrow tile; under `compact` they lose chrome to fit. The
+   "N selected" count label is hidden by the same watcher (labels
+   aren't reachable from CSS). */
+.compact .atrium-bulk-toolbar {
+  margin: 4px 6px;
+}
+
+.compact .atrium-bulk-toolbar button {
+  padding: 2px 8px;
+}
+
+.compact .atrium-bulk-toolbar switch {
+  margin: 0;
+}
