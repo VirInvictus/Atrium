@@ -674,27 +674,46 @@ impl AtriumWindow {
                     atrium_core::OTHER_COLUMN_LABEL.to_ascii_lowercase()
                 }
             };
-            // Which column is the card in now (per the render snapshot)?
-            let source_key = orders_for_drop
-                .iter()
-                .find(|(_, ids)| ids.contains(&dragged_id))
-                .map(|(k, _)| k.clone());
-            let same_column = source_key.as_deref() == Some(dest_key.as_str());
-
-            // Compute the destination column's new ordered id list: drop
-            // the dragged id if present, then insert it before `before_id`
-            // (or append when the drop landed on empty column space).
-            let mut new_order: Vec<i64> =
-                orders_for_drop.get(&dest_key).cloned().unwrap_or_default();
-            new_order.retain(|&id| id != dragged_id);
-            match before_id.and_then(|bid| new_order.iter().position(|&id| id == bid)) {
-                Some(idx) => new_order.insert(idx, dragged_id),
-                None => new_order.push(dragged_id),
-            }
 
             let cfg_axis = cfg_for_drop.axis;
             let cfg_for_async = cfg_for_drop.clone();
+            let snapshot = orders_for_drop.clone();
             glib::MainContext::default().spawn_local(async move {
+                // Re-derive the per-column orders from the side table
+                // NOW, merged over the render snapshot. The snapshot
+                // was taken at render time; a second drop landing
+                // before the first drop's re-render used to compute
+                // against it and visibly undo the first drop. The
+                // side table is the first thing a reorder writes, so
+                // a fresh read sees the committed order. Unpositioned
+                // cards keep their snapshot order (i64::MAX fallback,
+                // stable sort — the same rule `order_column_tasks`
+                // applies at render).
+                let fresh = pool
+                    .with(|c| atrium_core::db::read::board_card_positions(c, perspective_id))
+                    .unwrap_or_default();
+                let mut orders = snapshot;
+                for (key, ids) in orders.iter_mut() {
+                    let key = key.clone();
+                    ids.sort_by_key(|id| fresh.get(&(key.clone(), *id)).copied().unwrap_or(i64::MAX));
+                }
+                let source_key = orders
+                    .iter()
+                    .find(|(_, ids)| ids.contains(&dragged_id))
+                    .map(|(k, _)| k.clone());
+                let same_column = source_key.as_deref() == Some(dest_key.as_str());
+
+                // Compute the destination column's new ordered id list: drop
+                // the dragged id if present, then insert it before `before_id`
+                // (or append when the drop landed on empty column space).
+                let mut new_order: Vec<i64> =
+                    orders.get(&dest_key).cloned().unwrap_or_default();
+                new_order.retain(|&id| id != dragged_id);
+                match before_id.and_then(|bid| new_order.iter().position(|&id| id == bid)) {
+                    Some(idx) => new_order.insert(idx, dragged_id),
+                    None => new_order.push(dragged_id),
+                }
+
                 // 1. Cross-column drops change the card's membership (tag
                 //    set or status), exactly as a column-level drop always
                 //    has. Same-column drops only reorder.
