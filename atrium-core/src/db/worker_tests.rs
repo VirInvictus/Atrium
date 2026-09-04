@@ -77,6 +77,53 @@ async fn ensure_area_creates_then_dedupes_case_insensitive() {
 }
 
 #[tokio::test]
+async fn ensure_tag_creation_delta_fires_once() {
+    // The Command arm used to decide "new" via `created_at ==
+    // modified_at`, which holds for every never-modified tag — so
+    // each re-ensure of a fresh tag re-signalled a creation and the
+    // sidebar saw duplicate `tags_created` deltas. The inner helper
+    // now reports creation explicitly, and the delta fires exactly
+    // once per genuinely-new tag.
+    let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+
+    let first = handle.ensure_tag("alpha".to_string()).await.unwrap();
+    let delta = library_rx.try_recv().unwrap();
+    assert_eq!(delta.tags_created.len(), 1);
+    assert_eq!(delta.tags_created[0].id, first.id);
+
+    // Re-ensure (the import path does this per task): no delta.
+    let again = handle.ensure_tag("alpha".to_string()).await.unwrap();
+    assert_eq!(again.id, first.id);
+    assert!(
+        library_rx.try_recv().is_err(),
+        "re-ensuring an existing tag must not emit a creation delta"
+    );
+
+    // A genuinely new tag still signals.
+    let second = handle.ensure_tag("beta".to_string()).await.unwrap();
+    let delta = library_rx.try_recv().unwrap();
+    assert_eq!(delta.tags_created.len(), 1);
+    assert_eq!(delta.tags_created[0].id, second.id);
+}
+
+#[tokio::test]
+async fn ensure_area_creation_delta_fires_once() {
+    // Mirror of ensure_tag_creation_delta_fires_once for areas.
+    let (handle, _changes_rx, mut library_rx) = spawn(fresh_conn());
+
+    let first = handle.ensure_area("Home".to_string()).await.unwrap();
+    let delta = library_rx.try_recv().unwrap();
+    assert_eq!(delta.areas_created.len(), 1);
+    assert_eq!(delta.areas_created[0].id, first.id);
+
+    handle.ensure_area("home".to_string()).await.unwrap();
+    assert!(
+        library_rx.try_recv().is_err(),
+        "re-ensuring an existing area must not emit a creation delta"
+    );
+}
+
+#[tokio::test]
 async fn create_project_honors_caller_provided_uuid() {
     let (handle, _changes_rx, _library_rx) = spawn(fresh_conn());
     let provided = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";

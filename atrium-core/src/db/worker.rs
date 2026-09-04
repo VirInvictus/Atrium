@@ -1059,13 +1059,13 @@ impl Worker {
                 let _ = responder.send(result);
             }
             Command::EnsureArea { name, responder } => {
-                let result = self.ensure_area(&name);
-                if let Ok(ref a) = result
-                    && a.created_at == a.modified_at
+                let result = self.ensure_area_inner(&name);
+                if let Ok((ref a, created)) = result
+                    && created
                 {
                     self.emit_area_created(a);
                 }
-                let _ = responder.send(result);
+                let _ = responder.send(result.map(|(a, _)| a));
             }
             Command::EnsureHeading {
                 project_id,
@@ -1084,16 +1084,19 @@ impl Worker {
                 let _ = responder.send(result);
             }
             Command::EnsureTag { name, responder } => {
-                let result = self.ensure_tag(&name);
-                if let Ok(ref t) = result
-                    && t.created_at == t.modified_at
+                let result = self.ensure_tag_inner(&name);
+                if let Ok((ref t, created)) = result
+                    && created
                 {
-                    // Only emit a creation delta if the tag was
-                    // actually new — the helper differentiates and
-                    // we mirror that here.
+                    // Only emit a creation delta when this call
+                    // actually created the tag; the inner helper
+                    // reports it. (The old `created_at ==
+                    // modified_at` heuristic misfired on every
+                    // never-modified tag, re-signalling a creation
+                    // on each re-ensure.)
                     self.emit_tag_created(t);
                 }
-                let _ = responder.send(result);
+                let _ = responder.send(result.map(|(t, _)| t));
             }
 
             // ── Perspectives (Phase 14) ──────────────────────────
@@ -2170,7 +2173,7 @@ impl Worker {
         // Ensure the template-level tags once; reused per item.
         let mut template_tag_ids = Vec::with_capacity(template.tags.len());
         for name in &template.tags {
-            template_tag_ids.push(self.ensure_tag(name)?.id);
+            template_tag_ids.push(self.ensure_tag_inner(name)?.0.id);
         }
 
         let mut created: Vec<Task> = Vec::with_capacity(items.len());
@@ -2192,7 +2195,7 @@ impl Worker {
             })?;
             let mut tag_ids = template_tag_ids.clone();
             for name in &item.default_tags {
-                let tid = self.ensure_tag(name)?.id;
+                let tid = self.ensure_tag_inner(name)?.0.id;
                 if !tag_ids.contains(&tid) {
                     tag_ids.push(tid);
                 }
@@ -2222,11 +2225,12 @@ impl Worker {
     }
 
     /// Find an existing tag by name (case-insensitive) or create it.
-    /// Returns the same tag struct shape as `create_tag`, with
-    /// `created_at == modified_at` exactly when the tag is new — the
-    /// caller uses that to decide whether to emit a `tags_created`
-    /// delta.
-    fn ensure_tag(&mut self, name: &str) -> Result<Tag, DbError> {
+    /// Returns the tag plus whether this call created it — the
+    /// Command arm emits a `tags_created` delta only on `true`.
+    /// (An older `created_at == modified_at` heuristic lived here:
+    /// a tag that was never modified always compares equal, so
+    /// every re-ensure of it re-signalled a creation.)
+    fn ensure_tag_inner(&mut self, name: &str) -> Result<(Tag, bool), DbError> {
         // Probe by name (NOCASE-collated column).
         let existing: rusqlite::Result<i64> =
             self.conn
@@ -2234,11 +2238,14 @@ impl Worker {
                     r.get(0)
                 });
         match existing {
-            Ok(id) => read::tag_by_id(&self.conn, id)?.ok_or(DbError::NotFound),
-            Err(rusqlite::Error::QueryReturnedNoRows) => self.create_tag(NewTag {
-                name: name.to_string(),
-                color: None,
-            }),
+            Ok(id) => Ok((read::tag_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?, false)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok((
+                self.create_tag(NewTag {
+                    name: name.to_string(),
+                    color: None,
+                })?,
+                true,
+            )),
             Err(e) => Err(e.into()),
         }
     }
@@ -2287,19 +2294,24 @@ impl Worker {
     /// idempotent area-by-title lookup. Area's `title`
     /// column doesn't have a NOCASE collation (only tag.name
     /// does), so case-insensitive match runs at the query level.
-    fn ensure_area(&mut self, name: &str) -> Result<Area, DbError> {
+    /// Returns the area plus whether this call created it, so the
+    /// Command arm can emit exactly one creation delta.
+    fn ensure_area_inner(&mut self, name: &str) -> Result<(Area, bool), DbError> {
         let existing: rusqlite::Result<i64> = self.conn.query_row(
             "SELECT id FROM area WHERE LOWER(title) = LOWER(?1) LIMIT 1",
             params![name],
             |r| r.get(0),
         );
         match existing {
-            Ok(id) => read::area_by_id(&self.conn, id)?.ok_or(DbError::NotFound),
-            Err(rusqlite::Error::QueryReturnedNoRows) => self.create_area(NewArea {
-                title: name.to_string(),
-                color: None,
-                default_review_interval_days: None,
-            }),
+            Ok(id) => Ok((read::area_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?, false)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok((
+                self.create_area(NewArea {
+                    title: name.to_string(),
+                    color: None,
+                    default_review_interval_days: None,
+                })?,
+                true,
+            )),
             Err(e) => Err(e.into()),
         }
     }
