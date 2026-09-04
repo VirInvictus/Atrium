@@ -411,35 +411,23 @@ fn import_task<'a>(
             _ => None,
         };
 
-        // Property-derived fields. We pull each defensively so
-        // a malformed value falls back to None + a lossy note.
-        let estimated_minutes = org
-            .properties
-            .get("EFFORT")
-            .and_then(|v| parse_effort(v))
-            .or_else(|| {
-                if org.properties.contains_key("EFFORT") {
-                    summary.lossy.push(format!(
-                        "task “{}”: :EFFORT: value not parseable; field left unset",
-                        org.title
-                    ));
-                }
-                None
-            });
-        let defer_until = org
-            .properties
-            .get("DEFER_UNTIL")
-            .and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok())
-            .or_else(|| {
-                if org.properties.contains_key("DEFER_UNTIL") {
-                    summary.lossy.push(format!(
-                        "task “{}”: :DEFER_UNTIL: value not a YYYY-MM-DD date; field left unset",
-                        org.title
-                    ));
-                }
-                None
-            });
-        let repeat_rule = org.properties.get("RRULE").cloned();
+        // Property-derived fields. One derivation shared with the
+        // vault watcher (super::PropertyFields), so import-time and
+        // sync-time coverage can't drift apart; malformed values
+        // fall back to None + a lossy note here.
+        let fields = super::PropertyFields::from_org(org);
+        if fields.effort_lossy {
+            summary.lossy.push(format!(
+                "task “{}”: :EFFORT: value not parseable; field left unset",
+                org.title
+            ));
+        }
+        if fields.defer_lossy {
+            summary.lossy.push(format!(
+                "task “{}”: :DEFER_UNTIL: value not a YYYY-MM-DD date; field left unset",
+                org.title
+            ));
+        }
 
         let scheduled_for = org.scheduled.map(ScheduledFor::Date);
         let id_property = org.properties.get("ID").cloned();
@@ -461,9 +449,9 @@ fn import_task<'a>(
             parent_id,
             scheduled_for,
             deadline: org.deadline,
-            defer_until,
-            estimated_minutes,
-            repeat_rule,
+            defer_until: fields.defer_until,
+            estimated_minutes: fields.estimated_minutes,
+            repeat_rule: fields.repeat_rule,
             repeat_mode: None,
             uuid: id_property,
             orig_keyword,
@@ -472,12 +460,12 @@ fn import_task<'a>(
             // (`-Nd` / `--Nd`) into the per-task override column.
             // Both prefix shapes parse to the same `u32` days; the
             // emitter normalises onto `-`.
-            deadline_warn_days: org.deadline_warning.map(i64::from),
+            deadline_warn_days: fields.deadline_warn_days,
             // v0.19.0 — Phase 18.5 Tier-2 time-of-day on
             // schedule. Parser captures the time portion of the
             // SCHEDULED active timestamp into `org.scheduled_time`;
             // thread it into the new task's column.
-            scheduled_time: org.scheduled_time,
+            scheduled_time: fields.scheduled_time,
             // v0.20.0 — Phase 19.5 reminders. Org-mode has no
             // standard reminder cookie; importer leaves this
             // None and users set reminders in Atrium.
@@ -486,7 +474,7 @@ fn import_task<'a>(
             // drawer passthrough. Stash every drawer key
             // outside the modeled set so spec §7.3.3 rule 1
             // holds for property drawers.
-            extra_properties: super::extras_from_properties(&org.properties),
+            extra_properties: fields.extra_properties,
         };
         let created = handle.create_task(new).await?;
         summary.tasks_created += 1;
@@ -531,78 +519,9 @@ fn import_task<'a>(
     })
 }
 
-/// Parse Org's `:EFFORT:` value into integer minutes. Supports
-/// `H:MM` (`"1:30"` → 90) and the abbreviated forms `"30m"`,
-/// `"1h"`, `"1h30m"`. Returns `None` for unparseable input.
-fn parse_effort(value: &str) -> Option<i64> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    // H:MM form.
-    if let Some((h, m)) = trimmed.split_once(':')
-        && let (Ok(hours), Ok(minutes)) = (h.parse::<i64>(), m.parse::<i64>())
-        && hours >= 0
-        && (0..60).contains(&minutes)
-    {
-        return Some(hours * 60 + minutes);
-    }
-
-    // Hh / Mm / HhMm form.
-    let mut total_minutes: i64 = 0;
-    let mut buf = String::new();
-    let mut consumed_any = false;
-    for ch in trimmed.chars() {
-        if ch.is_ascii_digit() {
-            buf.push(ch);
-        } else if ch == 'h' || ch == 'H' {
-            let n: i64 = buf.parse().ok()?;
-            total_minutes += n * 60;
-            buf.clear();
-            consumed_any = true;
-        } else if ch == 'm' || ch == 'M' {
-            let n: i64 = buf.parse().ok()?;
-            total_minutes += n;
-            buf.clear();
-            consumed_any = true;
-        } else {
-            return None;
-        }
-    }
-    if !consumed_any || !buf.is_empty() {
-        return None;
-    }
-    Some(total_minutes)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parses_effort_hour_minute_form() {
-        assert_eq!(parse_effort("1:30"), Some(90));
-        assert_eq!(parse_effort("0:30"), Some(30));
-        assert_eq!(parse_effort("2:00"), Some(120));
-    }
-
-    #[test]
-    fn parses_effort_hm_form() {
-        assert_eq!(parse_effort("30m"), Some(30));
-        assert_eq!(parse_effort("1h"), Some(60));
-        assert_eq!(parse_effort("1h30m"), Some(90));
-        assert_eq!(parse_effort("2h"), Some(120));
-    }
-
-    #[test]
-    fn parses_effort_rejects_invalid() {
-        assert_eq!(parse_effort(""), None);
-        assert_eq!(parse_effort("foo"), None);
-        assert_eq!(parse_effort("1:60"), None); // minutes out of range
-        assert_eq!(parse_effort("not:numeric"), None);
-        assert_eq!(parse_effort("1x"), None);
-    }
 
     #[test]
     fn dry_run_tally_counts_tasks_and_headings() {
@@ -626,6 +545,7 @@ mod tests {
 
     // End-to-end import tests live alongside the worker tests in
     // db/worker.rs because they need a spawned runtime; this
-    // module covers the synchronous helpers (dry-run tally,
-    // effort parser) only.
+    // module covers the synchronous helpers (dry-run tally) only.
+    // The effort / property derivation tests moved with
+    // `parse_effort` + `PropertyFields` into org/mod.rs.
 }
