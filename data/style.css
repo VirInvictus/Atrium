@@ -970,3 +970,38 @@ listview.navigation-sidebar > row:focus-visible,
 .compact .atrium-bulk-toolbar switch {
   margin: 0;
 }
+
+/* Phase 21 — the CSS marker-class sweep (roadmap). The classes the
+   code applies with no rule anywhere fell into two buckets.
+
+   Styled here — real gaps from features that shipped without a CSS
+   pass: the calendar state classes (v0.11.0 promised accent for
+   today and muted out-of-month cells; neither was ever painted),
+   the board card's date + tag sublabels, and the running-clock row.
+
+   Confirmed intentional lookup hooks, no rule wanted: containers
+   styled through other classes (atrium-calendar-cell, -grid, -strip,
+   -strip-card, atrium-forecast-row, atrium-logbook-row, -title,
+   -rule, atrium-board-add-card, atrium-quickentry-templates),
+   popovers on global popover styling (atrium-inline-complete,
+   atrium-link-picker, atrium-search-help), and labels that already
+   carry a styling class (atrium-inspector-notes + atrium-note-body,
+   atrium-review-section-header + .heading, atrium-search-help-heading
+   + .caption). */
+.atrium-calendar-cell-today {
+  border: 1px solid @accent_color;
+}
+
+.atrium-calendar-cell-out-of-month {
+  opacity: 0.45;
+}
+
+.atrium-board-row-date,
+.atrium-board-row-tags {
+  font-size: 90%;
+  color: alpha(@window_fg_color, 0.65);
+}
+
+.atrium-clock-running {
+  color: @success_color;
+}

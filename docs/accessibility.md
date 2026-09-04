@@ -17,6 +17,17 @@ Findings and the fixes applied:
 
 A full assistive-technology pass (Orca screen reader, keyboard-only traversal of every new dialog) is owed on a real display and is Brandon's verification step; the structural labelling above is the code-side record.
 
+## Round 3 — the de-adwaita re-audit (Phase 22 follow-through, 2026-09-04)
+
+Phase 22 (C1 → C10) removed libadwaita, and several accessibility claims in this document silently depended on libadwaita mechanisms. This round re-verifies each against the owned stylesheet (`atrium/src/ui/theme.rs`, generated into the app at priority USER+1) and `data/style.css`:
+
+- **Focus rings are owned and scoped.** `theme.rs` draws a 2 px accent `outline` on named interactive targets only (`button`, `entry`, `spinbutton`, `switch`, `checkbutton`, `radio`, `dropdown`, `scale`, `.atrium-swatch`, plus the sidebar/list/board rows via `:focus-visible` in `style.css`). Keyboard-only by construction — a bare modifier press never lights the whole window. This *resolves* the old "focus-ring CSS" known gap below.
+- **High-contrast is NOT handled.** The old claim that surfaces "respect the user's high-contrast mode" died with libadwaita. The owned palette is fixed Kanagawa Dragon; `color_scheme.rs` reads only `color-scheme` (dark/light) from the settings portal, never `high-contrast`. Nobody ships a high-contrast sheet and none is planned for 1.0 — recorded honestly as a gap, not inherited behaviour.
+- **Reduced motion gates on GTK4, not libadwaita.** The fade-in keyframe and the row transitions are plain CSS; GTK4 runs them unless `gtk-enable-animations` is off, and that setting is fed by the session's settings portal from the desktop's enable-animations preference. The net behaviour matches the old claim *when a settings portal is running*; under a bare Hyprland session without portal settings, GTK defaults to animations on. Verifying the preference end-to-end rides the Phase 21 portal display-pass items.
+- **Touch targets are owned numbers now.** `theme.rs` sets explicit minimums: 34 px standard buttons, 24 px header-bar buttons and entries, 18 px checklist marks, 14 px scale sliders. That is tighter than the 44 px libadwaita defaults this document used to assert — the tiling-first design tightened chrome deliberately, and pointer users get hit-area from padding; but small targets on touch hardware are a real regression against the old numbers, so it is listed as a gap rather than papered over.
+
+The screen-reader labelling layer (tooltips + `accessible::Property::Label`) is untouched by the toolkit swap — plain GTK4 exposes the same AT-SPI properties — so Round 2's findings and the conventions below carry over unchanged.
+
 ## Keyboard end-to-end
 
 Every common operation has a chord; mouse is optional. Full table lives in [`docs/keymap.md`](keymap.md). Highlights:
@@ -40,15 +51,15 @@ Atrium tags every interactive widget with either a visible label, a `tooltip-tex
 
 | Surface | Source | Status |
 |---|---|---|
-| Hamburger menu button | `data/window.ui` line 19 | ✓ `tooltip-text="Main Menu"` |
-| New task button | `data/window.ui` line 84 | ✓ `tooltip-text="New Task (Ctrl+N)"` |
-| Search toggle | `data/window.ui` line 94 | ✓ `tooltip-text="Search (Ctrl+F)"` |
-| Selection bar Complete / Delete | `data/window.ui` lines 163-180 | ✓ Visible text labels |
-| Selection bar clear icon | `data/window.ui` line 181 | ✓ `tooltip-text="Clear selection (Esc)"` |
+| Hamburger menu button | `data/window.ui` `id="menu_button"` | ✓ `tooltip-text="Main Menu"` |
+| New task button | `data/window.ui` `id="new_task_button"` | ✓ `tooltip-text="New Task (Ctrl+N)"` |
+| Search toggle | `data/window.ui` `id="search_button"` | ✓ `tooltip-text="Search (Ctrl+F)"` |
+| Selection bar Complete / Delete | `data/window.ui` bulk toolbar | ✓ Visible text labels |
+| Selection bar clear icon | `data/window.ui` `win.bulk-clear` button | ✓ `tooltip-text="Clear selection (Esc)"` |
 | Task row CheckButton | `atrium/src/ui/task_list.rs::build_factory` (Phase 8f) | ✓ `tooltip-text` + `accessible::Property::Label("Task complete")` |
 | Task row title `EditableLabel` | `atrium/src/ui/task_list.rs` (Phase 8f) | ✓ `tooltip-text` + `accessible::Property::Label("Task title")` |
-| Sidebar canonical / area / project / tag rows | `atrium/src/ui/window.rs::sidebar_row` (Phase 8f) | ✓ `set_tooltip_text` + `accessible::Property::Label` mirror the visible label |
-| Sidebar filter entry | `data/window.ui` line 47 | ✓ `placeholder-text="Filter lists…"` (announced as the entry's name) |
+| Sidebar canonical / area / project / tag rows | `atrium/src/ui/window/widgets.rs::sidebar_row` (Phase 8f) | ✓ `set_tooltip_text` + `accessible::Property::Label` mirror the visible label |
+| Sidebar filter entry | `data/window.ui` `id="sidebar_filter"` | ✓ `placeholder-text="Filter lists…"` (announced as the entry's name) |
 | Quick Entry entry | `atrium/src/quickentry/modal.rs::open` | ✓ `placeholder-text` describes the entry's purpose + hint |
 | Memory Watch (debug) | `atrium/src/debug/mod.rs::open_memory_watch` (Phase 8e) | ✓ Each row pairs a key Label and a value Label |
 
@@ -60,25 +71,27 @@ Atrium tags every interactive widget with either a visible label, a `tooltip-tex
 
 ## Contrast
 
-CSS in `data/style.css` does not hard-code foreground or background colours. Every visible surface inherits from libadwaita's CSS variables, which respect the active light / dark theme and the user's high-contrast mode (`prefer-contrast: more`).
+`data/style.css` does not hard-code foreground or background colours: every visible surface leans on CSS colour variables (`@accent_color`, `@window_bg_color`, `@card_bg_color`, …). Since Phase 22 those names are *defined by the owned sheet* — `theme.rs` redefines all 24 of them in Kanagawa Dragon hues via `@define-color` — rather than inherited from libadwaita's palette. The values are fixed: there is no light theme (Lotus is post-1.0) and no high-contrast variant (see Round 3).
 
 Hardcoded colours in the project:
 
 | File | Where | Status |
 |---|---|---|
 | `logo.svg` | App icon shell + monogram | Decorative; not a UI surface. Replace before 1.0 (per the `<!-- ... -->` comment in the SVG). |
-| `data/io.github.virinvictus.atrium.metainfo.xml` | `<branding>` colours | Sampled from the logo; software-center use only. |
+| metainfo `<branding>` colours | Software-center branding | Sampled from the palette; software-center use only. |
 
-The high-legibility font toggle (Atkinson Hyperlegible, Phase 8c) is the explicit accessibility surface for low-vision readers. It pairs with libadwaita's standard high-contrast palette without further work.
+The high-legibility font toggle (Atkinson Hyperlegible, Phase 8c) is the explicit accessibility surface for low-vision readers. It changes type only; it does not (and cannot yet) raise contrast, because the palette is fixed.
 
 ## Touch / pointer
 
-`recommends/control` in the metainfo declares `pointing`, `keyboard`, and `touch`. Touch-targets are sized via libadwaita defaults (44 px minimum on `GtkButton`, `GtkCheckButton`, `gtk::ListBoxRow`); Atrium doesn't shrink them.
+`recommends/control` in the metainfo declares `pointing`, `keyboard`, and `touch`. Target sizing is owned by `theme.rs` since the de-adwaita: 34 px standard buttons, 24 px header-bar buttons and entries, 18 px checklist marks, 14 px scale sliders. That is tighter than libadwaita's 44 px defaults, which this document previously asserted; small targets on touch hardware are a recorded regression (Round 3), traded deliberately for tiling-first chrome density. Pointer and keyboard behaviour is unaffected.
 
 ## Known gaps (deferred)
 
-- **Focus-ring CSS**: relying on libadwaita defaults. A future Phase 8 polish pass might add a higher-contrast focus ring for the task list (currently the GTK default ring can be hard to see on dim-label rows). Tracked but not done.
-- **Reduced-motion**: the `@keyframes atrium-quickentry-fade-in` and the `.atrium-task-row.completed` opacity transition both honour libadwaita's animation-disable preference (libadwaita gates `transition` declarations on `prefer-reduced-motion`). Atrium adds no motion that ignores the preference. Verified by inspection of `style.css`.
+- **~~Focus-ring CSS~~: resolved.** The Phase 22 C9 sheet draws a scoped, high-contrast accent ring on named interactive targets (see Round 3); the old "hard to see" GTK default ring is gone.
+- **High-contrast palette**: none. The owned Kanagawa sheet is fixed; the portal's `high-contrast` hint is not read. Post-1.0 alongside any light theme.
+- **Touch-target density**: owned minimums are tighter than the 44 px they replaced (Round 3). Revisit if touch use ever becomes real rather than declared.
+- **Reduced-motion**: gated on GTK4's `gtk-enable-animations` (portal-fed). The session-level end-to-end check (preference off → animations off in Atrium) rides the Phase 21 portal display-pass items; by inspection Atrium adds no motion of its own that bypasses the setting.
 - **Voice control**: not addressed. AT-SPI's `accessible::Property::Label` is the same metadata voice-control engines consume, so labelling buttons covers the basic case; complex commands (e.g., "complete task three") need higher-level integration that lands no earlier than Phase 20.
 
 ## Re-running the audit
