@@ -134,15 +134,16 @@ Output is TSV by default (`--json` and `--human` are also available), and the fu
 
 ## Architecture
 
-Seven crates, split so every non-GUI surface stays headless and testable from the shell; the GTK binary is just one consumer.
+Six crates, split so every non-GUI surface stays headless and testable from the shell; the GTK binary is just one consumer. Two shared libraries (`vir-search`, `vir-gtk`) live outside the workspace as git dependencies and are shared with Atrium's sibling apps.
 
 - **`atrium-core`** is the data layer: domain types, the single-writer SQLite worker, the read-only connection pool, and the atomic-write and JSON-snapshot helpers.
-- **`atrium-search`** is the Calibre-style search expression language (lex / parse / eval, with a SQL fast-path).
 - **`atrium-org`** is the Org-mode projection: parser, emitter, importer, and the vault writer plus `inotify` watcher.
 - **`atrium-inline`** is the inline-syntax parser (`#tag` / `@date` / `!N`) shared by every capture surface.
 - **`atrium-import`** holds the non-Org import/export formats (Todoist, VTODO, Taskwarrior, todo.txt).
 - **`atrium-cli`** is the headless CLI.
 - **`atrium`** is the GTK4 binary (plain GTK4; libadwaita dropped at Phase 22, own stylesheet).
+
+The search expression grammar (`tag:`, `is:`, comparisons, date keywords) lives in **`vir-search`**; atrium-core keeps the schema-aware half (the in-memory task evaluator and the SQL fast-path) and **`vir-gtk`** carries the shared GTK4 widgets and theming.
 
 Four decisions are load-bearing. **Mode is a view, not a schema:** the OmniFocus superset exists on day one and a flip never migrates data. **One writer:** a dedicated tokio task owns the writable connection, the UI reads through a pool and never blocks on I/O, and updates arrive as deltas, not reloads. **Local-first:** no network sync or telemetry, ever. **The vault is a projection, not the store:** SQLite is canonical and the Org vault mirrors it downstream. The full architecture and schema are in [`spec.md`](spec.md) §3–§4.
 

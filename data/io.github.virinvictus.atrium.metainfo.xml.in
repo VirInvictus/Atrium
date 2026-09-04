@@ -110,6 +110,32 @@
   -->
 
   <releases>
+    <release version="0.70.2" date="2026-08-25">
+      <description translate="no">
+        <p>Build infrastructure only: the shared search and toolkit
+           dependency locks were refreshed. No behavior change.</p>
+      </description>
+    </release>
+    <release version="0.70.1" date="2026-08-24">
+      <description translate="no">
+        <p>Build fix: the command-line tool compiles again after the
+           search engine moved to its shared library. No behavior
+           change.</p>
+      </description>
+    </release>
+    <release version="0.70.0" date="2026-08-23">
+      <description translate="no">
+        <p>Internal refactor: the search expression parser and the
+           shared GTK widgets moved into two shared libraries used by
+           Atrium and its sibling apps. No behavior change.</p>
+      </description>
+    </release>
+    <release version="0.69.3" date="2026-08-23">
+      <description translate="no">
+        <p>Build fix: source formatting only, to keep continuous
+           integration green. No behavior change.</p>
+      </description>
+    </release>
     <release version="0.69.2" date="2026-08-08">
       <description translate="no">
         <p>Build infrastructure only: the CI checkout action moved to a

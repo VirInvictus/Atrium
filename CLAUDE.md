@@ -4,7 +4,7 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.69.2** on `main` (August 2026; v0.67.0 was a full maintenance sweep, v0.68.0 added the keyboard path between kanban columns plus the Quick Entry singleton, v0.69.0 made the Flatpak build fully offline, v0.69.1 deflaked a vault-watcher integration test, v0.69.2 moved CI to `actions/checkout@v5`). The `phase-22-de-adwaita` branch was merged back and deleted at v0.65.1; the vault-ledger fixes that shipped on the release line as v0.48.0 / v0.48.1 are recorded under their branch numbers, v0.60.0 / v0.60.1 (both lines independently minted a v0.48.0; the branch's is the de-adwaita re-sequence docs commit). **Schema version: 20** (migrations `0001` → `0020`; 0020 is the C9 swatch recolour). Full workspace suite green. **The Phase 22 de-adwaita ladder is complete (C1 → C10): Atrium is plain GTK4 with a self-contained owned Kanagawa Dragon stylesheet, zero libadwaita in the tree.** Display-verified and look approved by Brandon.
+**Current release: v0.70.2** on `main` (August 2026; v0.67.0 was a full maintenance sweep, v0.68.0 added the keyboard path between kanban columns plus the Quick Entry singleton, v0.69.0 made the Flatpak build fully offline, v0.69.1 deflaked a vault-watcher integration test, v0.69.2 moved CI to `actions/checkout@v5`, v0.70.0 extracted the search parser and the shared GTK widgets into the `vir-search` / `vir-gtk` libraries, and v0.70.1 / v0.70.2 were the follow-up build fix and lock refresh). The `phase-22-de-adwaita` branch was merged back and deleted at v0.65.1; the vault-ledger fixes that shipped on the release line as v0.48.0 / v0.48.1 are recorded under their branch numbers, v0.60.0 / v0.60.1 (both lines independently minted a v0.48.0; the branch's is the de-adwaita re-sequence docs commit). **Schema version: 20** (migrations `0001` → `0020`; 0020 is the C9 swatch recolour). Full workspace suite green. **The Phase 22 de-adwaita ladder is complete (C1 → C10): Atrium is plain GTK4 with a self-contained owned Kanagawa Dragon stylesheet, zero libadwaita in the tree.** Display-verified and look approved by Brandon.
 
 Phases 0 through 19.5 are complete: the full OmniFocus-superset data layer, dual Simple/Builder modes, Quick Entry, the Org vault two-way mirror, search, recurrence, subtasks, dependencies, templates, backup/restore, per-area review schedules, bulk editing, reminders with launch catch-up, and the non-Org importers (Todoist, Taskwarrior, todo.txt, VTODO, extracted into `atrium-import`). The kanban surface has matured through v0.46.0 (richer cards, per-column WIP limits, add-in-place, persisted intra-column order), preserving the projection column model (columns stay a projection of a tag or Org status; no first-class buckets, so boards still round-trip to Org). v0.46.1 / v0.46.2 were test-only fixes for a flaky CI: the `atrium-org` vault-watcher integration tests now poll for the expected end-state instead of waiting a fixed interval (v0.46.1), and are serialized via a file-level `tokio::sync::Mutex` so the harness can't run them in parallel and starve each other on a small runner (v0.46.2).
 
@@ -14,9 +14,9 @@ Phases 0 through 19.5 are complete: the full OmniFocus-superset data layer, dual
 
 **The per-release history lives in `patchnotes.md` (newest at top); do not restate it here.** When precision on a specific version matters, read that file, `roadmap.md`, and `VERSION`.
 
-Seven workspace crates: `atrium-core` (data layer), `vir-search` (Calibre-style search expression language), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-import` (non-Org import/export formats, extracted v0.34.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary.
+Six workspace crates: `atrium-core` (data layer), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-import` (non-Org import/export formats, extracted v0.34.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary. Two shared libraries live outside the workspace as git dependencies, consumed by Atrium and Conservatory: `vir-search` (the Calibre-style search expression language; the old in-tree `atrium-search` crate, extracted v0.70.0) and `vir-gtk` (shared GTK4 widgets + theming, v0.70.0).
 
-The next-up plan lives in `roadmap.md`; the current front is the Phase 22 de-adwaita ladder (running inside the Phase 20 endgame, before the tag).
+The next-up plan lives in `roadmap.md`; the current front is the Phase 23 codebase sweep and the Phase 21 agent-executable tail, inside the Phase 20 endgame ahead of the `v1.0.0` asset tail (icon, screenshots, Flathub metadata) and the tag.
 
 **Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atriumd`, the post-1.0 `atrium-tui`). Don't add functionality to the GTK binary that can't be reached from the shell.
 
@@ -72,7 +72,7 @@ The non-obvious mechanics that aren't visible from the code alone:
 - **VaultWatcher self-write filter is mtime-based, not path-TTL-based.** The first design recorded `(path, recorded_at)` and matched on path within a TTL — it lost external edits inside the TTL window. Fixed design: `RecentWrites` stores `(path, mtime_just_written)`; the watcher reads the file's actual mtime and matches on exact tuple equality. Linux ext4 stores nanosecond mtimes so two distinct writes never collide. **Don't revert to a path-only filter** — it's been tried; it loses external edits.
 - **Atomic-write helper.** `atrium-core/src/sync/atomic.rs` does `write-temp + fsync + rename` for every vault write. Crash-safe; non-Org consumers (JSON snapshot) use it too. **Never** write a vault file without going through it.
 - **Post-write integrity check.** Every `emit_org_file_with_meta` re-reads the file and verifies it parses cleanly through Atrium's own reader; failure propagates as `io::Error`. Catches emitter regressions immediately.
-- **SQL-translation fast-path.** `atrium_search::sql_translate::try_translate(&Expr, today)` converts an `Expr` to a SQL `WHERE` fragment + bound params when every node maps cleanly. Returns `None` for `~regex`, fuzzy `?word`, `is:today`, and `Field::Project|Area` — the in-memory evaluator is the fallback. Both GUI and CLI use this; parity is pinned by integration tests in `vir-search`.
+- **SQL-translation fast-path.** `atrium_core::search::sql_translate::try_translate(&Expr, today)` (in `atrium-core/src/search/sql_translate.rs`; kept in-tree because it is schema-aware) converts an `Expr` to a SQL `WHERE` fragment + bound params when every node maps cleanly. Returns `None` for `~regex`, fuzzy `?word`, `is:today`, and `Field::Project|Area` — the in-memory evaluator is the fallback. Both GUI and CLI use this; SQL/evaluator parity is pinned by tests in `atrium-core/src/search/`.
 - **`modified_at` triggers with `WHEN old = new`.** The triggers prevent recursion *and* let explicit writes survive — important for import-time timestamp preservation. Don't drop the `WHEN` clause.
 - **`ScheduledFor` enum, not string.** Schema's "TEXT (ISO date OR `__someday__` sentinel)" maps to a Rust enum (`Someday | Date(NaiveDate)`) via custom `ToSql` / `FromSql`. Type-safe at the boundary; round-trip-clean. Don't reach for the raw string.
 - **`NewTask.completed_at` is additive.** When the importer parses a source CLOSED cookie, it threads the timestamp directly into `NewTask.completed_at` instead of calling `toggle_complete` after create (which would stamp `now()`). All `NewTask` call sites need to set or default it; the GUI undo path also threads it.
@@ -170,22 +170,17 @@ Features that miss budget get gated or revised. If a proposed approach has obvio
 
 ## Codebase map
 
-Seven workspace crates split by responsibility. The data layer (`atrium-core`), search engine (`vir-search`), Org projection (`atrium-org`), inline-syntax parser (`atrium-inline`), non-Org importers (`atrium-import`), and headless CLI (`atrium-cli`) all stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them. atrium-core knows nothing about Org or inline syntax; both projections plug in through their own crates.
+Six workspace crates split by responsibility. The data layer (`atrium-core`), Org projection (`atrium-org`), inline-syntax parser (`atrium-inline`), non-Org importers (`atrium-import`), and headless CLI (`atrium-cli`) all stay GUI-free so the Phase 20 `atriumd` daemon and the post-1.0 TUI can reuse them. atrium-core knows nothing about Org or inline syntax; both projections plug in through their own crates. The search *expression grammar* lives in the external `vir-search` crate (AST, lexer, parser, dates, rank); atrium-core's `src/search/` holds the schema-aware pieces: the `Field` / `State` domain mapping, the in-memory task evaluator, and the SQL fast-path.
 
 ```
 atrium-inline/                        ← inline-syntax parser shared by every capture surface (extracted v0.13.0)
 ├── src/lib.rs                        ← `parse_with_today` + `ParsedEntry` (`#tag` / `@today` / `@<weekday>` / `@deadline` / `!N`)
 └── src/completions.rs                ← `CompletionContext` + `context_at` + `replace_token` + `matches` + `SCHEDULE_KEYWORDS` + `PRIORITY_LEVELS`
 
-atrium-search/                        ← Calibre-powered search engine (extracted v0.4.2)
-├── src/lex.rs                        ← Token enum + tokenizer
-├── src/parse.rs                      ← recursive-descent parser → Expr AST + sort modifiers
-├── src/ast.rs                        ← Expr + Field + State + MatchKind + Comparator + Value + DateKeyword + SortSpec
-├── src/dates.rs                      ← date keyword + relative-day → concrete date resolution
-├── src/eval.rs                       ← in-memory evaluator + EvalContext (lazy regex cache, Damerau-Levenshtein for fuzzy)
-├── src/rank.rs                       ← FTS5 bm25 + recency factor
-├── src/sql_translate.rs              ← Expr → SQL fast-path; in-memory fallback for regex / fuzzy / composite
-└── src/tests.rs                      ← parse + eval + translate round-trips
+atrium-core/src/search/               ← schema-aware search layer (the grammar itself lives in vir-search)
+├── domain.rs                         ← Field / State / SortKey mapping onto the task schema (ParseField, ParseSort, ParseState)
+├── eval.rs                           ← in-memory task evaluator + EvalContext (task-side date/numeric extraction)
+└── sql_translate.rs                  ← Expr → SQL fast-path for the task schema; None → in-memory fallback
 
 atrium-import/                        ← non-Org import/export formats (extracted from atrium-cli v0.34.0; consumed by the CLI + the GUI import dialog)
 ├── src/lib.rs                        ← `pub mod import; pub mod vtodo;` + re-export `UdaPolicy`
