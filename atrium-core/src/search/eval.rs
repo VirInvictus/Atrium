@@ -377,9 +377,13 @@ fn match_range(
     let Some(d) = field_date_value(task, field) else {
         return false;
     };
+    // `a..b` spans day a through day b, both inclusive: take the
+    // LOW end of each bound's resolved range. (Taking the high end
+    // of `high` — its exclusive upper bound — let the day AFTER b
+    // match, a one-day overshoot the SQL path then mirrored.)
     let (low_lo, _) = value_to_range(low, ctx.today);
-    let (_, high_hi) = value_to_range(high, ctx.today);
-    d >= low_lo && d <= high_hi
+    let (high_lo, _) = value_to_range(high, ctx.today);
+    d >= low_lo && d <= high_lo
 }
 
 /// Pull a date out of the task for date-shaped fields.
@@ -391,9 +395,16 @@ fn field_date_value(task: &Task, field: Field) -> Option<NaiveDate> {
             _ => None,
         },
         Field::Defer => task.defer_until,
-        Field::Created => Some(task.created_at.date_naive()),
-        Field::Modified => Some(task.modified_at.date_naive()),
-        Field::Completed => task.completed_at.map(|dt| dt.date_naive()),
+        // Timestamp columns compare by their LOCAL calendar date —
+        // the user's "created today", not UTC's. The SQL fast-path
+        // mirrors this with `DATE(col, 'localtime')`; both sides
+        // must move together or `created:today` disagrees between
+        // the fast path and the fallback.
+        Field::Created => Some(task.created_at.with_timezone(&chrono::Local).date_naive()),
+        Field::Modified => Some(task.modified_at.with_timezone(&chrono::Local).date_naive()),
+        Field::Completed => task
+            .completed_at
+            .map(|dt| dt.with_timezone(&chrono::Local).date_naive()),
         _ => None,
     }
 }
