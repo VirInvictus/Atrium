@@ -122,6 +122,11 @@ where
 /// isn't inside a recognised token. The marker character (`#`/
 /// `@`/`!`) is *not* part of `chosen` — the function preserves
 /// whatever marker the user typed.
+///
+/// The whole token is replaced, not just the part before the
+/// cursor: when the cursor sits mid-word (`@mo|nday`), the tail
+/// after the cursor belongs to the token and must go with it, or
+/// it resurfaces after the completion (`@mondaynday`).
 pub fn replace_token(text: &str, cursor: usize, chosen: &str) -> (String, usize) {
     let cursor = cursor.min(text.len());
     let prefix = &text[..cursor];
@@ -131,13 +136,18 @@ pub fn replace_token(text: &str, cursor: usize, chosen: &str) -> (String, usize)
         return (text.to_string(), cursor);
     }
     let marker = &token[..1];
-    let after = &text[cursor..];
+    // The token extends from its marker to the next whitespace
+    // (or end of text) — never shorter than the prefix the
+    // caller matched on, since that prefix ends at the cursor.
+    let token_end = text[token_start..]
+        .find(char::is_whitespace)
+        .map_or(text.len(), |i| token_start + i);
     let mut out = String::with_capacity(text.len() + chosen.len());
     out.push_str(&text[..token_start]);
     out.push_str(marker);
     out.push_str(chosen);
     let new_cursor = out.len();
-    out.push_str(after);
+    out.push_str(&text[token_end..]);
     (out, new_cursor)
 }
 
@@ -279,6 +289,33 @@ mod tests {
         // Past-end cursor still works.
         let (out, _) = replace_token("Plan @mo", 99, "monday");
         assert_eq!(out, "Plan @monday");
+    }
+
+    #[test]
+    fn replace_token_mid_word_replaces_whole_token() {
+        // Cursor parked between the `m` and the `o` (arrow-left
+        // after typing, or a click into the word). The tail after
+        // the cursor belongs to the token and must be consumed by
+        // the replacement, not spliced after it.
+        let (out, cursor) = replace_token("Plan @mo and stretch", 7, "monday");
+        assert_eq!(out, "Plan @monday and stretch");
+        assert_eq!(cursor, "Plan @monday".len());
+    }
+
+    #[test]
+    fn replace_token_mid_word_marker_side() {
+        // Cursor right after the marker: everything up to the
+        // token's end still goes.
+        let (out, cursor) = replace_token("#ur", 1, "urgent");
+        assert_eq!(out, "#urgent");
+        assert_eq!(cursor, out.len());
+    }
+
+    #[test]
+    fn replace_token_mid_word_last_word_no_trailing_text() {
+        let (out, cursor) = replace_token("Buy milk #urg", 11, "urgent");
+        assert_eq!(out, "Buy milk #urgent");
+        assert_eq!(cursor, out.len());
     }
 
     // ── Vocabulary regression guards ─────────────────────────────
