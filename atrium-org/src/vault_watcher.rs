@@ -649,10 +649,13 @@ impl<'a> ParsedTask<'a> {
         } else {
             None
         };
-        // `:RRULE:` in the properties drawer is canonical per spec
-        // §7.3.3 rule 3. The cookie is best-fit projection only;
-        // we ignore it here and trust the property drawer.
-        let repeat_rule = self.org.properties.get("RRULE").cloned();
+        // Drawer/cookie fields through the one shared derivation
+        // (the importer uses the same): effort, defer, RRULE,
+        // deadline warning, schedule time-of-day, extras. This used
+        // to be spelled out here and dropped `:EFFORT:` /
+        // `:DEFER_UNTIL:` entirely — an external Emacs add of a
+        // task carrying them lost both on first sync.
+        let fields = crate::org::PropertyFields::from_org(self.org);
         NewTask {
             uuid: Some(self.uuid.clone()),
             title: self.org.title.clone(),
@@ -662,20 +665,22 @@ impl<'a> ParsedTask<'a> {
             deadline: self.org.deadline,
             completed_at,
             orig_keyword: org_keyword_to_orig(self.org.keyword.as_ref(), sequence),
-            repeat_rule,
+            repeat_rule: fields.repeat_rule,
             note: self.org.body.clone(),
             // v0.14.0 — round-trip the DEADLINE warning suffix
             // (`-Nd` / `--Nd`) into the per-task override column on
             // the create path so external Emacs adds of new
             // headlines with a warning don't lose it on first sync.
-            deadline_warn_days: self.org.deadline_warning.map(i64::from),
+            deadline_warn_days: fields.deadline_warn_days,
             // v0.19.0 — Phase 18.5 Tier-2 time-of-day on schedule.
-            scheduled_time: self.org.scheduled_time,
+            scheduled_time: fields.scheduled_time,
             // v0.24.0 — custom property-drawer passthrough.
             // External Emacs creates with unmodeled drawer
             // keys (`:CLIENT:`, `:URL:`, etc.) round-trip
             // verbatim through the column.
-            extra_properties: crate::org::extras_from_properties(&self.org.properties),
+            extra_properties: fields.extra_properties,
+            defer_until: fields.defer_until,
+            estimated_minutes: fields.estimated_minutes,
             ..Default::default()
         }
     }
@@ -695,6 +700,19 @@ impl<'a> ParsedTask<'a> {
             update = update.title(self.org.title.clone());
             dirty = true;
         }
+
+        // Note body. The drawer covers every other free-text surface;
+        // an external Emacs edit to a task's body text used to be
+        // invisible to the diff and silently kept the DB's stale copy.
+        if self.org.body != existing.note {
+            update = update.note(self.org.body.clone());
+            dirty = true;
+        }
+
+        // Drawer/cookie fields through the one shared derivation
+        // (the importer uses the same): effort, defer, RRULE,
+        // deadline warning, schedule time-of-day, extras.
+        let fields = crate::org::PropertyFields::from_org(self.org);
 
         let parsed_scheduled = self.org.scheduled.map(ScheduledFor::Date);
         if parsed_scheduled != existing.scheduled_for {
@@ -738,26 +756,38 @@ impl<'a> ParsedTask<'a> {
         // SCHEDULED cookie is best-fit projection — divergence
         // detection at the file level is a separate concern (see
         // detect_rrule_divergences in the watcher).
-        let parsed_rrule = self.org.properties.get("RRULE").cloned();
-        if parsed_rrule != existing.repeat_rule {
-            update = update.repeat_rule_value(parsed_rrule);
+        if fields.repeat_rule != existing.repeat_rule {
+            update = update.repeat_rule_value(fields.repeat_rule);
             dirty = true;
         }
 
         // v0.14.0 — DEADLINE warning suffix. External Emacs edits
         // that add / change / remove the `-Nd` cookie suffix flow
         // back into the per-task override column.
-        let parsed_warn = self.org.deadline_warning.map(i64::from);
-        if parsed_warn != existing.deadline_warn_days {
-            update = update.deadline_warn_days_value(parsed_warn);
+        if fields.deadline_warn_days != existing.deadline_warn_days {
+            update = update.deadline_warn_days_value(fields.deadline_warn_days);
             dirty = true;
         }
 
         // v0.19.0 — Phase 18.5 Tier-2 SCHEDULED time-of-day.
         // External Emacs edits that add / change / remove the
         // `HH:MM` portion flow back into the new column.
-        if self.org.scheduled_time != existing.scheduled_time {
-            update = update.scheduled_time_value(self.org.scheduled_time);
+        if fields.scheduled_time != existing.scheduled_time {
+            update = update.scheduled_time_value(fields.scheduled_time);
+            dirty = true;
+        }
+
+        // Builder columns carried only by Org drawer properties:
+        // `:EFFORT:` → estimated minutes, `:DEFER_UNTIL:` → defer
+        // date. Both went through the importer on create but were
+        // invisible to this diff, so external edits to them never
+        // synced once the task existed.
+        if fields.estimated_minutes != existing.estimated_minutes {
+            update = update.estimated_minutes_value(fields.estimated_minutes);
+            dirty = true;
+        }
+        if fields.defer_until != existing.defer_until {
+            update = update.defer_value(fields.defer_until);
             dirty = true;
         }
 
@@ -767,9 +797,8 @@ impl<'a> ParsedTask<'a> {
         // into the column. Whole-map replace (the watcher
         // rewrites the drawer on any change anyway, so
         // per-key delta plumbing isn't worth its weight).
-        let parsed_extras = crate::org::extras_from_properties(&self.org.properties);
-        if parsed_extras != existing.extra_properties {
-            update = update.extra_properties_value(parsed_extras);
+        if fields.extra_properties != existing.extra_properties {
+            update = update.extra_properties_value(fields.extra_properties);
             dirty = true;
         }
 

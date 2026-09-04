@@ -257,6 +257,97 @@ async fn external_edit_completes_db_task() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn external_property_and_body_edits_sync_to_db() {
+    // Regression for the sweep's data-loss bug: `diff_from` ignored
+    // the note body, and both the diff and the create path ignored
+    // `:EFFORT:` / `:DEFER_UNTIL:`. An external Emacs save that
+    // touched any of the three never reached the DB.
+    let _serial = serialize().await;
+    let (conn, vault, pool) = fresh_setup("ext-props");
+    let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
+    let project_path = vault.join("Errands.org");
+
+    // External edit: two new drawer keys on the task plus a body
+    // line under the drawer, as an Emacs save would produce.
+    let text = std::fs::read_to_string(&project_path).unwrap();
+    let anchor = "* TODO Buy milk\n:PROPERTIES:\n";
+    assert!(text.contains(anchor), "seeded file layout changed:\n{text}");
+    let mut edited = text.replace(
+        anchor,
+        &format!("{anchor}:EFFORT: 1:30\n:DEFER_UNTIL: 2026-10-01\n"),
+    );
+    // The body line lands right after the task drawer's :END:
+    // (the first :END: following the inserted keys; the project's
+    // own drawer sits above the headline and is untouched).
+    let key_pos = edited.find(":DEFER_UNTIL: 2026-10-01").unwrap();
+    let end_rel = edited[key_pos..].find(":END:\n").unwrap();
+    let insert_at = key_pos + end_rel + ":END:\n".len();
+    edited.insert_str(insert_at, "Check the brands first.\n");
+    std::fs::write(&project_path, edited).unwrap();
+
+    // Wait for the watcher to sync all three into the DB row.
+    let deadline = chrono::NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+    let settled = wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+            .map(|tasks| {
+                tasks.iter().any(|t| {
+                    t.title == "Buy milk"
+                        && t.estimated_minutes == Some(90)
+                        && t.defer_until == Some(deadline)
+                        && t.note.contains("Check the brands first.")
+                })
+            })
+            .unwrap_or(false)
+    })
+    .await;
+    assert!(
+        settled,
+        "external :EFFORT: / :DEFER_UNTIL: / body edits never synced to the DB"
+    );
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&vault);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn external_create_with_effort_and_defer_keeps_them() {
+    // The create half of the same bug: a headline added externally
+    // carrying `:EFFORT:` / `:DEFER_UNTIL:` lost both on first
+    // sync, because `to_new_task` never set the columns.
+    let _serial = serialize().await;
+    let (conn, vault, pool) = fresh_setup("ext-create-props");
+    let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
+    let project_path = vault.join("Errands.org");
+
+    let existing = std::fs::read_to_string(&project_path).unwrap();
+    let appended = format!(
+        "{existing}\n* TODO Filing\n:PROPERTIES:\n:EFFORT: 45m\n:DEFER_UNTIL: 2026-11-15\n:END:\n"
+    );
+    std::fs::write(&project_path, appended).unwrap();
+
+    let deadline = chrono::NaiveDate::from_ymd_opt(2026, 11, 15).unwrap();
+    let settled = wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+            .map(|tasks| {
+                tasks.iter().any(|t| {
+                    t.title == "Filing"
+                        && t.estimated_minutes == Some(45)
+                        && t.defer_until == Some(deadline)
+                })
+            })
+            .unwrap_or(false)
+    })
+    .await;
+    assert!(
+        settled,
+        "externally added task lost its :EFFORT: / :DEFER_UNTIL: on create"
+    );
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&vault);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn external_add_under_subheading_creates_db_task() {
     let _serial = serialize().await;
     // Regression for the flatten_one early-return: TODOs nested
