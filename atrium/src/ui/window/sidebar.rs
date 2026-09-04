@@ -274,9 +274,11 @@ impl AtriumWindow {
             }
             list_box.append(&row);
             targets.push(Some(active.clone()));
-            // Canonical rows are always visible regardless of filter —
-            // tracked as None so `apply_sidebar_filter` skips them.
-            titles.push(None);
+            // Canonical rows are always visible regardless of filter,
+            // but their real label is recorded so the filter's
+            // Enter-activates pass (Phase 21) can match them: typing
+            // "inb" + Enter lands on Inbox.
+            titles.push(Some(active.canonical_title()));
             badges.push(badge);
         }
         self.imp().sidebar_targets.replace(targets);
@@ -300,6 +302,25 @@ impl AtriumWindow {
             move |entry| {
                 entry.set_text("");
                 win.apply_sidebar_filter("");
+            }
+        ));
+        // Phase 21 — Enter activates the best (highest-priority)
+        // match, making the filter a lightweight switcher: type
+        // "rev", Enter, and you're on the Review page. Navigating
+        // clears the filter so the full sidebar comes back.
+        self.imp().sidebar_filter.connect_activate(clone!(
+            #[weak(rename_to = win)]
+            self,
+            move |entry| {
+                let query = entry.text().to_string();
+                let targets = win.imp().sidebar_targets.borrow().clone();
+                let titles = win.imp().sidebar_titles.borrow().clone();
+                let Some(active) = best_filter_match(&query, &targets, &titles) else {
+                    return;
+                };
+                entry.set_text("");
+                win.apply_sidebar_filter("");
+                win.set_active_list(active);
             }
         ));
 
@@ -479,7 +500,10 @@ impl AtriumWindow {
             }
             list_box.append(&row);
             targets.push(Some(active));
-            titles.push(None); // top-tier rows don't filter
+            // Phase 21 — the derived pages participate in the
+            // sidebar filter (typing "review" used to hide them
+            // outright); their row label is the match text.
+            titles.push(Some(label.clone()));
         }
         self.imp().logbook_badge.replace(new_logbook_badge);
 

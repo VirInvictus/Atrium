@@ -1355,3 +1355,110 @@ pub(super) fn compute_sidebar_visibility(
     }
     visible
 }
+
+/// Phase 21 — the sidebar filter's Enter-activates semantics: the
+/// best match is the highest-priority row whose label contains the
+/// query. Rows are scanned in sidebar order, so the canonical rows
+/// (which anchor the top of the list) get first claim whenever their
+/// label matches; a canonical row that doesn't match simply falls
+/// through to the derived pages and area/project/tag rows below.
+/// For those, a label match is exactly what
+/// `compute_sidebar_visibility` makes visible, header lifting
+/// included. `None` when nothing matches, so Enter on a dead query
+/// is a silent no-op.
+pub(super) fn best_filter_match(
+    query: &str,
+    targets: &[Option<ActiveList>],
+    titles: &[Option<String>],
+) -> Option<ActiveList> {
+    let needle = query.trim().to_ascii_lowercase();
+    if needle.is_empty() {
+        return None;
+    }
+    for (idx, target) in targets.iter().enumerate() {
+        let Some(active) = target else { continue };
+        let hit = titles
+            .get(idx)
+            .and_then(|t| t.as_ref())
+            .is_some_and(|s| s.to_ascii_lowercase().contains(&needle));
+        if hit {
+            return Some(active.clone());
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+
+    /// Row layout mirroring the real sidebar: 6 canonical rows
+    /// (labelled for Enter-matching), top-tier derived pages
+    /// (Agenda / Forecast / Calendar / Review), a section header,
+    /// and one project row.
+    fn fixture() -> (Vec<Option<ActiveList>>, Vec<Option<String>>) {
+        let targets = vec![
+            Some(ActiveList::Inbox),
+            Some(ActiveList::Today),
+            Some(ActiveList::Upcoming),
+            Some(ActiveList::Anytime),
+            Some(ActiveList::Someday),
+            Some(ActiveList::Logbook),
+            Some(ActiveList::Agenda),
+            Some(ActiveList::Forecast),
+            Some(ActiveList::Calendar),
+            Some(ActiveList::Review),
+            None, // section header
+            Some(ActiveList::Project(1)),
+        ];
+        let titles = vec![
+            Some("Inbox".to_string()),
+            Some("Today".to_string()),
+            Some("Upcoming".to_string()),
+            Some("Anytime".to_string()),
+            Some("Someday".to_string()),
+            Some("Logbook".to_string()),
+            Some("Agenda".to_string()),
+            Some("Forecast".to_string()),
+            Some("Calendar".to_string()),
+            Some("Review".to_string()),
+            None,
+            Some("Website".to_string()),
+        ];
+        (targets, titles)
+    }
+
+    #[test]
+    fn derived_pages_match_the_filter() {
+        // The Phase 21 bug: typing "review" hid the derived pages
+        // outright because their rows carried no filter title.
+        let (targets, titles) = fixture();
+        let visible = compute_sidebar_visibility("review", 6, &targets, &titles);
+        assert!(visible[9], "Review must match 'review'");
+        assert!(!visible[6], "Agenda must not match 'review'");
+        assert!(!visible[10], "the project section stays hidden: its row didn't match");
+    }
+
+    #[test]
+    fn enter_activates_highest_priority_match() {
+        let (targets, titles) = fixture();
+        assert_eq!(
+            best_filter_match("review", &targets, &titles),
+            Some(ActiveList::Review)
+        );
+        assert_eq!(
+            best_filter_match("web", &targets, &titles),
+            Some(ActiveList::Project(1))
+        );
+        // A canonical label beats a lower partial match.
+        assert_eq!(
+            best_filter_match("inb", &targets, &titles),
+            Some(ActiveList::Inbox)
+        );
+        // Dead query and empty query: no-op.
+        assert_eq!(best_filter_match("zzz", &targets, &titles), None);
+        assert_eq!(best_filter_match("   ", &targets, &titles), None);
+    }
+}
+
+
