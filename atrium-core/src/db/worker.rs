@@ -2238,7 +2238,10 @@ impl Worker {
                     r.get(0)
                 });
         match existing {
-            Ok(id) => Ok((read::tag_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?, false)),
+            Ok(id) => Ok((
+                read::tag_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?,
+                false,
+            )),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok((
                 self.create_tag(NewTag {
                     name: name.to_string(),
@@ -2303,7 +2306,10 @@ impl Worker {
             |r| r.get(0),
         );
         match existing {
-            Ok(id) => Ok((read::area_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?, false)),
+            Ok(id) => Ok((
+                read::area_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?,
+                false,
+            )),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok((
                 self.create_area(NewArea {
                     title: name.to_string(),

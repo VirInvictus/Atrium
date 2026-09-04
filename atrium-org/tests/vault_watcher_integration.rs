@@ -359,7 +359,9 @@ async fn external_project_metadata_edits_sync_to_db() {
     // External edit: two project-level keys into the file-level
     // drawer (the first drawer in the file, above the headline).
     let text = std::fs::read_to_string(&project_path).unwrap();
-    let pos = text.find(":PROPERTIES:\n").expect("file-level drawer present");
+    let pos = text
+        .find(":PROPERTIES:\n")
+        .expect("file-level drawer present");
     let insert_at = pos + ":PROPERTIES:\n".len();
     let mut edited = String::with_capacity(text.len() + 64);
     edited.push_str(&text[..insert_at]);

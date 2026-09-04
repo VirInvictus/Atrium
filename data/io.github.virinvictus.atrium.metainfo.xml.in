@@ -110,6 +110,17 @@
   -->
 
   <releases>
+    <release version="0.71.0" date="2026-09-04">
+      <description translate="no">
+        <p>Six fixes and a Builder polish pass. Tasks edited in an
+           external Org editor now sync their notes, effort, and
+           defer date back into the app; search no longer shifts
+           results by a day around date boundaries; the kanban board
+           survives fast double-drops; and the Builder pane gets a
+           keyboard toggle, a saner first-run width, and a sidebar
+           filter that can navigate.</p>
+      </description>
+    </release>
     <release version="0.70.2" date="2026-08-25">
       <description translate="no">
         <p>Build infrastructure only: the shared search and toolkit

@@ -220,10 +220,16 @@ mod tests {
         ]);
         let f = PropertyFields::from_org(&org);
         assert_eq!(f.estimated_minutes, Some(90));
-        assert_eq!(f.defer_until, Some(NaiveDate::from_ymd_opt(2026, 9, 1).unwrap()));
+        assert_eq!(
+            f.defer_until,
+            Some(NaiveDate::from_ymd_opt(2026, 9, 1).unwrap())
+        );
         assert_eq!(f.repeat_rule.as_deref(), Some("FREQ=DAILY"));
         assert_eq!(f.deadline_warn_days, Some(3));
-        assert_eq!(f.extra_properties.get("CLIENT").map(String::as_str), Some("acme"));
+        assert_eq!(
+            f.extra_properties.get("CLIENT").map(String::as_str),
+            Some("acme")
+        );
         assert!(!f.effort_lossy);
         assert!(!f.defer_lossy);
     }

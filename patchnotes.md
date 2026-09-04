@@ -1,5 +1,29 @@
 # Atrium — Patch Notes
 
+## v0.71.0 (2026-09-04): the Phase 23 sweep closes, and the Builder pane learns the keyboard
+
+The 2026-08-23 codebase sweep's bug list is now fully closed, plus the agent-executable half of the Phase 21 tiling-first audit. No schema change (schema version stays 20); no new dependencies.
+
+**Fixed: two-way sync data loss.** The vault watcher's update diff never compared a task's note body, and neither the diff nor the create path knew about the two drawer-carried Builder properties. An Emacs edit to a task's body text never reached the database, and a headline added in Emacs carrying `:EFFORT:` or `:DEFER_UNTIL:` lost both on first sync. `to_new_task` and `diff_from` now go through one shared property derivation with the importer (`org::PropertyFields`), so create-time and update-time coverage can no longer drift apart.
+
+**Fixed: spurious creation signals.** Re-ensuring an existing, never-modified tag or area (the import path does it once per task row) re-emitted a creation delta every time, because the `created_at == modified_at` heuristic holds for every untouched row. The worker now reports creation explicitly and the delta fires exactly once.
+
+**Fixed: three one-day boundary shifts in search.** The SQL fast path bound comparator upper bounds inclusively where the evaluator is half-open, so `deadline:today` also matched tomorrow and `>today` missed it. `field:a..b` overshot to the day after `b` on both paths. And `created` / `modified` / `completed` compared UTC dates, so a task created at 22:00 local vanished from `created:today`. Comparators now bind the evaluator's half-open bounds, ranges are day-inclusive on the stated ends, and timestamp columns compare local calendar dates on both sides. A new parity test matrix runs SQL and the evaluator against a real database at the range boundaries.
+
+**Fixed: mid-token autocomplete.** Accepting a completion with the cursor parked inside the word (`@mo|nday`) spliced the insertion before the tail, producing `@mondaynday`. The whole token is replaced.
+
+**Fixed: kanban double-drop race.** A second drop landing before the first drop's re-render computed against the render-time snapshot and visibly undid the first drop. Drops now re-derive column order from the persisted side table at drop time.
+
+**Builder Mode:** the content/Inspector divider is keyed to the window width on first run (about 380 px from the end, instead of handing the pane over half of a 1920 px window), and a dragged width persists to the new `inspector-width` GSettings key. `Ctrl+Shift+I` toggles the pane (it is non-modal, so it previously had no dismiss at all), returning focus to the list on hide.
+
+**Sidebar filter as a switcher:** typing `review` used to hide the derived pages outright, and Enter did nothing. The pages now match by their row labels and Enter activates the best match (canonical labels first, then the rest), clearing the filter on navigation.
+
+**Compact-width idiom:** `COMPACT_WIDTH_THRESHOLD` is promoted out of the Calendar module to `crate::ui`, and below 600 px the window carries a `compact` class under which the bulk toolbars tighten and the "N selected" label steps aside.
+
+**Documentation:** new `docs/hyprland.md` (Quick Entry scratchpad window rule in current Lua-config syntax, the shared app_id collision, and `atrium-cli add` as today's keybind capture surface). `docs/accessibility.md` is re-audited against the owned stylesheet: high-contrast is now honestly recorded as unhandled, touch-target minimums are the owned numbers, and the focus-ring gap is marked resolved.
+
+Workspace suite green (about 1000 tests, clippy `-D warnings`, fmt clean). New coverage: three vault-watcher integration tests, the search parity matrix, sidebar-filter switcher tests, the ensure-delta and inline-completion regression tests.
+
 ## v0.70.2 (2026-08-25)
 
 - **Build:** Refreshed dependency locks: `vir-search` 1.0.2 (parser fixes from the post-extraction bug sweep) and `vir-gtk` 1.0.2.

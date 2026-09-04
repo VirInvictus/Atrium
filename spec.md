@@ -386,6 +386,8 @@ The "all-or-nothing" rule keeps semantics in lockstep — there's no shape where
 
 Coverage as of v0.5.3: boolean composition (AND / OR / NOT / Pass), bare text → `LOWER(title|note) LIKE ?`, state predicates (`open`, `done`, `overdue`, `scheduled`, `deadline`, `deferred`, `repeating`, `inproject`, `tagged`), field-scoped substring/exact on `title:` / `note:` / `tag:`, `repeats:true|false`, date comparisons + ranges on `due` / `scheduled` / `defer` / `created` / `modified` / `completed`, numeric comparison on `estimated:`. Falls back: regex, fuzzy, `Available` / `Queued`, the composite `is:today / is:inbox / is:upcoming / is:anytime / is:someday`, `Field::Project|Area`. The fall-back set is doable in future patches; the "all-or-nothing" guarantee is the current backstop.
 
+Date-comparison contract (v0.71.0, after the Phase 23 sweep fixed three boundary bugs): comparators are half-open on the resolved range (`Eq` = `[lo, hi)`, `Le` = `< hi`, `Gt` = `>= hi`), `field:a..b` is day-inclusive on both stated ends, and the `created` / `modified` / `completed` columns compare their LOCAL calendar date (`with_timezone(&Local)` in the evaluator; `DATE(col, 'localtime')` in SQL) so "created today" means the user's today. Both sides of the fast-path must move together; the parity tests in `atrium-core/src/search/sql_translate.rs` pin it.
+
 ### 4.6 Perspective renderers (Slice D)
 
 `perspective.renderer` (TEXT, default `'list'`) and `perspective.renderer_config` (TEXT, JSON, NULL by default) shipped at v0.5.0 (Slice A). v0.5.4 → v0.6.6 wired up the second renderer, `'board'` (kanban). A board groups by one of two axes:

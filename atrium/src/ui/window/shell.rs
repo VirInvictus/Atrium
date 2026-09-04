@@ -210,8 +210,8 @@ impl AtriumWindow {
             let Some(win) = win_weak.upgrade() else {
                 return;
             };
-            let now_compact = w.default_width() > 0
-                && w.default_width() < crate::ui::COMPACT_WIDTH_THRESHOLD;
+            let now_compact =
+                w.default_width() > 0 && w.default_width() < crate::ui::COMPACT_WIDTH_THRESHOLD;
             if last_compact.get() == Some(now_compact) {
                 return;
             }

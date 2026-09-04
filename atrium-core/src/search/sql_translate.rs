@@ -302,9 +302,7 @@ fn compare_clause(
                     let lo_ph = placeholder(params.len());
                     params.push(SqlValue::Date(hi));
                     let hi_ph = placeholder(params.len());
-                    format!(
-                        "({column} IS NOT NULL AND {column} >= {lo_ph} AND {column} < {hi_ph})"
-                    )
+                    format!("({column} IS NOT NULL AND {column} >= {lo_ph} AND {column} < {hi_ph})")
                 }
                 Comparator::Ne => {
                     params.push(SqlValue::Date(lo));
@@ -638,7 +636,11 @@ mod tests {
         ids
     }
 
-    fn eval_ids(expr: &Expr<Field, State>, tasks: &[crate::domain::Task], today: NaiveDate) -> Vec<i64> {
+    fn eval_ids(
+        expr: &Expr<Field, State>,
+        tasks: &[crate::domain::Task],
+        today: NaiveDate,
+    ) -> Vec<i64> {
         let tag_names = HashMap::new();
         let project_titles = HashMap::new();
         let project_areas = HashMap::new();
@@ -660,9 +662,7 @@ mod tests {
     }
 
     fn ts(s: &str) -> DateTime<Utc> {
-        DateTime::parse_from_rfc3339(s)
-            .unwrap()
-            .with_timezone(&Utc)
+        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
     #[test]
@@ -718,9 +718,23 @@ mod tests {
 
         insert_task(&conn, "on-lo", Some(lo), None, "2026-06-01T12:00:00Z", None);
         insert_task(&conn, "on-hi", Some(hi), None, "2026-06-01T12:00:00Z", None);
-        insert_task(&conn, "past-hi", Some(d(2026, 6, 12)), None, "2026-06-01T12:00:00Z", None);
+        insert_task(
+            &conn,
+            "past-hi",
+            Some(d(2026, 6, 12)),
+            None,
+            "2026-06-01T12:00:00Z",
+            None,
+        );
         insert_task(&conn, "dateless", None, None, "2026-06-01T12:00:00Z", None);
-        insert_task(&conn, "someday", None, Some("__someday__"), "2026-06-01T12:00:00Z", None);
+        insert_task(
+            &conn,
+            "someday",
+            None,
+            Some("__someday__"),
+            "2026-06-01T12:00:00Z",
+            None,
+        );
         insert_task(
             &conn,
             "done-on-lo",

@@ -483,7 +483,10 @@ impl AtriumWindow {
         if width - target >= MIN_CONTENT_WIDTH {
             self.imp().overlay_split.set_position(width - target);
         }
-        debug!(width, height, maximized, sidebar, inspector, "restored window state");
+        debug!(
+            width,
+            height, maximized, sidebar, inspector, "restored window state"
+        );
     }
 
     fn save_window_state(&self) {

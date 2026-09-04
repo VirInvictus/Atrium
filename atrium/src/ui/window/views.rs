@@ -464,8 +464,8 @@ impl AtriumWindow {
             let expr = format!("scheduled:{}", target.format("%Y-%m-%d"));
             win.set_active_list(ActiveList::SearchResults(expr));
         };
-        let compact = self.default_width() > 0
-            && self.default_width() < crate::ui::COMPACT_WIDTH_THRESHOLD;
+        let compact =
+            self.default_width() > 0 && self.default_width() < crate::ui::COMPACT_WIDTH_THRESHOLD;
         let widget = crate::ui::calendar::build_page(
             viewed,
             today,
@@ -695,7 +695,9 @@ impl AtriumWindow {
                 let mut orders = snapshot;
                 for (key, ids) in orders.iter_mut() {
                     let key = key.clone();
-                    ids.sort_by_key(|id| fresh.get(&(key.clone(), *id)).copied().unwrap_or(i64::MAX));
+                    ids.sort_by_key(|id| {
+                        fresh.get(&(key.clone(), *id)).copied().unwrap_or(i64::MAX)
+                    });
                 }
                 let source_key = orders
                     .iter()
@@ -706,8 +708,7 @@ impl AtriumWindow {
                 // Compute the destination column's new ordered id list: drop
                 // the dragged id if present, then insert it before `before_id`
                 // (or append when the drop landed on empty column space).
-                let mut new_order: Vec<i64> =
-                    orders.get(&dest_key).cloned().unwrap_or_default();
+                let mut new_order: Vec<i64> = orders.get(&dest_key).cloned().unwrap_or_default();
                 new_order.retain(|&id| id != dragged_id);
                 match before_id.and_then(|bid| new_order.iter().position(|&id| id == bid)) {
                     Some(idx) => new_order.insert(idx, dragged_id),

@@ -1436,7 +1436,10 @@ mod filter_tests {
         let visible = compute_sidebar_visibility("review", 6, &targets, &titles);
         assert!(visible[9], "Review must match 'review'");
         assert!(!visible[6], "Agenda must not match 'review'");
-        assert!(!visible[10], "the project section stays hidden: its row didn't match");
+        assert!(
+            !visible[10],
+            "the project section stays hidden: its row didn't match"
+        );
     }
 
     #[test]
@@ -1460,5 +1463,3 @@ mod filter_tests {
         assert_eq!(best_filter_match("   ", &targets, &titles), None);
     }
 }
-
-
