@@ -461,6 +461,8 @@ fn import_task<'a>(
             // Both prefix shapes parse to the same `u32` days; the
             // emitter normalises onto `-`.
             deadline_warn_days: fields.deadline_warn_days,
+            scheduled_warning_days: fields.scheduled_warning_days,
+            deadline_repeater: fields.deadline_repeater,
             // v0.19.0 — Phase 18.5 Tier-2 time-of-day on
             // schedule. Parser captures the time portion of the
             // SCHEDULED active timestamp into `org.scheduled_time`;

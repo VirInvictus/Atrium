@@ -820,6 +820,8 @@ mod tests {
             scheduled_time: None,
             reminder_at: None,
             extra_properties: std::collections::BTreeMap::new(),
+            scheduled_warning_days: None,
+            deadline_repeater: None,
             position: id as f64,
             created_at: Utc::now(),
             modified_at: Utc::now(),

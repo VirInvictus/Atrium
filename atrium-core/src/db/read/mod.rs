@@ -41,7 +41,8 @@ use crate::error::DbError;
 pub(super) const TASK_COLUMNS: &str = "id, uuid, title, note, project_id, parent_id, \
     scheduled_for, deadline, defer_until, estimated_minutes, completed_at, \
     repeat_rule, repeat_mode, last_reviewed_at, orig_keyword, deadline_warn_days, \
-    scheduled_time, reminder_at, extra_properties, position, created_at, modified_at";
+    scheduled_time, reminder_at, extra_properties, scheduled_warning_days, \
+    deadline_repeater, position, created_at, modified_at";
 
 /// `TASK_COLUMNS` with every column prefixed `t.`, for the queries that
 /// alias the task table as `t` and join it against another table. The
@@ -873,6 +874,8 @@ pub(super) fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
                 })
             })
             .unwrap_or_default(),
+        scheduled_warning_days: row.get("scheduled_warning_days")?,
+        deadline_repeater: row.get("deadline_repeater")?,
         position: row.get("position")?,
         created_at: row.get("created_at")?,
         modified_at: row.get("modified_at")?,

@@ -81,6 +81,12 @@ use crate::error::DbError;
 /// Phase 22 C9) is UPDATE-only: it recolours the six built-in tag /
 /// area swatch hexes from the old adwaita palette to their Kanagawa
 /// Dragon counterparts, in lockstep with the owned stylesheet.
+/// Version 21 (v0.72.0, Phase 24) adds `task.scheduled_warning_days`
+/// (the `-Nd` suffix on the SCHEDULED cookie; mirrors 0008's
+/// deadline-side column) and `task.deadline_repeater` (the repeater
+/// fragment on the DEADLINE cookie, stored verbatim as cookie text),
+/// so hand-authored Org cookie fragments stop being dropped on
+/// re-emit.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("0001_initial.sql")),
     (2, include_str!("0002_perspectives.sql")),
@@ -102,6 +108,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (18, include_str!("0018_task_reminder_fired.sql")),
     (19, include_str!("0019_board_card_position.sql")),
     (20, include_str!("0020_swatch_kanagawa.sql")),
+    (21, include_str!("0021_task_org_cookie_fields.sql")),
 ];
 
 /// Apply any pending migrations to `conn`.

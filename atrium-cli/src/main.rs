@@ -1873,6 +1873,10 @@ fn run_add(
         orig_keyword: None,
         completed_at: None,
         deadline_warn_days: add.deadline_warn,
+        // v0.72.0 — the Org cookie fragments have no CLI flags yet
+        // (the vault round-trip is their only surface).
+        scheduled_warning_days: None,
+        deadline_repeater: None,
         // v0.19.0 — populated by the --time flag wired in the
         // scheduled_time CLI task.
         scheduled_time: add.scheduled_time,

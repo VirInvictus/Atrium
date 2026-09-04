@@ -81,6 +81,18 @@ pub struct Task {
     /// empty map.
     #[serde(default)]
     pub extra_properties: BTreeMap<String, String>,
+    /// v0.72.0 — Phase 24 (sweep 405): the `-Nd` warning suffix on
+    /// the SCHEDULED cookie, hand-authored in Emacs. Mirrors the
+    /// DEADLINE-side `deadline_warn_days` (0008). Round-trips onto
+    /// the emitted SCHEDULED cookie; no Today-query role of its own.
+    #[serde(default)]
+    pub scheduled_warning_days: Option<i64>,
+    /// v0.72.0 — Phase 24 (sweep 405): the repeater fragment on the
+    /// DEADLINE cookie (`+1m` / `++1w` / `.+3d`), stored verbatim as
+    /// cookie text. Round-trip fidelity only — recurrence runs off
+    /// `repeat_rule` / `:RRULE:` per spec §7.3.3 rule 3.
+    #[serde(default)]
+    pub deadline_repeater: Option<String>,
     pub position: f64,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
@@ -137,6 +149,13 @@ pub struct NewTask {
     /// source vault file's DEADLINE cookie. None falls through
     /// to NULL.
     pub deadline_warn_days: Option<i64>,
+    /// v0.72.0 — Phase 24 (sweep 405): the `-Nd` warning suffix on
+    /// the source SCHEDULED cookie, threaded by the Org importer and
+    /// watcher on create. None falls through to NULL.
+    pub scheduled_warning_days: Option<i64>,
+    /// v0.72.0 — Phase 24 (sweep 405): the repeater fragment on the
+    /// source DEADLINE cookie, stored verbatim as cookie text.
+    pub deadline_repeater: Option<String>,
     /// v0.19.0 — Phase 18.5 Tier-2 time-of-day on schedule.
     /// Importer threads the time portion of an Org SCHEDULED
     /// active timestamp here; Todoist mapper threads recognised
@@ -246,6 +265,12 @@ pub struct TaskUpdate {
     /// weight). `Some(BTreeMap::new())` clears the column
     /// back to NULL.
     pub extra_properties: Option<BTreeMap<String, String>>,
+    /// v0.72.0 — Phase 24 (sweep 405): SCHEDULED warning suffix.
+    /// `Some(None)` clears; `Some(Some(days))` sets. Watcher-written.
+    pub scheduled_warning_days: Option<Option<i64>>,
+    /// v0.72.0 — Phase 24 (sweep 405): DEADLINE repeater cookie
+    /// text. `Some(None)` clears; `Some(Some(text))` sets verbatim.
+    pub deadline_repeater: Option<Option<String>>,
 }
 
 impl TaskUpdate {
@@ -389,6 +414,18 @@ impl TaskUpdate {
         self
     }
 
+    /// v0.72.0 — Phase 24 (sweep 405): SCHEDULED warning suffix.
+    pub fn scheduled_warning_days_value(mut self, value: Option<i64>) -> Self {
+        self.scheduled_warning_days = Some(value);
+        self
+    }
+
+    /// v0.72.0 — Phase 24 (sweep 405): DEADLINE repeater cookie text.
+    pub fn deadline_repeater_value(mut self, value: Option<String>) -> Self {
+        self.deadline_repeater = Some(value);
+        self
+    }
+
     /// `true` when no field will change. The worker treats no-op
     /// updates as a read of the current row.
     pub fn is_noop(&self) -> bool {
@@ -409,6 +446,8 @@ impl TaskUpdate {
             && self.scheduled_time.is_none()
             && self.reminder_at.is_none()
             && self.extra_properties.is_none()
+            && self.scheduled_warning_days.is_none()
+            && self.deadline_repeater.is_none()
     }
 }
 

@@ -89,6 +89,23 @@ pub struct OrgRepeater {
     pub unit: char,
 }
 
+impl OrgRepeater {
+    /// v0.72.0 — Phase 24 (sweep 405): render back to the cookie
+    /// fragment (`+1w`, `++1w`, `.+1w`). This is the exact string
+    /// shape stored in `task.deadline_repeater` for round-trip
+    /// fidelity; lossless against [`OrgRepeater::from_cookie`].
+    pub fn to_cookie(&self) -> String {
+        format!("{}{}{}", self.mode, self.interval, self.unit)
+    }
+
+    /// v0.72.0 — parse a stored cookie fragment back into a
+    /// repeater. Delegates to the same grammar the timestamp
+    /// parser uses, so what round-trips is exactly what parses.
+    pub fn from_cookie(cookie: &str) -> Option<OrgRepeater> {
+        parse_repeater(cookie.trim())
+    }
+}
+
 /// v0.17.0 — Phase 18.5 Tier-1 CLOCK line inside a `:LOGBOOK:`
 /// drawer. Org's shape:
 ///

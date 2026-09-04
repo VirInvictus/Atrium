@@ -714,6 +714,8 @@ impl<'a> ParsedTask<'a> {
             extra_properties: fields.extra_properties,
             defer_until: fields.defer_until,
             estimated_minutes: fields.estimated_minutes,
+            scheduled_warning_days: fields.scheduled_warning_days,
+            deadline_repeater: fields.deadline_repeater,
             ..Default::default()
         }
     }
@@ -821,6 +823,19 @@ impl<'a> ParsedTask<'a> {
         }
         if fields.defer_until != existing.defer_until {
             update = update.defer_value(fields.defer_until);
+            dirty = true;
+        }
+
+        // v0.72.0 — Phase 24 (sweep 405): the SCHEDULED warning
+        // suffix and DEADLINE repeater fragments. Both used to be
+        // dropped on re-emit because they had no column; now they
+        // round-trip like the rest of the cookie fragments.
+        if fields.scheduled_warning_days != existing.scheduled_warning_days {
+            update = update.scheduled_warning_days_value(fields.scheduled_warning_days);
+            dirty = true;
+        }
+        if fields.deadline_repeater != existing.deadline_repeater {
+            update = update.deadline_repeater_value(fields.deadline_repeater);
             dirty = true;
         }
 

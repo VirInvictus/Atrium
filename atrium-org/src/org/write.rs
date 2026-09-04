@@ -661,9 +661,21 @@ fn task_to_org(
         // so threading the column directly is safe.
         scheduled_time: task.scheduled_time,
         scheduled_repeater: scheduled_repeater_from_task(task, scheduled),
-        scheduled_warning: None,
+        // v0.72.0 — Phase 24 (sweep 405): project the stored
+        // SCHEDULED warning suffix onto the cookie, same shape as
+        // the deadline_warning projection below. NULL → no suffix.
+        scheduled_warning: task
+            .scheduled_warning_days
+            .filter(|n| *n >= 0)
+            .and_then(|n| u32::try_from(n).ok()),
         deadline: task.deadline,
-        deadline_repeater: None,
+        // v0.72.0 — Phase 24 (sweep 405): re-emit the stored DEADLINE
+        // repeater fragment verbatim. Unparseable stored text degrades
+        // to no repeater rather than corrupting the cookie.
+        deadline_repeater: task
+            .deadline_repeater
+            .as_deref()
+            .and_then(super::parse::OrgRepeater::from_cookie),
         // v0.14.0 — project the per-task warning window onto the
         // DEADLINE cookie. NULL → no suffix (org-agenda falls back
         // to its global default); Some(n) → `-Nd` after the date.

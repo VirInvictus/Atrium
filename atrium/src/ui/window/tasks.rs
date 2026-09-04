@@ -618,6 +618,10 @@ impl AtriumWindow {
                             // a sensitive deadline keeps its early
                             // surfacing across the delete/undo cycle.
                             deadline_warn_days: task.deadline_warn_days,
+                            // v0.72.0 — the Org cookie fragments ride
+                            // the same undo-preservation contract.
+                            scheduled_warning_days: task.scheduled_warning_days,
+                            deadline_repeater: task.deadline_repeater.clone(),
                             // Preserve the time-of-day on schedule
                             // across the undo cycle.
                             scheduled_time: task.scheduled_time,

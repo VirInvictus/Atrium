@@ -102,6 +102,13 @@ pub struct PropertyFields {
     pub scheduled_time: Option<NaiveTime>,
     /// Unmodeled drawer keys → `task.extra_properties`.
     pub extra_properties: BTreeMap<String, String>,
+    /// v0.72.0 — Phase 24 (sweep 405): SCHEDULED cookie warning
+    /// suffix (`-Nd`) → `task.scheduled_warning_days`.
+    pub scheduled_warning_days: Option<i64>,
+    /// v0.72.0 — Phase 24 (sweep 405): DEADLINE cookie repeater
+    /// fragment (`+1m`) → `task.deadline_repeater`, verbatim cookie
+    /// text.
+    pub deadline_repeater: Option<String>,
     /// `:EFFORT:` was present but unparseable. The importer
     /// surfaces a lossy note; the watcher degrades silently.
     pub effort_lossy: bool,
@@ -124,6 +131,8 @@ impl PropertyFields {
             deadline_warn_days: org.deadline_warning.map(i64::from),
             scheduled_time: org.scheduled_time,
             extra_properties: extras_from_properties(&org.properties),
+            scheduled_warning_days: org.scheduled_warning.map(i64::from),
+            deadline_repeater: org.deadline_repeater.as_ref().map(OrgRepeater::to_cookie),
             effort_lossy,
             defer_lossy,
         }

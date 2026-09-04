@@ -776,7 +776,11 @@ fn foo() {}
         // that's what the syntax means; the fix protects the
         // Atrium DB → vault → DB loop, which is where notes lived.)
         let first = parse_org_text("* TODO Notes\n * bullet one\nplain line\n");
-        assert_eq!(first.len(), 1, "escaped star body must not become a headline");
+        assert_eq!(
+            first.len(),
+            1,
+            "escaped star body must not become a headline"
+        );
         let task = &first[0];
         assert_eq!(task.body, "* bullet one\nplain line");
 

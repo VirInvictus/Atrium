@@ -1272,8 +1272,8 @@ impl Worker {
              (uuid, title, note, project_id, parent_id, scheduled_for, deadline, \
               defer_until, estimated_minutes, repeat_rule, repeat_mode, orig_keyword, \
               completed_at, deadline_warn_days, scheduled_time, reminder_at, \
-              extra_properties, position) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              extra_properties, scheduled_warning_days, deadline_repeater, position) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 uuid,
                 new.title,
@@ -1292,6 +1292,8 @@ impl Worker {
                 scheduled_time_str,
                 new.reminder_at,
                 extra_properties_json,
+                new.scheduled_warning_days,
+                new.deadline_repeater,
                 position,
             ],
         )?;
@@ -1570,6 +1572,14 @@ impl Worker {
             };
             bound.push(Box::new(encoded));
         }
+        if let Some(warn) = update.scheduled_warning_days {
+            sets.push("scheduled_warning_days = ?");
+            bound.push(Box::new(warn));
+        }
+        if let Some(rep) = update.deadline_repeater {
+            sets.push("deadline_repeater = ?");
+            bound.push(Box::new(rep));
+        }
         bound.push(Box::new(update.id));
 
         let sql = format!("UPDATE task SET {} WHERE id = ?", sets.join(", "));
@@ -1725,6 +1735,11 @@ impl Worker {
             // Time-of-day carries forward — a daily 9 AM
             // standup keeps the 9 AM on its respawn.
             scheduled_time: completed.scheduled_time,
+            // v0.72.0 — the Org cookie fragments carry forward with
+            // their anchors: the respawn's SCHEDULED keeps the same
+            // warning suffix, the same deadline repeater.
+            scheduled_warning_days: completed.scheduled_warning_days,
+            deadline_repeater: completed.deadline_repeater.clone(),
             // Reminders are deliberately *not* carried forward —
             // a "remind me at 3 PM" reminder fired on the
             // previous instance; the respawn shouldn't re-fire

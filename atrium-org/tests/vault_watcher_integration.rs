@@ -419,6 +419,64 @@ async fn external_project_metadata_edits_sync_to_db() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn external_cookie_fragments_sync_and_round_trip() {
+    // Regression for sweep 405: the SCHEDULED warning suffix and the
+    // DEADLINE repeater had no columns, so the writer dropped both on
+    // every re-emit and the watcher never synced them.
+    let _serial = serialize().await;
+    let (conn, vault, pool) = fresh_setup("ext-cookie-fragments");
+    let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
+    let project_path = vault.join("Errands.org");
+
+    // External edit: hand-authored cookie fragments on the seeded task.
+    let text = std::fs::read_to_string(&project_path).unwrap();
+    let edited = text.replace(
+        "* TODO Buy milk",
+        "* TODO Buy milk\nSCHEDULED: <2026-09-10 Thu -3d>\nDEADLINE: <2026-09-20 Sun +1m>",
+    );
+    std::fs::write(&project_path, edited).unwrap();
+
+    // The watcher lands both fragments in the new columns.
+    let settled = wait_until(SETTLE, || {
+        pool.with(|conn| atrium_core::db::read::list_all_in_project(conn, project_id))
+            .map(|tasks| {
+                tasks.iter().any(|t| {
+                    t.title == "Buy milk"
+                        && t.scheduled_for
+                            == Some(atrium_core::ScheduledFor::Date(
+                                chrono::NaiveDate::from_ymd_opt(2026, 9, 10).unwrap(),
+                            ))
+                        && t.scheduled_warning_days == Some(3)
+                        && t.deadline == Some(chrono::NaiveDate::from_ymd_opt(2026, 9, 20).unwrap())
+                        && t.deadline_repeater.as_deref() == Some("+1m")
+                })
+            })
+            .unwrap_or(false)
+    })
+    .await;
+    assert!(
+        settled,
+        "external SCHEDULED warning / DEADLINE repeater never synced to the DB"
+    );
+
+    // The writer's canonical rewrite keeps both fragments on the
+    // cookies, so the next external reader sees the same shape.
+    let settled = wait_until(SETTLE, || {
+        std::fs::read_to_string(&project_path)
+            .map(|t| t.contains("-3d>") && t.contains("+1m>"))
+            .unwrap_or(false)
+    })
+    .await;
+    assert!(
+        settled,
+        "writer re-emit lost the hand-authored cookie fragments"
+    );
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&vault);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn external_add_under_subheading_creates_db_task() {
     let _serial = serialize().await;
     // Regression for the flatten_one early-return: TODOs nested
