@@ -23,7 +23,7 @@ Atrium pairs Org-mode's data discipline (UUIDs on every node, plain-text round-t
 
 **Things 3 and OmniFocus, on Linux, done right.** The two apps that taught GTD to a generation fail in opposite ways. Things is calm and beautiful but omits so much that power users outgrow it (no defer dates, no review, no forecast). OmniFocus exposes every knob, and its failure mode is fiddling with fields instead of doing tasks. Atrium lets you grow into Builder Mode when your system demands it and fall back to Simple Mode when it doesn't, without changing apps or migrating data.
 
-**Calibre's search vocabulary, everywhere search runs.** A real boolean expression grammar (`AND` / `OR` / `NOT`, parens, precedence), match modifiers on every text field (substring, exact, regex, fuzzy), comparison and range on dates and numerics, and `is:` state predicates. The same grammar parses in the search bar, drives saved Perspectives, runs through the CLI, and translates to SQL fast-paths when expressible. Power users get power; everyone else sees a search box.
+**Calibre's search vocabulary, everywhere search runs.** A real boolean expression grammar (`AND` / `OR` / `NOT`, parens, precedence), match modifiers on every text field (substring, exact, regex, fuzzy, plus prefix `x*`, suffix `*x`, and in-list `(a,b)`), comparison and range on dates and numerics, and `is:` state predicates. The same grammar parses in the search bar, drives saved Perspectives, runs through the CLI, and translates to SQL fast-paths when expressible. Power users get power; everyone else sees a search box.
 
 **Local-first, no exceptions.** SQLite at `$XDG_DATA_HOME/atrium/atrium.db`, WAL mode, single-writer worker, read-only connection pool. No CalDAV client, no cloud sync, no telemetry, no accounts. The Org vault is filesystem mirroring, not network. Your data lives on your machine and stays there.
 
@@ -180,7 +180,7 @@ scripts/regression.sh
 
 ## Status
 
-**Feature-complete and heading to 1.0.** Every functional phase has shipped: both modes, Calibre-powered search, two-way Org-mode sync, the kanban and calendar surfaces, every importer, and the productivity essentials (subtasks, dependencies, templates, backups, reminders, onboarding). Localisation scaffolding shipped at v0.47.0 (gettext throughout the interface; English is the first catalogue, translations welcome once 1.0 lands). What remains before the 1.0 tag is packaging: a Flathub submission.
+**Feature-complete and heading to 1.0.** Every functional phase has shipped: both modes, Calibre-powered search, two-way Org-mode sync, the kanban and calendar surfaces, every importer, and the productivity essentials (subtasks, dependencies, templates, backups, reminders, onboarding). Localisation scaffolding shipped at v0.47.0 (gettext throughout the interface; English is the first catalogue, translations welcome once 1.0 lands). What remains before the 1.0 tag is the verification tail (the display passes) and packaging: the final icon, refreshed screenshots, and a Flathub submission.
 
 - [`spec.md`](spec.md): the contract (architecture, schema, search grammar, import/export mapping, perf budget).
 - [`roadmap.md`](roadmap.md): the phase plan, what shipped and what's next.

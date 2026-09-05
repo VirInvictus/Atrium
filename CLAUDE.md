@@ -4,7 +4,7 @@ Project guidance for Claude Code working on Atrium.
 
 ## Status
 
-**Current release: v0.72.0** on `main` (September 2026; v0.70.0 extracted the search parser and shared GTK widgets into `vir-search` / `vir-gtk`; v0.71.0 closed the Phase 23 codebase sweep and the Phase 21 agent-executable tail; v0.71.1 fixed the fresh-install serif family-name miss; v0.72.0 repaired the last Org round-trip data losses — body lines beginning `*`, SCHEDULED warning suffixes, DEADLINE repeaters — and shipped the staged pane collapse for narrow tiles). The `phase-22-de-adwaita` branch was merged back and deleted at v0.65.1; the vault-ledger fixes that shipped on the release line as v0.48.0 / v0.48.1 are recorded under their branch numbers, v0.60.0 / v0.60.1 (both lines independently minted a v0.48.0; the branch's is the de-adwaita re-sequence docs commit). **Schema version: 21** (migrations `0001` → `0021`; 0021 adds the SCHEDULED-warning and DEADLINE-repeater round-trip columns). Full workspace suite green. **The Phase 22 de-adwaita ladder is complete (C1 → C10): Atrium is plain GTK4 with a self-contained owned Kanagawa Dragon stylesheet, zero libadwaita in the tree.** Display-verified and look approved by Brandon.
+**Current release: v0.72.1** on `main` (September 2026; v0.70.0 extracted the search parser and shared GTK widgets into `vir-search` / `vir-gtk`; v0.71.0 closed the Phase 23 codebase sweep and the Phase 21 agent-executable tail; v0.71.1 fixed the fresh-install serif family-name miss; v0.72.0 repaired the last Org round-trip data losses — body lines beginning `*`, SCHEDULED warning suffixes, DEADLINE repeaters — and shipped the staged pane collapse for narrow tiles; v0.72.1 adopted vir-gtk 1.0.3 + vir-search 1.4.0 and wired the prefix/suffix/in match kinds into the evaluator). The `phase-22-de-adwaita` branch was merged back and deleted at v0.65.1; the vault-ledger fixes that shipped on the release line as v0.48.0 / v0.48.1 are recorded under their branch numbers, v0.60.0 / v0.60.1 (both lines independently minted a v0.48.0; the branch's is the de-adwaita re-sequence docs commit). **Schema version: 21** (migrations `0001` → `0021`; 0021 adds the SCHEDULED-warning and DEADLINE-repeater round-trip columns). Full workspace suite green. **The Phase 22 de-adwaita ladder is complete (C1 → C10): Atrium is plain GTK4 with a self-contained owned Kanagawa Dragon stylesheet, zero libadwaita in the tree.** Display-verified and look approved by Brandon.
 
 Phases 0 through 19.5 are complete: the full OmniFocus-superset data layer, dual Simple/Builder modes, Quick Entry, the Org vault two-way mirror, search, recurrence, subtasks, dependencies, templates, backup/restore, per-area review schedules, bulk editing, reminders with launch catch-up, and the non-Org importers (Todoist, Taskwarrior, todo.txt, VTODO, extracted into `atrium-import`). The kanban surface has matured through v0.46.0 (richer cards, per-column WIP limits, add-in-place, persisted intra-column order), preserving the projection column model (columns stay a projection of a tag or Org status; no first-class buckets, so boards still round-trip to Org). v0.46.1 / v0.46.2 were test-only fixes for a flaky CI: the `atrium-org` vault-watcher integration tests now poll for the expected end-state instead of waiting a fixed interval (v0.46.1), and are serialized via a file-level `tokio::sync::Mutex` so the harness can't run them in parallel and starve each other on a small runner (v0.46.2).
 
@@ -16,7 +16,7 @@ Phases 0 through 19.5 are complete: the full OmniFocus-superset data layer, dual
 
 Six workspace crates: `atrium-core` (data layer), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-import` (non-Org import/export formats, extracted v0.34.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary. Two shared libraries live outside the workspace as git dependencies, consumed by Atrium and Conservatory: `vir-search` (the Calibre-style search expression language; the old in-tree `atrium-search` crate, extracted v0.70.0) and `vir-gtk` (shared GTK4 widgets + theming, v0.70.0).
 
-The next-up plan lives in `roadmap.md`; the Phase 23 sweep and the Phase 21 agent-executable tail are closed, so the current front is Brandon's display-pass list (Phase 21 geometry/keyboard/portal verification = the Phase 22 verification tail), the gated decisions (`atriumd` §5.3 verdict, Org round-trip spec decisions 404/405, EDS overlay), and then the 1.0 asset tail (icon, screenshots, Flathub metadata) ahead of the `v1.0.0` tag.
+The next-up plan lives in `roadmap.md`; the Phase 23 sweep and the Phase 21 agent-executable tail are closed, so the current front is Brandon's display-pass list (Phase 21 geometry/keyboard/portal verification = the Phase 22 verification tail), the gated decisions (`atriumd` §5.3 verdict, EDS overlay; 404/405 were decided 2026-09-04 and shipped at v0.72.0), and then the 1.0 asset tail (icon, screenshots, Flathub metadata) ahead of the `v1.0.0` tag.
 
 **Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atriumd`, the post-1.0 `atrium-tui`). Don't add functionality to the GTK binary that can't be reached from the shell.
 
@@ -214,7 +214,7 @@ atrium-core/                          ← headless data layer
     ├── command.rs                    ← Command enum
     ├── changes.rs                    ← TaskChanges, LibraryChanges deltas
     ├── fixtures.rs                   ← --fixture stress generators
-    └── migrations/                   ← 0001 initial → 0019 board_card_position; user_version PRAGMA currently 19
+    └── migrations/                   ← 0001 initial → 0021 task_org_cookie_fields; user_version PRAGMA currently 21
 
 atrium-org/                           ← Phase 16 Org-mode projection + Phase 17 vault → DB sync
 ├── src/lib.rs                        ← VaultEvent + RecentWrites + sidecar re-exports; `spawn_org_vault` (write-only); `spawn_vault_loop` (two-way GUI builder)
@@ -235,7 +235,7 @@ atrium/                               ← GTK binary
 ├── src/main.rs                       ← Application; boot_data_layer reads vault-path GSettings → spawn_worker_with_vault
 ├── src/ui/                           ← window/ + inspector_pane/ (module dirs, split v0.22.0), task list/object, inspector, tag editor, filter, forecast, review,
 │                                       perspective_editor, logbook, agenda, calendar, board, inline_complete, shortcuts, about, typography
-├── src/quickentry/modal.rs           ← Quick Entry modal (adw::Window, fade-in); parser lives in atrium-inline
+├── src/quickentry/modal.rs           ← Quick Entry modal (gtk::Window since C8; fade-in); parser lives in atrium-inline
 └── src/debug/mod.rs                  ← Memory Watch + /proc/self/status sampler
 
 data/                                 ← installed assets
@@ -244,8 +244,8 @@ data/                                 ← installed assets
 ├── fonts/                            ← Inter + Source Serif 4 + JetBrains Mono + Atkinson Hyperlegible (SIL OFL)
 ├── icons/hicolor/scalable/apps/io.github.virinvictus.atrium.svg
 ├── io.github.virinvictus.atrium.gschema.xml ← includes vault-path key
-├── io.github.virinvictus.atrium.desktop
-├── io.github.virinvictus.atrium.metainfo.xml
+├── io.github.virinvictus.atrium.desktop.in ← installed via meson (the `.in` suffix is a build-time template)
+├── io.github.virinvictus.atrium.metainfo.xml.in ← same; release entries stamped from VERSION
 └── io.github.virinvictus.atrium.yml  ← Flatpak manifest
 
 docs/                                 ← long-form references (schema.md / keymap.md / accessibility.md / perf-baseline.md / regression.md / gtd-patterns.md / org-roundtrip.md)
