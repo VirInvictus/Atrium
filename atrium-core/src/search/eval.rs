@@ -229,6 +229,24 @@ fn match_field(task: &Task, field: Field, kind: &MatchKind, ctx: &EvalContext<'_
         MatchKind::Regex(pattern) => candidates.iter().any(|v| ctx.regex_match(pattern, v)),
         MatchKind::HasAny => !candidates.iter().all(String::is_empty) && !candidates.is_empty(),
         MatchKind::HasNone => candidates.iter().all(String::is_empty) || candidates.is_empty(),
+        MatchKind::Prefix(needle) => {
+            let n = needle.to_ascii_lowercase();
+            candidates
+                .iter()
+                .any(|v| v.to_ascii_lowercase().starts_with(&n))
+        }
+        MatchKind::Suffix(needle) => {
+            let n = needle.to_ascii_lowercase();
+            candidates
+                .iter()
+                .any(|v| v.to_ascii_lowercase().ends_with(&n))
+        }
+        MatchKind::In(items) => {
+            let wanted: Vec<String> = items.iter().map(|s| s.to_ascii_lowercase()).collect();
+            candidates
+                .iter()
+                .any(|v| wanted.contains(&v.to_ascii_lowercase()))
+        }
         MatchKind::Fuzzy(needle) => {
             let n_lower = needle.to_ascii_lowercase();
             let threshold = fuzzy_threshold_for(n_lower.chars().count());

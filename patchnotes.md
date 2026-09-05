@@ -1,5 +1,16 @@
 # Atrium — Patch Notes
 
+## v0.72.1 (2026-09-04)
+
+**Consumer wave: vir-gtk 1.0.3 + vir-search 1.4.0 adopted.** The audit's
+shared-library releases land: locks refreshed, and the search evaluator
+gains arms for the prefix (`foo*`), suffix (`*bar`), and list (`(a,b)`)
+match kinds vir-search 1.3.0 added — previously they degraded to no-ops.
+vir-search 1.4.0's spans and `Visitor`/`Folder` traits are available to
+the search module for future use; no behavioral change beyond adoption.
+
+# Atrium — Patch Notes
+
 ## v0.72.0 (2026-09-04): the vault stops losing things, and narrow tiles get usable
 
 Three items from the codebase sweep's deferred findings, plus the first real feature of the tiling-forward pass. Schema version 20 → 21 (migration 0021, additive). No new dependencies.

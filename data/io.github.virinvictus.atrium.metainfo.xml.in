@@ -110,6 +110,11 @@
   -->
 
   <releases>
+    <release version="0.72.1" date="2026-09-04">
+      <description translate="no">
+        <p>Adopts vir-search 1.4.0: prefix (foo*), suffix (*bar), and list (a,b) matchers now evaluate in searches; dependency locks refreshed to vir-gtk 1.0.3 and vir-search 1.4.0.</p>
+      </description>
+    </release>
     <release version="0.72.0" date="2026-09-04">
       <description translate="no">
         <p>Org round-trip hardening and a narrow-window layout. Notes
