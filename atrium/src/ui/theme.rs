@@ -1,29 +1,32 @@
 // SPDX-License-Identifier: MIT
-//! The owned application stylesheet (Phase 22 C9): Kanagawa Dragon baked
-//! into one generated sheet, replacing libadwaita's named-colour palette
-//! and restyling the base widgets to Atrium's design language (spec §3.7):
-//! flat and calm, but gently rounded (controls ~8px, cards / popovers /
-//! toasts ~12px, switches and pills fully round), with a soft drop shadow
-//! on floating panels. The square, brutalist stance of the sibling
-//! de-adwaita apps was softened here after seeing it live — Atrium is a
-//! Things-3-style surface, not a utilitarian tool, so it carries rounding.
+//! The owned application stylesheet (Phase 22 C9, restructured 2026-09-06):
+//! Kanagawa Dragon baked into one generated sheet over vir-gtk's shared
+//! base. The unanimous flat/square widget core now lives in
+//! `vir_gtk::theme::base_css` (installed at USER + 1); this sheet keeps what
+//! makes Atrium Atrium, installed at USER + 2 (`install_app_stylesheet`) so
+//! it wins by priority: flat and calm, but gently rounded (controls ~8px,
+//! cards / popovers / toasts ~12px, switches and pills fully round), with a
+//! soft drop shadow on floating panels, circular checkbox discs, and
+//! painted accent selection. The square stance of the sibling de-adwaita
+//! apps was softened here after seeing it live — Atrium is a Things-3-style
+//! surface, not a utilitarian tool, so it carries rounding.
 //!
 //! Two jobs:
 //!
 //! 1. **`@define-color` block.** `data/style.css` still references the
 //!    adwaita colour names (`@accent_color`, `@card_shade_color`,
 //!    `@window_bg_color`, the `@blue_3` / `@yellow_5` palette scale, …).
-//!    libadwaita supplies those today and vanishes at C10, so this sheet
-//!    defines every one in a Kanagawa hue. Loaded a step above USER
-//!    priority, these win over adwaita's definitions now (recolouring
-//!    adwaita's own widgets in lockstep) and stand alone once the toolkit
-//!    is gone.
+//!    That block stays app-side by design (the base sheet carries no
+//!    adwaita aliases), and wins over adwaita's definitions at this
+//!    priority.
 //!
-//! 2. **Flat/square base rules.** Override adwaita's rounded, gradient
-//!    chrome so the window, header bars, buttons, rows, and inputs match
-//!    the owned design language. `data/style.css` layers its per-surface
-//!    tweaks on top (it loads at the same priority but later, so its
-//!    specific rules still win where they overlap).
+//! 2. **The rounded overrides.** Everything here either restates a base
+//!    rule with Atrium's rounding (rows, buttons, entries, popovers,
+//!    tooltips, scrollbars), paints what the base paints differently
+//!    (selection, checked), or is Atrium-only (circles, swatches, the
+//!    generic separator). `data/style.css` still layers its per-surface
+//!    tweaks on top (installed just after this sheet at the same tier, so
+//!    its specifics win).
 //!
 //! Custom properties are avoided (one fixed palette; `@define-color` is
 //! enough and keeps the sheet legible), so hexes are spliced by `%TOKEN%`
@@ -41,8 +44,23 @@ const SW_YELLOW: &str = "#c4b28a"; // dragonYellow
 const SW_ORANGE: &str = "#b6927b"; // dragonOrange
 const SW_RED: &str = "#c4746e"; // dragonRed
 const SW_PURPLE: &str = "#8992a7"; // dragonViolet
-/// The sheet template. `%TOKENS%` are replaced by the hexes above in
-/// [`sheet`]; nothing else is substituted, so literal CSS braces are safe.
+
+/// The palette with Atrium's accent override.
+fn palette() -> vir_gtk::theme::Palette {
+    let mut p = vir_gtk::theme::Palette::dragon();
+    p.accent = "#c4b28a";
+    p.on_accent = "#12120f";
+    p
+}
+
+/// The shared base sheet, spliced with Atrium's palette. Installed at
+/// USER + 1 by [`install`]; this module's sheet at USER + 2 overrides it.
+pub fn base() -> String {
+    vir_gtk::theme::base_css(&palette())
+}
+
+/// The app-owned sheet template. `%TOKENS%` are replaced by the hexes above
+/// in [`sheet`]; nothing else is substituted, so literal CSS braces are safe.
 const TEMPLATE: &str = "\
 /* ── Adwaita named-colour replacement (consumed by data/style.css) ── */
 @define-color window_bg_color %BG_WINDOW%;
@@ -67,30 +85,7 @@ const TEMPLATE: &str = "\
 @define-color green_4 %SW_GREEN%;
 @define-color purple_3 %SW_PURPLE%;
 @define-color purple_2 %SW_PURPLE%;
-/* ── Base widgets — the owned flat-but-rounded replacement for the
-   adwaita / GTK-default widget styling. Comprehensive on purpose: Atrium
-   must look the same with or without a system GTK theme underneath, and
-   after libadwaita is gone (C10). data/style.css layers its per-surface
-   tweaks on top (same priority, loaded later, so its specifics win). */
-window, .background { background-color: %BG_WINDOW%; color: %FG%; }
-window.csd, decoration { box-shadow: none; }
-headerbar {
-  background-color: %BG_HEADER%;
-  background-image: none;
-  color: %FG%;
-  box-shadow: none;
-  border-bottom: 1px solid %GRID%;
-  min-height: 34px;
-  padding: 0 4px;
-}
-headerbar button { min-height: 24px; }
-paned > separator {
-  background-color: %GRID%;
-  background-image: none;
-  min-width: 1px;
-  min-height: 1px;
-}
-listview, list, columnview { background-color: %BG_VIEW%; color: %FG%; }
+/* ── Atrium's rounded idiom over the square base ── */
 row { border-radius: 8px; }
 row.activatable:hover { background-color: alpha(currentColor, 0.05); }
 row:selected { background-color: alpha(%ACCENT%, 0.26); color: %FG%; }
@@ -108,7 +103,6 @@ row:selected { background-color: alpha(%ACCENT%, 0.26); color: %FG%; }
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
 }
 list.boxed-list > row { border-bottom: 1px solid alpha(%GRID%, 0.6); }
-list.boxed-list > row:last-child { border-bottom: none; }
 button {
   background-color: %BG_CARD%;
   background-image: none;
@@ -120,23 +114,11 @@ button {
   padding: 3px 12px;
   transition: background-color 120ms ease, border-color 120ms ease;
 }
-button:hover { background-color: %GRID%; }
-button:active, button:checked { background-color: %ACCENT%; color: %ON_ACCENT%; border-color: %ACCENT%; }
-button:disabled { opacity: 0.5; }
-button.flat {
-  background-color: transparent;
-  background-image: none;
-  border-color: transparent;
-  box-shadow: none;
-}
+button:disabled { opacity: 0.5; color: %FG%; border-color: %GRID%; background-color: %BG_CARD%; }
 button.circular { border-radius: 999px; padding: 4px; }
 button.flat:hover, button.circular:hover { background-color: alpha(%FG%, 0.10); }
-button.suggested-action { background-color: %ACCENT%; color: %ON_ACCENT%; border-color: %ACCENT%; }
 button.suggested-action:hover { background-color: %WARN%; border-color: %WARN%; }
-button.destructive-action { background-color: %ERR%; color: %ON_ACCENT%; border-color: %ERR%; }
 button.pill { border-radius: 999px; padding: 5px 16px; }
-.linked > button:not(:first-child) { border-left-width: 0; }
-.toolbar { padding: 4px 6px; }
 .osd { background-color: alpha(%BG_WINDOW%, 0.85); color: %FG%; border-radius: 12px; }
 entry, spinbutton, .entry {
   background-color: %BG_VIEW%;
@@ -147,11 +129,8 @@ entry, spinbutton, .entry {
   box-shadow: none;
   transition: border-color 120ms ease;
 }
-entry:focus-within, spinbutton:focus-within { border-color: %ACCENT%; }
 entry > image { color: %FG_DIM%; }
 spinbutton > button { border-width: 0; border-radius: 6px; background-color: transparent; }
-spinbutton > button:hover { background-color: %GRID%; }
-dropdown > button { background-color: %BG_CARD%; }
 /* Checkboxes render as clean circles (the Things-3 / Reminders idiom, and
    what the .selection-mode task checkbox wants). An outline when open, a
    filled dragonYellow disc when done. Radios are already round. Owned here
@@ -200,7 +179,6 @@ popover > contents, .popover > contents {
   padding: 6px;
 }
 popover.menu modelbutton { border-radius: 6px; padding: 5px 8px; }
-modelbutton:hover { background-color: %ACCENT%; color: %ON_ACCENT%; }
 popover.menu separator, menu separator { background-color: %GRID%; min-height: 1px; margin: 4px 2px; }
 tooltip, tooltip.background {
   background-color: %BG_HEADER%;
@@ -210,31 +188,12 @@ tooltip, tooltip.background {
   box-shadow: none;
   padding: 4px 8px;
 }
-scrollbar { background-color: transparent; }
 scrollbar slider { background-color: %GRID%; border-radius: 999px; min-width: 6px; min-height: 6px; }
-scrollbar slider:hover { background-color: %FG_DIM%; }
 separator { background-color: %GRID%; min-width: 1px; min-height: 1px; }
-selection { background-color: alpha(%ACCENT%, 0.35); color: %FG%; }
-/* Adwaita utility classes Atrium leans on across the binary (weight / size /
-   colour only; font-family stays in data/style.css). They vanish when
-   libadwaita is dropped at C10, so the owned sheet carries them. */
-.title-1 { font-weight: 800; font-size: 170%; }
-.title-2 { font-weight: 800; font-size: 140%; }
-.title-3 { font-weight: 700; font-size: 120%; }
-.title-4 { font-weight: 700; font-size: 105%; }
-.large-title { font-weight: 300; font-size: 200%; }
-.heading { font-weight: 700; }
-.caption { font-size: 82%; }
-.caption-heading { font-weight: 700; font-size: 82%; }
-.dim-label { color: %FG_DIM%; }
-.success { color: %OK%; }
-.warning { color: %WARN%; }
-.error { color: %ERR%; }
-.accent { color: %ACCENT%; }
-.numeric { font-feature-settings: 'tnum'; }
-/* The single, deliberately scoped focus ring. spec §3.7 forbids a
-   universal star-selector focus ring (it lit up every row and label
-   in Colophon's sheet), so this names its targets explicitly. */
+/* The single, deliberately scoped focus ring, at Atrium's 2px weight and
+   with the radio and swatch targets the shared base's ring does not name.
+   spec §3.7 forbids a universal star-selector focus ring (it lit up every
+   row and label in Colophon's sheet), so this names its targets explicitly. */
 button:focus-visible, entry:focus-visible, spinbutton:focus-visible,
 switch:focus-visible, checkbutton:focus-visible, check:focus-visible,
 radio:focus-visible, dropdown:focus-visible, scale:focus-visible,
@@ -251,15 +210,12 @@ radio:focus-visible, dropdown:focus-visible, scale:focus-visible,
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.38);
 }
 ";
-/// The full generated sheet: the template with every `%TOKEN%` replaced by
-/// its baked Dragon hex. Longest tokens first so no name is a prefix of the
-/// span another replace would touch (`%BG_WINDOW%` before `%BG_VIEW%`, the
-/// `%SW_*%` swatch tokens before the shorter roles).
+/// The full generated app sheet: the template with every `%TOKEN%` replaced
+/// by its baked Dragon hex. Longest tokens first so no name is a prefix of
+/// the span another replace would touch (`%BG_WINDOW%` before `%BG_VIEW%`,
+/// the `%SW_*%` swatch tokens before the shorter roles).
 pub fn sheet() -> String {
-    let mut p = vir_gtk::theme::Palette::dragon();
-    p.accent = "#c4b28a";
-    p.on_accent = "#12120f";
-    p.replace_tokens(TEMPLATE)
+    palette().replace_tokens(TEMPLATE)
         .replace("%SW_BLUE%", SW_BLUE)
         .replace("%SW_GREEN%", SW_GREEN)
         .replace("%SW_YELLOW%", SW_YELLOW)
@@ -268,5 +224,6 @@ pub fn sheet() -> String {
         .replace("%SW_PURPLE%", SW_PURPLE)
 }
 pub fn install() {
-    vir_gtk::theme::install_stylesheet(&sheet());
+    vir_gtk::theme::install_stylesheet(&base());
+    vir_gtk::theme::install_app_stylesheet(&sheet());
 }

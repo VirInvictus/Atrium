@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- **Changed:** vir-gtk adopted at 1.0.4 (the consumer wave): the shared portal's listener broadcast no longer panics when a listener re-enters mid-broadcast. No Atrium code changes required; `data/cargo-sources.json` regenerated against the moved lock in the same commit.
+- **Changed:** vir-gtk adopted at 1.1.0: its new shared base stylesheet (`base_css`) carries the unanimous flat/square widget core at the crate tier (USER + 1), and Atrium's sheet now holds the `@define-color` block plus the rounded Things-3 idiom (row/button/card radii, circular checkbox discs, painted selection, 2px focus ring) on `install_app_stylesheet` (USER + 2), with `data/style.css` joining it at USER + 2 and still layering last. Sheet content is preserved rule-for-rule; the duplicated base moved into the shared library. `data/cargo-sources.json` regenerated against the moved lock in the same commit.
+- **Changed:** vir-gtk adopted at 1.0.4 (the consumer wave): the shared portal's listener broadcast no longer panics when a listener re-enters mid-broadcast. No Atrium code changes required; `data/cargo-sources.json` was regenerated against the moved lock in the same commit.
 
 ## v0.72.2 (2026-09-06)
 
