@@ -1,5 +1,22 @@
 # Atrium — Patch Notes
 
+## v0.72.2 (2026-09-06)
+
+**Maintenance stamp: packaging + docs hygiene, no application changes.**
+`data/cargo-sources.json` is regenerated against the v0.72.1 lock, which
+the v0.72.1 adoption commit had moved to vir-gtk 1.0.3 / vir-search 1.4.0
+without re-vendoring: the manifest still pinned the morning's revs,
+vendoring 1.0.2 of both libraries, so an offline Flatpak build would have
+sourced the wrong commits. CLAUDE.md's release discipline now commands
+the regeneration on every lock change, naming the two misses. Docs
+hygiene rides along: the roadmap header reads the true current release,
+the Phase 22 packaging roll-up is ticked with a pointer note (its runtime
+question settled by its own text; the metadata/screenshots residue is the
+Phase 20 asset tail's AppStream screenshots item), CLAUDE.md's docs list
+gains `docs/hyprland.md`, and the suite count is corrected to 973 (the
+v0.70.0 vir-search extraction moved the search suite out of the
+workspace).
+
 ## v0.72.1 (2026-09-04)
 
 **Consumer wave: vir-gtk 1.0.3 + vir-search 1.4.0 adopted.** The audit's
