@@ -133,7 +133,7 @@ The v0.1 freeze's good instinct still applies: when a feature seems to need a ne
 ## Build / test / lint
 
 ```bash
-cargo test --workspace            # all tests (1007 at v0.38.3)
+cargo test --workspace            # all tests (973 at v0.72.1; the v0.70.0 vir-search extraction moved the search suite out of the workspace)
 cargo test <test_name>            # single test
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
@@ -249,7 +249,7 @@ data/                                 ← installed assets
 ├── io.github.virinvictus.atrium.metainfo.xml.in ← same; release entries stamped from VERSION
 └── io.github.virinvictus.atrium.yml  ← Flatpak manifest
 
-docs/                                 ← long-form references (schema.md / keymap.md / accessibility.md / perf-baseline.md / regression.md / gtd-patterns.md / org-roundtrip.md)
+docs/                                 ← long-form references (schema.md / keymap.md / accessibility.md / perf-baseline.md / regression.md / gtd-patterns.md / org-roundtrip.md / hyprland.md)
 demos/showcase/                       ← hand-crafted Org fixture: 3 projects / 42 tasks / every keyword + cookie + repeater + body construct + Unicode
 scripts/regression.sh                 ← ship-gate
 scripts/perf.sh                       ← perf regression suite (v0.36.0): 50K/100K fixtures, §8 budget assertions
