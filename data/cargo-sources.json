@@ -2,14 +2,14 @@
     {
         "type": "git",
         "url": "https://github.com/virinvictus/vir-gtk",
-        "commit": "1ac027a46c2e4f0a37399041132eb0f597e3fc1a",
-        "dest": "flatpak-cargo/git/vir-gtk-1ac027a"
+        "commit": "58e6aca5fa0183a690bd65def71709bbe073da0b",
+        "dest": "flatpak-cargo/git/vir-gtk-58e6aca"
     },
     {
         "type": "git",
         "url": "https://github.com/virinvictus/vir-search",
-        "commit": "0b377bdb4ce552360bcd1d1e06cd16d284bc5a5e",
-        "dest": "flatpak-cargo/git/vir-search-0b377bd"
+        "commit": "73aec812f939edf0c82b6d19b946b7ba10635053",
+        "dest": "flatpak-cargo/git/vir-search-73aec81"
     },
     {
         "type": "archive",
@@ -2003,12 +2003,12 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/vir-gtk-1ac027a/.\" \"cargo/vendor/vir-gtk\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/vir-gtk-58e6aca/.\" \"cargo/vendor/vir-gtk\""
         ]
     },
     {
         "type": "inline",
-        "contents": "[package]\nname = \"vir-gtk\"\nversion = \"1.0.2\"\nedition = \"2021\"\n\n[dependencies]\ntracing = \"0.1\"\n\n[dependencies.gtk4]\nversion = \"0.9\"\nfeatures = [\"v4_14\"]\n",
+        "contents": "[package]\nname = \"vir-gtk\"\nversion = \"1.0.3\"\nedition = \"2021\"\n\n[dependencies]\ntracing = \"0.1\"\n\n[dependencies.gtk4]\nversion = \"0.9\"\nfeatures = [\"v4_14\"]\n",
         "dest": "cargo/vendor/vir-gtk",
         "dest-filename": "Cargo.toml"
     },
@@ -2021,12 +2021,12 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/vir-search-0b377bd/.\" \"cargo/vendor/vir-search\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/vir-search-73aec81/.\" \"cargo/vendor/vir-search\""
         ]
     },
     {
         "type": "inline",
-        "contents": "[package]\nname = \"vir-search\"\nversion = \"1.0.2\"\nedition = \"2024\"\nrust-version = \"1.85\"\nlicense = \"MIT\"\nrepository = \"https://github.com/VirInvictus/vir-search\"\nauthors = [\"Brandon LaRocque\"]\ndescription = \"Calibre-style search expression parser, AST, and relevance engine.\"\n\n[dependencies]\nregex = \"1.10\"\nchrono = \"0.4\"\nunicode-normalization = \"0.1\"\n",
+        "contents": "[package]\nname = \"vir-search\"\nversion = \"1.4.0\"\nedition = \"2024\"\nrust-version = \"1.85\"\nlicense = \"MIT\"\nrepository = \"https://github.com/VirInvictus/vir-search\"\nauthors = [\"Brandon LaRocque\"]\ndescription = \"Calibre-style search expression parser, AST, and relevance engine.\"\n\n[dependencies]\nregex = \"1.10\"\nchrono = \"0.4\"\nunicode-normalization = \"0.1\"\n",
         "dest": "cargo/vendor/vir-search",
         "dest-filename": "Cargo.toml"
     },

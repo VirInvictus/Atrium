@@ -120,6 +120,7 @@ Versioning and the documentation set move together. No silent changes.
 - **Every minor or major change updates all four docs.** `spec.md`, `roadmap.md`, `patchnotes.md`, and `VERSION` move in the same commit (or stacked commits within the same change). If you can't write the `patchnotes.md` line, the change isn't done.
 - **Patch releases still update `patchnotes.md` and `VERSION`.** They can skip `spec.md` / `roadmap.md` only when the fix doesn't change documented behavior or the plan.
 - **Every major bump includes a maintenance pass.** Majors are the sanctioned moment to refactor, clear deferred bugs, and prune dead code. Don't slip cleanup into minor releases as a side-quest, and don't let a major ship without it.
+- **Regenerate `data/cargo-sources.json` whenever `Cargo.lock` moves.** The Flatpak offline build vendors crates from this generated file, so a lock change without the regen leaves the manifest pinning stale commits (it bit twice: the v0.70.0 git-dep introduction and the v0.72.1 vir-gtk / vir-search bump both shipped before the file was regenerated). One command: `uv run scripts/flatpak-cargo-generator.py Cargo.lock -o data/cargo-sources.json`; run it as part of any dependency-adoption commit, before the version stamp.
 
 ## Schema rule (post-v0.2.0)
 
