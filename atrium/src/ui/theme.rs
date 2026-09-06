@@ -215,7 +215,8 @@ radio:focus-visible, dropdown:focus-visible, scale:focus-visible,
 /// the span another replace would touch (`%BG_WINDOW%` before `%BG_VIEW%`,
 /// the `%SW_*%` swatch tokens before the shorter roles).
 pub fn sheet() -> String {
-    palette().replace_tokens(TEMPLATE)
+    palette()
+        .replace_tokens(TEMPLATE)
         .replace("%SW_BLUE%", SW_BLUE)
         .replace("%SW_GREEN%", SW_GREEN)
         .replace("%SW_YELLOW%", SW_YELLOW)
