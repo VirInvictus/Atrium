@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## Unreleased
+
+- **Changed:** vir-gtk adopted at 1.0.4 (the consumer wave): the shared portal's listener broadcast no longer panics when a listener re-enters mid-broadcast. No Atrium code changes required; `data/cargo-sources.json` regenerated against the moved lock in the same commit.
+
 ## v0.72.2 (2026-09-06)
 
 **Maintenance stamp: packaging + docs hygiene, no application changes.**
