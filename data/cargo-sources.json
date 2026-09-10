@@ -2,8 +2,8 @@
     {
         "type": "git",
         "url": "https://github.com/virinvictus/vir-gtk",
-        "commit": "65f4249696d1b326d17c407eb29da873af25f079",
-        "dest": "flatpak-cargo/git/vir-gtk-65f4249"
+        "commit": "6ffa999da44de875b4a92a73436cc9d96fea341b",
+        "dest": "flatpak-cargo/git/vir-gtk-6ffa999"
     },
     {
         "type": "git",
@@ -2003,12 +2003,12 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/vir-gtk-65f4249/.\" \"cargo/vendor/vir-gtk\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/vir-gtk-6ffa999/.\" \"cargo/vendor/vir-gtk\""
         ]
     },
     {
         "type": "inline",
-        "contents": "[package]\nname = \"vir-gtk\"\nversion = \"1.1.0\"\nedition = \"2021\"\n\n[dependencies.gtk4]\nversion = \"0.9\"\nfeatures = [\"v4_14\"]\n",
+        "contents": "[package]\nname = \"vir-gtk\"\nversion = \"1.2.0\"\nedition = \"2021\"\n\n[dependencies.gtk4]\nversion = \"0.9\"\nfeatures = [\"v4_14\"]\n",
         "dest": "cargo/vendor/vir-gtk",
         "dest-filename": "Cargo.toml"
     },
