@@ -1,10 +1,17 @@
 # Atrium — Patch Notes
 
-## Unreleased
+## v0.72.3 (2026-09-11)
+
+**Test-infra and decision-recording stamp; the three vir-gtk
+consumer-wave adoptions that landed after v0.72.2 ship in the same
+release.**
 
 - **Changed:** vir-gtk adopted at 1.2.0 (the consumer wave): the new `StyleManager` lifecycle API and the `StyleScope`/`ThemeChoice` per-window overrides arrive as opt-in additions; existing `install_stylesheet`/`install_app_stylesheet` calls are unchanged one-line delegates, so no Atrium code changes are required. `data/cargo-sources.json` regenerated against the moved lock in the same commit.
 - **Changed:** vir-gtk adopted at 1.1.0: its new shared base stylesheet (`base_css`) carries the unanimous flat/square widget core at the crate tier (USER + 1), and Atrium's sheet now holds the `@define-color` block plus the rounded Things-3 idiom (row/button/card radii, circular checkbox discs, painted selection, 2px focus ring) on `install_app_stylesheet` (USER + 2), with `data/style.css` joining it at USER + 2 and still layering last. Sheet content is preserved rule-for-rule; the duplicated base moved into the shared library. `data/cargo-sources.json` regenerated against the moved lock in the same commit.
 - **Changed:** vir-gtk adopted at 1.0.4 (the consumer wave): the shared portal's listener broadcast no longer panics when a listener re-enters mid-broadcast. No Atrium code changes required; `data/cargo-sources.json` was regenerated against the moved lock in the same commit.
+- **Fixed:** the CI gdk-before-init test race: libtest runs each test in its own thread, and two tests entering `gtk::init` concurrently could abort the whole test binary with `gdk_display_manager_get() was called before gtk_init()` (first seen on the 1.1.0 wave run, 34059225968). GTK-touching test modules now initialise through a process-wide `std::sync::Once` helper (`atrium/src/test_support.rs`), pinned by an eight-thread contention regression test; ten consecutive green passes of the 163-test atrium binary locally back the fix. Test-only change; no application code touched.
+- **Decided:** the three open verdicts are recorded in the roadmap (Brandon, 2026-09-11): the kanban board's narrow-tile story closes as horizontal-scroll-only by design (the one-column mode is not built; the box is ticked on the decision); the EDS calendar overlay's dependency question is answered as `zbus`, with the overlay design itself deferred to post-1.0; and `atriumd` stays deferred post-1.0, the Phase 20 record governing. Docs-only.
+- **Docs:** CLAUDE.md's suite count refreshed to 989 (last measured 973 on 2026-09-06).
 
 ## v0.72.2 (2026-09-06)
 

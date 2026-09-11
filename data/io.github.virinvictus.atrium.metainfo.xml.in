@@ -110,6 +110,11 @@
   -->
 
   <releases>
+    <release version="0.72.3" date="2026-09-11">
+      <description translate="no">
+        <p>Test-infrastructure and decision-recording release: the vir-gtk 1.0.4, 1.1.0, and 1.2.0 consumer-wave adoptions ship here; a latent CI-only test race around concurrent GTK initialisation is fixed with a process-wide once-init helper; and the 2026-09-11 design verdicts are recorded (kanban horizontal-scroll-only, EDS calendar overlay via zbus with the design deferred post-1.0, atriumd stays deferred). No application changes.</p>
+      </description>
+    </release>
     <release version="0.72.2" date="2026-09-06">
       <description translate="no">
         <p>Maintenance release: regenerates the Flatpak crate-vendoring manifest against the current dependency lock and reconciles documentation drift (roadmap header, packaging roll-up tick, docs list, suite count). No application changes.</p>
