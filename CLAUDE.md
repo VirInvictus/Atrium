@@ -16,7 +16,7 @@ Phases 0 through 19.5 are complete: the full OmniFocus-superset data layer, dual
 
 Six workspace crates: `atrium-core` (data layer), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-import` (non-Org import/export formats, extracted v0.34.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary. Two shared libraries live outside the workspace as git dependencies, consumed by Atrium and Conservatory: `vir-search` (the Calibre-style search expression language; the old in-tree `atrium-search` crate, extracted v0.70.0) and `vir-gtk` (shared GTK4 widgets + theming, v0.70.0).
 
-The next-up plan lives in `roadmap.md`; the Phase 23 sweep and the Phase 21 agent-executable tail are closed, so the current front is Brandon's display-pass list (Phase 21 geometry/keyboard/portal verification = the Phase 22 verification tail), the gated decisions (`atriumd` §5.3 verdict, EDS overlay; 404/405 were decided 2026-09-04 and shipped at v0.72.0), and then the 1.0 asset tail (icon, screenshots, Flathub metadata) ahead of the `v1.0.0` tag.
+The next-up plan lives in `roadmap.md`; the Phase 23 sweep and the Phase 21 agent-executable tail are closed, so the current front is Brandon's display-pass list (Phase 21 geometry/keyboard/portal verification = the Phase 22 verification tail), the 1.0 asset tail (icon, screenshots, Flathub metadata) ahead of the `v1.0.0` tag, and the post-1.0 record of the three 2026-09-11 verdicts (kanban horizontal-scroll-only, EDS via `zbus`, `atriumd` stays deferred).
 
 **Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atriumd`, the post-1.0 `atrium-tui`). Don't add functionality to the GTK binary that can't be reached from the shell.
 
@@ -100,7 +100,7 @@ Sign-off granted in subsequent phases:
 
 Resolved against (won't be added): `orgize` / `starsector` (both dormant). The hand-rolled subset at `atrium-org/src/org/` is the answer. `ical` / `rustical` (evaluated at v0.25.0 and declined; the hand-rolled RFC 5545 parser at `atrium-import/src/vtodo/` is the answer, for the same reason).
 
-Pending: `libecal` / `libedataserver` bindings, or a hand-rolled `zbus` client, for the read-only EDS calendar overlay. That is the one open Phase 19.5 item and the only dependency question still unanswered.
+Pending: none. The last open dependency question, the read-only EDS calendar overlay, was answered 2026-09-11 (Brandon): `zbus`, the pure-Rust D-Bus client (EDS exposes calendar data over D-Bus natively, so no C bindings), with the overlay design itself deferred to post-1.0 (roadmap Phase 19.5). The adoption sign-off is recorded there; no code is scheduled.
 
 If a task pushes you toward a crate that isn't already in `Cargo.toml`, **stop and ask** — don't add it speculatively, and don't hand-roll a wide subset to dodge the conversation.
 
