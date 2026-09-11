@@ -13,6 +13,8 @@ mod error;
 mod i18n;
 mod quickentry;
 mod reminders;
+#[cfg(test)]
+mod test_support;
 mod ui;
 
 use std::sync::OnceLock;

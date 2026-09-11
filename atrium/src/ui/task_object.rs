@@ -274,10 +274,9 @@ mod tests {
     use chrono::{NaiveDate, Utc};
 
     fn init() {
-        // GObject initialisation is process-global; tests in this
-        // module rely on it being live. `gtk::init` no-ops if already
-        // initialised; a failure here means we're running headless.
-        let _ = gtk::init();
+        // Process-wide once-init; direct `gtk::init` calls race each
+        // other across test threads (see src/test_support.rs).
+        crate::test_support::gtk_init_once();
     }
 
     #[test]
