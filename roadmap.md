@@ -518,3 +518,44 @@ Items in spec §9 (network sync of any kind, mobile/web clients, multi-user, tim
 
 ### Recon finding (2026-09-06, recorded before fixing)
 - [x] **CI test race: a GDK call before `gtk::init` can abort the whole test process.** The `ui::window::drop::tests::empty_payload_yields_empty` run on the 1.1.0 adoption commit aborted with `gdk_display_manager_get() was called before gtk_init()`, killing the `-p atrium --bin atrium` test binary (run 34059225968, first attempt); a rerun of the same commit went green, and the adoption diff added no test-path GDK calls, so this is a latent order race: `task_object.rs`'s test `init()` (`let _ = gtk::init();`) races whichever test first touches GDK (under xvfb it usually wins; today it lost once). Fix shape: a process-wide once-init in `atrium-core::test_support` (or a `std::sync::Once` helper) that every GTK-touching test module calls, so no test can observe an uninitialized GDK. Low-frequency flake; no userspace impact. *(v0.72.3: fixed with the box's second option, a `std::sync::Once` helper at `atrium/src/test_support.rs`; the first variant, an init in `atrium-core::test_support`, would have dragged a gtk dependency into the GUI-free core. `gtk_init_once()` is `cfg(test)`-only, `task_object.rs`'s test `init()` delegates to it, and a census confirmed those tests are the only GTK-touching module in the binary. The old helper's premise was also wrong and is corrected in place: `gtk::init` only no-ops once a *completed* init is visible; two concurrent in-flight calls race. A contention regression test (eight threads racing the helper, GTK must end up initialised) pins the exactly-once behaviour. Evidence: ten consecutive green passes of the `-p atrium --bin atrium` binary locally (163 tests; the flake was intermittent, so a single pass proves nothing); the CI run on the release push is the follow-up confirmation.)*
+
+## New findings 2026-09-12 (six-lens full audit; detail: audit/FULL-AUDIT-2026-09-12.md, Wave 1)
+
+- [ ] **HIGH: the reminder service never fires.** reminders.rs drives
+      tokio::time::sleep inside a glib spawn_local future; the tokio timer
+      panics off-runtime, glib's catch_unwind swallows it, and the reminder
+      loop dies on its first timer branch. Fix: drive the loop on the tokio
+      runtime and marshal the notification back to the main context, or use
+      glib::timeout futures.
+- [ ] **Transactions: clock_in (worker.rs:2450), toggle_complete
+      (1616-1754, violates its own failure policy), and
+      instantiate_template/create_task_template (2128, 2175) commit
+      multi-statement sets without a transaction; partial state persists on
+      mid-loop failure.**
+- [ ] **Kanban Tag-axis drop wipes a card's tags when the pool read fails
+      (views.rs:727 unwrap_or_default feeds an empty current set into
+      set_task_tags).** Vault conflict backups collide at second resolution
+      and overwrite the older backup (vault_writer.rs:442; port the ~N
+      suffix fix from backup.rs). seed_fresh_vault opens a second writable
+      connection and the ledger seeding blocks the GTK main thread at boot.
+- [ ] **Docs sweep (2 high):** spec 3.3 still describes the seven-crate
+      era with the dead atrium-search crate (should be six crates + the two
+      vir-* git deps); docs/org-roundtrip.md presents the v0.24.0-fixed
+      custom-property drop as a current limitation. Also: Phase 24 referenced
+      by three docs but defined nowhere; spec 5 widget trees adwaita-era;
+      keymap stub table wrong on both rows + three bound accels missing;
+      CLAUDE.md map phantom perspective_editor/export.rs, seven missing
+      modules; perf-baseline stale against its own re-baseline rule.
+- [ ] **GitHub presentation:** no Releases exist for any tag (create the
+      v0.72.3 Release from its patchnotes entry; optionally backfill
+      v0.72.1/2); description rewrite proposal (105 chars, leads with the
+      README tagline) + topics to add rust/gtk/flatpak and drop the five
+      low-discovery ones; wiki off / discussions on. Awaiting Brandon's go
+      (outward-facing).
+- [ ] **Ideas for the blitz:** JSON snapshot import (restore-from-export,
+      the 1.0 data-freedom beat); wire vir-search 1.4.1's QueryCache into
+      search-as-you-type (adopted but unwired); CI freshness guard for
+      cargo-sources.json; icon + brand pass; Preferences/Memory-Watch
+      duplicate-window fix; publish the mdbook to Pages. Upgrades noted for
+      the 1.0-freeze call: rusqlite 0.32 to 0.40, gtk4 0.9 to 0.11 (the
+      v4_16 pin sits below the GNOME 50 runtime), tokio feature trim.
