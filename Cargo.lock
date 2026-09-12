@@ -1587,8 +1587,8 @@ dependencies = [
 
 [[package]]
 name = "vir-search"
-version = "1.4.0"
-source = "git+https://github.com/VirInvictus/vir-search.git#73aec812f939edf0c82b6d19b946b7ba10635053"
+version = "1.4.1"
+source = "git+https://github.com/VirInvictus/vir-search.git#175b0567d8b1012198d0b6c8f5cdd1dd848c6e9d"
 dependencies = [
  "chrono",
  "regex",

@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## Unreleased
+
+- **Changed:** vir-search adopted at 1.4.1 (the consumer wave): `added:lastmonth`/`added:nextmonth` now parse as date keywords (1.3.0 shipped the variants but not the parser arms), and the AST gained `Eq`/`Hash` with `Value::Real` deliberately excluded from hashing plus `Expr::contains_real()` and a `QueryCache` for search-as-you-type memoization. No Atrium code changes required. `data/cargo-sources.json` regenerated against the moved lock in the same commit.
+
 ## v0.72.3 (2026-09-11)
 
 **Test-infra and decision-recording stamp; the three vir-gtk

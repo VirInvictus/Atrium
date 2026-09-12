@@ -8,8 +8,8 @@
     {
         "type": "git",
         "url": "https://github.com/virinvictus/vir-search",
-        "commit": "73aec812f939edf0c82b6d19b946b7ba10635053",
-        "dest": "flatpak-cargo/git/vir-search-73aec81"
+        "commit": "175b0567d8b1012198d0b6c8f5cdd1dd848c6e9d",
+        "dest": "flatpak-cargo/git/vir-search-175b056"
     },
     {
         "type": "archive",
@@ -2021,12 +2021,12 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/vir-search-73aec81/.\" \"cargo/vendor/vir-search\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/vir-search-175b056/.\" \"cargo/vendor/vir-search\""
         ]
     },
     {
         "type": "inline",
-        "contents": "[package]\nname = \"vir-search\"\nversion = \"1.4.0\"\nedition = \"2024\"\nrust-version = \"1.85\"\nlicense = \"MIT\"\nrepository = \"https://github.com/VirInvictus/vir-search\"\nauthors = [\"Brandon LaRocque\"]\ndescription = \"Calibre-style search expression parser, AST, and relevance engine.\"\n\n[dependencies]\nregex = \"1.10\"\nchrono = \"0.4\"\nunicode-normalization = \"0.1\"\n",
+        "contents": "[package]\nname = \"vir-search\"\nversion = \"1.4.1\"\nedition = \"2024\"\nrust-version = \"1.85\"\nlicense = \"MIT\"\nrepository = \"https://github.com/VirInvictus/vir-search\"\nauthors = [\"Brandon LaRocque\"]\ndescription = \"Calibre-style search expression parser, AST, and relevance engine.\"\n\n[dependencies]\nregex = \"1.10\"\nchrono = \"0.4\"\nunicode-normalization = \"0.1\"\n",
         "dest": "cargo/vendor/vir-search",
         "dest-filename": "Cargo.toml"
     },
