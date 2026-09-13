@@ -1,6 +1,6 @@
 # Atrium — Roadmap
 
-What's done, what's next, what's deferred. Atrium is sequenced as a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. **Current release: v0.72.3** (since v0.47.0: the Phase 22 de-adwaita ladder completed v0.50.0 → v0.64.0, v0.70.0 extracted the search parser and the shared GTK widgets into the `vir-search` / `vir-gtk` libraries, v0.72.0 repaired the last Org round-trip data losses and shipped the staged pane collapse for narrow tiles, v0.72.1 adopted vir-gtk 1.0.3 + vir-search 1.4.0, v0.72.2 is a packaging/docs maintenance stamp, and v0.72.3 ships the vir-gtk 1.2.0 consumer wave, fixes the CI GTK test-init race, and records the 2026-09-11 verdicts).
+What's done, what's next, what's deferred. Atrium is sequenced as a clean Simple Mode v0.1, a Builder Mode v0.2 expansion, and a 1.0 with broad import/export across the Linux task-app ecosystem. **Current release: v0.73.0** (since v0.47.0: the Phase 22 de-adwaita ladder completed v0.50.0 → v0.64.0, v0.70.0 extracted the search parser and the shared GTK widgets into the `vir-search` / `vir-gtk` libraries, v0.72.0 repaired the last Org round-trip data losses and shipped the staged pane collapse for narrow tiles, v0.72.1 adopted vir-gtk 1.0.3 + vir-search 1.4.0, v0.72.2 is a packaging/docs maintenance stamp, and v0.72.3 ships the vir-gtk 1.2.0 consumer wave, fixes the CI GTK test-init race, records the 2026-09-11 verdicts; v0.73.0 fixes the reminder service, wraps the worker's transaction gaps, closes the six-lens medium cluster and docs sweep, and moves the dependency platform to rusqlite 0.40 + gtk4 0.11 per decision 61).
 
 Phases 0 through 19.5 have shipped: Simple and Builder modes, the two-way Org vault, Calibre-style search, the full importer set (Org, Todoist, VTODO, Taskwarrior, todo.txt), and the Phase 18.5 / 19.5 power features. **Phase 20 (the 1.0 endgame) is in flight**; localisation scaffolding shipped at v0.47.0. **Sequencing change (Brandon, 2026-07-17): Phase 22 (de-adwaita + Kanagawa) is pulled in front of the `v1.0.0` tag**, because the remaining 1.0 assets (final icon, AppStream screenshots, Flathub metadata) are all invalidated by the toolkit swap and would have to be redone a release later. So the pre-1.0 order is now: the de-adwaita ladder → the icon/screenshots/Flathub asset tail → the `v1.0.0` tag. The pilot gate is satisfied (Colophon's Phase 6 de-adwaita shipped at v2.0.0; Conservatory's Phase 26 completed at v0.3.8). The one open Phase 19.5 item is the read-only Evolution Data Server calendar overlay: the dependency verdict landed 2026-09-11 (`zbus`; Brandon), and the overlay design is deferred to post-1.0.
 
@@ -615,17 +615,19 @@ Items in spec §9 (network sync of any kind, mobile/web clients, multi-user, tim
       not taken: `features = ["full"]` is the v0.1 lock and no 1.0 need
       was shown.)*
 
-- [ ] **DECIDED 2026-09-13: bump rusqlite 0.40 AND gtk4 0.11 before the
+- [x] **DECIDED 2026-09-13: bump rusqlite 0.40 AND gtk4 0.11 before the
       1.0.0 tag** (decision 61). The bumps ride the Atrium lane ahead of
       the freeze; full CI + Flatpak rebuild check after. *(v0.73.0: code-
       side complete and the full workspace suite (996 tests) + clippy are
       green on the new stack. Required a matching vir-gtk 1.3.0 first —
       the two gtk4 crate versions cannot coexist across the boundary —
       so the lock pins vir-gtk b15ec1e, which lands on the remote with
-      the stage-close push; the final Cargo.lock + regenerated
-      data/cargo-sources.json + CI freshness guard land in the dependency
-      wave commit immediately after that push, then this box ticks with
-      the stamp. Compile fallout was small: gtk4 0.11 requires
+      the stage-close push (granted 2026-09-13: vir-gtk main + v1.3.0
+      pushed, CI 34768866230 green); the wave commit (469a8d3: final
+      Cargo.lock pinning ae08486, regenerated cargo-sources.json, the CI
+      freshness guard, and the four gtk-0.11 fix files) and this stamp
+      complete the decision. The Flatpak offline rebuild re-verify stays
+      with the 1.0 packaging pass as recorded. Compile fallout was small: gtk4 0.11 requires
       subclasses to list every implemented interface in glib::wrapper!
       (AtriumWindow, AtriumClamp), Root+GtkWindowExt made focus()
       ambiguous (disambiguated), and rusqlite 0.40 deprecated `profile`
