@@ -639,3 +639,31 @@ Items in spec §9 (network sync of any kind, mobile/web clients, multi-user, tim
       (AtriumWindow, AtriumClamp), Root+GtkWindowExt made focus()
       ambiguous (disambiguated), and rusqlite 0.40 deprecated `profile`
       (ported to trace_v2, SQL text kept via StmtRef::sql).)*
+
+### New findings 2026-09-13 (1.0-prep dry-run: GUI memory, recorded before any fix)
+- [ ] **The kanban board materialises its full card set: ~1.9 GB RSS on a
+      9,263-card board (§8 Active budget: 200 MB).** Measured on the
+      release build against an isolated 10K fixture DB (method in
+      docs/perf-baseline.md's GUI-side section): opening a populated
+      board perspective allocates ~1.9 GB and never recovers on idle —
+      the board builds every card, not a virtualised window. The
+      perf.sh gate never exercises the GUI, so this was invisible to
+      every prior perf pass. The fix shape is board virtualisation or
+      column-level card windows, which is real engineering, not an
+      asset-tail rider. Gate-or-revise decision (Brandon): fix before
+      the v1.0.0 tag, or ship 1.0 with the budget formally amended for
+      this surface.
+- [ ] **List views run above the Active budget at boot: ~285 MB into a
+      2,924-row Today on the 10K DB (budget 200 MB).** Same method as
+      the board finding. Lighter than the board miss and plausibly
+      dominated by the materialised row-model set; measure-then-decide
+      (row-model weight, per-list windowing) before treating it as a
+      hard blocker.
+- [ ] **Keyboard-only reachability from the capture entry to list rows
+      appears broken (indicative, synthetic input).** In the Inbox, from
+      the focused "Add task…" entry, Down / Tab / Space never moved
+      focus to a row, and Space did not complete a mouse-selected row
+      either (no toggle, no toast). If a real keyboard confirms, 383's
+      "sane and cyclic focus order" fails at the entry→list hop and
+      Space's list-level shortcut needs a look. Needs the display pass
+      with real hardware; recorded from the scripted pre-verification.

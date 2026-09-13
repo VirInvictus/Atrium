@@ -163,6 +163,38 @@ Same reference machine as the baselines above. Headless subset:
 **PASS.** The 50K data-layer working set sits at 57 MB against the
 80 MB idle budget, and the cold-start floor is unchanged from the
 v0.6.20 capture at this writing's precision. The GUI-surface budgets
-(active RSS in a 10K session, first-interactive-frame on a populated
-DB) still need the in-app Memory Watch on a live display; that measure
-rides the next display pass and is the one open line of this refresh.
+were measured the same day (next section); the Active budget result is
+a miss and is recorded as such below.
+
+## v0.73.0 GUI-side measurement (2026-09-13, same-day addition)
+
+Method: release build (`target/release/atrium`), an isolated 10K-task
+sandbox DB under a private `XDG_DATA_HOME` (the real user store is
+never touched), the app driven through a scripted representative pass
+on the live Wayland session, and `VmRSS` sampled from `/proc/<pid>`
+every 500 ms (960 samples; the same counter the in-app Memory Watch
+reads). The pass: boot into Today (2,924 rows), Inbox (1,319) with
+PageDown scrolling, search-as-you-type over the 10K set, the kanban
+board perspective (9,263 cards across 4 columns), Builder-mode
+surfaces, then idle.
+
+| Surface | Peak RSS | §8 budget |
+|---|---|---|
+| Boot into Today (10K DB) | ~285 MB | Active < 200 MB — **miss** |
+| Search-as-you-type (10K) | ~299 MB | (within the same Active budget) |
+| Kanban board, 9,263 cards | **1,910 MB** | Active < 200 MB — **miss, ~9.5×** |
+
+Two honest caveats. First, these are one-run numbers on the reference
+machine, not a five-run median; they establish the magnitude of the
+miss, not its precise value. Second, the board figure was stable at
+1.91 GB after the build finished and did not recover on idle, so it is
+resident state, not a transient allocation spike.
+
+Verdict per the spec rule (a measurement over budget means the
+offending feature gets gated or revised before it ships): the kanban
+board's memory behaviour at 10K scale is the blocking finding — it
+materialises the full card set rather than virtualising it — and the
+plain list views carry a lighter but real overhead above the Active
+budget at boot. Both are recorded in roadmap.md (new findings,
+2026-09-13) for the gate-or-revise decision; the board work is not
+something to hot-patch inside the 1.0 asset tail.
