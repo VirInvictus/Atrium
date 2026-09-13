@@ -501,8 +501,12 @@ pub(super) fn install_repeat_editor(
 
     // Translators: "RRULE" is the RFC 5545 recurrence-rule keyword;
     // keep it verbatim.
-    let (custom_row, custom_entry) =
-        crate::ui::rows::entry_row(&gettext("Custom RRULE"), &initial_custom);
+    let (custom_row, custom_entry) = crate::ui::rows::entry_row(
+        Some(&gettext("Custom RRULE")),
+        None,
+        Some(&initial_custom),
+        None,
+    );
 
     let none_preset = matches!(initial_preset, RepeatPreset::None);
     interval_row.set_visible(!none_preset);

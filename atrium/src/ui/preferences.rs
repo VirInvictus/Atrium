@@ -267,8 +267,10 @@ fn capture_page(settings: &gio::Settings) -> gtk::Widget {
     );
 
     let (shortcut_row, shortcut_entry) = rows::entry_row(
-        &gettext("Shortcut"),
-        &settings.string("quick-entry-shortcut"),
+        Some(&gettext("Shortcut")),
+        None,
+        Some(&settings.string("quick-entry-shortcut")),
+        None,
     );
     {
         let settings = settings.clone();

@@ -70,9 +70,11 @@ pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
     group.add(&file_row);
 
     let (project_row, project_entry) = crate::ui::rows::entry_row(
-        &gettext("Project name (ignored for Org)"),
+        Some(&gettext("Project name (ignored for Org)")),
+        None,
         // Translators: default name of the project created to hold imported tasks.
-        &gettext("Imported"),
+        Some(&gettext("Imported")),
+        None,
     );
     group.add(&project_row);
 

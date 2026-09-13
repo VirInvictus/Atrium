@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::i18n::{gettext, gettext_f, ngettext_f, pgettext};
+use crate::ui::dialogs::AlertChoose;
 
 /// Build the primary (hamburger) menu. `include_debug` adds the
 /// fixture-generator submenu for `--debug` runs.

@@ -5,6 +5,7 @@
 use crate::i18n::{gettext, gettext_f, ngettext_f};
 
 use super::*;
+use crate::ui::dialogs::AlertChoose;
 
 impl AtriumWindow {
     /// Toggle handler — fires the worker call. The worker emits a

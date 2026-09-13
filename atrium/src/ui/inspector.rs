@@ -94,7 +94,8 @@ pub fn open<F, N>(
     toolbar.append(&header);
 
     // ── Title (owned entry row inside its own group) ─────────────
-    let (title_row, title_entry) = crate::ui::rows::entry_row(&gettext("Title"), &task.title);
+    let (title_row, title_entry) =
+        crate::ui::rows::entry_row(Some(&gettext("Title")), None, Some(&task.title), None);
     let title_group = crate::ui::rows::group(None, None);
     title_group.add(&title_row);
 

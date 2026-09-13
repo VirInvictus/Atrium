@@ -6,6 +6,7 @@
 use crate::i18n::{gettext, gettext_f};
 
 use super::*;
+use crate::ui::dialogs::AlertChoose;
 
 impl AtriumWindow {
     pub(super) fn install_window_actions(&self) {

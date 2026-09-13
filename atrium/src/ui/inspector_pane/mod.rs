@@ -516,7 +516,8 @@ where
     // scheduled_for / deadline (a reminder fires on a task
     // regardless of those). EntryRow accepts `YYYY-MM-DD HH:MM`
     // text; commits on focus-leave. Empty clears.
-    let (reminder_row, reminder_entry) = crate::ui::rows::entry_row(&gettext("Reminder"), "");
+    let (reminder_row, reminder_entry) =
+        crate::ui::rows::entry_row(Some(&gettext("Reminder")), None, Some(""), None);
     if let Some(when) = task.reminder_at {
         let local = when.with_timezone(&chrono::Local);
         reminder_entry.set_text(&local.format("%Y-%m-%d %H:%M").to_string());
