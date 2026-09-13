@@ -9,6 +9,9 @@ The canonical written reference for every keyboard shortcut Atrium binds. The in
 | `Ctrl+N` | New task in active list | ✓ Phase 4 |
 | `Ctrl+L` | Focus the sidebar filter (find-as-you-type) | ✓ Phase 7e |
 | `Ctrl+Z` | Undo last toggle / delete (matches the active toast) | ✓ Phase 7f |
+| `Ctrl+F` | Focus the search bar | ✓ Phase 5 |
+| `Ctrl+Alt+Space` | Quick Entry modal (rebindable via GSettings; the OS-global hook is the post-1.0 `atriumd` daemon) | ✓ Phase 8 |
+| `Ctrl+,` | Preferences | ✓ Phase 19.5 |
 | `Ctrl+?` / `F1` | Show this dialog | ✓ Phase 4 |
 | `Ctrl+Q` | Quit | ✓ Phase 3 |
 
@@ -38,7 +41,7 @@ These act on the focused row in the current list. From Phase 7h, the three input
 | `Ctrl+T` | Open the tag editor for the focused / first-selected task (Phase 7g). Right-click on a task row also surfaces *Edit Tags…* |
 | `Ctrl+I` | Open the Inspector (full task editor — title, notes, schedule, deadline, project, tags) for the focused / first-selected task (Phase 7i). Right-click → *Edit Details…* is the menu equivalent. |
 | `Ctrl+Shift+I` | Builder Mode: show / hide the right-hand Inspector pane. The pane is non-modal, so it carries its own binding rather than borrowing the dialogs' Escape; hiding returns focus to the task list. Below the compact-width threshold the pane folds automatically and this chord is its reveal. (Phase 21.) |
-| `Ctrl+Shift+L` | Show / hide the Lists sidebar. On narrow windows the sidebar folds automatically (staged collapse: Inspector first, sidebar second) and this chord reveals it; `Ctrl+L` also reveals it by focusing the filter. (Phase 24.) |
+| `Ctrl+Shift+L` | Show / hide the Lists sidebar. On narrow windows the sidebar folds automatically (staged collapse: Inspector first, sidebar second) and this chord reveals it; `Ctrl+L` also reveals it by focusing the filter. (v0.72.0.) |
 | `Alt+Up` / `Alt+Down` | Move the focused task up / down — a keyboard alternative to drag-reorder. Position-ordered lists only (Inbox, Anytime, Someday, project and area pages); on a date-sorted list it declines with the same toast a drag would (v0.40.x, Tier D). |
 | `Alt+Left` / `Alt+Right` | Board views: move the focused card into the previous / next column — the keyboard alternative to a cross-column drag, through the same move path (tag or status change + persisted order). Cards are Tab-focusable; edge moves are silent no-ops. Contextual to the focused card (a key controller on the row, not an `install_accels` entry). (v0.68.0, A16.) |
 | `Ctrl+Click` | Toggle row in the multi-selection (Phase 7c) |
@@ -62,6 +65,7 @@ These manage the area / project hierarchy in the sidebar.
 |---|---|
 | `Ctrl+Shift+N` | New Project (lands inside the active area when one is selected) |
 | `Ctrl+Shift+A` | New Area |
+| `Ctrl+Shift+T` | New Tag (opens the tag editor on a fresh tag) |
 | `F2` | Rename the active project or area |
 | `Ctrl+Shift+Delete` | Delete the active project or area (with confirmation) |
 
@@ -72,7 +76,7 @@ Builder Mode shipped at v0.2.0 — Inspector pane, Forecast, Review queue, Persp
 | Shortcut | Action | Status |
 |---|---|---|
 | `Ctrl+Shift+F` | Open Forecast | Shipped via sidebar (Phase 12) — chord pending |
-| `Ctrl+Shift+M` | Open Calendar Month View | Phase 12.5 |
+| `Ctrl+Shift+M` | Open Calendar Month View | ✓ bound (v0.47.0; `app.show-list::calendar`) |
 | `Ctrl+Shift+R` | Open Review queue | Shipped via sidebar (Phase 13) — chord pending |
 | `Ctrl+P` | Perspective picker | Shipped via sidebar Perspectives section (Phase 14) — chord pending |
 | `Ctrl+D` | Defer-date editor | Shipped via Inspector (Phase 11) — chord pending |
@@ -90,14 +94,9 @@ Not all interactions are keyboard accels. The mouse gestures worth knowing (a ke
 | Drag a card between kanban columns | Tag-axis boards rewrite the task's tags; status-axis boards change the task's real state (and complete it on a "done" column). Keyboard equivalent: `Alt+Left` / `Alt+Right` on a focused card (v0.68.0). |
 | Drop files / URLs / text onto the window | Opens Quick Entry pre-filled, so the capture is reviewable before it lands. |
 
-## Reserved (stub bindings)
+## Reserved
 
-These are wired in `install_accels` so muscle memory works once the feature lands; activating them today is a no-op or shows a "coming in Phase X" toast.
-
-| Shortcut | Action | Lands in |
-|---|---|---|
-| `Ctrl+Shift+Z` | Redo | Phase 11+ (Builder Mode work history) |
-| `Ctrl+,` | Preferences | Phase 8 |
+`Ctrl+Shift+Z` stays reserved for redo (Builder Mode work history). Unlike the undo pair it is not wired in `install_accels` yet — there is no redo action to point at — so the chord currently does nothing; this table is where it lands when the action ships. (An earlier revision listed `Ctrl+,` here against a "Phase 8" target; preferences shipped at v0.20.0 with the accel live, and it has moved to the General table above.)
 
 ## Discovery rules
 

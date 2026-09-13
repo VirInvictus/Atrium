@@ -2,9 +2,12 @@
 
 This document captures the release-mode performance numbers Atrium
 ships against the spec §8 budget. Measurements are reproduced on every
-minor version bump; the numbers below are the **v0.6.20 baseline**
-(originally established at v0.0.28; refreshed alongside the v0.6.20
-documentation housekeeping pass).
+minor version bump; the newest section is the **v0.73.0 refresh**
+(2026-09-13, `scripts/perf.sh`), with the historical v0.6.20 baseline
+(originally established at v0.0.28) below it. An earlier revision of
+this header claimed the numbers were refreshed every minor bump while
+nothing here had been re-run since the v0.36.0 suite landed; that gap
+is what the six-lens audit flagged, and the refresh below closes it.
 
 ## Spec §8 Budget
 
@@ -142,3 +145,24 @@ peak naturally crosses the idle line; idle ≠ load-everything).
 Cold-start floor measured 20–30 ms across three runs. GUI active-RSS +
 first-interactive-frame on a populated DB still need a display —
 measured via the in-app Memory Watch.
+
+## v0.73.0 refresh (2026-09-13, `scripts/perf.sh`)
+
+Re-run on the gtk4 0.11 / rusqlite 0.40 stack (decision 61, ahead of
+the 1.0 freeze; the re-baseline rule names a GTK4 bump as a trigger).
+Same reference machine as the baselines above. Headless subset:
+
+| Check | Result | Budget |
+|---|---|---|
+| 50K fixture generate | 1,254 ms | (throughput guard) |
+| 50K full read-path load | 300 ms, peak RSS 57 MB | < 80 MB idle |
+| 100K fixture generate | 2,676 ms | (informational) |
+| 100K full read-path load | 590 ms, peak RSS 104 MB | (informational) |
+| Cold-start floor (`atrium --version`, ×3) | 30 ms | < 250 ms |
+
+**PASS.** The 50K data-layer working set sits at 57 MB against the
+80 MB idle budget, and the cold-start floor is unchanged from the
+v0.6.20 capture at this writing's precision. The GUI-surface budgets
+(active RSS in a 10K session, first-interactive-frame on a populated
+DB) still need the in-app Memory Watch on a live display; that measure
+rides the next display pass and is the one open line of this refresh.

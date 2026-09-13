@@ -166,11 +166,13 @@ Other Org tools ignore the `.atrium/` directory by convention.
 
 ## Known limits
 
-Two construct classes don't fully round-trip yet. Both have dedicated `documented_limit_*` tests that fail the moment the gap closes — flipping each from "documenting the limit" to "asserting preservation" is the regression-detection target.
+One construct class doesn't fully round-trip yet. It has a dedicated `documented_limit_*` test that fails the moment the gap closes — flipping it from "documenting the limit" to "asserting preservation" is the regression-detection target. (A second class, custom property-drawer keys, used to be listed here; v0.24.0 closed that gap and it now documents as supported.)
 
 ### Project sub-headings (writer-only)
 
 The v0.12.0 writer learned to emit project sub-headings as depth-1 keyword-less headlines (driven by the Todoist mapper). The Org *importer* still skips them — they're counted in `ImportSummary::headings_skipped` and don't land in the `heading` table. Tasks under a sub-heading flow into the project at top level "as if the sub-heading were transparent".
+
+Test pinning the limit: `documented_limit_org_importer_skips_sub_headings`.
 
 ```org
 * First section                    ← currently skipped on import
@@ -182,23 +184,21 @@ Closing the loop is a bounded change: have the importer call `WorkerHandle::ensu
 
 Test pinning the limit: `documented_limit_org_importer_skips_sub_headings`.
 
-### Custom property-drawer keys
+### Custom property-drawer keys (fixed, v0.24.0)
 
-Atrium's importer cherry-picks the four well-known keys (`ID`, `EFFORT`, `DEFER_UNTIL`, `RRULE`) and writes them through typed columns. Custom keys — `:CATEGORY:`, `:CLIENT:`, `:URL:`, anything else a user might put in their drawer — get dropped because the schema doesn't have a place for arbitrary key-value extras.
+Atrium's importer cherry-picks the well-known keys (`ID`, `EFFORT`, `DEFER_UNTIL`, `RRULE`) and writes them through typed columns. Custom keys — `:CATEGORY:`, `:CLIENT:`, `:URL:`, anything else a user might put in their drawer — land in `task.extra_properties` (a JSON object column added by migration `0014`, schema 14) and re-emit verbatim on the next vault write.
 
 ```org
 * TODO Task with rich drawer
 :PROPERTIES:
-:ID: …                              ← survives
-:EFFORT: 1:30                       ← survives
-:CATEGORY: Q3-deliverables          ← dropped on import
-:URL: https://example.com/ticket/42 ← dropped on import
+:ID: …                              ← survives (typed column)
+:EFFORT: 1:30                       ← survives (typed column)
+:CATEGORY: Q3-deliverables          ← survives (extra_properties)
+:URL: https://example.com/ticket/42 ← survives (extra_properties)
 :END:
 ```
 
-Spec §7.3.3 rule 1 ("preserve unknown constructs verbatim") is upheld for body content but not for property-drawer keys outside the well-known set. Closing this gap needs either a `task_property` table or a JSON column on `task` — both schema-changing, both schedulable as their own work item.
-
-Test pinning the limit: `documented_limit_org_importer_drops_custom_property_keys`.
+This closed the last documented Org round-trip data loss (v0.24.0; an earlier revision of this section described the drop as a current limitation). Empty maps normalise to NULL, and a malformed blob decodes to an empty map at the read boundary rather than poisoning a query.
 
 ## Where this lives in the code
 

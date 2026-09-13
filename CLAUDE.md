@@ -16,7 +16,7 @@ Phases 0 through 19.5 are complete: the full OmniFocus-superset data layer, dual
 
 Six workspace crates: `atrium-core` (data layer), `atrium-org` (Org-mode projection), `atrium-inline` (inline-syntax parser, extracted v0.13.0), `atrium-import` (non-Org import/export formats, extracted v0.34.0), `atrium-cli` (headless CLI), and the `atrium` GTK4 binary. Two shared libraries live outside the workspace as git dependencies, consumed by Atrium and Conservatory: `vir-search` (the Calibre-style search expression language; the old in-tree `atrium-search` crate, extracted v0.70.0) and `vir-gtk` (shared GTK4 widgets + theming, v0.70.0).
 
-The next-up plan lives in `roadmap.md`; the Phase 23 sweep and the Phase 21 agent-executable tail are closed, so the current front is Brandon's display-pass list (Phase 21 geometry/keyboard/portal verification = the Phase 22 verification tail), the 1.0 asset tail (icon, screenshots, Flathub metadata) ahead of the `v1.0.0` tag, and the post-1.0 record of the three 2026-09-11 verdicts (kanban horizontal-scroll-only, EDS via `zbus`, `atriumd` stays deferred).
+The next-up plan lives in `roadmap.md`; the Phase 23 sweep, the Phase 21 agent-executable tail, and the 2026-09-13 six-lens-audit lane (reminder-service fix, dependency bumps per decision 61, transaction hardening, the medium-bug cluster, the docs sweep) are closed, so the current front is Brandon's display-pass list (Phase 21 geometry/keyboard/portal verification = the Phase 22 verification tail) and the 1.0 asset tail (icon, screenshots, Flathub metadata) ahead of the `v1.0.0` tag. The 2026-09-11 verdicts (kanban horizontal-scroll-only, EDS via `zbus`, `atriumd` stays deferred) and the 2026-09-13 decisions (GitHub presentation pass approved in full; rusqlite 0.40 + gtk4 0.11 both land before the freeze) are recorded in roadmap.md.
 
 **Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atriumd`, the post-1.0 `atrium-tui`). Don't add functionality to the GTK binary that can't be reached from the shell.
 
@@ -97,6 +97,7 @@ Sign-off granted in subsequent phases:
 - `regex` (Phase 15.5) — `tag:~regex` modifier; promoted to direct dep of `vir-search`.
 - `notify` (Phase 17) — cross-platform filesystem watcher; direct dep of `atrium-org`. Default features only — uses inotify on Linux.
 - `gettext-rs` (Phase 20, added v0.47.0): localisation runtime. `gettext-system` feature only: it links glibc's built-in gettext rather than vendoring GNU gettext, which matters for CI and the Flatpak. Binary-only, never in the library crates.
+- **Platform bumps (decision 61, 2026-09-13): `rusqlite` 0.32 → 0.40 and `gtk4` 0.9 → 0.11 both land before the `v1.0.0` tag.** No new crates; existing pinned deps move to current majors. The gtk4 bump drags gtk-rs-core (glib/gio 0.22) and required the matching `vir-gtk` 1.3.0 release (cascade waiver for Conservatory/Viaduct recorded in vir-gtk's roadmap).
 
 Resolved against (won't be added): `orgize` / `starsector` (both dormant). The hand-rolled subset at `atrium-org/src/org/` is the answer. `ical` / `rustical` (evaluated at v0.25.0 and declined; the hand-rolled RFC 5545 parser at `atrium-import/src/vtodo/` is the answer, for the same reason).
 
@@ -191,10 +192,12 @@ atrium-import/                        ← non-Org import/export formats (extract
 └── tests/fixtures/                   ← moved here with the modules (round_trip_tests use CARGO_MANIFEST_DIR)
 
 atrium-cli/                           ← headless CLI (full task + perspective CRUD + import/export)
-├── src/main.rs                       ← subcommand dispatch; `use atrium_import::{import, vtodo};`
+├── src/main.rs                       ← subcommand dispatch (incl. `export org PATH` via the vault writer + `export json PATH`); `use atrium_import::{import, vtodo};`
 ├── src/args.rs                       ← stdlib argv parser; re-exports `atrium_import::UdaPolicy`
 ├── src/output.rs                     ← TSV / JSON / human-readable formatters (incl. kanban columns)
-└── src/export.rs                     ← `export org PATH` (vault writer) + `export json PATH` (snapshot)
+├── src/clock.rs                      ← clock in / out subcommand plumbing
+├── src/template.rs                   ← task-template subcommand plumbing
+└── src/tests.rs                      ← CLI test suite (parser + sql parity battery)
 
 atrium-core/                          ← headless data layer
 ├── src/lib.rs                        ← re-exports (Task / WorkerHandle / VaultConfig / VaultDirtyNotifier / spawn_worker / spawn_worker_with_vault / RepeatRule / …)
@@ -202,6 +205,9 @@ atrium-core/                          ← headless data layer
 ├── src/error.rs                      ← thiserror hierarchy
 ├── src/repeat.rs                     ← RFC 5545 RRULE wrapper, RepeatMode, CountStep
 ├── src/render.rs                     ← kanban column projection from a saved Perspective
+├── src/backup.rs                     ← v0.32.0 `VACUUM INTO` snapshots + keep-N prune (second-resolution `~N` suffix)
+├── src/checkbox.rs                   ← body-checkbox (statistics cookie) parsing helpers
+├── src/links.rs                      ← `[[id:UUID]]` inter-task link helpers
 ├── src/test_support.rs               ← dummy_task helpers behind `test-support` feature
 ├── src/domain/                       ← Task / Project / Area / Tag / Heading / Perspective / ScheduledFor / NewTask
 ├── src/sync/
@@ -212,7 +218,7 @@ atrium-core/                          ← headless data layer
     ├── worker_tests.rs               ← tests submodule loaded via #[path = "worker_tests.rs"] mod tests
     ├── vault_hook.rs                 ← `VaultDirtyNotifier` trait + thin `VaultConfig` — the projection contract
     ├── read_pool.rs                  ← read-only connection pool
-    ├── read.rs                       ← list_inbox / list_today / list_forecast / list_review_queue / list_agenda / search / counts
+    ├── read/                         ← list_inbox / list_today / list_forecast / list_review_queue / list_agenda / search / counts / clock + `next_pending_reminder`
     ├── command.rs                    ← Command enum
     ├── changes.rs                    ← TaskChanges, LibraryChanges deltas
     ├── fixtures.rs                   ← --fixture stress generators
@@ -234,9 +240,12 @@ atrium-org/                           ← Phase 16 Org-mode projection + Phase 1
 
 atrium/                               ← GTK binary
 ├── build.rs                          ← compiles GSettings schema for cargo-only runs
-├── src/main.rs                       ← Application; boot_data_layer reads vault-path GSettings → spawn_worker_with_vault
-├── src/ui/                           ← window/ + inspector_pane/ (module dirs, split v0.22.0), task list/object, inspector, tag editor, filter, forecast, review,
-│                                       perspective_editor, logbook, agenda, calendar, board, inline_complete, shortcuts, about, typography
+├── src/main.rs                       ← Application; boot_data_layer reads vault-path GSettings → spawn_worker_with_vault; install_actions/accels
+├── src/reminders.rs                  ← reminder service loop (GLib main context; glib timeout futures, never tokio timers)
+├── src/error.rs / src/i18n.rs        ← UI error type; gettext domain init
+├── src/ui/                           ← window/ + inspector_pane/ (module dirs, split v0.22.0); task_list, task_object, rows, inspector (dialog), inspector_pane (Builder host),
+│                                       tag_editor, filter, forecast, review, logbook, agenda, calendar, board (+ board_tests), clamp, dialogs, import_dialog, preferences,
+│                                       inline_complete, shortcuts, about, status_page, theme, typography
 ├── src/quickentry/modal.rs           ← Quick Entry modal (gtk::Window since C8; fade-in); parser lives in atrium-inline
 └── src/debug/mod.rs                  ← Memory Watch + /proc/self/status sampler
 

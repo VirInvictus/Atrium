@@ -74,17 +74,21 @@ GTK main thread ──direct read──▶ SQLite read-only connection pool (sep
 
 ### 3.3 Process Topology
 
-The workspace ships seven crates (six as of v0.13.0; `atrium-import` added v0.34.0):
+The workspace ships six crates (`atrium-import` added v0.34.0 as the sixth). Two further libraries live outside the workspace as git dependencies, shared with sibling apps:
 
-- **`atrium-core`** — headless data layer (domain types, SQLite worker, paths, repeat-rule wrapper). GUI-free; the foundation every other crate builds on.
-- **`vir-search`** — Calibre-style search expression language (lex / parse / ast / eval). Extracted from atrium-core in v0.4.2 so the engine can be exercised, fuzzed, and reused independently.
+- **`atrium-core`** — headless data layer (domain types, SQLite worker, paths, repeat-rule wrapper, backups). GUI-free; the foundation every other crate builds on.
 - **`atrium-org`**: Org-mode projection (parser, emitter, importer, vault writer + `inotify` watcher) plus the RRULE / Org-cookie helpers and the `.atrium/config.toml` sidecar. Extracted from `atrium-core::sync` at v0.9.0 so the data layer stays Org-agnostic behind the `VaultDirtyNotifier` trait.
 - **`atrium-inline`**: inline-syntax parser (`#tag` / `@date` / `@<weekday>` / `!N` priority) shared by Quick Entry, the bottom-of-list entry, inline rename, and the CLI `capture` subcommand. Extracted at v0.13.0; `atrium-core` stays inline-syntax-agnostic.
 - **`atrium-import`**: non-Org import/export formats — Todoist CSV, Taskwarrior `task export` JSON, todo.txt, and VTODO `.ics`. Hand-rolled stdlib parsers + mappers that drive the `atrium-core` worker. Extracted from `atrium-cli` at v0.34.0 so the GTK binary's import dialog and the CLI share one implementation (Org import/export stays in `atrium-org`).
 - **`atrium-cli`** — headless binary that exposes the search engine and full task CRUD (search / list / info / add / capture / edit / complete / delete) from the shell. TSV by default for shell pipelines, `--json` for jq, `--human` for terminal viewing. Read commands open the database read-only as a process-level safety guarantee; write commands spin up the worker on a current-thread tokio runtime, send commands via WorkerHandle, and shut down cleanly.
-- **`atrium`** — the GTK4 binary. Depends on all six above.
+- **`atrium`** — the GTK4 binary. Depends on the five workspace libraries above plus the two git dependencies below.
 
-The architectural commitment: every non-GUI surface stays CLI-testable. The 2.0-era TUI (`atrium-tui`) is the same shape — another headless consumer of atrium-core + atrium-search. A **post-1.0** release introduces an optional capture daemon (`atriumd`) running under user systemd that handles the global Quick Entry shortcut even when the main app is closed and IPCs the captured task in (deferred out of the 1.0 endgame — the Wayland global-shortcut portal + systemd + IPC subsystem is its own effort). Until that ships, Quick Entry works only when Atrium is running.
+Git dependencies (branch-tracking, pinned by consumer `Cargo.lock` revs; shared with Conservatory, and vir-gtk with Viaduct):
+
+- **`vir-search`** — the Calibre-style search expression language (AST, lexer, parser, dates, rank). The in-tree `atrium-search` crate was extracted at v0.70.0; atrium-core's `src/search/` keeps only the schema-aware pieces (domain mapping, in-memory evaluator, SQL fast-path).
+- **`vir-gtk`** — shared GTK4 widgets and theming (portal colour-scheme, base stylesheet, style scopes). Adopted at v0.70.0.
+
+The architectural commitment: every non-GUI surface stays CLI-testable. The 2.0-era TUI (`atrium-tui`) is the same shape — another headless consumer of atrium-core + vir-search. A **post-1.0** release introduces an optional capture daemon (`atriumd`) running under user systemd that handles the global Quick Entry shortcut even when the main app is closed and IPCs the captured task in (deferred out of the 1.0 endgame — the Wayland global-shortcut portal + systemd + IPC subsystem is its own effort). Until that ships, Quick Entry works only when Atrium is running.
 
 ### 3.4 Debug-First Architecture
 
@@ -172,8 +176,8 @@ OmniFocus superset. Every Builder column lives in v0.1 schema; only some are exp
 | `scheduled_time` | TEXT NULL | `HH:MM` companion to `scheduled_for`; only meaningful when scheduled is a Date (Someday + None ignore the column). Round-trips to / from the time portion of the Org SCHEDULED active timestamp (`<2026-05-15 Wed 14:00>`). Phase 18.5 Tier-2 (v0.19.0) — column added via `0011_task_scheduled_time.sql`. |
 | `reminder_at` | TEXT NULL | RFC 3339 UTC timestamp; when present and `<= now()` and the task is open, the GUI's reminder service fires a `gio::Notification`. Companion partial index `idx_task_reminder_at_open`. Phase 19.5 (v0.20.0) — column added via `0012_task_reminder_at.sql`. v0.41.0 added the `task_reminder_fired(task_id PK, reminder_at, fired_at)` side table (migration 0018): the service records each fire there so it can fire *overdue* reminders on launch (catch-up) without re-firing on every poll, and so disabling notifications no longer permanently swallows one. A side table (not a `task` column) keeps a fire from bumping `task.modified_at`. The fired row matches on the current `reminder_at`, so moving a reminder re-arms it. |
 | `extra_properties` | TEXT NULL | JSON object of unmodeled `:KEY: value` lines from Org `:PROPERTIES:` drawers. Modeled keys (`ID`, `CREATED`, `MODIFIED`, `DEFER_UNTIL`, `EFFORT`, `RRULE`, `ORIG_KEYWORD`) are never stashed here — they map to typed columns. NULL == no extras (the read boundary normalises to an empty `BTreeMap`); empty maps written back through `update_task` normalise to NULL. Post-v0.22.0 Tier 1 (v0.24.0) — column added via `0014_task_extra_properties.sql`. Closes the §7.3.3 rule 1 gap for property drawers. |
-| `scheduled_warning_days` | INTEGER NULL | The `-Nd` warning suffix on the SCHEDULED cookie, hand-authored in Emacs; mirrors the DEADLINE-side `deadline_warn_days`. Round-trips onto the emitted SCHEDULED cookie. Phase 24 (v0.72.0) — column added via `0021_task_org_cookie_fields.sql`. |
-| `deadline_repeater` | TEXT NULL | The repeater fragment on the DEADLINE cookie (`+1m` / `++1w` / `.+3d`), stored verbatim as cookie text. Round-trip fidelity only — recurrence runs off `repeat_rule` / `:RRULE:` per §7.3.3 rule 3. Phase 24 (v0.72.0) — column added via `0021_task_org_cookie_fields.sql`. |
+| `scheduled_warning_days` | INTEGER NULL | The `-Nd` warning suffix on the SCHEDULED cookie, hand-authored in Emacs; mirrors the DEADLINE-side `deadline_warn_days`. Round-trips onto the emitted SCHEDULED cookie. v0.72.0 — column added via `0021_task_org_cookie_fields.sql`. |
+| `deadline_repeater` | TEXT NULL | The repeater fragment on the DEADLINE cookie (`+1m` / `++1w` / `.+3d`), stored verbatim as cookie text. Round-trip fidelity only — recurrence runs off `repeat_rule` / `:RRULE:` per §7.3.3 rule 3. v0.72.0 — column added via `0021_task_org_cookie_fields.sql`. |
 
 **`quick_entry_template`** (Phase 18.5 Tier-1, v0.18.0) — pre-filled capture recipes surfaced in the Quick Entry modal as a picker bar. Closes the gap between Atrium's single Quick Entry shape and Org-capture-template multiplicity.
 
@@ -378,14 +382,14 @@ The expression text — exactly what the user typed — is what's stored in `per
 score = (|bm25| / (1 + |bm25|)) + 0.25 · 2^(-Δd / 30)
 ```
 
-The relevance term is the saturating mapping `|bm25| / (1 + |bm25|)` — keeps relevance on a stable [0, 1) scale regardless of FTS5's per-DB magnitudes. The recency factor is a quarter-weight tiebreaker so freshly-touched matches edge out lukewarm older ones without dominating the ranking. Both `atrium_search::collect_text_terms` and `blend_relevance` are pure helpers; `atrium-core::db::read::bm25_for_terms` is the DB-side query; `atrium/ui/filter::rank_by_bm25_recency` and `atrium-cli::run_search` are the consumers.
+The relevance term is the saturating mapping `|bm25| / (1 + |bm25|)` — keeps relevance on a stable [0, 1) scale regardless of FTS5's per-DB magnitudes. The recency factor is a quarter-weight tiebreaker so freshly-touched matches edge out lukewarm older ones without dominating the ranking. Both `vir_search::collect_text_terms` and `vir_search::blend_relevance` are pure helpers (the grammar crate since v0.70.0); `atrium-core::db::read::bm25_for_terms` is the DB-side query; `atrium/ui/filter::rank_by_bm25_recency` and `atrium-cli::run_search` are the consumers.
 
 ### 4.5 SQL-translation evaluator
 
 The Calibre-style search expression engine has two execution paths:
 
-- **In-memory path.** `atrium_search::evaluate(&Expr, &Task, &EvalContext)` walks the AST against an already-loaded `Vec<Task>`. Handles every operator the grammar exposes — including the SQL-incompatible ones (regex, fuzzy, sequential-project state).
-- **SQL path (v0.5.3).** `atrium_search::try_translate(&Expr, today) -> Option<SqlClause>` walks the same AST and emits a SQL `WHERE` fragment + parameter list when *every* node maps cleanly. Returns `None` for any subtree the translator can't safely express; the call site falls back to the in-memory path.
+- **In-memory path.** `atrium_core::search::eval::evaluate(&Expr, &Task, &EvalContext)` walks the AST against an already-loaded `Vec<Task>`. Handles every operator the grammar exposes — including the SQL-incompatible ones (regex, fuzzy, sequential-project state).
+- **SQL path (v0.5.3).** `atrium_core::search::sql_translate::try_translate(&Expr, today) -> Option<SqlClause>` walks the same AST and emits a SQL `WHERE` fragment + parameter list when *every* node maps cleanly. Returns `None` for any subtree the translator can't safely express; the call site falls back to the in-memory path.
 
 The "all-or-nothing" rule keeps semantics in lockstep — there's no shape where SQL and in-memory paths could disagree silently. An in-tree parity-test battery (`atrium-cli/src/tests.rs::sql_parity`, 21 cases) seeds a mixed fixture and asserts both paths return the same id set across every operator class the translator covers, plus negative tests confirming `try_translate` correctly rejects regex / fuzzy / `is:today`.
 
@@ -438,23 +442,24 @@ Migrations are never rewritten once shipped — old databases must replay the sa
 The default mode for new installations. Layout cribs Things 3's three-pane:
 
 ```text
-AdwApplicationWindow
-└── AdwNavigationSplitView
-    ├── [sidebar] AdwNavigationPage "Lists"
-    │   └── GtkListView (TreeListModel)
-    │       ├── Inbox (count badge)
-    │       ├── Today (count badge)
-    │       ├── Upcoming
-    │       ├── Anytime
-    │       ├── Someday
-    │       ├── Logbook
-    │       ├── ── Areas ──
-    │       │   ├── <Area>
-    │       │   │   └── <Project> (count badge)
-    │       │   └── ...
-    │       └── ── Tags ── (collapsible)
-    └── [content] AdwNavigationPage "<active list>"
-        └── GtkListView of tasks
+AtriumWindow (gtk::ApplicationWindow, plain GTK4 + owned stylesheet)
+└── GtkPaned "split_view" (sidebar | content, position 260)
+    ├── [sidebar] GtkBox "sidebar_pane"
+    │   └── GtkScrolledWindow
+    │       └── GtkListBox "sidebar_list"
+    │           ├── Inbox (count badge)
+    │           ├── Today (count badge)
+    │           ├── Upcoming
+    │           ├── Anytime
+    │           ├── Someday
+    │           ├── Logbook
+    │           ├── ── Areas ──
+    │           │   ├── <Area>
+    │           │   │   └── <Project> (count badge)
+    │           │   └── ...
+    │           └── ── Tags ── (collapsible)
+    └── [content] GtkBox (title strip + search bar + active page)
+        └── GtkListView of tasks (inside the AtriumClamp width cap)
 ```
 
 **Visible task fields:** title, note, scheduled (When), deadline, tags, completion checkbox.
@@ -471,7 +476,7 @@ Adds, all wired end-to-end as of v0.2.0:
 - **Review** — projects with stale `last_reviewed_at` surface here, oldest first; per-card *Mark Reviewed* button stamps the timestamp (Phase 13).
 - **Perspectives** — saved filter expressions stored as `perspective` rows, surfaced in the sidebar above Areas. *Save Search as Perspective…* in the primary menu captures the current search bar query (Phase 14, v0.1.17). v0.6.7 reorganisation moved the Perspectives section out from under a "Builder" header to its current spot between the top-tier group and Areas. v0.6.2 added a *Configure renderer…* dialog on the Perspective row's right-click menu — switches a perspective between the default `'list'` renderer and the `'board'` (kanban) renderer (§4.6).
 - **Kanban board renderer (Slice D1, v0.5.4 → v0.6.6).** When a saved Perspective has `renderer = 'board'`, it shows as a horizontal column layout instead of a flat list — one column per configured value, plus a trailing "Other" bucket for non-matching tasks. Two grouping axes (§4.6): the **tag axis** (default) groups by tag, and dragging between columns rewrites the task's tag set (`atrium_core::move_to_column`); the **status axis** (v0.38.0) groups by Org TODO-sequence keyword, and dragging changes real state via `atrium_core::status_move` (set `orig_keyword`, complete the task on a done-column). The status-board renderer config is configured from the GUI's "Configure renderer…" / perspective-editor dialogs (a "Board — columns by status" radio, columns entered in the Org `#+TODO:` pipe convention) and from `atrium-cli perspective … --renderer board --axis status --columns 'TODO, NEXT | DONE'`. Per-column scroll for tall lists; horizontal scroll across the board when wider than viewport. Click any row → opens in Inspector. Interactive completion checkbox. **v0.43.0** enriches each card with a `[done/total]` statistics cookie (subtasks folded with body checkboxes via the shared cookie resolver) and an amber "Blocked" pill (`read::blocked_task_ids`), matching the list rows; priority already shows as a `priority-N` tag pill. **v0.44.0** adds per-column WIP limits: a `name:limit` suffix on any column (both axes, GUI dialog + `atrium-cli`) stores a cap in `BoardConfig.limits` (`renderer_config` JSON, `skip_serializing_if`-empty so old configs are byte-identical); the column header shows `count/limit` and flags over-limit in red. Advisory only, never blocks a drop. **v0.45.0** adds a per-column "Add card" entry: it creates a task stamped with the column's membership (tag-axis adds the column tag; status-axis sets the keyword and completes on a done-column via `status_move`; "Other" adds none), running the shared inline parser so `#tag` / `@date` / `!N` work. New cards land in Inbox plus the membership (`window/tasks.rs::create_card_in_column`). **v0.46.0** persists intra-column card order: dragging a card onto another drops it above that card (empty space appends), stored per `(perspective, column)` in the `board_card_position` side table (migration `0019`, schema 18 → 19; FK-cascaded, integer positions renumbered per reorder). It stays a view-order table, not a bucket entity, so the board still round-trips to the Org vault. Order applies in the GUI and `atrium-cli kanban`; set from the CLI via `perspective reorder NAME --column KEY --order id,id,id`. The mini-phase (richer cards, WIP limits, per-column add, ordering) keeps the projection column model throughout.
-- **Inspector pane** — right-side `AdwOverlaySplitView` companion, autosaves every field on focus-out / Enter (Phase 10).
+- **Inspector pane** — right-side `GtkPaned` (`overlay_split`, position 760) end child, autosaves every field on focus-out / Enter (Phase 10; the `AdwOverlaySplitView` companion of the original build went out with libadwaita at Phase 22 C6). Below 600 px it folds automatically and `Ctrl+Shift+I` reveals it (the staged collapse, v0.72.0).
 - **Defer dates + sequential projects** — `defer_until` excludes from Today/Anytime; sequential rendering dims rows past the first incomplete one (Phase 11).
 - **Repeat rules** — full RFC 5545 RRULE with three Org-style completion modes (Cumulative default, Next-from-completion, Basic). Editor in the Inspector pane; worker regenerates the next instance on completion. Schema-side, `repeat_mode` was added via `0003_repeat_mode.sql` — the first migration to alter an existing table, allowed because v0.2.0 ends the v0.1 freeze (Phase 15).
 - **Subtasks** (v0.23.0, Builder-only per §5.1): a "Subtasks" group in the Inspector pane lists a task's `parent_id` children with completion checkboxes, navigates to a child on click, and creates a child (inheriting the parent's project) via an "Add subtask" entry. List views render children indented under their parent; Shift+drop reparents a task (a plain drop still reorders). The worker enforces the same-project rule and rejects parent cycles. `parent_id` has been in the schema since `0001_initial.sql`; this exposes it (no schema change, Phase 19.5). The v0.15.0 body-checkbox group is renamed "Checklist" (both modes) to free the "Subtasks" label for real nested tasks.
