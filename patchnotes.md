@@ -1,6 +1,8 @@
 # Atrium — Patch Notes
 
-## Unreleased
+## v0.74.0: the consumer-wave stamp (2026-09-13)
+
+**The vir-gtk 1.4.0 widget kit and the vir-search 1.4.2 hardening ship here, folding both Unreleased adoptions into a numbered release ahead of the 1.0 freeze. No behavior changes of Atrium's own.**
 
 - **Changed:** vir-search adopted at 1.4.2 (the consumer wave): the parser is recursion-bounded, so pathologically deep input degrades with spanned warnings instead of aborting on a stack overflow; a stray `)` warns and keeps the rest of the query instead of silently discarding it; out-of-range date offsets saturate at resolve instead of aborting; and the crate gains rustdoc with a `missing_docs` gate plus a normative grammar table in its README. No Atrium code changes required. `data/cargo-sources.json` regenerated against the moved lock in the same commit. (For Atrium's own lane, noted not fixed here: the audit found this repo's docs advertising a phantom `Ndaysout` date form vir-search never accepted.)
 - **Changed:** vir-gtk adopted at 1.4.0 (the widget-kit first-slice wave): the shared row builders, `Group`, `Alert`, `Appearance`, and `close_on_escape` now come from `vir_gtk::widgets`, and Atrium deletes its duplicates (the shared subset of `rows.rs` and the hand-rolled `Alert` in `dialogs.rs`). `rows.rs` keeps Atrium's own `Page`/`Bin`/`set_box_child` per the slice rule; `dialogs.rs` becomes a shim that re-exports the kit types and carries `AlertChoose::choose_future`, the tokio-oneshot async chooser every Atrium alert awaits (the crate itself carries no async runtime). `entry_row` call sites adopt the widened four-`Option` signature; every other call path resolves through the historical `ui::rows`/`ui::dialogs` re-exports unchanged. `data/cargo-sources.json` regenerated against the moved lock in the same commit. Workspace suite 995 green, `scripts/regression.sh` PASS, clippy `-D warnings` clean.
