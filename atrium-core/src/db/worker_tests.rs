@@ -682,6 +682,63 @@ async fn complete_repeating_task_preserves_project_membership() {
 }
 
 #[tokio::test]
+async fn complete_repeating_task_carries_tags_forward() {
+    // v0.73.0 — the follow-up INSERT + tag copy now run inside one
+    // transaction; this pins the carried set at the worker level (the
+    // old coverage note pointed at an SQL-join test in `db::read`).
+    // Needs a file-backed DB so a read pool can inspect `task_tag`
+    // (worker tests normally use :memory:, which a second connection
+    // cannot see).
+    use crate::db::read_pool::ReadPool;
+    let path = std::env::temp_dir().join(format!(
+        "atrium-worker-tag-carry-{}.db",
+        uuid::Uuid::new_v4()
+    ));
+    let mut conn = Connection::open(&path).unwrap();
+    db::configure_pragmas(&conn).unwrap();
+    crate::db::migrations::migrate(&mut conn).unwrap();
+    let (handle, mut changes_rx, _library_rx) = spawn(conn);
+    let pool = ReadPool::new(&path, 1);
+
+    let original = handle
+        .create_task(NewTask {
+            title: "water plants".into(),
+            scheduled_for: Some(crate::domain::ScheduledFor::Date(
+                chrono::NaiveDate::from_ymd_opt(2026, 5, 1).unwrap(),
+            )),
+            repeat_rule: Some("FREQ=DAILY".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let _ = changes_rx.recv().await.unwrap();
+    let chore = handle.ensure_tag("chore".into()).await.unwrap();
+    handle
+        .set_task_tags(original.id, vec![chore.id])
+        .await
+        .unwrap();
+    let _ = changes_rx.recv().await.unwrap(); // set_task_tags delta
+
+    let _ = handle.toggle_complete(original.id).await.unwrap();
+    let changes = changes_rx.recv().await.unwrap();
+    let next = &changes.created[0];
+
+    let carried = pool
+        .with(crate::db::read::tag_names_per_task)
+        .unwrap()
+        .get(&next.id)
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(carried, vec!["chore".to_string()]);
+
+    drop(pool);
+    drop(handle);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}
+
+#[tokio::test]
 async fn complete_non_repeating_task_does_not_spawn() {
     // Phase 15 — sanity check: a task without repeat_rule
     // toggles cleanly without producing a created delta.
@@ -1859,6 +1916,75 @@ async fn create_and_instantiate_task_template() {
     assert_eq!(pack.estimated_minutes, Some(30));
     assert_eq!(socks.parent_id, Some(pack.id));
     assert_eq!(pack.project_id, Some(project.id));
+}
+
+#[tokio::test]
+async fn instantiate_template_attaches_template_and_item_tags() {
+    // v0.73.0 — tag attachment moved inside the instantiation
+    // transaction (ensure_tag_conn / set_task_tags_conn); this pins the
+    // end state: template-level tags on every item, item-level tags
+    // added on top, deduped.
+    use crate::db::read_pool::ReadPool;
+    use crate::domain::{NewTaskTemplate, NewTaskTemplateItem};
+    let path = std::env::temp_dir().join(format!(
+        "atrium-worker-tmpl-tags-{}.db",
+        uuid::Uuid::new_v4()
+    ));
+    let mut conn = Connection::open(&path).unwrap();
+    db::configure_pragmas(&conn).unwrap();
+    crate::db::migrations::migrate(&mut conn).unwrap();
+    let (handle, mut changes_rx, _library_rx) = spawn(conn);
+    let pool = ReadPool::new(&path, 1);
+
+    let tmpl = handle
+        .create_task_template(NewTaskTemplate {
+            name: "Tagged".into(),
+            tags: vec!["shared".into()],
+            items: vec![
+                NewTaskTemplateItem {
+                    title: "plain".into(),
+                    ..Default::default()
+                },
+                NewTaskTemplateItem {
+                    title: "fancy".into(),
+                    default_tags: vec!["shared".into(), "extra".into()],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let project = handle.instantiate_template(tmpl.id).await.unwrap();
+    let changes = changes_rx.recv().await.unwrap();
+    assert_eq!(changes.created.len(), 2);
+
+    let names_of = |task_id: i64| {
+        pool.with(crate::db::read::tag_names_per_task)
+            .unwrap()
+            .get(&task_id)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let plain = changes.created.iter().find(|t| t.title == "plain").unwrap();
+    let fancy = changes.created.iter().find(|t| t.title == "fancy").unwrap();
+    assert_eq!(plain.project_id, Some(project.id));
+    let mut plain_tags = names_of(plain.id);
+    plain_tags.sort();
+    assert_eq!(plain_tags, vec!["shared".to_string()]);
+    let mut fancy_tags = names_of(fancy.id);
+    fancy_tags.sort();
+    assert_eq!(
+        fancy_tags,
+        vec!["extra".to_string(), "shared".to_string()],
+        "item-level tags dedupe against template-level tags"
+    );
+
+    drop(pool);
+    drop(handle);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
 }
 
 #[tokio::test]

@@ -11,11 +11,9 @@
 //! SQLite worker" architectural commitment, ported from Viaduct's
 //! `DatabaseQueue` discipline.
 
-use std::time::Duration;
-
 use rusqlite::{Connection, OptionalExtension, params};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{Instrument, info, info_span, trace};
+use tracing::{Instrument, info, info_span, trace, warn};
 use uuid::Uuid;
 
 use std::sync::Arc;
@@ -541,14 +539,14 @@ pub fn spawn(
 /// The notifier is responsible for any debouncing or IO; the worker
 /// fires synchronously and never blocks on it.
 pub fn spawn_with_vault(
-    mut conn: Connection,
+    conn: Connection,
     vault: Option<VaultConfig>,
 ) -> (
     WorkerHandle,
     mpsc::UnboundedReceiver<TaskChanges>,
     mpsc::UnboundedReceiver<LibraryChanges>,
 ) {
-    install_profile_callback(&mut conn);
+    install_profile_callback(&conn);
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<Command>(COMMAND_CHANNEL_CAPACITY);
     let (changes_tx, changes_rx) = mpsc::unbounded_channel::<TaskChanges>();
@@ -569,14 +567,27 @@ pub fn spawn_with_vault(
     (WorkerHandle { cmd_tx }, changes_rx, library_rx)
 }
 
-/// Wire rusqlite's `profile` callback to the `tracing` TRACE level.
+/// Wire rusqlite's `trace_v2` callback to the `tracing` TRACE level.
 /// Per spec §3.4, every SQL statement is observable through the debug
 /// harness — `RUST_LOG=trace` (or filtered to `atrium_core::db=trace`)
-/// reveals each statement's text and elapsed wall time.
-fn install_profile_callback(conn: &mut Connection) {
-    conn.profile(Some(|sql: &str, dur: Duration| {
-        trace!(elapsed_us = dur.as_micros() as u64, sql = %sql, "sqlite stmt");
-    }));
+/// reveals each statement's text and elapsed wall time. `trace_v2`
+/// replaced the deprecated `profile` in rusqlite 0.33; the PROFILE
+/// event carries the same (statement text, duration) pair as the old
+/// `profile` callback, via `StmtRef::sql`.
+fn install_profile_callback(conn: &Connection) {
+    use rusqlite::trace::{TraceEvent, TraceEventCodes};
+    conn.trace_v2(
+        TraceEventCodes::SQLITE_TRACE_PROFILE,
+        Some(|evt: TraceEvent<'_>| {
+            if let TraceEvent::Profile(stmt, dur) = evt {
+                trace!(
+                    elapsed_us = dur.as_micros() as u64,
+                    sql = %stmt.sql(),
+                    "sqlite stmt"
+                );
+            }
+        }),
+    );
 }
 
 struct Worker {
@@ -1213,6 +1224,14 @@ impl Worker {
     }
 
     fn create_task(&mut self, new: NewTask) -> Result<Task, DbError> {
+        Self::create_task_conn(&self.conn, new)
+    }
+
+    /// Connection-parameterized inner so multi-statement callers
+    /// (repeat follow-up spawn, template instantiation) can run the
+    /// insert inside their own transaction (`&Transaction` derefs to
+    /// `&Connection`).
+    fn create_task_conn(conn: &Connection, new: NewTask) -> Result<Task, DbError> {
         // Reject malformed RRULE up front so we don't store a string
         // that can't be iterated. Mode strings other than the three
         // known values fall back to default at read time, so they
@@ -1228,7 +1247,7 @@ impl Worker {
         // express "parent is in the same project," so the worker
         // checks before insert.
         if let Some(parent_id) = new.parent_id
-            && let Some(parent) = read::task_by_id(&self.conn, parent_id)?
+            && let Some(parent) = read::task_by_id(conn, parent_id)?
             && parent.project_id != new.project_id
         {
             return Err(DbError::Domain(
@@ -1247,7 +1266,7 @@ impl Worker {
             Some(s) if !s.is_empty() => s,
             _ => Uuid::new_v4().to_string(),
         };
-        let position = self.next_task_position(new.parent_id, new.project_id)?;
+        let position = Self::next_task_position(conn, new.parent_id, new.project_id)?;
 
         // orig_keyword appended; existing call sites
         // pass `None` (Default::default()) so the value is NULL.
@@ -1267,7 +1286,7 @@ impl Worker {
                     .map_err(|e| DbError::Sync(format!("extra_properties JSON encode: {e}")))?,
             )
         };
-        self.conn.execute(
+        conn.execute(
             "INSERT INTO task \
              (uuid, title, note, project_id, parent_id, scheduled_for, deadline, \
               defer_until, estimated_minutes, repeat_rule, repeat_mode, orig_keyword, \
@@ -1297,28 +1316,28 @@ impl Worker {
                 position,
             ],
         )?;
-        let id = self.conn.last_insert_rowid();
-        read::task_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
+        let id = conn.last_insert_rowid();
+        read::task_by_id(conn, id)?.ok_or(DbError::NotFound)
     }
 
     fn next_task_position(
-        &self,
+        conn: &Connection,
         parent_id: Option<i64>,
         project_id: Option<i64>,
     ) -> Result<f64, DbError> {
         let max: Option<f64> = match (parent_id, project_id) {
-            (Some(pid), _) => self.conn.query_row(
+            (Some(pid), _) => conn.query_row(
                 "SELECT MAX(position) FROM task WHERE parent_id = ?1",
                 params![pid],
                 |r| r.get(0),
             )?,
-            (None, Some(pid)) => self.conn.query_row(
+            (None, Some(pid)) => conn.query_row(
                 "SELECT MAX(position) FROM task \
                  WHERE parent_id IS NULL AND project_id = ?1",
                 params![pid],
                 |r| r.get(0),
             )?,
-            (None, None) => self.conn.query_row(
+            (None, None) => conn.query_row(
                 "SELECT MAX(position) FROM task \
                  WHERE parent_id IS NULL AND project_id IS NULL",
                 [],
@@ -1613,19 +1632,34 @@ impl Worker {
             return Ok((toggled, None));
         }
 
-        // Completing. Mark the row done first, then attempt to
-        // spawn the follow-up. If the spawn fails for any reason
-        // (malformed rule that somehow snuck past validation,
-        // exhausted COUNT, etc.) we still surface the toggle
-        // success — repeating-task users would rather lose the
+        // Completing. Mark the row done first (its own statement, so
+        // it commits on its own), then attempt to spawn the follow-up
+        // inside its own transaction. If the spawn fails for any
+        // reason (malformed rule that somehow snuck past validation,
+        // exhausted COUNT, a DB error mid-spawn) we still surface the
+        // toggle success — repeating-task users would rather lose the
         // follow-up than block completion of the work they just did.
+        // The old code propagated the spawn error and left the caller
+        // reporting failure over an already-committed completion
+        // (six-lens audit 2026-09-12); this is the failure policy the
+        // comment always promised.
         self.conn.execute(
             "UPDATE task SET completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1",
             params![id],
         )?;
         let toggled = read::task_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?;
 
-        let spawned = self.spawn_repeat_follow_up(&toggled)?;
+        let spawned = match self.spawn_repeat_follow_up(&toggled) {
+            Ok(spawned) => spawned,
+            Err(e) => {
+                warn!(
+                    ?e,
+                    task_id = id,
+                    "repeat follow-up spawn failed; completion stands"
+                );
+                None
+            }
+        };
         Ok((toggled, spawned))
     }
 
@@ -1751,16 +1785,20 @@ impl Worker {
             // and expects them on every recurrence.
             extra_properties: completed.extra_properties.clone(),
         };
-        let inserted = self.create_task(new_task)?;
+        // The INSERT + tag copy is one transaction so a mid-spawn
+        // failure can't leave a follow-up task without its tags.
+        let tx = self.conn.transaction()?;
+        let inserted = Self::create_task_conn(&tx, new_task)?;
 
         // Carry the tag set forward. Tags live on `task_tag`, not
         // on the Task struct — copy by ID so the new row inherits
         // the same labels.
-        self.conn.execute(
+        tx.execute(
             "INSERT INTO task_tag (task_id, tag_id) \
              SELECT ?1, tag_id FROM task_tag WHERE task_id = ?2",
             params![inserted.id, completed.id],
         )?;
+        tx.commit()?;
 
         Ok(Some(inserted))
     }
@@ -1857,16 +1895,23 @@ impl Worker {
     // ── Projects ───────────────────────────────────────────────────
 
     fn create_project(&mut self, new: NewProject) -> Result<Project, DbError> {
+        Self::create_project_conn(&self.conn, new)
+    }
+
+    /// Connection-parameterized inner so multi-statement callers can
+    /// run the insert inside their own transaction (`&Transaction`
+    /// derefs to `&Connection`).
+    fn create_project_conn(conn: &Connection, new: NewProject) -> Result<Project, DbError> {
         // honor a caller-provided UUID (Org importer
         // path). Empty / None fall back to a fresh v4.
         let uuid = match new.uuid {
             Some(s) if !s.is_empty() => s,
             _ => Uuid::new_v4().to_string(),
         };
-        let position = self.next_project_position(new.area_id)?;
+        let position = Self::next_project_position(conn, new.area_id)?;
         // last_reviewed_at + archived_at honor caller-
         // provided values (Org importer path). NULL otherwise.
-        self.conn.execute(
+        conn.execute(
             "INSERT INTO project \
              (uuid, title, note, area_id, sequential, review_interval_days, \
               last_reviewed_at, archived_at, position) \
@@ -1883,18 +1928,18 @@ impl Worker {
                 position,
             ],
         )?;
-        let id = self.conn.last_insert_rowid();
-        read::project_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
+        let id = conn.last_insert_rowid();
+        read::project_by_id(conn, id)?.ok_or(DbError::NotFound)
     }
 
-    fn next_project_position(&self, area_id: Option<i64>) -> Result<f64, DbError> {
+    fn next_project_position(conn: &Connection, area_id: Option<i64>) -> Result<f64, DbError> {
         let max: Option<f64> = match area_id {
-            Some(aid) => self.conn.query_row(
+            Some(aid) => conn.query_row(
                 "SELECT MAX(position) FROM project WHERE area_id = ?1",
                 params![aid],
                 |r| r.get(0),
             )?,
-            None => self.conn.query_row(
+            None => conn.query_row(
                 "SELECT MAX(position) FROM project WHERE area_id IS NULL",
                 [],
                 |r| r.get(0),
@@ -2079,13 +2124,19 @@ impl Worker {
     // ── Tags ───────────────────────────────────────────────────────
 
     fn create_tag(&mut self, new: NewTag) -> Result<Tag, DbError> {
+        Self::create_tag_conn(&self.conn, new)
+    }
+
+    /// Connection-parameterized inner so callers inside a transaction
+    /// can reuse it (`&Transaction` derefs to `&Connection`).
+    fn create_tag_conn(conn: &Connection, new: NewTag) -> Result<Tag, DbError> {
         let uuid = Uuid::new_v4().to_string();
-        self.conn.execute(
+        conn.execute(
             "INSERT INTO tag (uuid, name, color) VALUES (?, ?, ?)",
             params![uuid, new.name, new.color],
         )?;
-        let id = self.conn.last_insert_rowid();
-        read::tag_by_id(&self.conn, id)?.ok_or(DbError::NotFound)
+        let id = conn.last_insert_rowid();
+        read::tag_by_id(conn, id)?.ok_or(DbError::NotFound)
     }
 
     fn update_tag(&mut self, update: TagUpdate) -> Result<Tag, DbError> {
@@ -2129,18 +2180,22 @@ impl Worker {
         &mut self,
         new: crate::domain::NewTaskTemplate,
     ) -> Result<crate::domain::TaskTemplate, DbError> {
+        // The template row and its items are one transaction: without
+        // it, a failure mid-loop left a template with a truncated item
+        // list persisted (six-lens audit 2026-09-12).
         let uuid = Uuid::new_v4().to_string();
         let tags_json = serde_json::to_string(&new.tags).unwrap_or_else(|_| "[]".to_string());
-        self.conn.execute(
+        let tx = self.conn.transaction()?;
+        tx.execute(
             "INSERT INTO task_template (uuid, name, project_title_seed, note, tags_json) \
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![uuid, new.name, new.project_title_seed, new.note, tags_json],
         )?;
-        let template_id = self.conn.last_insert_rowid();
+        let template_id = tx.last_insert_rowid();
         for (i, item) in new.items.iter().enumerate() {
             let item_tags =
                 serde_json::to_string(&item.default_tags).unwrap_or_else(|_| "[]".to_string());
-            self.conn.execute(
+            tx.execute(
                 "INSERT INTO task_template_item \
                  (template_id, title, parent_index, position, estimated_minutes, default_tags_json) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -2154,6 +2209,7 @@ impl Worker {
                 ],
             )?;
         }
+        tx.commit()?;
         read::task_template_by_id(&self.conn, template_id)?.ok_or(DbError::NotFound)
     }
 
@@ -2183,12 +2239,18 @@ impl Worker {
         };
         let mut new_project = NewProject::unfiled(title);
         new_project.note = template.note.clone();
-        let project = self.create_project(new_project)?;
+
+        // The whole stamp — project, template tags, every item task,
+        // every tag attachment — is one transaction: a failure
+        // mid-loop used to persist a half-built project and task set
+        // (six-lens audit 2026-09-12).
+        let tx = self.conn.transaction()?;
+        let project = Self::create_project_conn(&tx, new_project)?;
 
         // Ensure the template-level tags once; reused per item.
         let mut template_tag_ids = Vec::with_capacity(template.tags.len());
         for name in &template.tags {
-            template_tag_ids.push(self.ensure_tag_inner(name)?.0.id);
+            template_tag_ids.push(Self::ensure_tag_conn(&tx, name)?.0.id);
         }
 
         let mut created: Vec<Task> = Vec::with_capacity(items.len());
@@ -2201,16 +2263,19 @@ impl Worker {
                 .parent_index
                 .and_then(|pi| usize::try_from(pi).ok())
                 .and_then(|pi| created_ids.get(pi).copied());
-            let task = self.create_task(NewTask {
-                title: item.title.clone(),
-                project_id: Some(project.id),
-                parent_id,
-                estimated_minutes: item.estimated_minutes,
-                ..NewTask::default()
-            })?;
+            let task = Self::create_task_conn(
+                &tx,
+                NewTask {
+                    title: item.title.clone(),
+                    project_id: Some(project.id),
+                    parent_id,
+                    estimated_minutes: item.estimated_minutes,
+                    ..NewTask::default()
+                },
+            )?;
             let mut tag_ids = template_tag_ids.clone();
             for name in &item.default_tags {
-                let tid = self.ensure_tag_inner(name)?.0.id;
+                let tid = Self::ensure_tag_conn(&tx, name)?.0.id;
                 if !tag_ids.contains(&tid) {
                     tag_ids.push(tid);
                 }
@@ -2218,25 +2283,35 @@ impl Worker {
             let task = if tag_ids.is_empty() {
                 task
             } else {
-                self.set_task_tags(task.id, tag_ids)?
+                Self::set_task_tags_conn(&tx, task.id, &tag_ids)?;
+                read::task_by_id(&tx, task.id)?.ok_or(DbError::NotFound)?
             };
             created_ids.push(task.id);
             created.push(task);
         }
+        tx.commit()?;
         Ok((project, created))
     }
 
     fn set_task_tags(&mut self, task_id: i64, tag_ids: Vec<i64>) -> Result<Task, DbError> {
         let tx = self.conn.transaction()?;
-        tx.execute("DELETE FROM task_tag WHERE task_id = ?1", params![task_id])?;
-        for tid in &tag_ids {
-            tx.execute(
+        Self::set_task_tags_conn(&tx, task_id, &tag_ids)?;
+        tx.commit()?;
+        read::task_by_id(&self.conn, task_id)?.ok_or(DbError::NotFound)
+    }
+
+    /// Connection-parameterized inner: plain statements, no transaction
+    /// of its own. Standalone callers wrap it in one; multi-statement
+    /// callers (template instantiation) call it inside theirs.
+    fn set_task_tags_conn(conn: &Connection, task_id: i64, tag_ids: &[i64]) -> Result<(), DbError> {
+        conn.execute("DELETE FROM task_tag WHERE task_id = ?1", params![task_id])?;
+        for tid in tag_ids {
+            conn.execute(
                 "INSERT INTO task_tag (task_id, tag_id) VALUES (?, ?)",
                 params![task_id, tid],
             )?;
         }
-        tx.commit()?;
-        read::task_by_id(&self.conn, task_id)?.ok_or(DbError::NotFound)
+        Ok(())
     }
 
     /// Find an existing tag by name (case-insensitive) or create it.
@@ -2246,22 +2321,27 @@ impl Worker {
     /// a tag that was never modified always compares equal, so
     /// every re-ensure of it re-signalled a creation.)
     fn ensure_tag_inner(&mut self, name: &str) -> Result<(Tag, bool), DbError> {
+        Self::ensure_tag_conn(&self.conn, name)
+    }
+
+    /// Connection-parameterized inner so callers inside a transaction
+    /// (template instantiation) can reuse it.
+    fn ensure_tag_conn(conn: &Connection, name: &str) -> Result<(Tag, bool), DbError> {
         // Probe by name (NOCASE-collated column).
         let existing: rusqlite::Result<i64> =
-            self.conn
-                .query_row("SELECT id FROM tag WHERE name = ?1", params![name], |r| {
-                    r.get(0)
-                });
+            conn.query_row("SELECT id FROM tag WHERE name = ?1", params![name], |r| {
+                r.get(0)
+            });
         match existing {
-            Ok(id) => Ok((
-                read::tag_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?,
-                false,
-            )),
+            Ok(id) => Ok((read::tag_by_id(conn, id)?.ok_or(DbError::NotFound)?, false)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok((
-                self.create_tag(NewTag {
-                    name: name.to_string(),
-                    color: None,
-                })?,
+                Self::create_tag_conn(
+                    conn,
+                    NewTag {
+                        name: name.to_string(),
+                        color: None,
+                    },
+                )?,
                 true,
             )),
             Err(e) => Err(e.into()),
@@ -2472,23 +2552,31 @@ impl Worker {
             )
             .optional()?;
 
+        if let Some((existing_id, existing_task_id)) = existing_open
+            && existing_task_id == new.task_id
+        {
+            // Already clocked into this task — surface the
+            // existing entry so the caller doesn't double-
+            // stamp. Marked as not-newly-opened so the
+            // dispatcher can decide whether to notify (it
+            // doesn't need to; nothing changed).
+            let entry =
+                read::clock_entry_by_id(&self.conn, existing_id)?.ok_or(DbError::NotFound)?;
+            return Ok(ClockInResult {
+                entry,
+                previously_closed_task_id: None,
+            });
+        }
+
+        // The close-other + insert pair is one transaction: without
+        // it, a failure between the two statements would leave the
+        // previous task's clock closed and no new entry anywhere
+        // (six-lens audit 2026-09-12).
         let mut previously_closed_task_id: Option<i64> = None;
+        let tx = self.conn.transaction()?;
         if let Some((existing_id, existing_task_id)) = existing_open {
-            if existing_task_id == new.task_id {
-                // Already clocked into this task — surface the
-                // existing entry so the caller doesn't double-
-                // stamp. Marked as not-newly-opened so the
-                // dispatcher can decide whether to notify (it
-                // doesn't need to; nothing changed).
-                let entry =
-                    read::clock_entry_by_id(&self.conn, existing_id)?.ok_or(DbError::NotFound)?;
-                return Ok(ClockInResult {
-                    entry,
-                    previously_closed_task_id: None,
-                });
-            }
             // Auto-close the other task's clock first.
-            self.conn.execute(
+            tx.execute(
                 "UPDATE task_clock_entry SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
                  WHERE id = ?1",
                 params![existing_id],
@@ -2501,13 +2589,14 @@ impl Worker {
         // created_at + modified_at stamped by the same now() value
         // (migration 0013 made these explicit; the trigger keeps
         // modified_at fresh on subsequent UPDATEs).
-        self.conn.execute(
+        tx.execute(
             "INSERT INTO task_clock_entry (task_id, started_at, ended_at, note, created_at, modified_at) \
              VALUES (?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, ?2, \
                      strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
             params![new.task_id, new.note],
         )?;
-        let id = self.conn.last_insert_rowid();
+        let id = tx.last_insert_rowid();
+        tx.commit()?;
         let entry = read::clock_entry_by_id(&self.conn, id)?.ok_or(DbError::NotFound)?;
         Ok(ClockInResult {
             entry,
