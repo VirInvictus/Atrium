@@ -24,7 +24,7 @@ repository = "https://github.com/VirInvictus/Atrium"
 tokio = { version = "1", features = ["full"] }
 
 # Storage
-rusqlite = { version = "0.32", features = ["bundled", "chrono", "trace"] }
+rusqlite = { version = "0.40", features = ["bundled", "chrono", "trace"] }
 
 # Data + serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -41,7 +41,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # UI (binary-only). libadwaita was dropped at Phase 22 C10; the app owns
 # its stylesheet (atrium/src/ui/theme.rs) on plain GTK4.
-gtk = { version = "0.9", package = "gtk4", features = ["v4_16"] }
+gtk = { version = "0.11", package = "gtk4", features = ["v4_16"] }
 
 # Phase 1: UUID v4 generation. Sign-off granted in Phase 1 design call.
 # v5 (Phase 18, v0.12.0): deterministic name-based UUIDs from

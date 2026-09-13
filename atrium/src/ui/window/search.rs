@@ -341,7 +341,7 @@ impl AtriumWindow {
     /// path; the stack's "edit" page is a plain GtkEntry that we
     /// populate from the bound display label and focus + select-all.
     pub fn start_edit_focused_row(&self) -> bool {
-        let Some(focused) = self.focus() else {
+        let Some(focused) = gtk::prelude::GtkWindowExt::focus(self) else {
             return false;
         };
         if let Some(row) = find_task_row(&focused) {

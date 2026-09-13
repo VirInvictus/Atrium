@@ -113,7 +113,7 @@ mod imp {
 glib::wrapper! {
     pub struct Clamp(ObjectSubclass<imp::Clamp>)
         @extends gtk::Widget,
-        @implements gtk::Buildable;
+        @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
 }
 
 impl Clamp {

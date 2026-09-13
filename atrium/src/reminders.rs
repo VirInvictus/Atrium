@@ -310,9 +310,8 @@ mod tests {
         let fired: Arc<std::sync::Mutex<Vec<(i64, String)>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
         let fired_for_assert = fired.clone();
-        let fire: FireFn = Box::new(move |id, title| {
-            fired.lock().unwrap().push((id, title.to_string()))
-        });
+        let fire: FireFn =
+            Box::new(move |id, title| fired.lock().unwrap().push((id, title.to_string())));
 
         let settings = gio::Settings::new(APP_ID);
         settings.set_boolean("notifications-enabled", true).unwrap();

@@ -386,7 +386,9 @@ mod imp {
 glib::wrapper! {
     pub struct AtriumWindow(ObjectSubclass<imp::AtriumWindow>)
         @extends gtk::Widget, gtk::Window, gtk::ApplicationWindow,
-        @implements gio::ActionGroup, gio::ActionMap;
+        @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget,
+                   gtk::Native, gtk::Root, gtk::ShortcutManager,
+                   gio::ActionGroup, gio::ActionMap;
 }
 
 /// How the row-context chip should render for a given active list.
