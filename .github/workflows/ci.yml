@@ -38,7 +38,12 @@ jobs:
         # manifest; a lock change without the regen leaves it pinning
         # stale commits (bit at v0.70.0 and again at v0.72.1). Fail CI
         # whenever the checked-in file disagrees with Cargo.lock.
+        # Container jobs run as root against a host-owned checkout, so
+        # git's dubious-ownership check rejects the repo and `git diff`
+        # silently degrades to --no-index (exit 129, first seen on run
+        # 34769246376); mark the workspace safe before touching git.
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           uv run scripts/flatpak-cargo-generator.py Cargo.lock -o data/cargo-sources.json
           git diff --exit-code data/cargo-sources.json
 
