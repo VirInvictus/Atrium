@@ -341,10 +341,13 @@ fn boot_data_layer() -> std::result::Result<BootedDataLayer, AtriumError> {
         let sidecar = root.join(".atrium").join("config.toml");
         if !sidecar.exists() {
             let pool_for_seed = pool.clone();
-            let db_path_for_seed = db_path.clone();
             let recent_for_seed = recent_writes_for_seed;
-            runtime().handle().spawn(async move {
-                seed_fresh_vault(&pool_for_seed, &db_path_for_seed, &root, recent_for_seed);
+            // spawn_blocking, not a plain spawn: the seed is wall-to-
+            // wall synchronous SQLite reads + file writes, and running
+            // those on a runtime worker stalls everything else
+            // multiplexed onto it (six-lens audit 2026-09-12).
+            runtime().handle().spawn_blocking(move || {
+                seed_fresh_vault(&pool_for_seed, &root, recent_for_seed);
             });
         }
     }
@@ -376,29 +379,24 @@ fn boot_data_layer() -> std::result::Result<BootedDataLayer, AtriumError> {
 /// file's `(path, mtime)` immediately after its write closes
 /// that race.
 ///
-/// Opens a fresh read-only `Connection` rather than going through
-/// `pool.with` because the writer's `WriteError` type doesn't
-/// satisfy `pool.with`'s `Result<_, DbError>` constraint. The
-/// connection is dropped when the function returns.
+/// Reads go through the read-only pool: the seed only reads from the
+/// DB, and the pool's `query_only` pragma enforces that at the engine
+/// level. The old shape opened a second `db::open` connection for the
+/// seed — a full writable connection that also re-ran the migration
+/// check — violating the single-writer discipline for no benefit
+/// (six-lens audit 2026-09-12). `write_project_to_vault`'s
+/// `WriteError` maps into `DbError::Sync` to satisfy `pool.with`'s
+/// error type; the closure logs it as before.
 fn seed_fresh_vault(
     pool: &ReadPool,
-    db_path: &std::path::Path,
     root: &std::path::Path,
     recent_writes: Option<std::sync::Arc<std::sync::RwLock<atrium_org::RecentWrites>>>,
 ) {
-    let conn = match atrium_core::db::open(db_path) {
-        Ok(c) => c,
-        Err(e) => {
-            warn!(error = %e, "fresh-vault seed: open read connection failed");
-            return;
-        }
-    };
-
     // Phase 1: walk every project, write its `.org` file, and
     // record the resulting (path, mtime) in RecentWrites so the
     // watcher's self-write filter ignores the file when its
     // inotify event fires.
-    let projects = match atrium_core::db::read::list_projects(&conn) {
+    let projects = match pool.with(atrium_core::db::read::list_projects) {
         Ok(p) => p,
         Err(e) => {
             warn!(error = %e, "fresh-vault seed: list_projects failed");
@@ -407,7 +405,10 @@ fn seed_fresh_vault(
     };
     let mut count = 0usize;
     for project in projects {
-        let summary = match atrium_org::org::write_project_to_vault(&conn, root, project.id) {
+        let summary = match pool.with(|conn| {
+            atrium_org::org::write_project_to_vault(conn, root, project.id)
+                .map_err(|e| atrium_core::DbError::Sync(format!("seed write: {e}")))
+        }) {
             Ok(s) => s,
             Err(e) => {
                 warn!(error = %e, project_id = project.id, "fresh-vault seed: project write failed");

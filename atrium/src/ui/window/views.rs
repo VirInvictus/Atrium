@@ -721,25 +721,48 @@ impl AtriumWindow {
                 if !same_column {
                     match cfg_axis {
                         atrium_core::BoardAxis::Tag => {
-                            let map = pool
-                                .with(atrium_core::db::read::tag_names_per_task)
-                                .unwrap_or_default();
-                            let current = map.get(&dragged_id).cloned().unwrap_or_default();
-                            let new_names = atrium_core::move_to_column(
-                                &current,
+                            // tag_axis_drop_names returns None when
+                            // the tag-pool read failed: treating a
+                            // read failure as "no tags" (the old
+                            // unwrap_or_default) fed an empty set
+                            // into move_to_column and the drop
+                            // wiped every tag off the card down to
+                            // the column tag (six-lens audit
+                            // 2026-09-12). On a failed read, skip
+                            // the membership change; the ordering
+                            // write below still applies.
+                            let read = pool.with(atrium_core::db::read::tag_names_per_task);
+                            match super::widgets::tag_axis_drop_names(
+                                read,
+                                dragged_id,
                                 &cfg_for_async,
                                 dest_str.as_deref(),
-                            );
-                            if !tag_lists_equal_case_insensitive(&current, &new_names) {
-                                let mut ids: Vec<i64> = Vec::with_capacity(new_names.len());
-                                for name in new_names {
-                                    match worker.ensure_tag(name).await {
-                                        Ok(t) => ids.push(t.id),
-                                        Err(e) => warn!(?e, "kanban move ensure_tag failed"),
+                            ) {
+                                Some((current, new_names)) => {
+                                    if !tag_lists_equal_case_insensitive(&current, &new_names) {
+                                        let mut ids: Vec<i64> = Vec::with_capacity(new_names.len());
+                                        for name in new_names {
+                                            match worker.ensure_tag(name).await {
+                                                Ok(t) => ids.push(t.id),
+                                                Err(e) => {
+                                                    warn!(?e, "kanban move ensure_tag failed")
+                                                }
+                                            }
+                                        }
+                                        if let Err(e) = worker.set_task_tags(dragged_id, ids).await
+                                        {
+                                            error!(
+                                                ?e,
+                                                dragged_id, "kanban move set_task_tags failed"
+                                            );
+                                        }
                                     }
                                 }
-                                if let Err(e) = worker.set_task_tags(dragged_id, ids).await {
-                                    error!(?e, dragged_id, "kanban move set_task_tags failed");
+                                None => {
+                                    error!(
+                                        dragged_id,
+                                        "kanban move: tag read failed; leaving tags untouched"
+                                    );
                                 }
                             }
                         }

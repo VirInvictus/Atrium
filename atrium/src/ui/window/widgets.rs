@@ -650,6 +650,24 @@ pub(super) async fn prompt_edit_perspective(
     })
 }
 
+/// Resolve the post-drop tag set for a Tag-axis kanban drop from the
+/// tag-pool read, returning `(current, new)`. An untagged card
+/// legitimately reads as empty and gains the destination column's
+/// tag; a failed read yields `None` — the caller must skip the
+/// mutation, because feeding an empty current set into
+/// `move_to_column` would wipe every tag off the card down to the
+/// column tag (six-lens audit 2026-09-12).
+pub(super) fn tag_axis_drop_names(
+    read: Result<std::collections::HashMap<i64, Vec<String>>, atrium_core::DbError>,
+    dragged_id: i64,
+    cfg: &atrium_core::BoardConfig,
+    destination: Option<&str>,
+) -> Option<(Vec<String>, Vec<String>)> {
+    let current = read.ok()?.get(&dragged_id).cloned().unwrap_or_default();
+    let new_names = atrium_core::move_to_column(&current, cfg, destination);
+    Some((current, new_names))
+}
+
 /// True when two tag-name lists hold the same set under case-
 /// insensitive comparison. Used by the kanban drop handler to skip
 /// a worker round-trip when the user dropped a task on the same
@@ -1461,5 +1479,54 @@ mod filter_tests {
         // Dead query and empty query: no-op.
         assert_eq!(best_filter_match("zzz", &targets, &titles), None);
         assert_eq!(best_filter_match("   ", &targets, &titles), None);
+    }
+}
+
+#[cfg(test)]
+mod tag_axis_drop_tests {
+    use super::*;
+
+    fn cfg() -> atrium_core::BoardConfig {
+        atrium_core::BoardConfig {
+            axis: atrium_core::BoardAxis::Tag,
+            columns: vec!["red".into(), "blue".into()],
+            done_columns: Vec::new(),
+            limits: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// A failed tag-pool read must abort the membership change, not
+    /// collapse the card's tags to the destination column's tag.
+    #[test]
+    fn failed_read_yields_none_instead_of_a_wipe() {
+        let read: Result<std::collections::HashMap<i64, Vec<String>>, atrium_core::DbError> =
+            Err(atrium_core::DbError::NotFound);
+        assert_eq!(tag_axis_drop_names(read, 7, &cfg(), Some("blue")), None);
+    }
+
+    /// A genuinely untagged card (present in the map with an empty
+    /// set, or absent) still gains the destination tag: that path is
+    /// correct and must keep working.
+    #[test]
+    fn untagged_card_gains_the_destination_tag() {
+        let read = Ok(std::collections::HashMap::new());
+        assert_eq!(
+            tag_axis_drop_names(read, 7, &cfg(), Some("blue")),
+            Some((Vec::<String>::new(), vec!["blue".to_string()]))
+        );
+    }
+
+    /// The happy path: source column tag swapped for the destination.
+    #[test]
+    fn tagged_card_moves_between_columns() {
+        let mut map = std::collections::HashMap::new();
+        map.insert(7, vec!["red".to_string(), "keepme".to_string()]);
+        assert_eq!(
+            tag_axis_drop_names(Ok(map), 7, &cfg(), Some("blue")),
+            Some((
+                vec!["red".to_string(), "keepme".to_string()],
+                vec!["keepme".to_string(), "blue".to_string()]
+            ))
+        );
     }
 }

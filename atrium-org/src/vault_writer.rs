@@ -446,10 +446,26 @@ fn backup_path(dest: &Path, now: SystemTime) -> PathBuf {
         Some(f) => f.to_os_string(),
         None => std::ffi::OsString::from("vault"),
     };
-    let mut bak_name = file_name;
-    bak_name.push(format!(".atrium.bak.{stamp}"));
     let parent = dest.parent().unwrap_or_else(|| Path::new(""));
-    parent.join(bak_name)
+    let mut target = {
+        let mut bak_name = file_name.clone();
+        bak_name.push(format!(".atrium.bak.{stamp}"));
+        parent.join(bak_name)
+    };
+    // Second-resolution stamps collide when two conflict backups land
+    // in the same second, and fs::copy would silently overwrite the
+    // older loser (six-lens audit 2026-09-12). Disambiguate with a
+    // `~N` suffix — the same scheme `backup_now` uses for its DB
+    // snapshots; `~` sorts after `Z`, so same-second backups still
+    // order chronologically.
+    let mut n = 1;
+    while target.exists() {
+        let mut bak_name = file_name.clone();
+        bak_name.push(format!(".atrium.bak.{stamp}~{n}"));
+        target = parent.join(bak_name);
+        n += 1;
+    }
+    target
 }
 
 /// FNV-1a 64-bit hash of a file's bytes. Stable across processes (unlike
@@ -708,6 +724,34 @@ mod tests {
         assert!(s.ends_with("Z"), "stamp must end with Z: {s}");
         assert!(!s.contains(':'), "no colons in path: {s}");
         assert!(s.contains("20240509T160000Z"), "stamp shape: {s}");
+    }
+
+    #[test]
+    fn backup_path_disambiguates_same_second_collisions() {
+        // Two conflict backups inside the same second must not share a
+        // path — the older one is the only copy of an external edit.
+        let scratch =
+            std::env::temp_dir().join(format!("atrium-bakpath-{}-{}", std::process::id(), line!()));
+        std::fs::create_dir_all(&scratch).unwrap();
+        let dest = scratch.join("Errands.org");
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_715_270_400);
+        let first = backup_path(&dest, now);
+        std::fs::write(&first, b"older backup").unwrap();
+        let second = backup_path(&dest, now);
+        assert_ne!(first, second, "same-second backups must not collide");
+        assert!(
+            second.to_string_lossy().ends_with("20240509T160000Z~1"),
+            "disambiguating suffix shape: {}",
+            second.display()
+        );
+        std::fs::write(&second, b"second backup").unwrap();
+        let third = backup_path(&dest, now);
+        assert!(
+            third.to_string_lossy().ends_with("20240509T160000Z~2"),
+            "keeps counting: {}",
+            third.display()
+        );
+        std::fs::remove_dir_all(&scratch).ok();
     }
 
     #[tokio::test]
