@@ -595,12 +595,19 @@ Items in spec §9 (network sync of any kind, mobile/web clients, multi-user, tim
       perspective_editor) and completed (clock/template/tests,
       backup/checkbox/links, read/ dir, reminders.rs) with the next-up
       line carrying the 2026-09-13 decisions. 6d4d4f3.)*
-- [ ] **GitHub presentation:** no Releases exist for any tag (create the
+- [x] **GitHub presentation:** no Releases exist for any tag (create the
       v0.72.3 Release from its patchnotes entry; optionally backfill
       v0.72.1/2); description rewrite proposal (105 chars, leads with the
       README tagline) + topics to add rust/gtk/flatpak and drop the five
       low-discovery ones; wiki off / discussions on. Awaiting Brandon's go
-      (outward-facing).
+      (outward-facing). *(Done 2026-09-13 on decision 60 (approved in
+      full) and Brandon's session go: description rewritten to the
+      README tagline lead ("The native Linux task manager you grow into,
+      not out of. Org-mode vault, Things-style GTD, local-first."); topics
+      re-cut to 15 — rust/gtk/flatpak added, meson/rusqlite/rust-2024/
+      tokio/gtk4-no-libadwaita-since-phase-22 dropped; wiki off;
+      discussions on; Releases created for v0.72.1, v0.72.2, v0.72.3, and
+      v0.73.0 from their patchnotes entries verbatim.)*
 - [ ] **Ideas for the blitz:** JSON snapshot import (restore-from-export,
       the 1.0 data-freedom beat); wire vir-search 1.4.1's QueryCache into
       search-as-you-type (adopted but unwired); CI freshness guard for
