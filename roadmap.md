@@ -521,24 +521,57 @@ Items in spec §9 (network sync of any kind, mobile/web clients, multi-user, tim
 
 ## New findings 2026-09-12 (six-lens full audit; detail: audit/FULL-AUDIT-2026-09-12.md, Wave 1)
 
-- [ ] **HIGH: the reminder service never fires.** reminders.rs drives
+- [x] **HIGH: the reminder service never fires.** reminders.rs drives
       tokio::time::sleep inside a glib spawn_local future; the tokio timer
       panics off-runtime, glib's catch_unwind swallows it, and the reminder
       loop dies on its first timer branch. Fix: drive the loop on the tokio
       runtime and marshal the notification back to the main context, or use
-      glib::timeout futures.
-- [ ] **Transactions: clock_in (worker.rs:2450), toggle_complete
+      glib::timeout futures. *(v0.73.0: the second shape shipped — the loop
+      sleeps on `glib::timeout_future` via `sleep_or_wake`; the WorkerHandle
+      awaits stay (mpsc + oneshot need no reactor). Read failures are no
+      longer mistaken for "nothing pending": warn + 60 s backoff on the
+      pending query, the fire-time task read, and a failed fire recording
+      (the audit's silent-swallowing medium rides here). End-to-end
+      regression test drives the REAL loop (pool, worker, GLib timers,
+      private main context, memory GSettings backend) with a reminder
+      ~1.5 s out so the sleep branch is the code under test; spy replaces
+      the gio notification. Must fire exactly once, be recorded, not
+      repeat. 07f5efb.)*
+- [x] **Transactions: clock_in (worker.rs:2450), toggle_complete
       (1616-1754, violates its own failure policy), and
       instantiate_template/create_task_template (2128, 2175) commit
       multi-statement sets without a transaction; partial state persists on
-      mid-loop failure.**
-- [ ] **Kanban Tag-axis drop wipes a card's tags when the pool read fails
+      mid-loop failure.** *(v0.73.0: all four wrapped — clock_in's
+      close-other + insert, the repeat follow-up's INSERT + tag copy,
+      create_task_template's template + items, and instantiate_template's
+      whole stamp (project + tags + items + tag attachment). toggle_complete
+      now honors its documented failure policy: a failed spawn logs and
+      returns spawned=None over the committed completion instead of
+      propagating Err. conn-parameterized inner helpers (create_task_conn
+      &co) let the sites run without nested transactions. Tests:
+      complete_repeating_task_carries_tags_forward (worker-level tag
+      carry, previously a comment pointing elsewhere) and
+      instantiate_template_attaches_template_and_item_tags (deduped
+      template+item tags). 49af0f0.)*
+- [x] **Kanban Tag-axis drop wipes a card's tags when the pool read fails
       (views.rs:727 unwrap_or_default feeds an empty current set into
       set_task_tags).** Vault conflict backups collide at second resolution
       and overwrite the older backup (vault_writer.rs:442; port the ~N
       suffix fix from backup.rs). seed_fresh_vault opens a second writable
       connection and the ledger seeding blocks the GTK main thread at boot.
-- [ ] **Docs sweep (2 high):** spec 3.3 still describes the seven-crate
+      *(v0.73.0: all three shipped. The Tag-axis drop decision lives in
+      widgets::tag_axis_drop_names — None on a failed read skips the
+      membership change (ordering still applies); an untagged card still
+      gains the destination tag; three tests pin failed-read /
+      untagged / happy paths. backup_path grew backup.rs's ~N suffix
+      scheme (~ sorts after Z, chronological order kept) with a
+      same-second collision test. seed_fresh_vault runs under
+      spawn_blocking and reads through the read-only pool (query_only
+      enforced; WriteError → DbError::Sync) instead of a second writable
+      db::open connection. Clarification recorded: the GTK main thread
+      was never blocked (the seed already spawned at boot); the runtime-
+      worker stall was the real cost. b240240.)*
+- [x] **Docs sweep (2 high):** spec 3.3 still describes the seven-crate
       era with the dead atrium-search crate (should be six crates + the two
       vir-* git deps); docs/org-roundtrip.md presents the v0.24.0-fixed
       custom-property drop as a current limitation. Also: Phase 24 referenced
@@ -546,6 +579,22 @@ Items in spec §9 (network sync of any kind, mobile/web clients, multi-user, tim
       keymap stub table wrong on both rows + three bound accels missing;
       CLAUDE.md map phantom perspective_editor/export.rs, seven missing
       modules; perf-baseline stale against its own re-baseline rule.
+      *(v0.73.0: all eight shipped. spec 3.3 rewritten (six crates + the
+      vir-search / vir-gtk git deps); spec 4.4/4.5's dead atrium_search::
+      paths renamed to their real homes; org-roundtrip.md's custom-keys
+      section rewritten as supported since v0.24.0 with the Known limits
+      count corrected; the three Phase 24 pointers now cite v0.72.0;
+      keymap's stub section made honest (Ctrl+, moved to General as
+      shipped v0.20.0; Ctrl+Shift+Z never wired) and the three bound
+      accels added (Ctrl+F, Ctrl+Alt+Space, Ctrl+Shift+T) plus
+      Ctrl+Shift+M's v0.47.0 binding; spec 5.1/5.2 trees redrawn as the
+      shipped GtkPaned layout; perf-baseline refreshed from a fresh
+      scripts/perf.sh run on the 0.40/0.11 stack (50K load 300 ms / 57 MB,
+      100K 590 ms / 104 MB, cold start 30 ms — PASS; GUI numbers ride the
+      display pass); CLAUDE.md's map de-phantomed (export.rs,
+      perspective_editor) and completed (clock/template/tests,
+      backup/checkbox/links, read/ dir, reminders.rs) with the next-up
+      line carrying the 2026-09-13 decisions. 6d4d4f3.)*
 - [ ] **GitHub presentation:** no Releases exist for any tag (create the
       v0.72.3 Release from its patchnotes entry; optionally backfill
       v0.72.1/2); description rewrite proposal (105 chars, leads with the
@@ -559,7 +608,25 @@ Items in spec §9 (network sync of any kind, mobile/web clients, multi-user, tim
       duplicate-window fix; publish the mdbook to Pages. Upgrades noted for
       the 1.0-freeze call: rusqlite 0.32 to 0.40, gtk4 0.9 to 0.11 (the
       v4_16 pin sits below the GNOME 50 runtime), tokio feature trim.
+      *(Progress v0.73.0 lane: the CI freshness guard shipped (ci.yml runs
+      the generator and fails on drift; lands with the dependency wave
+      commit) and the two upgrade rows executed per decision 61 (box
+      below) — the rest stay candidates. tokio feature trim deliberately
+      not taken: `features = ["full"]` is the v0.1 lock and no 1.0 need
+      was shown.)*
 
 - [ ] **DECIDED 2026-09-13: bump rusqlite 0.40 AND gtk4 0.11 before the
       1.0.0 tag** (decision 61). The bumps ride the Atrium lane ahead of
-      the freeze; full CI + Flatpak rebuild check after.
+      the freeze; full CI + Flatpak rebuild check after. *(v0.73.0: code-
+      side complete and the full workspace suite (996 tests) + clippy are
+      green on the new stack. Required a matching vir-gtk 1.3.0 first —
+      the two gtk4 crate versions cannot coexist across the boundary —
+      so the lock pins vir-gtk b15ec1e, which lands on the remote with
+      the stage-close push; the final Cargo.lock + regenerated
+      data/cargo-sources.json + CI freshness guard land in the dependency
+      wave commit immediately after that push, then this box ticks with
+      the stamp. Compile fallout was small: gtk4 0.11 requires
+      subclasses to list every implemented interface in glib::wrapper!
+      (AtriumWindow, AtriumClamp), Root+GtkWindowExt made focus()
+      ambiguous (disambiguated), and rusqlite 0.40 deprecated `profile`
+      (ported to trace_v2, SQL text kept via StmtRef::sql).)*
