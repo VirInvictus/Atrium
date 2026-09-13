@@ -1,5 +1,9 @@
 # Atrium — Patch Notes
 
+## Unreleased
+
+- **Changed:** vir-search adopted at 1.4.2 (the consumer wave): the parser is recursion-bounded, so pathologically deep input degrades with spanned warnings instead of aborting on a stack overflow; a stray `)` warns and keeps the rest of the query instead of silently discarding it; out-of-range date offsets saturate at resolve instead of aborting; and the crate gains rustdoc with a `missing_docs` gate plus a normative grammar table in its README. No Atrium code changes required. `data/cargo-sources.json` regenerated against the moved lock in the same commit. (For Atrium's own lane, noted not fixed here: the audit found this repo's docs advertising a phantom `Ndaysout` date form vir-search never accepted.)
+
 ## v0.73.0 (2026-09-13)
 
 **The six-lens-audit lane: the reminder service actually fires, the
