@@ -559,3 +559,7 @@ Items in spec §9 (network sync of any kind, mobile/web clients, multi-user, tim
       duplicate-window fix; publish the mdbook to Pages. Upgrades noted for
       the 1.0-freeze call: rusqlite 0.32 to 0.40, gtk4 0.9 to 0.11 (the
       v4_16 pin sits below the GNOME 50 runtime), tokio feature trim.
+
+- [ ] **DECIDED 2026-09-13: bump rusqlite 0.40 AND gtk4 0.11 before the
+      1.0.0 tag** (decision 61). The bumps ride the Atrium lane ahead of
+      the freeze; full CI + Flatpak rebuild check after.
