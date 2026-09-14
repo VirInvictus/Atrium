@@ -178,11 +178,13 @@ pub struct OrgTask {
     /// Repeater suffix on the SCHEDULED cookie.
     pub scheduled_repeater: Option<OrgRepeater>,
     /// Warning suffix on the SCHEDULED cookie (`-Nd` / `--Nd`).
-    /// v0.14.0 — Org allows a warning period on SCHEDULED, though
-    /// it's rare. Atrium has no DB column for it (the spec only
-    /// models the deadline-side warning), so this field exists
-    /// purely for verbatim round-trip — the emitter writes it back
-    /// in the same shape we read it.
+    /// v0.14.0 (Phase 18.5 Tier-1) — column-backed since v0.72.0:
+    /// migration 0021 added `task.scheduled_warning_days`, the
+    /// watcher updates it on external edits, and the writer projects
+    /// it back onto the cookie. Org distinguishes `-` (per-task
+    /// warning) from `--` (override of the global default), but
+    /// Atrium has no global-default-override concept so both forms
+    /// parse to the same value and the emitter normalises onto `-`.
     pub scheduled_warning: Option<u32>,
     /// `DEADLINE:` cookie date.
     pub deadline: Option<NaiveDate>,
