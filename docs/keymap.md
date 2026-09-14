@@ -51,11 +51,11 @@ These act on the focused row in the current list. From Phase 7h, the three input
 
 ## Search filter expressions
 
-Mix freeform text and filter clauses inside the search bar. The grammar landed at v0.4.0 (Phase 15.5) and grew through v0.5.0; the canonical reference is **`spec.md` §4.3**. Press `?` while the search entry is focused to open the in-app operator-reference popover.
+Mix freeform text and filter clauses inside the search bar. The grammar landed at v0.4.0 (Phase 15.5) and grew through v0.5.0; the canonical reference is **`spec.md` §4.3**. The `?` button beside the search entry opens the in-app operator-reference popover (it is button-only; `Ctrl+?` opens the general shortcuts window).
 
 Highlights — boolean operators (`AND` / `OR` / `NOT`, with `NOT > AND > OR` precedence + parens for grouping); comparison + range operators on date and numeric fields; date keywords (`today`, `tomorrow`, `thisweek`, `5daysago`, etc.); state predicates (`is:open`, `is:done`, `is:overdue`, `is:scheduled`, `is:repeating`, `is:deferred`, `is:someday`, `is:inbox`); Calibre-style match modifiers on textual fields (`tag:x` substring, `tag:=x` exact, `tag:~regex`, `tag:true` / `tag:false`); fuzzy match (`title:?term`); the `sort:` modifier.
 
-Examples: `Q3 tag:work` · `tag:errand AND is:open` · `is:overdue` · `(tag:home OR tag:family) AND is:open` · `deadline:<thisweek` · `is:repeating sort:scheduled_for`.
+Examples: `Q3 tag:work` · `tag:errand AND is:open` · `is:overdue` · `(tag:home OR tag:family) AND is:open` · `deadline:<thisweek` · `is:repeating sort:scheduled`.
 
 ## Library (Phase 5b)
 

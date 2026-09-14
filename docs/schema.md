@@ -10,7 +10,7 @@ This document is the **rationale** for the schema. The **contract** lives in [`s
 |---|---|---|
 | `0001_initial.sql` | Phase 1 / v0.1.0 | OmniFocus superset — area, project, heading, task, tag, task_tag, FTS5, triggers, indexes |
 | `0002_perspectives.sql` | Phase 14 / v0.1.17 | Adds `perspective` table for saved searches (additive) |
-| `0003_repeat_mode.sql` | Phase 15 / v0.2.0 | First `ALTER TABLE` — adds `task.repeat_mode` (`NULL` / `'next'` / `'all'` / `'org-mode'`) for Org-mode-style completion semantics |
+| `0003_repeat_mode.sql` | Phase 15 / v0.2.0 | First `ALTER TABLE` — adds `task.repeat_mode` (`TEXT NULL`; `BASIC` / `NEXT` / `CUMULATIVE`) for Org-mode repeater completion semantics |
 | `0004_area_color.sql` | Phase 15.75 Slice A / v0.5.0 | Adds `area.color` (`TEXT NULL`, `'#RRGGBB'`) for per-area accent |
 | `0005_perspective_renderer.sql` | Phase 15.75 Slice A / v0.5.0 | Adds `perspective.renderer` (`'list'` / `'board'`, default `'list'`) + `perspective.renderer_config` (TEXT, JSON config — used by the kanban renderer for column definitions) |
 | `0006_task_last_reviewed_at.sql` | Phase 13 follow-up / v0.7.4 | Adds `task.last_reviewed_at` (TEXT NULL) for the canonical Review page's task-level Mark Reviewed action. Mirror of `project.last_reviewed_at`; rows reviewed within the last 7 days hide from the weekly walk. |
@@ -86,7 +86,7 @@ erDiagram
         INTEGER estimated_minutes
         TEXT completed_at
         TEXT repeat_rule
-        TEXT repeat_mode "NULL/next/all/org-mode (0003)"
+        TEXT repeat_mode "NULL|BASIC|NEXT|CUMULATIVE (0003)"
         REAL position
         TEXT created_at
         TEXT modified_at
@@ -137,7 +137,7 @@ The central row. Several columns deserve specific notes:
 - **`defer_until`** is Builder-only. Tasks invisible in Today / Anytime until the date passes. Implemented in Phase 11.
 - **`completed_at`** is ISO datetime; `NULL` = open task. Logbook is `WHERE completed_at IS NOT NULL`. Hard-delete model — there is no `deleted_at` column. Per Phase 1 design call.
 - **`repeat_rule`** stores the canonical RFC 5545 RRULE as text. Org-mode export renders a best-effort approximation in the SCHEDULED cookie (spec §7.3.3 rule 3).
-- **`repeat_mode`** (added in `0003`) controls completion semantics for repeating tasks: `NULL` (no repeat), `'next'` (advance to next occurrence — Things 3 default), `'all'` (regenerate the whole rule), `'org-mode'` (preserve original schedule, log completion to LOGBOOK). See `atrium-core/src/repeat.rs`.
+- **`repeat_mode`** (added in `0003`) controls how the next occurrence anchors when a repeating task completes. The persisted values are the Org cookie semantics, upper-cased: `BASIC` (`+1w` — always shift one increment from the previous anchor, even into the past), `NEXT` (`.+1w` — anchor on the completion date and shift from there), and `CUMULATIVE` (`++1w` — shift repeatedly until the next occurrence is in the future; the default, and what `NULL` falls back to). See `atrium-core/src/repeat.rs` (`from_column` / `as_column`) and the column table in spec §4.3.
 - **`last_reviewed_at`** (added in `0006`) is the task-level analogue of `project.last_reviewed_at`. Stamped by the `MarkTaskReviewed` worker command from the canonical Review page's per-row Mark Reviewed button. The Review page's weekly-walk filter excludes tasks reviewed within the last 7 days; otherwise the column is unread. NULL means "never reviewed."
 - **`orig_keyword`** (added in `0007`) is the Phase 16 round-trip anchor for non-canonical Org keywords. The Org importer stashes the original (`WAITING`, `BLOCKED`, `IN-PROGRESS`, etc.) here when it sees a TODO state Atrium doesn't model; the Org writer consults the column when emitting so the original keyword survives a vault round-trip. Atrium's UI never surfaces this column — completion semantics still flow through `completed_at` alone.
 - **`position`** is `REAL` — midpoint insertion enables arbitrary reorder without renumbering siblings.
@@ -153,12 +153,13 @@ Saved search. `filter_expr` stores the expression-language query verbatim (parse
 
 ## Datetime format
 
-All temporal columns are `TEXT` in ISO 8601:
+All temporal columns are `TEXT` in ISO 8601, but two writer formats exist and they are **not** mutually comparable as strings:
 
-- **Dates** (`scheduled_for`, `deadline`, `defer_until`): `YYYY-MM-DD`.
-- **Datetimes** (`completed_at`, `created_at`, `modified_at`, `last_reviewed_at`, `archived_at`): `YYYY-MM-DDTHH:MM:SS.sssZ`.
+- **Dates** (`scheduled_for`, `deadline`, `defer_until`): `YYYY-MM-DD`, always.
+- **Datetimes written in SQL** (`created_at`, `modified_at`, and the completion / review / archive / clock stamps the worker stamps via `strftime`): `YYYY-MM-DDTHH:MM:SS.sssZ` — `T`-separated, millisecond precision, `Z` suffix (this is also the `DEFAULT` on every table).
+- **Datetimes bound from Rust** (`reminder_at`, and importer-preserved `completed_at` threaded through `NewTask`): whatever rusqlite's `chrono` feature serializes — `YYYY-MM-DD HH:MM:SS.sss+00:00`, **space**-separated with a named offset.
 
-ISO 8601 strings sort lexicographically and identically to chronological order. The `chrono` crate marshals to/from these via rusqlite's `chrono` feature without lossy conversions. The `'__someday__'` sentinel for `scheduled_for` could not be represented as INTEGER unix without ugly magic values.
+The split is exactly why migration `0018`'s backfill mis-fired (it compared `reminder_at` against a `T`-separated boundary; see the `0018` row above). Rule, recorded the hard way: any migration or query comparing datetime strings must match the actual per-column writer format, and cross-format comparisons must go through `DATE()` (the v0.71.0 boundary fixes did exactly that). ISO `YYYY-MM-DD` date strings do sort lexicographically and identically to chronological order. The `'__someday__'` sentinel for `scheduled_for` could not be represented as INTEGER unix without ugly magic values.
 
 ## `created_at` / `modified_at` triggers
 

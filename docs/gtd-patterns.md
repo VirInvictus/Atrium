@@ -1,6 +1,6 @@
 # GTD patterns for Atrium
 
-Atrium isn't a GTD app — it's a task manager that *supports* GTD if you want to work that way. This page documents the conventions Atrium users have settled on for the GTD-shaped workflows the schema doesn't model directly. Most are tag idioms; some are search-expression recipes; one is the seeded **Weekly Review** Perspective.
+Atrium isn't a GTD app — it's a task manager that *supports* GTD if you want to work that way. This page documents the conventions Atrium users have settled on for the GTD-shaped workflows the schema doesn't model directly. Most are tag idioms; some are search-expression recipes; one is a copy-paste **Weekly Review** recipe you save as a Perspective.
 
 If you're new to GTD, the canonical reference is David Allen's *Getting Things Done*. The notes below assume you already know what "next action," "context," and "weekly review" mean.
 
@@ -22,7 +22,7 @@ Email Q3 budget approval from Sam @today #waiting
 tag:waiting AND is:open
 ```
 
-Save that as a Perspective named "Waiting For" and it surfaces in the Builder-mode sidebar. The seeded Weekly Review perspective intentionally doesn't filter `#waiting` — it includes them so you remember to follow up at review time.
+Save that as a Perspective named "Waiting For" and it surfaces in the Builder-mode sidebar. The Weekly Review recipe below intentionally doesn't filter `#waiting` — it includes them so you remember to follow up at review time.
 
 **Tip:** put the deadline on the *follow-up date* (when you'll nudge), not the date you expect the other person to deliver. That way the task surfaces in Today the day you should chase rather than the day you're nominally blocked until.
 
@@ -71,13 +71,13 @@ In the GUI, drag it out of Someday or use the schedule picker to set a real date
 atrium-cli edit 42 --scheduled today
 ```
 
-`is:someday` and `is:open` are mutually exclusive on the search side: if you want "everything I might do," use `is:someday OR is:anytime`.
+`is:someday` implies `is:open` — a Someday task is open by definition (`is:someday` requires `completed_at` to be NULL), so `is:someday AND is:open` is just `is:someday`. For "everything open with no concrete date on it," use `is:someday OR is:anytime`.
 
 ---
 
 ## Weekly review
 
-The Weekly Review Perspective is seeded on first install (you can rename, retune, or delete it freely). It uses this filter:
+There is no seeded Weekly Review Perspective (the seed retired at v0.7.2, when the canonical Review page absorbed its content) — you save the recipe as your own Perspective, once, and tune it from there. The filter:
 
 ```text
 is:overdue OR scheduled:thisweek OR (is:deadline AND due:nextweek) OR (is:deferred AND defer:<=today)
@@ -90,17 +90,27 @@ The pieces:
 - `is:deadline AND due:nextweek` — what's due in the heads-up window. Decide if it's a *this-week* task even though the deadline is ahead.
 - `is:deferred AND defer:<=today` — defers that just expired. Anything deferred until "now" needs a fresh decision.
 
+**Create it from the shell:**
+
+```bash
+atrium-cli perspective create 'Weekly Review' \
+  --filter 'is:overdue OR scheduled:thisweek OR (is:deadline AND due:nextweek) OR (is:deferred AND defer:<=today)'
+```
+
+(Or Builder mode → Perspectives → New, and paste the filter.) It then surfaces in the Builder-mode sidebar like any other saved search.
+
 **Workflow:**
 
 1. Open the Weekly Review Perspective.
 2. For each task: do it, defer it, delegate it (add `#delegated`), or kill it.
 3. When the list reads as *only* future-scheduled work and conscious deferrals, the review is done.
 
-If the seeded filter doesn't fit your habits, edit the Perspective in place (right-click → Rename) or duplicate it via the CLI:
+If the filter doesn't fit your habits, edit the Perspective in place. There is no dedicated duplicate verb — to fork it, list the saved filter and create a new Perspective from it:
 
 ```bash
-# Capture your current filter as a fresh Perspective
+# Inspect the saved filter
 atrium-cli list perspectives --json | jq '.[] | select(.name == "Weekly Review")'
+# Then create your variant with perspective create + the tweaked filter
 ```
 
 ---
@@ -161,7 +171,7 @@ It's not a one-way flip — power users live in Builder Mode for triage and Simp
 | Delegated and tracking | `#delegated` tag |
 | Blocked by something | `#blocked` tag — drop when unstuck |
 | Someday / maybe | `@someday` capture or `is:someday` predicate |
-| Weekly review | Seeded **Weekly Review** Perspective |
+| Weekly review | Saved Perspective; copy-paste recipe above |
 | Contexts | Tags: `#home`, `#phone`, `#errand`, `#calls` |
 | Life domains | Areas (with optional accent colour) |
 | Habits | Repeating tasks with *next from completion* |
