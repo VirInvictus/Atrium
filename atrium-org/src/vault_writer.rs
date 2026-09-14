@@ -167,7 +167,7 @@ impl VaultWriter {
         events_tx: Option<mpsc::UnboundedSender<VaultEvent>>,
     ) -> Self {
         let write_ledger = WriteLedger::load(&root);
-        let mut writer = Self {
+        let writer = Self {
             root,
             pool,
             rx,
@@ -178,7 +178,13 @@ impl VaultWriter {
             last_sidecar: None,
             write_ledger,
         };
-        writer.seed_ledger_from_synced_files();
+        // The ledger seed deliberately does NOT run here: this
+        // constructor executes on the caller's thread (the GTK main
+        // thread during connect_activate, pre-first-frame), and the
+        // seed renders every project + reads every .org file, so
+        // boot cost scaled with project count. It runs at the top of
+        // [`Self::run`] instead, inside the spawned task, before any
+        // flush can observe an unseeded ledger.
         writer
     }
 
@@ -231,6 +237,14 @@ impl VaultWriter {
     /// Run the writer to completion. Returns when the request
     /// channel closes or a `Shutdown` message arrives.
     pub async fn run(mut self) {
+        // Seed the content ledger here, in the spawned task, before
+        // the request loop: no flush can observe an unseeded ledger
+        // because flushes only happen inside the loop below. Requests
+        // that arrive while the seed runs simply wait in the channel;
+        // the 100 ms debounce makes the extra latency invisible. The
+        // seed does blocking read IO, same as every flush in this
+        // task.
+        self.seed_ledger_from_synced_files();
         let mut ticker = tokio::time::interval(Self::TICK);
         loop {
             tokio::select! {
@@ -1009,11 +1023,24 @@ mod tests {
         let ledger = scratch.join(".atrium").join("write-ledger");
         std::fs::remove_file(&ledger).unwrap();
 
-        // Session 2: constructing the writer seeds the ledger from the
+        // Session 2: the spawned writer seeds the ledger from the
         // in-sync file (no DB change yet, so on-disk == canonical).
+        // The seed runs in the writer task (moved off the caller's
+        // thread, whose GTK main-thread boot paid it pre-first-frame),
+        // so poll for the ledger instead of asserting synchronously;
+        // the flush wait below still orders the seed before the first
+        // flush, which is the property under test.
         let notifier2 = spawn_vault_writer(scratch.clone(), pool.clone());
+        let mut ledger_back = false;
+        for _ in 0..100 {
+            if ledger.exists() {
+                ledger_back = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         assert!(
-            ledger.exists(),
+            ledger_back,
             "startup seed must re-create the ledger from the in-sync file"
         );
 
