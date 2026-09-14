@@ -1,5 +1,34 @@
 # Atrium — Patch Notes
 
+## v0.74.1: release-integrity stamp (2026-09-14)
+
+**The v0.74.0 stamp commit emptied the single-source-of-truth `VERSION`
+file (it deleted the `0.73.0` line and wrote nothing) and the pushed tag
+carries the empty file. This release restores the file and wires the
+guard that makes the failure class unrepeatable. No application
+changes.**
+
+- **Fixed:** `VERSION` is back to a real version line, reading `0.74.1`
+  in lockstep with every other carrier. Meson reads the file directly
+  (`files('VERSION')` in `meson.build`), and meson reads an empty file
+  as an empty version string without erroring, so the v0.74.0 tree
+  silently mis-versioned every meson/Flatpak configure instead of
+  failing; the `scripts/regression.sh` and `scripts/perf.sh` PASS
+  banners printed a bare "v". Whether to also move the pushed v0.74.0
+  tag is recorded as Brandon's call (force-push class); the v0.73.0
+  precedent is leave-it.
+- **Added:** the VERSION sync is now guarded in all three enforcement
+  layers, mirroring the `cargo-sources.json` freshness-guard pattern
+  from v0.73.0: `scripts/regression.sh` gains a fails-fastest step 0
+  (VERSION non-empty and equal to the workspace `Cargo.toml` version),
+  CI gains the same check as a step beside the cargo-sources guard, and
+  a new workspace test (`version_file_is_nonempty_and_matches_workspace_version`
+  in `atrium-cli`) pins the file against the compiled-in
+  `CARGO_PKG_VERSION` on every `cargo test --workspace` run.
+- **Docs:** CLAUDE.md's release discipline gains the stamp rule the
+  incident teaches: a version-stamp commit replaces the VERSION line,
+  never deletes it; the guard now enforces it mechanically.
+
 ## v0.74.0: the consumer-wave stamp (2026-09-13)
 
 **The vir-gtk 1.4.0 widget kit and the vir-search 1.4.2 hardening ship here, folding both Unreleased adoptions into a numbered release ahead of the 1.0 freeze. No behavior changes of Atrium's own.**

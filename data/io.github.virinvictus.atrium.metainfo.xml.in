@@ -110,6 +110,11 @@
   -->
 
   <releases>
+    <release version="0.74.1" date="2026-09-14">
+      <description translate="no">
+        <p>Release-integrity stamp: the VERSION file, the single source of truth that meson reads directly, is restored after the v0.74.0 stamp commit emptied it, and the sync can no longer fail silently; a non-empty, equals-Cargo.toml check now runs as the ship-gate script's fastest step, as a CI step beside the cargo-sources guard, and as a workspace test pinned against the compiled-in version. No application changes.</p>
+      </description>
+    </release>
     <release version="0.74.0" date="2026-09-13">
       <description translate="no">
         <p>The consumer-wave stamp: rows, groups, and alert dialogs now come from the shared vir-gtk 1.4.0 widget kit (Atrium deletes its duplicated builders; the async chooser and the Page/Bin helpers stay app-side), and the search grammar rides vir-search 1.4.2's recursion-bound parser. No behavior changes of Atrium's own.</p>

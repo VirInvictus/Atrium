@@ -1759,3 +1759,28 @@ mod sql_parity {
         assert!(atrium_core::search::try_translate(&parsed.expr, today()).is_none());
     }
 }
+
+// ── Release mechanics ──────────────────────────────────────────
+
+// VERSION is the single source of truth (meson reads the file
+// directly), and an empty one fails silently: the v0.74.0 stamp
+// commit deleted the line and wrote nothing, meson read the empty
+// file as an empty version string, and nothing in the suite could
+// see the damage. Pin the file to the compiled-in workspace version
+// on every test run; regression.sh step 0 and the CI guard enforce
+// the same invariant outside cargo.
+#[test]
+fn version_file_is_nonempty_and_matches_workspace_version() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../VERSION");
+    let raw = std::fs::read_to_string(&path).expect("VERSION exists at the repo root");
+    let file_version = raw.trim();
+    assert!(
+        !file_version.is_empty(),
+        "VERSION is empty; it is the single source of truth and meson reads it directly"
+    );
+    assert_eq!(
+        file_version,
+        env!("CARGO_PKG_VERSION"),
+        "VERSION must equal the workspace Cargo.toml version"
+    );
+}

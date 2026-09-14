@@ -4,6 +4,7 @@
 # Runs every check the ship gate cares about, in the order that
 # fails fastest first:
 #
+#   0. VERSION sync: non-empty, equals Cargo.toml   (instant)
 #   1. cargo fmt --check                           (instant)
 #   2. cargo clippy -D warnings                    (~3 s incremental)
 #   3. cargo test --workspace                      (<1 s)
@@ -54,6 +55,21 @@ fail() {
   printf '\n\033[1;31mFAIL\033[0m — %s\n' "$1" >&2
   exit 1
 }
+
+# 0. VERSION sync. VERSION is the single source of truth (meson reads
+#    the file directly), and an empty one fails silently: meson reads
+#    an empty file as an empty version string, which is exactly how
+#    the v0.74.0 stamp shipped. Fail when the file is empty or has
+#    drifted from the workspace Cargo.toml version.
+step "VERSION sync (non-empty, equals Cargo.toml)"
+CARGO_VERSION="$(grep -m1 '^version =' Cargo.toml | sed 's/version *= *"\(.*\)"/\1/')"
+FILE_VERSION="$(cat VERSION)"
+if [[ -z "$FILE_VERSION" ]]; then
+  fail "VERSION is empty; it is the single source of truth and meson reads it directly"
+fi
+if [[ "$FILE_VERSION" != "$CARGO_VERSION" ]]; then
+  fail "VERSION ($FILE_VERSION) != workspace Cargo.toml version ($CARGO_VERSION)"
+fi
 
 # 1. Formatting.
 step "cargo fmt --all -- --check"
