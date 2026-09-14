@@ -1050,7 +1050,7 @@ fn install_fixture_action(app: &gtk::Application) {
             info!(?scale, "queuing fixture generation");
             // v0.6.15 — run the DB write off the main thread so the
             // UI doesn't freeze on a ~30 ms generate at small scale,
-            // ~150 ms at medium. v0.74.2 — the generation rides the
+            // ~150 ms at medium. v0.75.0 — the generation rides the
             // single-writer worker's command queue instead of a
             // second writable connection: the old path collided with
             // the live worker's own writes (same invariant class the

@@ -126,6 +126,33 @@ WRITE SUBCOMMANDS:
                       Append ':N' to any column for a WIP limit
                       (e.g. 'todo, doing:2, done'); the board flags the
                       column when it goes over. Advisory, never enforced.
+    clock [SUB]       CLOCK time tracking (Phase 18.5). SUB is one
+                      of status (the bare `clock` default),
+                      in ID [--note TEXT] (alias start),
+                      out ID (alias stop), log ID.
+    template <SUB> NAME [FLAGS]
+                      Quick Entry templates (v0.18.0). SUB is one of
+                      list / add NAME / edit NAME / remove NAME.
+    import SOURCE PATH [FLAGS]
+                      import a non-Org source (spec §7). SOURCE is
+                      org | todoist | vtodo | taskwarrior | todotxt.
+                      FLAGS: --into PROJECT, --dry-run,
+                      --uda-as tag|note|drop (taskwarrior).
+    export SOURCE PATH
+                      export. SOURCE is org (write .org files into
+                      directory PATH) | json (lossless snapshot) |
+                      vtodo. --dry-run previews.
+    vault sequences <SUB> [FLAGS]
+                      manage the vault sidecar's TODO sequences.
+                      SUB is list | set | clear; set takes
+                      --name N --workflow 'TODO, NEXT | DONE'
+                      [--done ...]. --vault PATH is required (the
+                      CLI cannot read the GUI's GSettings).
+
+ALIASES:  edit=modify · complete=done=toggle · delete=rm ·
+          kanban=board · --scheduled=--when · --due=--deadline ·
+          --estimated=--est · --deadline-warn=--warn ·
+          --where=--filter
 
 EXAMPLES:
     atrium-cli list today

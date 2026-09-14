@@ -846,9 +846,12 @@ pub(super) fn build_search_help_popover() -> gtk::Popover {
                     gettext("calendar month"),
                 ),
                 ("thisyear", gettext("calendar year")),
-                // Translators: `Ndaysago` / `Ndaysout` are the literal
-                // keyword patterns (N is a number) and must stay as-is.
-                ("5daysago / 3daysout", gettext("Ndaysago / Ndaysout")),
+                // Translators: `Ndaysago` is the literal keyword
+                // pattern (N is a number) and must stay as-is. There
+                // is deliberately no `Ndaysout`: the grammar has no
+                // forward-day keyword, and advertising one would
+                // silently fall through to freeform text.
+                ("5daysago", gettext("Ndaysago")),
             ],
         ),
         (

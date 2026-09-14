@@ -176,7 +176,7 @@ cargo run -p atrium-cli -- list today
 scripts/regression.sh
 ```
 
-`atrium --debug` opens an in-app debug surface (live memory watch against the perf budget, plus 1K/10K/50K/100K stress-fixture generators). The Meson wrapper at `meson.build` is for Flatpak; native development uses Cargo directly.
+`atrium --debug` opens the Memory Watch window (live RSS / heap sampling against the perf budget); stress fixtures come from `atrium --fixture SCALE` (1K/10K/50K/100K). The Meson wrapper at `meson.build` is for Flatpak; native development uses Cargo directly.
 
 ## Status
 

@@ -2503,11 +2503,13 @@ msgstr "calendar month"
 msgid "calendar year"
 msgstr "calendar year"
 
-#. Translators: `Ndaysago` / `Ndaysout` are the literal
-#. keyword patterns (N is a number) and must stay as-is.
+#. Translators: `Ndaysago` is the literal keyword pattern (N is a
+#. number) and must stay as-is. There is deliberately no `Ndaysout`:
+#. the grammar has no forward-day keyword, and advertising one would
+#. silently fall through to freeform text.
 #: atrium/src/ui/window/widgets.rs:832
-msgid "Ndaysago / Ndaysout"
-msgstr "Ndaysago / Ndaysout"
+msgid "Ndaysago"
+msgstr "Ndaysago"
 
 #: atrium/src/ui/window/widgets.rs:836
 msgid "State predicates"

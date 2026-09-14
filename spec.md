@@ -92,14 +92,14 @@ The architectural commitment: every non-GUI surface stays CLI-testable. The 2.0-
 
 ### 3.4 Debug-First Architecture
 
-Testing and debugging tooling is part of the binary, not a separate harness. A `--debug` CLI flag opens a debug surface inside the running application that exposes:
+Testing and debugging tooling is part of the binary, not a separate harness. The shipped surface:
 
-- **Stress generators** — synthesize 10K / 50K / 100K-task fixture databases on demand so the §8 perf budget can be exercised without manual seeding.
-- **Edge-case fixtures** — pre-canned weird states reachable from a debug menu: empty projects, deeply nested hierarchies, recurring rules at DST boundaries, malformed imports, clock-skewed timestamps, unicode-hostile titles.
-- **IO instrumentation** — every SQLite statement (text, params, duration) and every file read/write logged through `tracing` spans into a debug pane.
-- **Memory watch** — periodic RSS / heap sampling surfaced live, with a "drop caches" affordance to expose retained allocations and leaks.
+- **Stress generators** — `atrium --fixture SCALE` (1K / 10K / 50K / 100K tasks, pre-GUI oneshot mode) synthesizes fixture databases so the §8 perf budget can be exercised without manual seeding; the `app.fixture` GAction runs the same generator through the worker on a running app. The generator appends to whatever database `db_path()` resolves to, so throwaway runs must override `XDG_DATA_HOME` (a refusal guard for existing databases is on the roadmap).
+- **Memory watch** — the `--debug` flag opens an in-app Memory Watch window: periodic RSS / heap sampling read live from `/proc/self/status`. (A "drop caches" affordance is a recorded follow-up, not shipped.)
+- **IO instrumentation** — rusqlite's `trace` feature routes every SQL statement (text + duration) into `tracing` spans; read them with `RUST_LOG` filtering (e.g. `RUST_LOG=atrium_core=trace`), not in a pane.
+- **Edge-case fixtures** (empty projects, DST-boundary recurrences, malformed imports, clock-skewed timestamps, unicode-hostile titles) live in the test suites as hand-built fixtures rather than behind a debug menu.
 
-Release builds carry the same code paths; the heavy generators and the debug pane are gated on `--debug` so end users never see them. The integration test suite reuses the same fixtures — there is no separate test-only fork. The skeleton lands in Phase 0 and grows phase by phase (see `roadmap.md`); no extra crates are required, since `tracing` / `tracing-subscriber` are already in the v0.1 dependency set.
+Release builds carry the same code paths; the heavy generators and the Memory Watch window are gated on `--debug` (or the oneshot fixture flag) so end users never see them. The integration test suite reuses the same fixtures — there is no separate test-only fork. The skeleton landed in Phase 0 and grew phase by phase (see `roadmap.md`); no extra crates are required, since `tracing` / `tracing-subscriber` are already in the v0.1 dependency set.
 
 ### 3.5 Org Vault as Projection
 
@@ -336,7 +336,8 @@ Calibre's date-keyword vocabulary plus future-tense forms Atrium needs (Calibre'
 | `thismonth`, `lastmonth`, `nextmonth` | calendar month |
 | `thisyear` | calendar year |
 | `Ndaysago` | N days before today |
-| `Ndaysout` | N days after today |
+
+(There is no forward-day keyword: a future date is expressed with an explicit date or a range. Advertising an `Ndaysout` keyword would silently fall through to freeform text via the forgiving parser, which is exactly what happened when the search-help table listed one.)
 
 #### 4.3.7 State predicates
 
@@ -512,11 +513,11 @@ A global GTK shortcut (default `Ctrl+Alt+Space`) opens a small modal that:
 - Is identical in both modes
 - Does not steal focus from the previously focused window
 
-The same parser (`atrium-core::quick_entry`) drives the inline-rename surface in the GTK task list — F2 / right-click → Rename / double-click into edit. Renames take a fast path identical to pre-v0.13 behaviour when the new title contains no inline-syntax tokens; when tokens are present the title's parsed scalars set in a single `update_task` and tag side effects merge into the task's existing set (rename never removes a free-form tag, but `!N` does swap one priority tag for another since priority is single-valued).
+The same parser (the `atrium-inline` crate; the modal lives at `atrium/src/quickentry/`) drives the inline-rename surface in the GTK task list — F2 / right-click → Rename / double-click into edit. Renames take a fast path identical to pre-v0.13 behaviour when the new title contains no inline-syntax tokens; when tokens are present the title's parsed scalars set in a single `update_task` and tag side effects merge into the task's existing set (rename never removes a free-form tag, but `!N` does swap one priority tag for another since priority is single-valued).
 
 The task row's right-click menu carries *Edit Details…* (Inspector), *Edit Tags…*, and a **Schedule** submenu — Today / Tomorrow / This Weekend / Next Week / Someday / Clear — that reschedules in one pick via the `win.reschedule` action (target `(task_id, keyword)`) instead of an editor round-trip (v0.40.0, Tier D). The keyword-to-date mapping is the pure, unit-tested `parse_quick_schedule`.
 
-If Atrium is closed, the shortcut launches it and posts the task. A post-1.0 `atriumd` (user systemd) will add true zero-launch capture.
+The accelerator is in-process: Quick Entry fires only while Atrium is running (it does not work when the app is closed; §3.2's accel table is the binding record). A post-1.0 `atriumd` (user systemd) will add true zero-launch capture.
 
 ---
 
@@ -714,7 +715,7 @@ Each phase ends with a `heaptrack`/`massif` measurement note. Features that miss
 - Sync of any kind (CalDAV client, iCloud, Todoist, custom server)
 - Mobile or web clients
 - Team/shared task lists or multi-user accounts
-- Time tracking (estimates yes; logging time spent no)
+- External time-tracking integrations (Atrium's own CLOCK logging shipped in Phase 18.5: the `task_clock_entry` table, `atrium-cli clock`, and the LOGBOOK drawer; time *estimates* were always in scope)
 - Calendar event creation (deadlines are tasks, not calendar events)
 - AI features in v1.0 — the mission is a fast, predictable task app
 
@@ -730,8 +731,7 @@ Standard layout:
 - `VERSION` is the single source of truth; `Cargo.toml` matches
 - `LICENSE` (MIT), `logo.svg`
 - `data/` — `.ui` XML files, icons, GSettings schema, AppStream metainfo, Flatpak manifest
-- `src/` — Rust source
-- `tests/` — integration tests
+- the six-crate workspace (§3.3): `atrium-core/`, `atrium-org/`, `atrium-inline/`, `atrium-import/`, `atrium-cli/`, `atrium/` — tests live per-crate (in-file `src/tests.rs` / `*_tests.rs` modules and per-crate `tests/` directories), not in a top-level `tests/`
 - `docs/` — schema, keymap, perf notes, RRULE supported subset
 
 CI matches Viaduct: `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check` on Linux. Tests required from day one.
