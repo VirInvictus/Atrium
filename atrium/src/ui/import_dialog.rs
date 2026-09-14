@@ -207,6 +207,29 @@ pub fn open(parent: &impl IsA<gtk::Widget>, worker: WorkerHandle) {
     dialog.present();
 }
 
+/// Read the file and run the source's parser off the main thread.
+/// `run_gui_import` runs on the GLib main context, and a Taskwarrior
+/// JSON export can be tens of MB, so the read + parse pair belongs in
+/// spawn_blocking (the same tokio handle the data layer boots).
+async fn read_and_parse<T>(
+    path: PathBuf,
+    parse: impl FnOnce(&str) -> Result<T, String> + Send + 'static,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+{
+    crate::runtime()
+        .handle()
+        .spawn_blocking(move || {
+            let text = std::fs::read_to_string(&path).map_err(|e| {
+                gettext_f("cannot read file: {error}", &[("error", &e.to_string())])
+            })?;
+            parse(&text)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Run the chosen importer through the worker and return a one-line
 /// human summary. Mirrors the CLI's `run_import` per-source flow.
 async fn run_gui_import(
@@ -218,10 +241,6 @@ async fn run_gui_import(
     dry_run: bool,
 ) -> Result<String, String> {
     use atrium_import::{import, vtodo};
-    let read = |p: &PathBuf| {
-        std::fs::read_to_string(p)
-            .map_err(|e| gettext_f("cannot read file: {error}", &[("error", &e.to_string())]))
-    };
     let today = chrono::Local::now().date_naive();
     match source {
         0 => {
@@ -241,9 +260,12 @@ async fn run_gui_import(
             ))
         }
         1 => {
-            let rows = import::todoist::parser::parse_csv(&read(&path)?).map_err(|e| {
-                gettext_f("Todoist parse error: {error}", &[("error", &e.to_string())])
-            })?;
+            let rows = read_and_parse(path, |t| {
+                import::todoist::parser::parse_csv(t).map_err(|e| {
+                    gettext_f("Todoist parse error: {error}", &[("error", &e.to_string())])
+                })
+            })
+            .await?;
             let s =
                 import::todoist::mapper::import_todoist(&worker, &rows, &project, today, dry_run)
                     .await
@@ -258,9 +280,12 @@ async fn run_gui_import(
             ))
         }
         2 => {
-            let parsed = vtodo::parse_ics(&read(&path)?).map_err(|e| {
-                gettext_f("VTODO parse error: {error}", &[("error", &e.to_string())])
-            })?;
+            let parsed = read_and_parse(path, |t| {
+                vtodo::parse_ics(t).map_err(|e| {
+                    gettext_f("VTODO parse error: {error}", &[("error", &e.to_string())])
+                })
+            })
+            .await?;
             let s = vtodo::import_vtodo(&worker, &parsed, &project, dry_run)
                 .await
                 .map_err(|e| e.to_string())?;
@@ -274,12 +299,15 @@ async fn run_gui_import(
             ))
         }
         3 => {
-            let parsed = import::taskwarrior::parser::parse_export(&read(&path)?).map_err(|e| {
-                gettext_f(
-                    "Taskwarrior parse error: {error}",
-                    &[("error", &e.to_string())],
-                )
-            })?;
+            let parsed = read_and_parse(path, |t| {
+                import::taskwarrior::parser::parse_export(t).map_err(|e| {
+                    gettext_f(
+                        "Taskwarrior parse error: {error}",
+                        &[("error", &e.to_string())],
+                    )
+                })
+            })
+            .await?;
             let s = import::taskwarrior::mapper::import_taskwarrior(
                 &worker, &parsed, &project, uda, dry_run,
             )
@@ -295,7 +323,8 @@ async fn run_gui_import(
             ))
         }
         _ => {
-            let parsed = import::todotxt::parser::parse_document(&read(&path)?);
+            let parsed =
+                read_and_parse(path, |t| Ok(import::todotxt::parser::parse_document(t))).await?;
             let s = import::todotxt::mapper::import_todotxt(&worker, &parsed, &project, dry_run)
                 .await
                 .map_err(|e| e.to_string())?;

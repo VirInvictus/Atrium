@@ -1541,3 +1541,80 @@ async fn external_custom_property_drawer_round_trips_through_db() {
     drop(handle);
     let _ = std::fs::remove_dir_all(&vault);
 }
+
+/// The `:ID:`-less duplication guard: a vault file whose file-level
+/// `:ID:` property is missing (hand-authored file, or a second save
+/// inside the writer's self-heal window before the first flush
+/// backfills the `:ID:`) must not mint a fresh project per processed
+/// event. The watcher resolves the file by its canonical vault path
+/// and adopts the existing project; repeated external saves leave
+/// the project count at one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn idless_file_adopts_project_instead_of_duplicating() {
+    let _serial = serialize().await;
+    let (conn, vault, pool) = fresh_setup("idless-dup");
+    let (handle, _watcher, project_id) = seed_with_initial_write(conn, pool.clone(), &vault).await;
+
+    // Strip only the file-level :ID: line (the project anchor); the
+    // task headline's :ID: stays. Simulates a hand-authored file or
+    // an external edit that dropped the property.
+    let project_path = vault.join("Errands.org");
+    let project = pool
+        .with(|conn| atrium_core::db::read::project_by_id(conn, project_id))
+        .unwrap()
+        .unwrap();
+    let uuid_line = format!(":ID: {}", project.uuid);
+    let text = std::fs::read_to_string(&project_path).unwrap();
+    let edited = text.replacen(&uuid_line, "", 1);
+    assert_ne!(
+        edited, text,
+        "expected to strip the file-level :ID: line:\n{text}"
+    );
+    std::fs::write(&project_path, edited).unwrap();
+
+    // First processed event: the watcher must adopt the existing
+    // project via the path fallback, not create a duplicate. Give
+    // the full chain (debounce → diff → possible worker writes →
+    // writer flush) time to settle, then also fire a second save to
+    // prove repeated events stay at one project.
+    for round in 0..2 {
+        if round == 1 {
+            let current = std::fs::read_to_string(&project_path).unwrap();
+            std::fs::write(&project_path, format!("{current}\n")).unwrap();
+        }
+        wait_until(SETTLE, || {
+            // The pathological outcome is a second "Errands" project;
+            // poll until the watcher has had its chance to make one.
+            let count = pool
+                .with(|conn| {
+                    let mut stmt = conn
+                        .prepare("SELECT COUNT(*) FROM project WHERE title = 'Errands'")
+                        .unwrap();
+                    Ok(stmt.query_row([], |r| r.get::<_, i64>(0))?)
+                })
+                .unwrap_or(0);
+            count > 1
+        })
+        .await;
+    }
+
+    let count = pool
+        .with(|conn| {
+            let mut stmt = conn
+                .prepare("SELECT COUNT(*) FROM project WHERE title = 'Errands'")
+                .unwrap();
+            Ok(stmt.query_row([], |r| r.get::<_, i64>(0))?)
+        })
+        .unwrap();
+    assert_eq!(
+        count, 1,
+        "an :ID:-less file must not duplicate its project across saves"
+    );
+    let still_there = pool
+        .with(|conn| atrium_core::db::read::project_by_id(conn, project_id))
+        .unwrap();
+    assert!(still_there.is_some(), "the original project must survive");
+
+    drop(handle);
+    let _ = std::fs::remove_dir_all(&vault);
+}

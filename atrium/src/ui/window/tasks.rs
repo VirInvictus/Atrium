@@ -846,7 +846,11 @@ impl AtriumWindow {
                     let worker = worker_undo;
                     glib::MainContext::default().spawn_local(async move {
                         for (id, old) in prior {
-                            let _ = worker.update_task(TaskUpdate::new(id).project(old)).await;
+                            if let Err(e) =
+                                worker.update_task(TaskUpdate::new(id).project(old)).await
+                            {
+                                error!(?e, id, "undo bulk move rollback failed");
+                            }
                         }
                     });
                 },
@@ -949,7 +953,9 @@ impl AtriumWindow {
                 let worker = worker_undo;
                 glib::MainContext::default().spawn_local(async move {
                     for (id, old) in prior {
-                        let _ = worker.set_task_tags(id, old).await;
+                        if let Err(e) = worker.set_task_tags(id, old).await {
+                            error!(?e, id, "undo bulk tag rollback failed");
+                        }
                     }
                 });
             });
@@ -1005,7 +1011,11 @@ impl AtriumWindow {
                         let worker = worker_undo;
                         glib::MainContext::default().spawn_local(async move {
                             for (id, old) in prior {
-                                let _ = worker.update_task(TaskUpdate::new(id).schedule(old)).await;
+                                if let Err(e) =
+                                    worker.update_task(TaskUpdate::new(id).schedule(old)).await
+                                {
+                                    error!(?e, id, "undo bulk reschedule rollback failed");
+                                }
                             }
                         });
                     },

@@ -489,6 +489,20 @@ impl VaultWatcher {
             }
         }
 
+        // Path→project fallback before the create fallthrough. A file
+        // without a resolvable :ID: (hand-authored, or a second save
+        // inside the writer's self-heal window before the first flush
+        // backfills the :ID:) must not mint a fresh project per
+        // event: match the incoming path against the canonical vault
+        // path each existing project renders to, and adopt that
+        // project when it matches. :ID: stays the primary anchor;
+        // this only guards the create.
+        if let Some(project_id) = self.project_id_for_path(path).await? {
+            self.maybe_update_project_metadata(project_id, parsed)
+                .await?;
+            return Ok(project_id);
+        }
+
         // No matching project. Create one. Title comes from
         // #+TITLE: directive or, failing that, the filename stem.
         let title = parsed
@@ -515,6 +529,38 @@ impl VaultWatcher {
         };
         let project = self.handle.create_project(new).await?;
         Ok(project.id)
+    }
+
+    /// Find the project whose canonical vault path equals `path`,
+    /// using the writer's own path computation (`project_vault_path`:
+    /// area-title directory + sanitised file stem, `-<id>` suffix on
+    /// stem collisions). Comparison canonicalises both sides when
+    /// both files exist and falls back to exact path equality
+    /// otherwise (an unflushed project has no file yet). Cost is one
+    /// read-pool pass over all projects per unmatched-`:ID:` event —
+    /// only the hand-authored / self-heal cases pay it.
+    async fn project_id_for_path(&self, path: &Path) -> Result<Option<i64>, DbError> {
+        let candidates: Vec<(i64, PathBuf)> = self.pool.with(|conn| {
+            let mut out = Vec::new();
+            for p in atrium_core::db::read::list_projects(conn)? {
+                if let Ok(expected) = crate::org::project_vault_path(conn, &self.root, p.id) {
+                    out.push((p.id, expected));
+                }
+            }
+            Ok(out)
+        })?;
+        let wanted_canon = std::fs::canonicalize(path).ok();
+        for (id, expected) in candidates {
+            let expected_canon = std::fs::canonicalize(&expected).ok();
+            let hit = match (&wanted_canon, &expected_canon) {
+                (Some(w), Some(e)) => w == e,
+                _ => path == expected,
+            };
+            if hit {
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
     }
 
     async fn maybe_update_project_metadata(

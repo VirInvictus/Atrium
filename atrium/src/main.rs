@@ -259,13 +259,21 @@ fn maybe_weekly_backup(db_path: &std::path::Path) {
     if !due {
         return;
     }
-    match atrium_core::backup::backup_now(db_path, &dir) {
-        Ok(path) => {
-            let _ = atrium_core::backup::prune(&dir, 10);
-            info!(backup = %path.display(), "weekly auto-backup written");
-        }
-        Err(e) => error!(?e, "weekly auto-backup failed"),
-    }
+    // v0.75.0 — the VACUUM INTO + prune run on their own thread:
+    // this used to execute inline during boot, so every weekly-due
+    // launch paid the full backup on the main thread before the
+    // first frame. The backup opens its own connections (the
+    // source side is a read), so it is safe beside the worker.
+    let db_path = db_path.to_path_buf();
+    std::thread::spawn(
+        move || match atrium_core::backup::backup_now(&db_path, &dir) {
+            Ok(path) => {
+                let _ = atrium_core::backup::prune(&dir, 10);
+                info!(backup = %path.display(), "weekly auto-backup written");
+            }
+            Err(e) => error!(?e, "weekly auto-backup failed"),
+        },
+    );
 }
 
 /// Open the DB, spawn the worker, build the read pool, and (when
