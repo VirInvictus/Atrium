@@ -1784,3 +1784,39 @@ fn version_file_is_nonempty_and_matches_workspace_version() {
         "VERSION must equal the workspace Cargo.toml version"
     );
 }
+
+// ── Date parsing (parse_date) ──────────────────────────────────
+
+// v0.75.0 — weekday names in --due / --scheduled / --defer. The
+// README quick-start has carried `--due friday` since the
+// copy-paste block landed; the parser rejected it until now.
+// 2026-05-15 is a Friday, so the same weekday rolls a full week.
+#[test]
+fn parse_date_weekday_resolves_to_next_occurrence() {
+    let today = chrono::NaiveDate::from_ymd_opt(2026, 5, 15).unwrap();
+    let d = |y: i32, m: u32, day: u32| chrono::NaiveDate::from_ymd_opt(y, m, day).unwrap();
+    assert_eq!(crate::parse_date("friday", today).unwrap(), d(2026, 5, 22));
+    assert_eq!(crate::parse_date("sat", today).unwrap(), d(2026, 5, 16));
+    assert_eq!(crate::parse_date("MONDAY", today).unwrap(), d(2026, 5, 18));
+    assert_eq!(crate::parse_date("SUNDAY", today).unwrap(), d(2026, 5, 17));
+}
+
+#[test]
+fn parse_date_keywords_and_literal_still_work() {
+    let today = chrono::NaiveDate::from_ymd_opt(2026, 5, 15).unwrap();
+    let d = |y: i32, m: u32, day: u32| chrono::NaiveDate::from_ymd_opt(y, m, day).unwrap();
+    assert_eq!(crate::parse_date("today", today).unwrap(), today);
+    assert_eq!(
+        crate::parse_date("tomorrow", today).unwrap(),
+        d(2026, 5, 16)
+    );
+    assert_eq!(
+        crate::parse_date("yesterday", today).unwrap(),
+        d(2026, 5, 14)
+    );
+    assert_eq!(
+        crate::parse_date("2026-09-20", today).unwrap(),
+        d(2026, 9, 20)
+    );
+    assert!(crate::parse_date("fryday", today).is_err());
+}

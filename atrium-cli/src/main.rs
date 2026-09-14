@@ -38,7 +38,7 @@ use std::process::ExitCode;
 use atrium_core::db::read;
 use atrium_core::domain::{NewTask, ScheduledFor, Task, TaskUpdate};
 use atrium_core::search::{EvalContext, evaluate};
-use chrono::{Local, NaiveDate};
+use chrono::{Datelike, Local, NaiveDate};
 use rusqlite::{Connection, OpenFlags};
 
 mod args;
@@ -2335,7 +2335,9 @@ fn resolve_project_by_name(conn: &Connection, needle: &str) -> CliResult<i64> {
 }
 
 /// Parse a date keyword or YYYY-MM-DD literal into a NaiveDate.
-/// `today`, `yesterday`, `tomorrow` resolve against `today`. The
+/// `today`, `yesterday`, `tomorrow` resolve against `today`; a
+/// weekday name (full or three-letter, case-insensitive) resolves
+/// to that weekday's next occurrence, strictly in the future. The
 /// CLI doesn't accept `someday` here — that's only meaningful for
 /// scheduled_for (which has its own enum branch).
 fn parse_date(s: &str, today: NaiveDate) -> CliResult<NaiveDate> {
@@ -2344,12 +2346,28 @@ fn parse_date(s: &str, today: NaiveDate) -> CliResult<NaiveDate> {
         "today" => Ok(today),
         "yesterday" => Ok(today - chrono::Duration::days(1)),
         "tomorrow" => Ok(today + chrono::Duration::days(1)),
+        "monday" | "mon" => Ok(next_weekday(today, chrono::Weekday::Mon)),
+        "tuesday" | "tue" => Ok(next_weekday(today, chrono::Weekday::Tue)),
+        "wednesday" | "wed" => Ok(next_weekday(today, chrono::Weekday::Wed)),
+        "thursday" | "thu" => Ok(next_weekday(today, chrono::Weekday::Thu)),
+        "friday" | "fri" => Ok(next_weekday(today, chrono::Weekday::Fri)),
+        "saturday" | "sat" => Ok(next_weekday(today, chrono::Weekday::Sat)),
+        "sunday" | "sun" => Ok(next_weekday(today, chrono::Weekday::Sun)),
         _ => NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| {
             CliError::Args(format!(
-                "invalid date: {s} (expected YYYY-MM-DD or today/tomorrow/yesterday)"
+                "invalid date: {s} (expected YYYY-MM-DD, today/tomorrow/yesterday, or a weekday name)"
             ))
         }),
     }
+}
+
+/// The next occurrence of `target` strictly after `today`; landing
+/// on today rolls a full week forward, so the result is always a
+/// future date.
+fn next_weekday(today: NaiveDate, target: chrono::Weekday) -> NaiveDate {
+    let diff = (target.num_days_from_monday() + 7 - today.weekday().num_days_from_monday()) % 7;
+    let diff = if diff == 0 { 7 } else { diff };
+    today + chrono::Duration::days(diff as i64)
 }
 
 /// Parse a scheduled-for value: `someday` or anything `parse_date`

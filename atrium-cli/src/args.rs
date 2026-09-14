@@ -55,9 +55,12 @@ WRITE SUBCOMMANDS:
                         --tag NAME          attach a tag (repeatable;
                                             tag is created if missing)
                         --scheduled DATE    YYYY-MM-DD, today,
-                                            tomorrow, or `someday`
-                        --due DATE          YYYY-MM-DD, today, tomorrow
-                        --defer DATE        YYYY-MM-DD, today, tomorrow
+                                            tomorrow, a weekday name,
+                                            or `someday`
+                        --due DATE          YYYY-MM-DD, today,
+                                            tomorrow, or a weekday name
+                        --defer DATE        YYYY-MM-DD, today,
+                                            tomorrow, or a weekday name
                         --estimated MINUTES integer minutes
     capture LINE      Quick-Entry-style one-shot capture. Parses the
                       line for inline `#tag` / `@today` / `@tomorrow`
