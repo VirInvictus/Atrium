@@ -865,10 +865,7 @@ pub(super) fn build_search_help_popover() -> gtk::Popover {
                     "is:scheduled / is:deadline / is:deferred",
                     gettext("has the field set"),
                 ),
-                (
-                    "is:repeating / is:tagged",
-                    gettext("presence flags"),
-                ),
+                ("is:repeating / is:tagged", gettext("presence flags")),
                 (
                     "is:today / is:inbox / is:upcoming",
                     gettext("canonical-list mirrors"),

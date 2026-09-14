@@ -110,6 +110,11 @@
   -->
 
   <releases>
+    <release version="0.75.0" date="2026-09-14">
+      <description translate="no">
+        <p>The final-audit fix wave: the debug fixture generator routes through the single-writer worker instead of a second writable connection, the vault ledger seed no longer runs on the main thread at boot, GUI imports and the weekly backup leave the main thread, failed undo rollbacks log instead of vanishing, an ID-less vault file no longer duplicates its project, weekday names work in atrium-cli dates, and is:archived / is:queued are recorded as reserved. The docs set is reconciled with the shipped code across schema, gtd-patterns, keymap, spec, the CLI usage text, and the search-help popover.</p>
+      </description>
+    </release>
     <release version="0.74.1" date="2026-09-14">
       <description translate="no">
         <p>Release-integrity stamp: the VERSION file, the single source of truth that meson reads directly, is restored after the v0.74.0 stamp commit emptied it, and the sync can no longer fail silently; a non-empty, equals-Cargo.toml check now runs as the ship-gate script's fastest step, as a CI step beside the cargo-sources guard, and as a workspace test pinned against the compiled-in version. No application changes.</p>

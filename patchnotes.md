@@ -1,5 +1,73 @@
 # Atrium — Patch Notes
 
+## v0.75.0: the final-audit fix wave (2026-09-14)
+
+**THE FINAL AUDIT's executable lanes land: the two invariant-class code
+fixes, the CLI weekday parser, the reserved-predicate decision, and
+the whole docs-accuracy tail. Docs and comments only from v0.74.1's
+count; no schema, vault, or UI-behavior changes beyond the fixes
+listed.**
+
+- **Fixed:** the `app.fixture` debug action generated fixtures on a
+  second writable connection beside the live single-writer worker (no
+  `busy_timeout`, so any overlap surfaced as immediate `SQLITE_BUSY`);
+  the same second-writer class v0.73.0 fixed for the vault seed, with
+  this one site left. Generation now rides the command queue
+  (`Command::GenerateFixtures` handled on the worker's own
+  connection) and emits no deltas or vault pings, matching the old
+  path's observable behavior.
+- **Fixed:** the vault write-ledger seed rendered every project and
+  read every `.org` file synchronously in the VaultWriter constructor,
+  which executes on the GTK main thread pre-first-frame on every
+  vault boot; the seed now runs at the top of the spawned writer task
+  before the request loop, so no flush can observe an unseeded ledger
+  and boot no longer pays the cost.
+- **Fixed:** the LOW main-thread pair: GUI import read + parse moved
+  into tokio `spawn_blocking` (a Taskwarrior JSON export can be tens
+  of MB), and the weekly auto-backup `VACUUM INTO` + prune moved onto
+  their own thread. The three bulk-edit undo rollbacks no longer
+  discard failures silently; a failed rollback logs `error!` after
+  the toast has claimed success.
+- **Fixed:** a vault file without a file-level `:ID:` minted a fresh
+  project on every processed watcher event (a second save inside the
+  writer's self-heal window duplicated the project). A path-to-project
+  fallback now runs before the create fallthrough, matching the
+  writer's own canonical-path computation; `:ID:` stays the primary
+  anchor. The new watcher integration test is mutation-checked.
+- **Added:** weekday names in `atrium-cli` dates: `--due`,
+  `--scheduled`, and `--defer` accept full and three-letter weekday
+  names (case-insensitive), resolving to the next occurrence strictly
+  in the future. The README quick-start's `--due friday` example now
+  runs as printed; USAGE names the new form and two unit tests pin
+  the resolution.
+- **Decided:** `is:archived` and `is:queued` are reserved, matching
+  nothing, recorded in spec §4.3.7 with the exact absence contract.
+  The implement-vs-reserve question went to Brandon (reserve
+  recommended, the audit's lean); unanswered at release time, so the
+  recommendation stands. The operator-reference popover no longer
+  advertises the dead `is:archived`.
+- **Docs:** the docs-accuracy clusters: schema.md's `repeat_mode`
+  values corrected to the shipped `BASIC`/`NEXT`/`CUMULATIVE` and its
+  datetime section rewritten around the two real writer formats (the
+  exact mismatch that bit migration 0018); gtd-patterns.md's retired
+  Weekly Review seed replaced with a copy-paste recipe, the
+  someday/open implication corrected, the fake jq duplicate replaced
+  with the honest list-and-recreate story; keymap.md's
+  `sort:scheduled_for` fixed to `sort:scheduled` and the `?`
+  popover described as button-only; spec §9 scopes time tracking to
+  external integrations (CLOCK shipped in Phase 18.5), §6 cites the
+  real parser path and states Quick Entry is in-process only, §3.4
+  describes the actual debug surface (Memory Watch, `--fixture`,
+  RUST_LOG tracing), §10 drops the nonexistent top-level `src/` and
+  `tests/`; the phantom `Ndaysout` date keyword is gone from spec,
+  the search-help popover, and the English catalogue (vir-search
+  never parsed it); `atrium-cli --help` now really is the full
+  subcommand reference (clock, template, import, export, vault, and
+  the alias table); CLAUDE.md's sql_translate fall-back list is
+  complete and the `scheduled_warning` doc-comment states its
+  column-backed reality. `data/cargo-sources.json` unchanged (no
+  dependency moves).
+
 ## v0.74.1: release-integrity stamp (2026-09-14)
 
 **The v0.74.0 stamp commit emptied the single-source-of-truth `VERSION`
