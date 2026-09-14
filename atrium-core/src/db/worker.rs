@@ -52,6 +52,26 @@ impl WorkerHandle {
         rx.await.map_err(|_| DbError::WorkerClosed)?
     }
 
+    /// Debug surface only (`--debug`): generate a stress fixture on
+    /// the worker's own writable connection. The `app.fixture` action
+    /// used to run this on a second writable connection beside the
+    /// live worker, colliding with the single-writer discipline; the
+    /// generation now rides the command queue like every other write.
+    /// Emits no deltas — the caller rebuilds its surfaces manually
+    /// after the await (the second-writer path never emitted them
+    /// either, so behavior is unchanged).
+    pub async fn generate_fixtures(
+        &self,
+        scale: crate::db::fixtures::FixtureScale,
+    ) -> Result<crate::db::fixtures::FixtureSummary, DbError> {
+        let (responder, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(Command::GenerateFixtures { scale, responder })
+            .await
+            .map_err(|_| DbError::WorkerClosed)?;
+        rx.await.map_err(|_| DbError::WorkerClosed)?
+    }
+
     pub async fn update_task(&self, update: TaskUpdate) -> Result<Task, DbError> {
         let (responder, rx) = oneshot::channel();
         self.cmd_tx
@@ -1218,6 +1238,17 @@ impl Worker {
             }
             Command::DeleteQuickEntryTemplate { id, responder } => {
                 let result = self.delete_quick_entry_template(id);
+                let _ = responder.send(result);
+            }
+            Command::GenerateFixtures { scale, responder } => {
+                // Debug surface only. Runs on the worker's own
+                // connection; emits no deltas — the caller rebuilds
+                // sidebar + active list manually after the await
+                // (the second-writer path this command replaced never
+                // emitted them either). Fixture rows also skip the
+                // vault notifier, same as before: fixtures are a
+                // data-layer stress tool, not user content.
+                let result = crate::db::fixtures::generate(&mut self.conn, scale);
                 let _ = responder.send(result);
             }
         }

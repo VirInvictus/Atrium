@@ -266,6 +266,17 @@ pub enum Command {
         id: i64,
         responder: oneshot::Sender<Result<(), DbError>>,
     },
+
+    // ── Debug fixtures (--debug surface) ──────────────────────────
+    /// Stress-fixture generation for the `--debug` surface. Rides the
+    /// command queue like every other write: v0.6.15 ran it on a
+    /// second writable connection, which violated the single-writer
+    /// discipline whenever the worker was live. Emits no deltas —
+    /// the caller refreshes its surfaces manually after the await.
+    GenerateFixtures {
+        scale: crate::db::fixtures::FixtureScale,
+        responder: oneshot::Sender<Result<crate::db::fixtures::FixtureSummary, DbError>>,
+    },
 }
 
 impl Command {
@@ -309,6 +320,7 @@ impl Command {
             Self::CreateQuickEntryTemplate { .. } => "CreateQuickEntryTemplate",
             Self::UpdateQuickEntryTemplate { .. } => "UpdateQuickEntryTemplate",
             Self::DeleteQuickEntryTemplate { .. } => "DeleteQuickEntryTemplate",
+            Self::GenerateFixtures { .. } => "GenerateFixtures",
         }
     }
 }

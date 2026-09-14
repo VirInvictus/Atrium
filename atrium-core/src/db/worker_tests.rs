@@ -2007,3 +2007,26 @@ async fn delete_task_template_then_instantiate_is_not_found() {
     let err = handle.instantiate_template(tmpl.id).await.unwrap_err();
     assert!(matches!(err, DbError::NotFound));
 }
+
+#[tokio::test]
+async fn generate_fixtures_routes_through_the_single_writer() {
+    // The `app.fixture` debug action used to open a second writable
+    // connection beside the live worker (no busy_timeout, so a
+    // collision surfaced as immediate SQLITE_BUSY); the generation
+    // now rides the command queue like every other write.
+    let (handle, mut changes_rx, _library_rx) = spawn(fresh_conn());
+    let summary = handle
+        .generate_fixtures(crate::db::fixtures::FixtureScale::Small)
+        .await
+        .unwrap();
+    assert_eq!(summary.tasks, 1000);
+
+    // No deltas: fixture generation is a debug bulk load and the GUI
+    // refreshes its surfaces manually after the await. A delta burst
+    // here would also change the pre-fix behavior, which emitted
+    // nothing.
+    assert!(
+        changes_rx.try_recv().is_err(),
+        "fixture generation must not emit TaskChanges"
+    );
+}
