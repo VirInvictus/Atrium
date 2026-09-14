@@ -62,6 +62,8 @@ pub enum State {
     /// Has a repeat_rule.
     Repeating,
     /// Belongs to a project whose archived_at IS NOT NULL.
+    /// Reserved (spec §4.3.7): parses, matches nothing until
+    /// implemented — the evaluator has no project lookup for it.
     Archived,
     /// In the Logbook (synonym for Done).
     Logbook,
@@ -72,6 +74,8 @@ pub enum State {
     /// Has at least one tag.
     Tagged,
     /// Sequential project; not the first incomplete task.
+    /// Reserved (spec §4.3.7): parses, matches nothing until
+    /// implemented — nothing computes the sequential ordering yet.
     Queued,
     /// v0.29.0 — open AND not blocked by any open prerequisite
     /// (task dependencies). Dependency-only: defer and sequential

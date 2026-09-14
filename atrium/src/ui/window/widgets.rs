@@ -863,7 +863,7 @@ pub(super) fn build_search_help_popover() -> gtk::Popover {
                     gettext("has the field set"),
                 ),
                 (
-                    "is:repeating / is:archived / is:tagged",
+                    "is:repeating / is:tagged",
                     gettext("presence flags"),
                 ),
                 (

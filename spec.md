@@ -351,18 +351,20 @@ Calibre's date-keyword vocabulary plus future-tense forms Atrium needs (Calibre'
 | `is:deadline` | has a `deadline` |
 | `is:deferred` | has a `defer_until > today` |
 | `is:repeating` | has a `repeat_rule` |
-| `is:archived` | belongs to a project with `archived_at IS NOT NULL` |
+| `is:archived` | **reserved, matches nothing** (intended meaning: belongs to a project with `archived_at IS NOT NULL`) |
 | `is:project` (or `is:in_project`) | has a `project_id` |
 | `is:area` (or `is:in_area`) | belongs (transitively) to an area |
 | `is:tagged` | has at least one tag |
-| `is:queued` | sequential project, not the first incomplete task |
-| `is:available` | open AND not blocked by any open prerequisite (v0.29.0; dependency-only — defer is `is:deferred`, sequential state is `is:queued`) |
+| `is:queued` | **reserved, matches nothing** (intended meaning: sequential project, not the first incomplete task) |
+| `is:available` | open AND not blocked by any open prerequisite (v0.29.0; dependency-only — defer is `is:deferred`) |
 | `is:blocked` | open AND blocked by at least one open prerequisite (v0.29.0; a completed task is never blocked) |
 | `is:today` | mirrors the Today list (§4.2): open AND (Schedule ≤ today OR Deadline ≤ today + 7) AND defer-resolved |
 | `is:inbox` | mirrors the Inbox list: open AND no project assignment |
 | `is:upcoming` | mirrors the Upcoming list: open AND `scheduled_for` is a date strictly in the future |
 | `is:anytime` | mirrors the Anytime list: open AND no `scheduled_for` AND defer-resolved |
 | `is:someday` | mirrors the Someday list: open AND `scheduled_for` = Someday sentinel |
+
+Two rows above are **reserved**: `is:archived` and `is:queued` parse and match nothing. The evaluator hard-returns false for both and the SQL fast-path declines them to the in-memory path (which also returns false), so a query carrying either silently filters everything out. `is:archived` needs a project-archived lookup the evaluation context does not carry; `is:queued` needs sequential-project ordering semantics that no code computes today. Implementing either is additive and waits on a design call; until then this table is the contract for their absence.
 
 #### 4.3.8 Forgiving parser
 

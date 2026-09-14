@@ -141,14 +141,14 @@ fn match_state(task: &Task, state: State, ctx: &EvalContext<'_>) -> bool {
         State::Deadline => task.deadline.is_some(),
         State::Deferred => task.defer_until.is_some_and(|d| d > today),
         State::Repeating => task.repeat_rule.is_some(),
-        State::Archived => false, // resolved via project-side cache; not a Task field
+        State::Archived => false, // reserved (spec §4.3.7): needs a project-archived lookup the context doesn't carry
         State::InProject => task.project_id.is_some(),
         State::InArea => task
             .project_id
             .and_then(|pid| ctx.project_areas.get(&pid).copied().flatten())
             .is_some(),
         State::Tagged => ctx.tag_names.get(&task.id).is_some_and(|v| !v.is_empty()),
-        State::Queued => false, // sequential-project state, not a task field
+        State::Queued => false, // reserved (spec §4.3.7): sequential-project ordering is not computed anywhere yet
         // v0.29.0 — dependency availability. A task is blocked when
         // it's open and has at least one open prerequisite (membership
         // in `ctx.blocked_ids`); available is the open-and-not-blocked
