@@ -1,0 +1,87 @@
+# Atrium — THE FINAL BLITZ: done
+
+Completion date: 2026-09-15 (window 2026-09-14 to 2026-09-15; agent
+session ran inside the blitz window ending 2026-09-20).
+Commit range: d125eb7 (first docs commit) .. c062f13 (last roadmap
+tick). Releases: v0.74.1, v0.75.0, v0.76.0 (all pushed, CI green,
+verbatim annotated tags; v0.74.1/v0.75.0 Releases hand-created per
+the then-current recipe, v0.76.0 auto-created by the new release.yml,
+which is itself part of the release).
+
+## What shipped
+
+- v0.74.1: the VERSION file the v0.74.0 stamp emptied is restored
+  (forward-only bump) and the sync is guarded in three layers
+  (regression.sh step 0, CI guard, atrium-cli version-sync test).
+- v0.75.0: the final-audit fix wave — fixture generation routed
+  through the single-writer worker, the vault ledger seed moved off
+  the GTK main thread, GUI imports and the weekly VACUUM off the
+  main thread, undo rollback failures logged, the `:ID:`-less
+  project duplication guard (mutation-checked test), CLI weekday
+  date parsing, is:archived/is:queued reserved in spec 4.3.7, and
+  the docs-accuracy clusters (schema, gtd-patterns, keymap, spec
+  3.4/6/9/10, USAGE completion, the Ndaysout phantom, the
+  scheduled_warning doc-comment).
+- v0.76.0: the answered-gates stamp — board card-count memory guard
+  (2,000+ cards toast), release.yml (tag checks + verbatim
+  auto-Release), the v* protection ruleset (ruleset 23387454),
+  mdBook published to Pages (virinvictus.github.io/Atrium/),
+  SHA-pinned actions + fedora:44 + workflow hardening, Dependabot
+  (github-actions only), and the perf re-baseline with the new
+  scripts/gui_memory_probe.sh.
+- Docs lanes: stamp-fatigue collapse of the three accreted headers,
+  the full em-dash recast of every living prose file (~450 lines),
+  the slop smalls, the Phase 24 alias record, backup-format notes,
+  feature Slot 1-9 backlog boxes, and the post-1.0 splits boxes.
+
+## Gate decisions (all recorded in roadmap.md, answered via prompts)
+
+- Push: standing blitz grant (answered).
+- v0.74.0 pushed tag: kept as-is (recommendation in force after the
+  first ask went unanswered; v0.73.0 precedent).
+- is:archived/is:queued: reserved (recommendation in force after the
+  first ask went unanswered).
+- Toolchain: keep tracking stable as the early-warning tripwire
+  (recommendation in force; actions SHA-pinned regardless).
+- Memory gate: keep budgets, guard the board, virtualisation is the
+  fix path (answered).
+- Tag CI + auto-Release, v* ruleset, Pages publish: all yes
+  (answered).
+- GitHub extras: Dependabot yes; secret scanning + push protection,
+  SECURITY.md, issue templates, old-tag Releases all declined
+  (answered).
+- worker.rs / cli-main.rs splits: post-1.0 (answered).
+
+## Reopen conditions
+
+- The 1.0 asset tail (Brandon's calendar): screenshot capture
+  session; Screenshots/ removal and the metainfo/README repoint
+  execute ONLY inside it; the lowercase-paths metainfo block is
+  still commented out until then.
+- Board/list memory: virtualisation (board) and list windowing are
+  the ranked fix path behind the kept budgets; the probe script now
+  verifies any attempt.
+- `atrium --fixture` guard (refuse/--force on a non-empty DB): new
+  roadmap box from this blitz, not yet built.
+- Post-1.0 splits: worker.rs and atrium-cli/main.rs (boxes recorded).
+- Feature Slot 1-9 backlog (reminder actions, JSON restore, Logbook
+  Reopen, CLI reminder roundout, reminder: search field, vault
+  subcommands, vault doctor, Today planned-time; Slot 7 memory probe
+  shipped in this blitz).
+- Post-1.0 horizon items unchanged: atriumd, EDS overlay (zbus
+  verdict recorded), atrium-tui, Lotus light palette.
+- Dependabot PRs now arrive for the pinned actions (setup-uv 5.4.2
+  to 10.1.0 etc.); merging them is Brandon's review call, not
+  automatic.
+
+## Notes for the next agent
+
+- Historical patchnotes entries are frozen (tags carry them
+  verbatim); the em-dash sweep deliberately excludes them.
+- /tmp/atrium-damaged-backup.db holds the pre-cleanup copy of the
+  real DB after the 2026-09-14 fixture accident (cleaned up
+  same-session; real data verified intact, vault untouched). /tmp
+  clears on reboot; nothing depends on it.
+- The suite is green via scripts/regression.sh; CI green on the tip;
+  the one flake (watcher SETTLE ceiling, run 34912648211) was
+  hardened rather than retried.
