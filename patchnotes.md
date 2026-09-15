@@ -1,5 +1,13 @@
 # Atrium — Patch Notes
 
+## Unreleased
+
+- **vir-gtk adopted at 1.4.1** (consumer wave, lock bump only): the base
+  sheet now pins plain `label` text so a dark third-party
+  `gtk-theme-name` can't supply light label colors underneath an app's
+  light palette (the Viaduct force-light wash). No Atrium code changes;
+  suite green.
+
 ## v0.76.0: answered-gates stamp (2026-09-14)
 
 **The final-blitz gate round lands as behavior and infrastructure: the
