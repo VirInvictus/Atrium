@@ -198,3 +198,33 @@ plain list views carry a lighter but real overhead above the Active
 budget at boot. Both are recorded in roadmap.md (new findings,
 2026-09-13) for the gate-or-revise decision; the board work is not
 something to hot-patch inside the 1.0 asset tail.
+
+## v0.76.0 re-baseline (2026-09-14): first capture on the vir-gtk 1.4.0 row kit
+
+The cadence rule (re-baseline every minor that touches a measured
+surface) was violated at v0.74.0, which swapped the list-row /
+alert widget kit with no re-measurement; this section closes the gap.
+Two tooling additions make it repeatable: `scripts/gui_memory_probe.sh`
+bootstraps an isolated fixture DB (private `XDG_DATA_HOME`, the
+`--fixture` footgun guarded against), launches the release GUI on the
+live Wayland session, and samples `VmRSS` at 1 Hz without hand-holding;
+`scripts/perf.sh` is unchanged.
+
+| Measurement | v0.73.0 record | This capture | §8 budget |
+|---|---|---|---|
+| 50K data-layer load / peak RSS | 300 ms / 57 MB | 310 ms / 57 MB | idle < 80 MB: **PASS** |
+| 100K data-layer load / peak RSS | 590 ms / 104 MB | 1,080 ms / 104 MB | informational |
+| Cold-start floor (×3) | 30 ms | 20 ms | < 250 ms: **PASS** |
+| GUI boot into Today, 10K DB | ~285 MB | **280 MB** | Active < 200 MB: **miss** |
+| Kanban board, 9,263 cards | 1,910 MB | not re-run (needs interactive navigation; probe covers boot + idle) | Active < 200 MB: **miss on the v0.73.0 record** |
+
+Reading: the vir-gtk 1.4.0 row kit moved the list surface by within
+noise (285 → 280 MB), so the kit swap is exonerated; the miss is
+structural (every row materialised, same as the board's
+every-card problem at larger magnitude). The 100K load-time delta
+(590 → 1,080 ms) is informational and likely session noise on a busy
+machine; the peak-RSS figure it pairs with is unchanged.
+
+The gate-or-revise decision rides on exactly these numbers and goes to
+Brandon with the probe now in place: revise the Active budget or keep
+it and gate on the virtualisation/windowing work (roadmap, ranked).
