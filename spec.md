@@ -292,7 +292,7 @@ Calibre's full match grammar applies on every text-shaped field. The default is 
 | `tag:x` | substring (default) | matches `worker`, `homework`, `Work` |
 | `tag:"x y"` | quoted substring | for values with spaces |
 | `tag:=x` | exact (case-insensitive) | matches `Work` only, not `worker` |
-| `tag:"=x y"` | quoted exact | for exact values with spaces |
+| `tag:="x y"` | exact, quoted value | for exact values with spaces: the quote must follow the `=`; writing `tag:"=x y"` instead quotes the whole value and matches the literal text `=x y` as a substring |
 | `tag:~regex` | regex | full RE2 syntax via the `regex` crate; in-memory only: SQL translation falls back |
 | `tag:?value` | fuzzy | Damerau-Levenshtein within a length-aware threshold (≤4 chars → 1, 5–7 → 2, ≥8 → 3); transpositions count as a single edit so `tag:?wrok` matches `work`. In-memory only. |
 | `tag:x*` | prefix | matches `work` and `worker`, not `homework` (since vir-search 1.3.0; in-memory only) |
@@ -337,7 +337,7 @@ Calibre's date-keyword vocabulary plus future-tense forms Atrium needs (Calibre'
 | `thisyear` | calendar year |
 | `Ndaysago` | N days before today |
 
-(There is no forward-day keyword: a future date is expressed with an explicit date or a range. Advertising an `Ndaysout` keyword would silently fall through to freeform text via the forgiving parser, which is exactly what happened when the search-help table listed one.)
+(Forward days are written `in<N>days` or the compact `+Nd` (vir-search 1.3.0), not an `Ndaysout` keyword: advertising that spelling would silently fall through to freeform text via the forgiving parser, which is exactly what happened when the search-help table listed one.)
 
 #### 4.3.7 State predicates
 
