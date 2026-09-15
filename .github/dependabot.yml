@@ -1,0 +1,17 @@
+version: 2
+
+# github-actions only, decided 2026-09-14: the cargo side stays
+# deliberately manual because dependency adoption is coordinated
+# consumer-wave style (vir-gtk / vir-search releases land across
+# Atrium, Conservatory, and Viaduct together), which automated
+# version bumps would fight. Dependabot understands SHA-pinned
+# actions and updates the pin plus the version comment.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    labels:
+      - ci

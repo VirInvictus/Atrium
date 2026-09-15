@@ -1,0 +1,86 @@
+name: Release
+
+# A v* tag is always hand-cut (forward-only policy, verbatim patchnotes
+# message); this workflow answers it with the same checks CI runs on
+# main, then creates the GitHub Release from the tag's own verbatim
+# message. Decided by Brandon 2026-09-14 (tag CI + auto-Release).
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-and-release:
+    name: fmt + clippy + test, then Release from tag
+    runs-on: ubuntu-latest
+    container: fedora:44
+    timeout-minutes: 30
+    steps:
+      - name: Install system dependencies
+        run: |
+          dnf install -y \
+            gcc \
+            git \
+            gh \
+            pkgconf-pkg-config \
+            glib2-devel \
+            gtk4-devel \
+            sqlite-devel \
+            xorg-x11-server-Xvfb
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: VERSION sync guard
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          CARGO_VERSION="$(grep -m1 '^version =' Cargo.toml | sed 's/version *= *"\(.*\)"/\1/')"
+          FILE_VERSION="$(cat VERSION)"
+          if [ -z "$FILE_VERSION" ]; then
+            echo "VERSION is empty; it is the single source of truth and meson reads it directly" >&2
+            exit 1
+          fi
+          if [ "$FILE_VERSION" != "$CARGO_VERSION" ]; then
+            echo "VERSION ($FILE_VERSION) != workspace Cargo.toml version ($CARGO_VERSION)" >&2
+            exit 1
+          fi
+          if [ "v$FILE_VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "tag ($GITHUB_REF_NAME) != VERSION ($FILE_VERSION)" >&2
+            exit 1
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        env:
+          GDK_BACKEND: x11
+        run: xvfb-run -a cargo test --workspace
+
+      - name: Create the Release from the tag's verbatim message
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --notes-from-tag \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME"

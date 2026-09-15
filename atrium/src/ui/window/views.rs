@@ -2,7 +2,7 @@
 //! `AtriumWindow`: Forecast / Review / Logbook / Agenda / Calendar / Board page refreshers + calendar nav.
 //! Extracted from window/mod.rs in v0.22.0 split (Pass 3).
 
-use crate::i18n::gettext;
+use crate::i18n::{gettext, gettext_f};
 
 use super::*;
 
@@ -571,6 +571,21 @@ impl AtriumWindow {
                     crate::ui::filter::rank_by_bm25_recency(&mut filtered, &scores, today);
                 }
             }
+        }
+        // Memory guard (gate decision, Brandon 2026-09-14): every card
+        // materialises a full widget set, and a board past this scale
+        // measured resident memory far over the Active budget
+        // (docs/perf-baseline.md: 9,263 cards -> ~1.9 GB). Say so
+        // instead of spiking silently; virtualisation is the recorded
+        // real fix.
+        const BOARD_CARD_WARN_THRESHOLD: usize = 2_000;
+        if filtered.len() > BOARD_CARD_WARN_THRESHOLD {
+            // Translators: {count} is the number of cards the board
+            // will materialise.
+            self.show_toast(&gettext_f(
+                "Board renders {count} cards; memory use will spike. Consider narrowing the filter.",
+                &[("count", &filtered.len().to_string())],
+            ));
         }
         let mut columns = atrium_core::group_into_board(&filtered, &cfg, &tag_map);
         // v0.46.0 — apply the persisted intra-column order, then snapshot
