@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **vir-search adopted at 1.4.3** (consumer wave, lock bump only): the
+  final-audit hop lands upstream, headlined by the Display round-trip
+  fixes (quoted grammar words like `genre:"true"` render quoted instead
+  of flipping to a presence/wildcard match; nested combinators render
+  parenthesized; a negation of a degraded empty operand stays empty), a
+  quoted In-list body now degrading to literal text (decided
+  reject-vs-document 2026-09-15; the unquoted list is untouched), Ymd
+  years outside 0..=9999 degrading at parse, the dead `regex`
+  dependency dropped, a generated-input round-trip fuzz, Debug derives,
+  a capped degradation log, and `examples/mini_consumer.rs`. The spec
+  §4.3.3 quoted-exact and forward-day drift fixes ride the same wave
+  (see the roadmap #117 note). No Atrium code changes; full workspace
+  suite green.
 - **vir-gtk adopted at 1.4.2** (consumer wave, lock bump only): the
   final-audit contract fixes land upstream (close_on_escape really
   captures, Alert answers once per presentation, scope_css splits at

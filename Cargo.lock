@@ -1621,11 +1621,10 @@ dependencies = [
 
 [[package]]
 name = "vir-search"
-version = "1.4.2"
-source = "git+https://github.com/VirInvictus/vir-search.git#d3b28e4c25cd04b5a98c140c6bbd3e9d2b721c98"
+version = "1.4.3"
+source = "git+https://github.com/VirInvictus/vir-search.git#8087e93e138afd88640c1bc9530e7bbe0d2be93d"
 dependencies = [
  "chrono",
- "regex",
  "unicode-normalization",
 ]
 
