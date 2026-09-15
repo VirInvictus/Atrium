@@ -5,6 +5,17 @@ on:
     branches: [main]
   pull_request:
 
+# Defense in depth: the repo default is already read-only, but each
+# workflow declares its own floor.
+permissions:
+  contents: read
+
+# Stage-close pushes queue redundant runs; supersede in favour of the
+# newest commit on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -14,8 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     # Atrium requires gtk4 >= 4.16; Ubuntu runners ship 4.14, so the build
     # aborts in gdk4-sys. Fedora carries a new-enough GTK and matches the
-    # project's actual target environment.
-    container: fedora:latest
+    # project's actual target environment. Pinned by version (not :latest)
+    # so a distribution refresh never surprises a release mid-flight.
+    container: fedora:44
+    timeout-minutes: 30
     steps:
       - name: Install system dependencies
         run: |
@@ -28,7 +41,7 @@ jobs:
             sqlite-devel \
             xorg-x11-server-Xvfb
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: VERSION sync guard
         # VERSION is the single source of truth (meson reads the file
@@ -51,7 +64,7 @@ jobs:
           fi
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
 
       - name: cargo-sources.json freshness guard
         # The Flatpak offline build vendors crates from the generated
@@ -68,11 +81,18 @@ jobs:
           git diff --exit-code data/cargo-sources.json
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        # Deliberate policy (unanswered-gate recommendation recorded
+        # 2026-09-14): CI tracks the `stable` channel as an early-warning
+        # tripwire because the dev machine runs the same channel, so CI
+        # and local never drift; Cargo.lock plus the test suite pin
+        # everything that actually gates behavior. Only the action
+        # itself is SHA-pinned.
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
+          toolchain: stable
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: cargo fmt --check
         run: cargo fmt --all --check
