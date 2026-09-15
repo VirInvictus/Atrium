@@ -59,7 +59,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, NaiveDate, Timelike, Utc};
+use chrono::{NaiveDate, Timelike};
 use rusqlite::Connection;
 
 use super::emit::{emit_org_file_with_meta, emit_org_text_with_meta};
@@ -769,10 +769,6 @@ fn sanitize_filename(s: &str) -> String {
         trimmed
     }
 }
-
-// Suppress dead-code warnings for the chrono imports the
-// scheduled_repeater stub will need once filled in.
-const _: fn() -> Option<DateTime<Utc>> = || None;
 
 #[cfg(test)]
 mod tests {

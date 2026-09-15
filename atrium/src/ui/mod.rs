@@ -2,8 +2,9 @@
 //! GTK4 widget tree (libadwaita dropped at Phase 22 C10).
 //!
 //! - [`typography`]: bundle the three font families and the base CSS.
-//! - [`window`]: the `AdwApplicationWindow` subclass via composite
-//!   template (`data/window.ui`).
+//! - [`window`]: the `gtk::ApplicationWindow` subclass via composite
+//!   template (`data/window.ui`; C8 reparented it off
+//!   `AdwApplicationWindow`).
 //! - [`about`]: the "About Atrium" `gtk::AboutDialog`.
 //! - [`status_page`]: owned empty-state composite (the de-adwaita
 //!   `adw::StatusPage` replacement).

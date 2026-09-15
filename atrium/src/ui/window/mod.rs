@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //! `AtriumWindow` — the application's `gtk::ApplicationWindow` subclass
-//! (Phase 22 C8 reparented it off `gtk::ApplicationWindow`).
+//! (Phase 22 C8 reparented it to plain GTK4, off `AdwApplicationWindow`).
 //!
 //! Phase 4 turns the static sidebar / placeholder content from Phase 3
 //! into a real working surface:

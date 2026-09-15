@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 //! Builder Mode Inspector side pane (Phase 10).
 //!
-//! Companion pane that lives on the right of `AdwOverlaySplitView`
-//! and renders the full task editor whenever a row is selected. The
+//! Companion pane that lives on the right of the window (the
+//! `AdwOverlaySplitView` end child until C6; a plain `gtk::Paned`
+//! since) and renders the full task editor whenever a row is
+//! selected. The
 //! Phase 7i modal Inspector dialog is still the path Simple Mode
 //! uses (Ctrl+I, double-click); this pane is the Builder analogue
 //! and stays visible as long as Builder Mode is on.

@@ -349,7 +349,7 @@ pub fn list_subtasks(conn: &Connection, parent_id: i64) -> Result<Vec<Task>, DbE
 
 /// all tasks belonging to `project_id` regardless of
 /// completion state, ordered by position. Used by the Org vault
-/// writer (sync::org::write) so the projected `.org` file
+/// writer (`atrium_org::org::write`) so the projected `.org` file
 /// reflects the complete project state — DONE tasks land in the
 /// file with a CLOSED cookie, not silently dropped.
 pub fn list_all_in_project(conn: &Connection, project_id: i64) -> Result<Vec<Task>, DbError> {

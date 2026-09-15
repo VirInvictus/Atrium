@@ -198,7 +198,7 @@ fn stylesheet_path() -> Option<PathBuf> {
     None
 }
 
-/// Register an icon-theme search path so the AdwAboutDialog (and any
+/// Register an icon-theme search path so the About dialog (and any
 /// other surface looking up `io.github.virinvictus.atrium` by name)
 /// finds the bundled SVG. In installed builds (`meson install`) the
 /// icon already lands in `$datadir/icons/hicolor/scalable/apps/` —

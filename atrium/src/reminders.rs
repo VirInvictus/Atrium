@@ -15,8 +15,8 @@
 //! **Timers are `glib::timeout_future`, never `tokio::time::sleep`.**
 //! The future is polled by the main context, outside any tokio
 //! runtime, and `tokio::time::sleep` panics there ("must be called
-//! from the context of a Tokio 1.x runtime"). Between v0.20.0 and
-//! v0.72.4 that panic killed the loop on its first timer branch — the
+//! from the context of a Tokio 1.x runtime"). Until the v0.73.0 fix
+//! that panic killed the loop on its first timer branch — the
 //! main context swallows the unwind — so reminders never fired. The
 //! `WorkerHandle` calls stay awaitable off-runtime on purpose: mpsc
 //! and oneshot need no reactor. If you find yourself reaching for a

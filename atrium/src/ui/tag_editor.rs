@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 //! Per-task tag editor (Phase 7g).
 //!
-//! In-window modal `adw::Dialog` with a checkbox list of every
-//! existing tag plus an entry to add new ones. Opens from the
+//! In-window modal dialog (an `adw::Dialog` until C8; a transient
+//! `gtk::Window` since) with a checkbox list of every existing tag
+//! plus an entry to add new ones. Opens from the
 //! task-row right-click menu or the `Ctrl+T` accelerator. Apply
 //! dispatches `ensure_tag` for each new name then `set_task_tags`
 //! with the resulting id list — a single transactional
@@ -172,8 +173,9 @@ pub fn open(
     dialog.set_child(Some(&toolbar));
     crate::ui::dialogs::close_on_escape(&dialog);
 
-    // Cancel dismisses without writes. AdwDialog handles Esc-to-close
-    // itself, so we don't install a manual key controller.
+    // Cancel dismisses without writes. The close_on_escape call above
+    // restores the Esc-to-dismiss behaviour adwaita's dialog used to
+    // provide for free.
     cancel_button.connect_clicked(clone!(
         #[weak]
         dialog,

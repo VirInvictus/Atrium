@@ -9,7 +9,10 @@
 //! - Cookies on the line below a headline: SCHEDULED, DEADLINE,
 //!   CLOSED. Each is `<YYYY-MM-DD …>` (active) or `[YYYY-MM-DD …]`
 //!   (inactive — used by CLOSED). Optional repeater suffix
-//!   (`+1w`, `++1w`, `.+1w`) parsed into [`OrgRepeater`].
+//!   (`+1w`, `++1w`, `.+1w`) parsed into [`OrgRepeater`], optional
+//!   warning suffix (`-Nd` / `--Nd`) parsed into the round-trip
+//!   fields; the SCHEDULED warning and the DEADLINE repeater are
+//!   column-backed since v0.72.0 (migration 0021).
 //! - `:PROPERTIES:` drawer with `:KEY: value` lines until `:END:`.
 //! - Headline body: every non-headline line that isn't a cookie /
 //!   property / drawer entry, captured verbatim.
@@ -961,16 +964,7 @@ fn parse_inactive_timestamp(text: &str) -> Option<DateTime<Utc>> {
     let (date, _repeater, _warning) = parse_timestamp_inner(inner)?;
 
     // Look for a `HH:MM` after the date.
-    let parts: Vec<&str> = inner.split_whitespace().collect();
-    let time = parts.iter().find_map(|p| {
-        let mut split = p.split(':');
-        let h: u32 = split.next()?.parse().ok()?;
-        let m: u32 = split.next()?.parse().ok()?;
-        if split.next().is_some() {
-            return None;
-        }
-        chrono::NaiveTime::from_hms_opt(h, m, 0)
-    });
+    let time = parse_time_token(inner);
     let dt = match time {
         Some(t) => date.and_time(t),
         None => date.and_hms_opt(12, 0, 0)?,

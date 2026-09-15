@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 //! Quick Entry capture modal.
 //!
-//! Phase 6c adds the modal `adw::Window` and `Ctrl+Alt+Space`
-//! accelerator. The OS-global shortcut (true zero-launch capture)
+//! Phase 6c added the modal window and the `Ctrl+Alt+Space`
+//! accelerator (an `adw::Window` then; a non-modal `gtk::Window`
+//! since C8). The OS-global shortcut (true zero-launch capture)
 //! is `atriumd` daemon — Phase 20.
 //!
 //! v0.4.5 — the inline parser (`#tag` / `@today` / `@deadline ...`)

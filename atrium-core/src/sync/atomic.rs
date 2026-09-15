@@ -12,13 +12,14 @@
 //! filesystems it falls back to copy-and-delete which isn't
 //! atomic and would defeat the purpose).
 //!
-//! The temp file is named `<dest>.atrium.tmp` so concurrent
-//! writers (Atrium + an unrelated tool that happens to write the
-//! same file) don't collide. If two Atrium processes write the
-//! same file at the same time the second `rename` clobbers the
-//! first, which is the OS guarantee — last-writer-wins. Atrium's
-//! single-writer worker discipline ensures this doesn't happen
-//! within one process.
+//! The temp file is named `<dest>.atrium.tmp`; that fixed name does
+//! NOT make concurrent writers safe (two writers sharing one temp
+//! path would interleave before the rename). Safety comes from
+//! Atrium's single-writer discipline: one tokio task owns every
+//! vault write, so two writers never race within a process. If an
+//! unrelated tool wrote the same file, the last `rename` wins —
+//! the OS guarantee — and the pre-write conflict backup is what
+//! preserves the loser.
 
 use std::fs::{self, File};
 use std::io::{self, Write};

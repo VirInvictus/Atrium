@@ -4,9 +4,9 @@
 //! optional call-to-action child below. The setters mirror the adwaita
 //! names so call sites convert mechanically.
 //!
-//! Styling leans on the `.title-1` / `.dim-label` utility classes. While
-//! libadwaita is still linked those come from its stylesheet; the owned
-//! sheet provides them at C9. The exact spacing / icon weight need not
+//! Styling leans on the `.title-1` / `.dim-label` utility classes,
+//! which came from libadwaita's stylesheet before C10; the owned sheet
+//! has provided them since C9. The exact spacing / icon weight need not
 //! pixel-match adwaita — same copy, same behaviour is the C2 contract;
 //! the look converges at the visual flip.
 

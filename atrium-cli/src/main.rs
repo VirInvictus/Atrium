@@ -1,35 +1,17 @@
 // SPDX-License-Identifier: MIT
 //! Atrium CLI — headless access to the search engine + data layer.
 //!
-//! The data layer (`atrium-core`) and search engine (`atrium-search`)
-//! are GUI-free by design. This binary makes them exercisable from
+//! The data layer (`atrium-core`) and the search grammar (the
+//! `vir-search` crate since v0.70.0) are GUI-free by design. This binary makes them exercisable from
 //! the shell so every feature aside from the GTK rendering itself is
 //! testable, scriptable, grep-able, and ready to be reused by the
 //! 2.0-era TUI / atriumd capture daemon.
 //!
 //! ## Usage
 //!
-//! ```text
-//! atrium-cli [GLOBAL FLAGS] <SUBCOMMAND> [ARGS]
-//!
-//! Global flags:
-//!   --db PATH        override the database path
-//!                    (default: $XDG_DATA_HOME/atrium/atrium.db,
-//!                     or ATRIUM_DB_PATH env if set)
-//!   --json           output as JSON (one object per task)
-//!   --tsv            output as TSV (default; columns: id, status,
-//!                    title, scheduled, deadline, tags)
-//!   --human          pretty-printed columns
-//!   -h, --help       print this message and exit
-//!   -V, --version    print version and exit
-//!
-//! Subcommands:
-//!   search EXPR      run an Atrium search expression and print matches.
-//!                    EXPR follows spec.md §4.3 (e.g. `tag:work AND is:overdue`).
-//!   list NAME        print a canonical list. NAME ∈ inbox | today |
-//!                    upcoming | anytime | someday | logbook | all.
-//!   info ID          print full details of a single task.
-//! ```
+//! The full, maintained usage text lives in `args::USAGE` (shown by
+//! `atrium-cli --help`); this header deliberately does not duplicate
+//! it — the duplicated copy was what drifted.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -1259,7 +1241,7 @@ fn dry_run_path(
     Ok(path)
 }
 
-/// Mirror of `sync::org::write::sanitize_filename`. Re-implemented
+/// Mirror of `atrium_org::org::write::sanitize_filename`. Re-implemented
 /// here rather than re-exported so the writer's helper stays
 /// crate-private.
 fn sanitize_filename_for_dry_run(s: &str) -> String {

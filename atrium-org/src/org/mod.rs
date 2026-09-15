@@ -2,7 +2,7 @@
 //! Hand-rolled Org-mode parser + emitter for the Atrium vault
 //! projection (Phase 16, v0.7.7).
 //!
-//! `atrium-core::sync::org` exposes a focused, passthrough parser
+//! `atrium_org::org` exposes a focused, passthrough parser
 //! for the Org subset spec §7.3 maps to: headlines, TODO/DONE/
 //! CANCELLED keywords, SCHEDULED/DEADLINE/CLOSED cookies, headline
 //! tags, `:PROPERTIES:` drawers, and body text. Anything

@@ -4,9 +4,9 @@
 //!
 //! The evaluator is the pure-Rust path that handles every operator
 //! the grammar exposes, including the SQL-incompatible ones (regex,
-//! tag-set predicates). The SQL-translation evaluator (in `sql.rs`,
-//! Phase 15.5 stage 3) handles the subset SQLite can express, falls
-//! back to in-memory when it can't.
+//! tag-set predicates). The SQL-translation evaluator (`sql_translate.rs`,
+//! Phase 15.5 stage 3) handles the subset SQLite can express and
+//! falls back to in-memory when it can't.
 //!
 //! The eval loop traverses the expression once, short-circuits AND
 //! and OR. Regex compilation is lazy and cached per-call via a small

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
-//! Tests for atrium/src/ui/window.rs.
+//! Tests for the window module (window/mod.rs + shell.rs + …).
 //!
-//! Loaded as the window module's tests submodule via
-//! `#[cfg(test)] #[path = "window_tests.rs"] mod tests;`.
+//! Declared as a plain `#[cfg(test)] mod tests;` inside
+//! `window/mod.rs` — note this file lives in the module DIRECTORY,
+//! so unlike worker_tests.rs it needs no `#[path]` attribute.
 //! Extracted from window.rs in v0.22.0's structural split (Pass 1)
 //! to keep the production code path focused for review.
 

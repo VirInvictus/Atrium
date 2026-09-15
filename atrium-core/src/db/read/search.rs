@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 //! Search-side read helpers: SQL fast-path execution + FTS5 ranking.
 //! Extracted from `read.rs` in the v0.21.0 maintenance pass — search
-//! has its own callers (`atrium-search`'s SQL translator, the in-app
-//! Search bar) and its own concept (SqlBindValue). Better as its own
-//! file.
+//! has its own callers (the SQL fast-path in `sql_translate.rs`, the
+//! in-app Search bar) and its own concept (SqlBindValue). Better as
+//! its own file.
 
 use std::collections::HashMap;
 
