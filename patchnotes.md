@@ -1,5 +1,53 @@
 # Atrium — Patch Notes
 
+## v0.76.0: answered-gates stamp (2026-09-14)
+
+**The final-blitz gate round lands as behavior and infrastructure: the
+board memory guard ships, release automation goes live, the mdBook
+gets a public home, and the remaining CI hardening completes. One new
+user-visible behavior: large boards now say so before they spike.**
+
+- **Changed:** the kanban board guards its memory footprint. Every
+  card materialises a full widget set, and a 9,263-card board measured
+  ~1.9 GB resident against the §8 Active budget of 200 MB
+  (docs/perf-baseline.md); the gate decision (Brandon, 2026-09-14)
+  keeps the budgets as written and guards the surface instead.
+  `refresh_board_page` now toasts when a board would render more than
+  2,000 cards, naming the count and suggesting a narrower filter.
+  Virtualisation stays the ranked real fix (Slot backlog).
+- **Added:** release automation. A `v*` tag now answers with the same
+  checks main gets (fmt, clippy `-D warnings`, xvfb suite), a
+  tag-vs-VERSION guard, and a GitHub Release created from the tag's
+  own verbatim message; tags themselves stay hand-cut. A protection
+  ruleset makes `refs/tags/v*` deletion-proof and update-proof
+  (forward-only, now technical instead of social). The first release
+  cut through the new path is this one.
+- **Added:** the mdBook is published. Pages is enabled with
+  workflow-based deploys and `.github/workflows/book.yml` rebuilds the
+  book on every main push through the official, SHA-pinned Pages
+  actions; the site lives at https://virinvictus.github.io/Atrium/.
+- **Changed:** CI hardening completes: all four actions are pinned to
+  commit SHAs with version comments (checkout v5.1.0, setup-uv v5.4.2,
+  rust-cache v2.9.2, rust-toolchain with the channel moved to the
+  `toolchain:` input), the container pins fedora:44 instead of
+  `fedora:latest`, and the workflows gain a concurrency group, job
+  timeouts, and an explicit read-only permissions floor. The Rust
+  toolchain deliberately keeps tracking `stable` as an early-warning
+  tripwire: the dev machine runs the same channel, so CI and local
+  never drift.
+- **Added:** Dependabot, scoped to the github-actions ecosystem only
+  (weekly). The cargo side stays manual by design: dependency adoption
+  is coordinated consumer-wave style across Atrium, Conservatory, and
+  Viaduct, which automated bumps would fight. Declined in the same
+  decision round and recorded: secret scanning + push protection,
+  SECURITY.md, issue templates, and old-tag Releases.
+- **Docs:** the perf re-baseline the v0.74.0 kit swap owed
+  (docs/perf-baseline.md): 50K data-layer 310 ms / 57 MB (PASS),
+  GUI boot into a 10K Today at 280 MB via the new
+  `scripts/gui_memory_probe.sh`, so the vir-gtk 1.4.0 kit is
+  exonerated and the Active-budget miss is structural. The
+  `--fixture` roadmap box stays open (recorded during the blitz).
+
 ## v0.75.0: the final-audit fix wave (2026-09-14)
 
 **THE FINAL AUDIT's executable lanes land: the two invariant-class code

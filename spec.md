@@ -1,6 +1,6 @@
 # Atrium: Application Specification
 
-**Version:** 0.75.0 (Phases 0-19.5 complete; schema version 21. Phase 20, the 1.0 endgame, is in flight: the Phase 22 de-adwaita ladder ran ahead of the tag (C1 → C10; libadwaita left the tree at v0.64.0) and the remaining pre-1.0 tail is the asset pass (final icon, AppStream screenshots, Flathub metadata). The six-crate workspace, single-writer SQLite worker, two-way Org vault, and Calibre-style search grammar described below are all current; the shared `vir-search` and `vir-gtk` libraries are git dependencies since v0.70.0. The version-by-version record lives in `patchnotes.md`.)
+**Version:** 0.76.0 (Phases 0-19.5 complete; schema version 21. Phase 20, the 1.0 endgame, is in flight: the Phase 22 de-adwaita ladder ran ahead of the tag (C1 → C10; libadwaita left the tree at v0.64.0) and the remaining pre-1.0 tail is the asset pass (final icon, AppStream screenshots, Flathub metadata). The six-crate workspace, single-writer SQLite worker, two-way Org vault, and Calibre-style search grammar described below are all current; the shared `vir-search` and `vir-gtk` libraries are git dependencies since v0.70.0. The version-by-version record lives in `patchnotes.md`.)
 **Target:** Linux desktop (GNOME, Hyprland, any Wayland session), GTK4 ≥ 4.16, no libadwaita (removed at Phase 22)
 **Language:** Rust (2024 Edition)
 **Build System:** Cargo / Meson wrapper for Flatpak packaging

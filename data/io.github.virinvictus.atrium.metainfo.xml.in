@@ -110,6 +110,11 @@
   -->
 
   <releases>
+    <release version="0.76.0" date="2026-09-14">
+      <description translate="no">
+        <p>The answered-gates stamp: the kanban board warns before materialising more than 2,000 cards (the memory guard for the recorded 1.9 GB finding), release automation answers v* tags with the full check suite and a verbatim Release, the mdBook is published to Pages, CI actions are SHA-pinned with the fedora image pinned by version, and Dependabot watches workflow dependencies only.</p>
+      </description>
+    </release>
     <release version="0.75.0" date="2026-09-14">
       <description translate="no">
         <p>The final-audit fix wave: the debug fixture generator routes through the single-writer worker instead of a second writable connection, the vault ledger seed no longer runs on the main thread at boot, GUI imports and the weekly backup leave the main thread, failed undo rollbacks log instead of vanishing, an ID-less vault file no longer duplicates its project, weekday names work in atrium-cli dates, and is:archived / is:queued are recorded as reserved. The docs set is reconciled with the shipped code across schema, gtd-patterns, keymap, spec, the CLI usage text, and the search-help popover.</p>
