@@ -1,4 +1,4 @@
-# Atrium — Keyboard Map
+# Atrium: Keyboard Map
 
 The canonical written reference for every keyboard shortcut Atrium binds. The in-app **Keyboard Shortcuts** dialog (`Ctrl+?` / `F1`) renders the same map; both stay manually aligned with `atrium/src/main.rs::install_accels`.
 
@@ -26,7 +26,7 @@ The canonical written reference for every keyboard shortcut Atrium binds. The in
 | `Ctrl+5` | Someday |
 | `Ctrl+6` | Logbook |
 
-All six canonical lists shipped at v0.1.0; the v0.6.x sidebar reorder (v0.6.7 / v0.6.16) joined Agenda + Review to the top tier alongside them but those derived pages don't have their own number accels — reach them via the sidebar. (v0.39.0 merged the former separate Forecast entry into the Agenda view's Builder-only Bands/Strip layout toggle.)
+All six canonical lists shipped at v0.1.0; the v0.6.x sidebar reorder (v0.6.7 / v0.6.16) joined Agenda + Review to the top tier alongside them but those derived pages don't have their own number accels; reach them via the sidebar. (v0.39.0 merged the former separate Forecast entry into the Agenda view's Builder-only Bands/Strip layout toggle.)
 
 ## List actions
 
@@ -39,11 +39,11 @@ These act on the focused row in the current list. From Phase 7h, the three input
 | `F2` | Start inline editing on the focused row's title. Same surface as double-click. |
 | `Double-click` | Start inline editing on the row's title (v0.1.10). Single click selects + holds focus. |
 | `Ctrl+T` | Open the tag editor for the focused / first-selected task (Phase 7g). Right-click on a task row also surfaces *Edit Tags…* |
-| `Ctrl+I` | Open the Inspector (full task editor — title, notes, schedule, deadline, project, tags) for the focused / first-selected task (Phase 7i). Right-click → *Edit Details…* is the menu equivalent. |
+| `Ctrl+I` | Open the Inspector (full task editor: title, notes, schedule, deadline, project, tags) for the focused / first-selected task (Phase 7i). Right-click → *Edit Details…* is the menu equivalent. |
 | `Ctrl+Shift+I` | Builder Mode: show / hide the right-hand Inspector pane. The pane is non-modal, so it carries its own binding rather than borrowing the dialogs' Escape; hiding returns focus to the task list. Below the compact-width threshold the pane folds automatically and this chord is its reveal. (Phase 21.) |
 | `Ctrl+Shift+L` | Show / hide the Lists sidebar. On narrow windows the sidebar folds automatically (staged collapse: Inspector first, sidebar second) and this chord reveals it; `Ctrl+L` also reveals it by focusing the filter. (v0.72.0.) |
-| `Alt+Up` / `Alt+Down` | Move the focused task up / down — a keyboard alternative to drag-reorder. Position-ordered lists only (Inbox, Anytime, Someday, project and area pages); on a date-sorted list it declines with the same toast a drag would (v0.40.x, Tier D). |
-| `Alt+Left` / `Alt+Right` | Board views: move the focused card into the previous / next column — the keyboard alternative to a cross-column drag, through the same move path (tag or status change + persisted order). Cards are Tab-focusable; edge moves are silent no-ops. Contextual to the focused card (a key controller on the row, not an `install_accels` entry). (v0.68.0, A16.) |
+| `Alt+Up` / `Alt+Down` | Move the focused task up / down: a keyboard alternative to drag-reorder. Position-ordered lists only (Inbox, Anytime, Someday, project and area pages); on a date-sorted list it declines with the same toast a drag would (v0.40.x, Tier D). |
+| `Alt+Left` / `Alt+Right` | Board views: move the focused card into the previous / next column: the keyboard alternative to a cross-column drag, through the same move path (tag or status change + persisted order). Cards are Tab-focusable; edge moves are silent no-ops. Contextual to the focused card (a key controller on the row, not an `install_accels` entry). (v0.68.0, A16.) |
 | `Ctrl+Click` | Toggle row in the multi-selection (Phase 7c) |
 | `Shift+Click` | Extend the multi-selection range (Phase 7c) |
 | `Ctrl+A` | Select all in the active list (Phase 7c) |
@@ -53,7 +53,7 @@ These act on the focused row in the current list. From Phase 7h, the three input
 
 Mix freeform text and filter clauses inside the search bar. The grammar landed at v0.4.0 (Phase 15.5) and grew through v0.5.0; the canonical reference is **`spec.md` §4.3**. The `?` button beside the search entry opens the in-app operator-reference popover (it is button-only; `Ctrl+?` opens the general shortcuts window).
 
-Highlights — boolean operators (`AND` / `OR` / `NOT`, with `NOT > AND > OR` precedence + parens for grouping); comparison + range operators on date and numeric fields; date keywords (`today`, `tomorrow`, `thisweek`, `5daysago`, etc.); state predicates (`is:open`, `is:done`, `is:overdue`, `is:scheduled`, `is:repeating`, `is:deferred`, `is:someday`, `is:inbox`); Calibre-style match modifiers on textual fields (`tag:x` substring, `tag:=x` exact, `tag:~regex`, `tag:true` / `tag:false`); fuzzy match (`title:?term`); the `sort:` modifier.
+Highlights: boolean operators (`AND` / `OR` / `NOT`, with `NOT > AND > OR` precedence + parens for grouping); comparison + range operators on date and numeric fields; date keywords (`today`, `tomorrow`, `thisweek`, `5daysago`, etc.); state predicates (`is:open`, `is:done`, `is:overdue`, `is:scheduled`, `is:repeating`, `is:deferred`, `is:someday`, `is:inbox`); Calibre-style match modifiers on textual fields (`tag:x` substring, `tag:=x` exact, `tag:~regex`, `tag:true` / `tag:false`); fuzzy match (`title:?term`); the `sort:` modifier.
 
 Examples: `Q3 tag:work` · `tag:errand AND is:open` · `is:overdue` · `(tag:home OR tag:family) AND is:open` · `deadline:<thisweek` · `is:repeating sort:scheduled`.
 
@@ -71,15 +71,15 @@ These manage the area / project hierarchy in the sidebar.
 
 ## Builder Mode (reserved chords, not yet bound)
 
-Builder Mode shipped at v0.2.0 — Inspector pane, Forecast, Review queue, Perspectives, defer dates and repeating tasks all reachable via the sidebar / Inspector. The chords below are still **aspirational slots**: shipped today via the sidebar / mode toggle, not via these accelerators. Listed here so they stay reserved for the binding pass.
+Builder Mode shipped at v0.2.0: Inspector pane, Forecast, Review queue, Perspectives, defer dates and repeating tasks all reachable via the sidebar / Inspector. The chords below are still **aspirational slots**: shipped today via the sidebar / mode toggle, not via these accelerators. Listed here so they stay reserved for the binding pass.
 
 | Shortcut | Action | Status |
 |---|---|---|
-| `Ctrl+Shift+F` | Open Forecast | Shipped via sidebar (Phase 12) — chord pending |
+| `Ctrl+Shift+F` | Open Forecast | Shipped via sidebar (Phase 12): chord pending |
 | `Ctrl+Shift+M` | Open Calendar Month View | ✓ bound (v0.47.0; `app.show-list::calendar`) |
-| `Ctrl+Shift+R` | Open Review queue | Shipped via sidebar (Phase 13) — chord pending |
-| `Ctrl+P` | Perspective picker | Shipped via sidebar Perspectives section (Phase 14) — chord pending |
-| `Ctrl+D` | Defer-date editor | Shipped via Inspector (Phase 11) — chord pending |
+| `Ctrl+Shift+R` | Open Review queue | Shipped via sidebar (Phase 13): chord pending |
+| `Ctrl+P` | Perspective picker | Shipped via sidebar Perspectives section (Phase 14): chord pending |
+| `Ctrl+D` | Defer-date editor | Shipped via Inspector (Phase 11): chord pending |
 
 ## Drag and drop
 
@@ -89,20 +89,20 @@ Not all interactions are keyboard accels. The mouse gestures worth knowing (a ke
 |---|---|
 | Drag a task up/down | Reorder, on position-ordered lists only (Inbox, Anytime, Someday, project and area pages). On date-sorted lists (Today, Upcoming, Logbook) order follows the date, so a reorder drag is declined with a toast. |
 | **Shift**-drag a task onto another task | Nest it as a subtask of the target (same project only; cycles are rejected with a toast). A plain drop still reorders. |
-| Drag a task onto another day | Reschedule it — in the Forecast "Strip" layout and the Calendar Month View. |
+| Drag a task onto another day | Reschedule it: in the Forecast "Strip" layout and the Calendar Month View. |
 | Drag a task onto a sidebar project / area | Move it there. |
 | Drag a card between kanban columns | Tag-axis boards rewrite the task's tags; status-axis boards change the task's real state (and complete it on a "done" column). Keyboard equivalent: `Alt+Left` / `Alt+Right` on a focused card (v0.68.0). |
 | Drop files / URLs / text onto the window | Opens Quick Entry pre-filled, so the capture is reviewable before it lands. |
 
 ## Reserved
 
-`Ctrl+Shift+Z` stays reserved for redo (Builder Mode work history). Unlike the undo pair it is not wired in `install_accels` yet — there is no redo action to point at — so the chord currently does nothing; this table is where it lands when the action ships. (An earlier revision listed `Ctrl+,` here against a "Phase 8" target; preferences shipped at v0.20.0 with the accel live, and it has moved to the General table above.)
+`Ctrl+Shift+Z` stays reserved for redo (Builder Mode work history). Unlike the undo pair it is not wired in `install_accels` yet (there is no redo action to point at), so the chord currently does nothing; this table is where it lands when the action ships. (An earlier revision listed `Ctrl+,` here against a "Phase 8" target; preferences shipped at v0.20.0 with the accel live, and it has moved to the General table above.)
 
 ## Discovery rules
 
-- **Every visible action carries its accel in the menu** — `Ctrl+Q` next to "Quit", etc.
-- **The Shortcuts dialog is always one keypress away** — `Ctrl+?` from anywhere.
-- **No silent overrides of OS conventions** — no rebinding `Ctrl+C`, `Ctrl+V`, etc.; if an action conflicts with what the user expects in a text field, the text field wins.
+- **Every visible action carries its accel in the menu**: `Ctrl+Q` next to "Quit", etc.
+- **The Shortcuts dialog is always one keypress away**: `Ctrl+?` from anywhere.
+- **No silent overrides of OS conventions**: no rebinding `Ctrl+C`, `Ctrl+V`, etc.; if an action conflicts with what the user expects in a text field, the text field wins.
 
 ## Adding a shortcut
 

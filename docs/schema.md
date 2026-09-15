@@ -1,34 +1,34 @@
-# Atrium — Schema Reference
+# Atrium: Schema Reference
 
 This document is the **rationale** for the schema. The **contract** lives in [`spec.md`](../spec.md) §4 and the canonical SQL in [`atrium-core/src/db/migrations/0001_initial.sql`](../atrium-core/src/db/migrations/0001_initial.sql). When in doubt, the SQL wins.
 
-> **Schema discipline.** Migration `0001_initial.sql` shipped the full OmniFocus superset. The v0.1 line was schema-frozen — every Builder-mode column already existed. The freeze ended at v0.2.0. Migrations are now **append-only and backwards-compatible**: add columns / tables / triggers / indexes; renames + drops are major-bump-only. Current `user_version`: **21**. Migration history below.
+> **Schema discipline.** Migration `0001_initial.sql` shipped the full OmniFocus superset. The v0.1 line was schema-frozen: every Builder-mode column already existed. The freeze ended at v0.2.0. Migrations are now **append-only and backwards-compatible**: add columns / tables / triggers / indexes; renames + drops are major-bump-only. Current `user_version`: **21**. Migration history below.
 
 ## Migration history
 
 | Migration | Phase / Version | What it does |
 |---|---|---|
-| `0001_initial.sql` | Phase 1 / v0.1.0 | OmniFocus superset — area, project, heading, task, tag, task_tag, FTS5, triggers, indexes |
+| `0001_initial.sql` | Phase 1 / v0.1.0 | OmniFocus superset: area, project, heading, task, tag, task_tag, FTS5, triggers, indexes |
 | `0002_perspectives.sql` | Phase 14 / v0.1.17 | Adds `perspective` table for saved searches (additive) |
-| `0003_repeat_mode.sql` | Phase 15 / v0.2.0 | First `ALTER TABLE` — adds `task.repeat_mode` (`TEXT NULL`; `BASIC` / `NEXT` / `CUMULATIVE`) for Org-mode repeater completion semantics |
+| `0003_repeat_mode.sql` | Phase 15 / v0.2.0 | First `ALTER TABLE`: adds `task.repeat_mode` (`TEXT NULL`; `BASIC` / `NEXT` / `CUMULATIVE`) for Org-mode repeater completion semantics |
 | `0004_area_color.sql` | Phase 15.75 Slice A / v0.5.0 | Adds `area.color` (`TEXT NULL`, `'#RRGGBB'`) for per-area accent |
-| `0005_perspective_renderer.sql` | Phase 15.75 Slice A / v0.5.0 | Adds `perspective.renderer` (`'list'` / `'board'`, default `'list'`) + `perspective.renderer_config` (TEXT, JSON config — used by the kanban renderer for column definitions) |
+| `0005_perspective_renderer.sql` | Phase 15.75 Slice A / v0.5.0 | Adds `perspective.renderer` (`'list'` / `'board'`, default `'list'`) + `perspective.renderer_config` (TEXT, JSON config: used by the kanban renderer for column definitions) |
 | `0006_task_last_reviewed_at.sql` | Phase 13 follow-up / v0.7.4 | Adds `task.last_reviewed_at` (TEXT NULL) for the canonical Review page's task-level Mark Reviewed action. Mirror of `project.last_reviewed_at`; rows reviewed within the last 7 days hide from the weekly walk. |
 | `0007_task_orig_keyword.sql` | Phase 16 / v0.7.12 | Adds `task.orig_keyword` (TEXT NULL) so the Org importer can stash non-canonical Org keywords (`WAITING`, `BLOCKED`, `IN-PROGRESS`, etc.) for round-trip preservation by the writer. Atrium's domain keeps three canonical states (TODO / DONE / CANCELLED); this column is the file-level label round-trip anchor only. |
-| `0008_task_deadline_warn_days.sql` | Phase 18.5 Tier 1 / v0.14.0 | Adds `task.deadline_warn_days` (INTEGER NULL) — per-task override of the global Today deadline window; round-trips as the `-Nd` warning suffix on the Org DEADLINE cookie |
-| `0009_task_clock_entry.sql` | Phase 18.5 Tier 1 / v0.17.0 | Adds the `task_clock_entry` side table — actual time spent per work session (vs. `estimated_minutes` intent); round-trips as `CLOCK:` lines in Org's `:LOGBOOK:` drawer |
-| `0010_quick_entry_template.sql` | Phase 18.5 Tier 1 / v0.18.0 | Adds the `quick_entry_template` table — named Quick Entry captures with pre-filled project / prefix / tags |
-| `0011_task_scheduled_time.sql` | Phase 18.5 Tier 2 / v0.19.0 | Adds `task.scheduled_time` (TEXT NULL, `HH:MM`) — optional time-of-day companion to the date-only `scheduled_for` |
-| `0012_task_reminder_at.sql` | Phase 19.5 / v0.20.0 | Adds `task.reminder_at` (TEXT NULL, RFC 3339) — system-notification reminders via `gio::Notification` |
+| `0008_task_deadline_warn_days.sql` | Phase 18.5 Tier 1 / v0.14.0 | Adds `task.deadline_warn_days` (INTEGER NULL): per-task override of the global Today deadline window; round-trips as the `-Nd` warning suffix on the Org DEADLINE cookie |
+| `0009_task_clock_entry.sql` | Phase 18.5 Tier 1 / v0.17.0 | Adds the `task_clock_entry` side table: actual time spent per work session (vs. `estimated_minutes` intent); round-trips as `CLOCK:` lines in Org's `:LOGBOOK:` drawer |
+| `0010_quick_entry_template.sql` | Phase 18.5 Tier 1 / v0.18.0 | Adds the `quick_entry_template` table: named Quick Entry captures with pre-filled project / prefix / tags |
+| `0011_task_scheduled_time.sql` | Phase 18.5 Tier 2 / v0.19.0 | Adds `task.scheduled_time` (TEXT NULL, `HH:MM`): optional time-of-day companion to the date-only `scheduled_for` |
+| `0012_task_reminder_at.sql` | Phase 19.5 / v0.20.0 | Adds `task.reminder_at` (TEXT NULL, RFC 3339): system-notification reminders via `gio::Notification` |
 | `0013_task_clock_entry_timestamps.sql` | v0.21.0 maintenance | Backfills `created_at` / `modified_at` + the modified-at trigger onto `task_clock_entry`, closing the audit-trail gap left by 0009 |
-| `0014_task_extra_properties.sql` | Post-v0.22.0 Tier 1 / v0.24.0 | Adds `task.extra_properties` (TEXT, JSON object) — verbatim passthrough for custom Org `:KEY: value` drawer entries the importer used to drop |
-| `0015_area_default_review_interval.sql` | Tier 3 polish / v0.28.0 | Adds `area.default_review_interval_days` (INTEGER NULL) — per-area Review default that cascades to projects without their own interval |
-| `0016_task_dependency.sql` | Tier 2 / v0.29.0 | Adds the `task_dependency` join table (`blocked_by`) — prerequisites gate availability; powers `is:blocked` / `is:available` |
-| `0017_task_template.sql` | Phase 19.5 / v0.33.0 | Adds `task_template` + `task_template_item` — reusable project shapes instantiated into fresh projects (distinct from 0010's one-line captures) |
-| `0018_task_reminder_fired.sql` | Phase 19.5 follow-up / v0.41.0 | Adds the `task_reminder_fired` side table so launch catch-up can fire overdue reminders exactly once. ⚠ Known flaw, shipped and unfixable in place (append-only discipline): the backfill compared `reminder_at` against a `T`-separated boundary string while the column stores space-separated timestamps, so a reminder due later the *same day* as the upgrade was marked already-fired and never notified. One-time upgrade damage only; lesson recorded here — string date comparisons in migrations must match rusqlite's actual serialization format |
-| `0019_board_card_position.sql` | Kanban maturity 2d / v0.46.0 | Adds the `board_card_position` side table — persisted manual within-column card order per (perspective, column, task); columns themselves stay projections |
+| `0014_task_extra_properties.sql` | Post-v0.22.0 Tier 1 / v0.24.0 | Adds `task.extra_properties` (TEXT, JSON object): verbatim passthrough for custom Org `:KEY: value` drawer entries the importer used to drop |
+| `0015_area_default_review_interval.sql` | Tier 3 polish / v0.28.0 | Adds `area.default_review_interval_days` (INTEGER NULL): per-area Review default that cascades to projects without their own interval |
+| `0016_task_dependency.sql` | Tier 2 / v0.29.0 | Adds the `task_dependency` join table (`blocked_by`): prerequisites gate availability; powers `is:blocked` / `is:available` |
+| `0017_task_template.sql` | Phase 19.5 / v0.33.0 | Adds `task_template` + `task_template_item`: reusable project shapes instantiated into fresh projects (distinct from 0010's one-line captures) |
+| `0018_task_reminder_fired.sql` | Phase 19.5 follow-up / v0.41.0 | Adds the `task_reminder_fired` side table so launch catch-up can fire overdue reminders exactly once. ⚠ Known flaw, shipped and unfixable in place (append-only discipline): the backfill compared `reminder_at` against a `T`-separated boundary string while the column stores space-separated timestamps, so a reminder due later the *same day* as the upgrade was marked already-fired and never notified. One-time upgrade damage only; lesson recorded here: string date comparisons in migrations must match rusqlite's actual serialization format |
+| `0019_board_card_position.sql` | Kanban maturity 2d / v0.46.0 | Adds the `board_card_position` side table: persisted manual within-column card order per (perspective, column, task); columns themselves stay projections |
 | `0020_swatch_kanagawa.sql` | Phase 22 C9 / v0.62.0 | UPDATE-only recolour of the six built-in tag / area swatch hexes from the adwaita palette to Kanagawa Dragon, in lockstep with the owned stylesheet |
-| `0021_task_org_cookie_fields.sql` | v0.72.0 | Adds `task.scheduled_warning_days` (INTEGER NULL — the `-Nd` suffix on the SCHEDULED cookie; mirrors 0008's deadline-side column) and `task.deadline_repeater` (TEXT NULL — the DEADLINE cookie's repeater fragment stored verbatim, `+1m` shaped), so hand-authored cookie fragments stop being dropped on re-emit |
+| `0021_task_org_cookie_fields.sql` | v0.72.0 | Adds `task.scheduled_warning_days` (INTEGER NULL: the `-Nd` suffix on the SCHEDULED cookie; mirrors 0008's deadline-side column) and `task.deadline_repeater` (TEXT NULL: the DEADLINE cookie's repeater fragment stored verbatim, `+1m` shaped), so hand-authored cookie fragments stop being dropped on re-emit |
 
 ## Entity-Relationship diagram
 
@@ -122,7 +122,7 @@ erDiagram
 Top-level grouping. Areas hold projects; deleting an area unfiles its projects rather than nuking them (`ON DELETE SET NULL`). Things 3 calls these "Areas of Responsibility"; OmniFocus calls them "Folders." Same concept. `color` (added in `0004`) is an optional `'#RRGGBB'` accent driving the per-area sidebar accent introduced in v0.5.0 Slice B; `NULL` means "use the GTK accent."
 
 ### `project`
-Lives in an area or unfiled (`area_id NULL`). All Builder-only GTD fields (`sequential`, `review_interval_days`, `last_reviewed_at`) exist from day one — Mode-as-View dictates schema completeness. `archived_at` carries Logbook semantics for completed projects (Things 3 archives projects on completion; OmniFocus calls them "Dropped"/"Done"). `ON DELETE CASCADE` to tasks: deleting a project deletes its tasks, matching user expectation.
+Lives in an area or unfiled (`area_id NULL`). All Builder-only GTD fields (`sequential`, `review_interval_days`, `last_reviewed_at`) exist from day one; Mode-as-View dictates schema completeness. `archived_at` carries Logbook semantics for completed projects (Things 3 archives projects on completion; OmniFocus calls them "Dropped"/"Done"). `ON DELETE CASCADE` to tasks: deleting a project deletes its tasks, matching user expectation.
 
 ### `heading`
 Project subdivisions. Builder UI exposes editing in v0.1; Simple displays them inline as section breaks. `ON DELETE CASCADE` from project: headings can't outlive their project.
@@ -132,32 +132,32 @@ The central row. Several columns deserve specific notes:
 
 - **`project_id`** `NULL` → Inbox. The Inbox is a state, not a stored row.
 - **`parent_id`** for subtasks. The schema supports arbitrary nesting depth; the Simple Mode UI in v0.1 doesn't render nesting (Builder Mode in v0.2 does). `ON DELETE CASCADE`: deleting a parent deletes its children.
-- **`scheduled_for`** is `TEXT`: ISO date (`2026-05-15`) **or** the literal string `'__someday__'`. Someday is a *state*, not a future date — placing it in `scheduled_for` rather than a separate column keeps the derived-view filters honest (every list filters on the same column).
+- **`scheduled_for`** is `TEXT`: ISO date (`2026-05-15`) **or** the literal string `'__someday__'`. Someday is a *state*, not a future date; placing it in `scheduled_for` rather than a separate column keeps the derived-view filters honest (every list filters on the same column).
 - **`deadline`** is ISO date. Distinct from `scheduled_for`: deadline says "must be done by," scheduled says "I plan to do it on." Most Things-3 clones conflate the two; Atrium does not.
 - **`defer_until`** is Builder-only. Tasks invisible in Today / Anytime until the date passes. Implemented in Phase 11.
-- **`completed_at`** is ISO datetime; `NULL` = open task. Logbook is `WHERE completed_at IS NOT NULL`. Hard-delete model — there is no `deleted_at` column. Per Phase 1 design call.
+- **`completed_at`** is ISO datetime; `NULL` = open task. Logbook is `WHERE completed_at IS NOT NULL`. Hard-delete model: there is no `deleted_at` column. Per Phase 1 design call.
 - **`repeat_rule`** stores the canonical RFC 5545 RRULE as text. Org-mode export renders a best-effort approximation in the SCHEDULED cookie (spec §7.3.3 rule 3).
-- **`repeat_mode`** (added in `0003`) controls how the next occurrence anchors when a repeating task completes. The persisted values are the Org cookie semantics, upper-cased: `BASIC` (`+1w` — always shift one increment from the previous anchor, even into the past), `NEXT` (`.+1w` — anchor on the completion date and shift from there), and `CUMULATIVE` (`++1w` — shift repeatedly until the next occurrence is in the future; the default, and what `NULL` falls back to). See `atrium-core/src/repeat.rs` (`from_column` / `as_column`) and the column table in spec §4.3.
+- **`repeat_mode`** (added in `0003`) controls how the next occurrence anchors when a repeating task completes. The persisted values are the Org cookie semantics, upper-cased: `BASIC` (`+1w`: always shift one increment from the previous anchor, even into the past), `NEXT` (`.+1w`: anchor on the completion date and shift from there), and `CUMULATIVE` (`++1w`: shift repeatedly until the next occurrence is in the future; the default, and what `NULL` falls back to). See `atrium-core/src/repeat.rs` (`from_column` / `as_column`) and the column table in spec §4.3.
 - **`last_reviewed_at`** (added in `0006`) is the task-level analogue of `project.last_reviewed_at`. Stamped by the `MarkTaskReviewed` worker command from the canonical Review page's per-row Mark Reviewed button. The Review page's weekly-walk filter excludes tasks reviewed within the last 7 days; otherwise the column is unread. NULL means "never reviewed."
-- **`orig_keyword`** (added in `0007`) is the Phase 16 round-trip anchor for non-canonical Org keywords. The Org importer stashes the original (`WAITING`, `BLOCKED`, `IN-PROGRESS`, etc.) here when it sees a TODO state Atrium doesn't model; the Org writer consults the column when emitting so the original keyword survives a vault round-trip. Atrium's UI never surfaces this column — completion semantics still flow through `completed_at` alone.
-- **`position`** is `REAL` — midpoint insertion enables arbitrary reorder without renumbering siblings.
+- **`orig_keyword`** (added in `0007`) is the Phase 16 round-trip anchor for non-canonical Org keywords. The Org importer stashes the original (`WAITING`, `BLOCKED`, `IN-PROGRESS`, etc.) here when it sees a TODO state Atrium doesn't model; the Org writer consults the column when emitting so the original keyword survives a vault round-trip. Atrium's UI never surfaces this column; completion semantics still flow through `completed_at` alone.
+- **`position`** is `REAL`: midpoint insertion enables arbitrary reorder without renumbering siblings.
 
 ### `tag`
-`name` is **`UNIQUE COLLATE NOCASE`** so `Errand` and `errand` merge. Color is optional (`TEXT NULL`, `'#RRGGBB'` or NULL) — UI provides the swatch; the canonical value lives here so Org-vault projection (Phase 17) can read it from the sidecar `.atrium/config.toml`.
+`name` is **`UNIQUE COLLATE NOCASE`** so `Errand` and `errand` merge. Color is optional (`TEXT NULL`, `'#RRGGBB'` or NULL): UI provides the swatch; the canonical value lives here so Org-vault projection (Phase 17) can read it from the sidecar `.atrium/config.toml`.
 
 ### `task_tag`
 Composite primary key `(task_id, tag_id)` doubles as a uniqueness constraint. Both FKs `ON DELETE CASCADE`: deleting a tag removes its associations; deleting a task removes its tag links.
 
 ### `perspective`
-Saved search. `filter_expr` stores the expression-language query verbatim (parsed at evaluation time, not at save time, so syntax updates apply retroactively). Added in `0002` as a list-renderer table; `0005` extended it with `renderer` (`'list'` / `'board'`, default `'list'`) and `renderer_config` (TEXT NULL — JSON column definitions for the kanban renderer; ignored when `renderer = 'list'`). The kanban projection logic lives in `atrium-core/src/render.rs`.
+Saved search. `filter_expr` stores the expression-language query verbatim (parsed at evaluation time, not at save time, so syntax updates apply retroactively). Added in `0002` as a list-renderer table; `0005` extended it with `renderer` (`'list'` / `'board'`, default `'list'`) and `renderer_config` (TEXT NULL; JSON column definitions for the kanban renderer, ignored when `renderer = 'list'`). The kanban projection logic lives in `atrium-core/src/render.rs`.
 
 ## Datetime format
 
 All temporal columns are `TEXT` in ISO 8601, but two writer formats exist and they are **not** mutually comparable as strings:
 
 - **Dates** (`scheduled_for`, `deadline`, `defer_until`): `YYYY-MM-DD`, always.
-- **Datetimes written in SQL** (`created_at`, `modified_at`, and the completion / review / archive / clock stamps the worker stamps via `strftime`): `YYYY-MM-DDTHH:MM:SS.sssZ` — `T`-separated, millisecond precision, `Z` suffix (this is also the `DEFAULT` on every table).
-- **Datetimes bound from Rust** (`reminder_at`, and importer-preserved `completed_at` threaded through `NewTask`): whatever rusqlite's `chrono` feature serializes — `YYYY-MM-DD HH:MM:SS.sss+00:00`, **space**-separated with a named offset.
+- **Datetimes written in SQL** (`created_at`, `modified_at`, and the completion / review / archive / clock stamps the worker stamps via `strftime`): `YYYY-MM-DDTHH:MM:SS.sssZ`: `T`-separated, millisecond precision, `Z` suffix (this is also the `DEFAULT` on every table).
+- **Datetimes bound from Rust** (`reminder_at`, and importer-preserved `completed_at` threaded through `NewTask`): whatever rusqlite's `chrono` feature serializes: `YYYY-MM-DD HH:MM:SS.sss+00:00`, **space**-separated with a named offset.
 
 The split is exactly why migration `0018`'s backfill mis-fired (it compared `reminder_at` against a `T`-separated boundary; see the `0018` row above). Rule, recorded the hard way: any migration or query comparing datetime strings must match the actual per-column writer format, and cross-format comparisons must go through `DATE()` (the v0.71.0 boundary fixes did exactly that). ISO `YYYY-MM-DD` date strings do sort lexicographically and identically to chronological order. The `'__someday__'` sentinel for `scheduled_for` could not be represented as INTEGER unix without ugly magic values.
 
@@ -165,14 +165,14 @@ The split is exactly why migration `0018`'s backfill mis-fired (it compared `rem
 
 Five `AFTER UPDATE` triggers (one per table that carries the columns) bump `modified_at` to `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` whenever a row is modified. Each trigger has a `WHEN old.modified_at = new.modified_at` clause that:
 
-1. **Prevents recursion** — the trigger's own UPDATE flips `modified_at`, after which `old.modified_at != new.modified_at` and the trigger doesn't re-fire.
-2. **Lets explicit writes survive** — during import (Phase 16+) we may want to preserve the source's original `modified_at`. Setting `modified_at` explicitly in the UPDATE makes `old != new` and the trigger sits out.
+1. **Prevents recursion:** the trigger's own UPDATE flips `modified_at`, after which `old.modified_at != new.modified_at` and the trigger doesn't re-fire.
+2. **Lets explicit writes survive:** during import (Phase 16+) we may want to preserve the source's original `modified_at`. Setting `modified_at` explicitly in the UPDATE makes `old != new` and the trigger sits out.
 
 Tested by `db::tests::modified_at_trigger_fires` and `db::tests::explicit_modified_at_survives_trigger`.
 
 ## Full-text search
 
-`task_fts` is an FTS5 virtual table linked to `task` by `content='task', content_rowid='id'`. It indexes `title` + `note`. Three triggers keep it synced (`task_fts_insert`, `task_fts_delete`, `task_fts_update`). Tokenizer is **`unicode61`** — no stemming. Per Phase 1 design call, predictability beats fuzzy matching for short task titles; stemming may land in v0.2 as an option.
+`task_fts` is an FTS5 virtual table linked to `task` by `content='task', content_rowid='id'`. It indexes `title` + `note`. Three triggers keep it synced (`task_fts_insert`, `task_fts_delete`, `task_fts_update`). Tokenizer is **`unicode61`** (no stemming). Per Phase 1 design call, predictability beats fuzzy matching for short task titles; stemming may land in v0.2 as an option.
 
 Search is exposed in Phase 7 with `Ctrl+F`.
 

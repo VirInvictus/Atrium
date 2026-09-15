@@ -2,10 +2,10 @@
 
 Hand-crafted artifacts for showing Atrium off and exercising
 the data layer with realistic shapes. Not on the install /
-distribution path — these live alongside the code so the
+distribution path; these live alongside the code so the
 in-tree story stays one step from the CLI.
 
-## `showcase/` — the Org-mode conversion in action
+## `showcase/`: the Org-mode conversion in action
 
 Three projects across two areas, deliberately rich:
 
@@ -37,7 +37,7 @@ What it exercises:
   top-level `:PROPERTIES:` drawer carrying `:ID:`,
   `:SEQUENTIAL:`, `:REVIEW_INTERVAL:`.
 - **Body content with Org constructs.** Source blocks, a
-  table, bullet lists, external + internal links — all
+  table, bullet lists, external + internal links: all
   preserved verbatim per spec §7.3.3 rule 1.
 - **Multi-tag headlines.** `:tag1:tag2:tag3:` with three
   or more tags in many places.
@@ -64,7 +64,7 @@ cargo run -p atrium
 ```
 
 After that, `~/Tasks/` has the projects mirrored back as
-`.org` files — same content, canonical Atrium emit format.
+`.org` files: same content, canonical Atrium emit format.
 Open any of them in DoomEmacs to see how the round-trip
 looks; edit a task, save, and watch Atrium pick the change
 up in ~200 ms via the `inotify` watcher.

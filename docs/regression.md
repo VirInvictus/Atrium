@@ -1,4 +1,4 @@
-# Atrium — Regression Gate
+# Atrium: Regression Gate
 
 The single command that answers "is `main` ready to tag?" is:
 
@@ -30,7 +30,7 @@ The 5.5 `atrium-cli` smoke (added at v0.5.x and grown through v0.6.x) reuses the
 
 - Before tagging any **minor** or **major** version.
 - Before merging a branch that touches the data layer, the worker, or the schema.
-- Before running `flatpak-builder` against the manifest — a green gate is the precondition for trusting a release build.
+- Before running `flatpak-builder` against the manifest: a green gate is the precondition for trusting a release build.
 
 For patch versions (typo fixes, doc-only changes), running the gate is optional but recommended; it costs ~5 s incrementally.
 
@@ -42,21 +42,21 @@ scripts/regression.sh --skip-build    # reuse existing target/release
 scripts/regression.sh --help          # render this section
 ```
 
-`--skip-build` is the right call when chaining the gate after another `cargo build --release` you've just run — saves 45 s on cold builds. The script verifies `target/release/atrium` still exists before invoking the fixture step.
+`--skip-build` is the right call when chaining the gate after another `cargo build --release` you've just run (saves 45 s on cold builds). The script verifies `target/release/atrium` still exists before invoking the fixture step.
 
 ## Failure semantics
 
 - The script aborts on the first failing step (`set -e` + explicit `fail` on each gate).
-- Step output (clippy diagnostics, test output, fixture summary) goes to stdout/stderr in real time — readable without re-running.
+- Step output (clippy diagnostics, test output, fixture summary) goes to stdout/stderr in real time, readable without re-running.
 - The trailing `PASS` line carries the current `VERSION` so the log identifies which build was tested.
 
 ## What it does NOT cover
 
 These are deliberate gaps the gate doesn't try to close:
 
-- **GUI smoke** — opening the actual window requires a display server, which `cargo` in CI doesn't have. Manual verification stays manual; `docs/accessibility.md` lists the checks you'd walk through.
-- **Flatpak build** — needs `flatpak-builder` + the GNOME 50 runtime. Run `flatpak-builder --user --install --force-clean build-dir data/io.github.virinvictus.atrium.yml` separately when packaging.
-- **`heaptrack` profiling** — the perf baseline doc (`docs/perf-baseline.md`) covers this with explicit reproduction steps; not part of the everyday gate because it's slow and needs the tool installed.
+- **GUI smoke:** opening the actual window requires a display server, which `cargo` in CI doesn't have. Manual verification stays manual; `docs/accessibility.md` lists the checks you'd walk through.
+- **Flatpak build:** needs `flatpak-builder` + the GNOME 50 runtime. Run `flatpak-builder --user --install --force-clean build-dir data/io.github.virinvictus.atrium.yml` separately when packaging.
+- **`heaptrack` profiling:** the perf baseline doc (`docs/perf-baseline.md`) covers this with explicit reproduction steps; not part of the everyday gate because it's slow and needs the tool installed.
 
 ## Adding a new gate
 

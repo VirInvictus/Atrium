@@ -1,4 +1,4 @@
-# Org-mode round-trip — what Atrium converts
+# Org-mode round-trip: what Atrium converts
 
 A reference for what makes it through the DB ↔ vault loop, what doesn't, and how to see it for yourself. Pairs with [`spec.md` §7.3](../spec.md) (the contract) and the round-trip discipline rules in §7.3.3.
 
@@ -45,7 +45,7 @@ Three projects across two areas land in the DB. The v0.13.5 fresh-vault seed mir
 
 ## Supported constructs (the extent of the conversion)
 
-Every entry below is exercised by `atrium-org/tests/org_roundtrip.rs`'s `comprehensive_*` suite — failing tests would name the specific construct that broke.
+Every entry below is exercised by `atrium-org/tests/org_roundtrip.rs`'s `comprehensive_*` suite; failing tests would name the specific construct that broke.
 
 ### TODO-cycle keywords
 
@@ -53,8 +53,8 @@ Every entry below is exercised by `atrium-org/tests/org_roundtrip.rs`'s `compreh
 |---|---|---|
 | `TODO` | `task.completed_at = NULL`, no `orig_keyword` | clean |
 | `DONE` | `task.completed_at = <CLOSED stamp>`, no `orig_keyword` | clean |
-| `CANCELLED` | `task.completed_at = <CLOSED stamp>`, `orig_keyword = 'CANCELLED'` | clean — needs a `CLOSED:` cookie on the source |
-| `WAITING` / `IN-PROGRESS` / `BLOCKED` / any custom word | `task.orig_keyword = '<word>'`, `task.completed_at = NULL` | clean — migration 0007 added `orig_keyword` for exactly this |
+| `CANCELLED` | `task.completed_at = <CLOSED stamp>`, `orig_keyword = 'CANCELLED'` | clean: needs a `CLOSED:` cookie on the source |
+| `WAITING` / `IN-PROGRESS` / `BLOCKED` / any custom word | `task.orig_keyword = '<word>'`, `task.completed_at = NULL` | clean: migration 0007 added `orig_keyword` for exactly this |
 
 ### Planning cookies
 
@@ -84,7 +84,7 @@ Multi-day RRULEs (`BYDAY=MO,WE,FR`) and BYMONTHDAY-style patterns are stored can
 
 ### Headline tags
 
-`:tag1:tag2:tag3:` slot. Many tags survive — order isn't semantic on the DB side. The Org writer emits in tag-id order (which matches `task_tag` insertion order).
+`:tag1:tag2:tag3:` slot. Many tags survive; order isn't semantic on the DB side. The Org writer emits in tag-id order (which matches `task_tag` insertion order).
 
 ### Properties drawer
 
@@ -110,7 +110,7 @@ Arbitrary depth via `task.parent_id`. The showcase goes four levels deep; the sc
 
 ### Body content
 
-Everything between the headline + cookies + properties drawer and the next headline goes verbatim into `task.note`. That makes Atrium safe for vault-as-living-document use — Org tables, source blocks, lists, internal links, and external URL links all survive even though Atrium itself doesn't render them. Spec §7.3.3 rule 1 is the contract: "preserve unknown constructs verbatim."
+Everything between the headline + cookies + properties drawer and the next headline goes verbatim into `task.note`. That makes Atrium safe for vault-as-living-document use: Org tables, source blocks, lists, internal links, and external URL links all survive even though Atrium itself doesn't render them. Spec §7.3.3 rule 1 is the contract: "preserve unknown constructs verbatim."
 
 ```org
 * TODO Refactor the dashboard
@@ -159,18 +159,18 @@ Every `.org` file is written atomically (`write-temp + fsync + rename`) and re-p
 Hand-rolled minimal TOML. Currently round-trips:
 
 - **Tag colours.** `[tags]` section with `name = "#RRGGBB"` entries.
-- **Mode preference.** Top-level `mode = "simple"` / `"builder"` (recorded; not authoritative — the GUI's local GSettings wins on conflict).
+- **Mode preference.** Top-level `mode = "simple"` / `"builder"` (recorded; not authoritative, as the GUI's local GSettings wins on conflict).
 - **Saved Perspectives.** TOML array-of-tables (`[[perspectives]]`) with `name`, `filter`, optional `icon`, `renderer` (`"list"` / `"board"`), optional `renderer_config` (opaque JSON for board configs). Added v0.13.1.
 
 Other Org tools ignore the `.atrium/` directory by convention.
 
 ## Known limits
 
-One construct class doesn't fully round-trip yet. It has a dedicated `documented_limit_*` test that fails the moment the gap closes — flipping it from "documenting the limit" to "asserting preservation" is the regression-detection target. (A second class, custom property-drawer keys, used to be listed here; v0.24.0 closed that gap and it now documents as supported.)
+One construct class doesn't fully round-trip yet. It has a dedicated `documented_limit_*` test that fails the moment the gap closes: flipping it from "documenting the limit" to "asserting preservation" is the regression-detection target. (A second class, custom property-drawer keys, used to be listed here; v0.24.0 closed that gap and it now documents as supported.)
 
 ### Project sub-headings (writer-only)
 
-The v0.12.0 writer learned to emit project sub-headings as depth-1 keyword-less headlines (driven by the Todoist mapper). The Org *importer* still skips them — they're counted in `ImportSummary::headings_skipped` and don't land in the `heading` table. Tasks under a sub-heading flow into the project at top level "as if the sub-heading were transparent".
+The v0.12.0 writer learned to emit project sub-headings as depth-1 keyword-less headlines (driven by the Todoist mapper). The Org *importer* still skips them (they're counted in `ImportSummary::headings_skipped` and don't land in the `heading` table). Tasks under a sub-heading flow and into the project at top level "as if the sub-heading were transparent".
 
 Test pinning the limit: `documented_limit_org_importer_skips_sub_headings`.
 
@@ -186,7 +186,7 @@ Test pinning the limit: `documented_limit_org_importer_skips_sub_headings`.
 
 ### Custom property-drawer keys (fixed, v0.24.0)
 
-Atrium's importer cherry-picks the well-known keys (`ID`, `EFFORT`, `DEFER_UNTIL`, `RRULE`) and writes them through typed columns. Custom keys — `:CATEGORY:`, `:CLIENT:`, `:URL:`, anything else a user might put in their drawer — land in `task.extra_properties` (a JSON object column added by migration `0014`, schema 14) and re-emit verbatim on the next vault write.
+Atrium's importer cherry-picks the well-known keys (`ID`, `EFFORT`, `DEFER_UNTIL`, `RRULE`) and writes them through typed columns. Custom keys (`:CATEGORY:`, `:CLIENT:`, `:URL:`, anything else a user might put in their drawer) land in `task.extra_properties` (a JSON object column added by migration `0014`, schema 14) and re-emit verbatim on the next vault write.
 
 ```org
 * TODO Task with rich drawer
@@ -204,31 +204,31 @@ This closed the last documented Org round-trip data loss (v0.24.0; an earlier re
 
 | Concern | Location |
 |---|---|
-| Org parser (text → AST) | `atrium-org/src/org/parse.rs` — hand-rolled headline / cookie / properties / body parser. No third-party Org crate; `orgize` and `starsector` were both surveyed and rejected at Phase 16 (dormant + alpha). |
-| Org emitter (AST → text) | `atrium-org/src/org/emit.rs` — produces stable, org-agenda-readable output with byte-stable property ordering and the v0.13.3 blank-line-between-headlines styling. |
-| One-shot import path | `atrium-org/src/org/import.rs` — single-file + multi-file vault walker. `import_org_file(handle, path, dry_run)` and `import_org_directory(handle, path, dry_run)`. |
-| Vault writer task | `atrium-org/src/vault_writer.rs` — receives `ProjectDirty(project_id)` over `tokio::mpsc`, debounces ~100 ms, atomically rewrites the affected `.org` files. |
-| Vault watcher task | `atrium-org/src/vault_watcher.rs` — `notify` v8 backend with a 200 ms debounce. Reads each modified file, diffs by `:ID:` against the DB, dispatches CRUD via the worker handle. |
-| Self-write filter | `atrium-org/src/self_write.rs` — shared `RecentWrites` set keyed on `(path, mtime)` exact-tuple equality. Suppresses the inotify echo a writer creates by writing its own files. |
-| RRULE projection helpers | `atrium-org/src/rrule_cookie.rs` — RRULE ↔ Org cookie projection. The lossy direction is detected and surfaced as `VaultEvent::RruleDiverged`. |
-| Sidecar | `atrium-org/src/sidecar.rs` — `.atrium/config.toml` round-trip. Hand-rolled minimal TOML; no `toml` crate dep. |
+| Org parser (text → AST) | `atrium-org/src/org/parse.rs`: hand-rolled headline / cookie / properties / body parser. No third-party Org crate; `orgize` and `starsector` were both surveyed and rejected at Phase 16 (dormant + alpha). |
+| Org emitter (AST → text) | `atrium-org/src/org/emit.rs`: produces stable, org-agenda-readable output with byte-stable property ordering and the v0.13.3 blank-line-between-headlines styling. |
+| One-shot import path | `atrium-org/src/org/import.rs`: single-file + multi-file vault walker. `import_org_file(handle, path, dry_run)` and `import_org_directory(handle, path, dry_run)`. |
+| Vault writer task | `atrium-org/src/vault_writer.rs`: receives `ProjectDirty(project_id)` over `tokio::mpsc`, debounces ~100 ms, atomically rewrites the affected `.org` files. |
+| Vault watcher task | `atrium-org/src/vault_watcher.rs`: `notify` v8 backend with a 200 ms debounce. Reads each modified file, diffs by `:ID:` against the DB, dispatches CRUD via the worker handle. |
+| Self-write filter | `atrium-org/src/self_write.rs`: shared `RecentWrites` set keyed on `(path, mtime)` exact-tuple equality. Suppresses the inotify echo a writer creates by writing its own files. |
+| RRULE projection helpers | `atrium-org/src/rrule_cookie.rs`: RRULE ↔ Org cookie projection. The lossy direction is detected and surfaced as `VaultEvent::RruleDiverged`. |
+| Sidecar | `atrium-org/src/sidecar.rs`: `.atrium/config.toml` round-trip. Hand-rolled minimal TOML; no `toml` crate dep. |
 
-## Round-trip contract — spec §7.3.3 in plain English
+## Round-trip contract: spec §7.3.3 in plain English
 
-1. **Preserve unknown constructs verbatim.** If Atrium doesn't model a construct, it survives in the body field and re-emits as-is. This is what makes the vault safe to edit in Doom — your Org tables, source blocks, custom drawers, etc. won't get clobbered.
+1. **Preserve unknown constructs verbatim.** If Atrium doesn't model a construct, it survives in the body field and re-emits as-is. This is what makes the vault safe to edit in Doom: your Org tables, source blocks, custom drawers, etc. won't get clobbered.
 
 2. **`:ID:` is the round-trip anchor.** Tasks without an `:ID:` on import get one auto-generated; subsequent edits flow through that uuid. Never delete `:ID:` lines manually.
 
 3. **`:RRULE:` is canonical; the SCHEDULED cookie is best-fit projection.** When you retune the cookie alone in Emacs, divergence detection fires and the file gets rewritten from the canonical `:RRULE:`.
 
-4. **Conflicts are surfaced, not silenced.** Pre-write the writer stats the destination file. If the mtime isn't in `RecentWrites` (an external editor touched it), the current contents copy to `<file>.atrium.bak.<UTC-timestamp>` first. The user's hand-edits never get lost — only relocated.
+4. **Conflicts are surfaced, not silenced.** Pre-write the writer stats the destination file. If the mtime isn't in `RecentWrites` (an external editor touched it), the current contents copy to `<file>.atrium.bak.<UTC-timestamp>` first. The user's hand-edits never get lost, only relocated.
 
 5. **Atomic writes.** `write-temp + fsync + rename` for every vault write, plus a post-write integrity check that re-parses the file and fails the flush on any divergence.
 
 ## Further reading
 
-- [`spec.md` §3.5](../spec.md) — the architectural commitment to vault-as-projection.
-- [`spec.md` §7.3](../spec.md) — the full contract (vault layout, field mapping, round-trip rules).
-- [`spec.md` §6](../spec.md) — Quick Entry vocabulary (the inline-syntax tokens are part of the same conversion story).
-- [`patchnotes.md`](../patchnotes.md) — release-by-release detail; v0.7.x is the hand-rolled Org parser arc, v0.8.0 stamped Phase 16, v0.10.x is Phase 17 (vault → DB sync), v0.13.x is the inline-syntax + first-boot polish.
-- [`docs/regression.md`](regression.md) — what the ship-gate runs.
+- [`spec.md` §3.5](../spec.md): the architectural commitment to vault-as-projection.
+- [`spec.md` §7.3](../spec.md): the full contract (vault layout, field mapping, round-trip rules).
+- [`spec.md` §6](../spec.md): Quick Entry vocabulary (the inline-syntax tokens are part of the same conversion story).
+- [`patchnotes.md`](../patchnotes.md): release-by-release detail; v0.7.x is the hand-rolled Org parser arc, v0.8.0 stamped Phase 16, v0.10.x is Phase 17 (vault → DB sync), v0.13.x is the inline-syntax + first-boot polish.
+- [`docs/regression.md`](regression.md): what the ship-gate runs.
