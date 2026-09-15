@@ -77,7 +77,11 @@ async fn wait_for_event(
 /// Generous backstop ceiling for a single watcher round-trip. With the
 /// tests serialized (below) each round-trip settles in well under a
 /// second even on a small runner; this only bites on a genuine hang.
-const SETTLE: Duration = Duration::from_secs(10);
+// Raised from 10 s after a CI-only miss on a loaded runner (run
+// 34912648211: `external_deadline_warning_suffix_round_trips_through_db`
+// exhausted the old ceiling while 18 serialized tests shared the
+// debounce chain); every poll that lands early is unaffected.
+const SETTLE: Duration = Duration::from_secs(30);
 
 /// Each test in this file spawns a multi-threaded tokio runtime plus a
 /// `notify` watcher thread and a worker thread, and leans on wall-clock
