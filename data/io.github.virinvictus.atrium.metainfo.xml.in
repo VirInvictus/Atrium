@@ -42,6 +42,7 @@
   <icon type="stock">io.github.virinvictus.atrium</icon>
 
   <url type="homepage">https://github.com/VirInvictus/Atrium</url>
+  <url type="donation">https://github.com/sponsors/VirInvictus</url>
   <url type="bugtracker">https://github.com/VirInvictus/Atrium/issues</url>
   <url type="vcs-browser">https://github.com/VirInvictus/Atrium</url>
 
