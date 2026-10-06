@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **vir-gtk adopted at 1.4.3** (consumer wave, lock bump only): a
+  presented `Alert` now keeps answering after the caller drops the
+  Alert value - the response state anchors to the dialog window, where
+  1.4.2 let it die with the struct and left fire-and-forget dialogs
+  with dead buttons (found live in Quire's discard guard). No Atrium
+  code changes; suite 1000 green. `data/cargo-sources.json`
+  regenerated against the moved lock in the same commit.
 - **vir-search adopted at 1.4.3** (consumer wave, lock bump only): the
   final-audit hop lands upstream, headlined by the Display round-trip
   fixes (quoted grammar words like `genre:"true"` render quoted instead
