@@ -18,12 +18,14 @@ Six workspace crates: `atrium-core` (data layer), `atrium-org` (Org-mode project
 
 The next-up plan lives in `roadmap.md`; the Phase 23 sweep, the Phase 21 agent-executable tail, and the 2026-09-13 six-lens-audit lane (reminder-service fix, dependency bumps per decision 61, transaction hardening, the medium-bug cluster, the docs sweep) are closed, so the current front is Brandon's display-pass list (Phase 21 geometry/keyboard/portal verification = the Phase 22 verification tail) and the 1.0 asset tail (icon, screenshots, Flathub metadata) ahead of the `v1.0.0` tag. The 2026-09-11 verdicts (kanban horizontal-scroll-only, EDS via `zbus`, `atriumd` stays deferred) and the 2026-09-13 decisions (GitHub presentation pass approved in full; rusqlite 0.40 + gtk4 0.11 both land before the freeze) are recorded in roadmap.md.
 
+**The clean-room RE study (roadmap Phase 25, 2026-11-01).** `testing_facility/` at the repo root is gitignored and holds proprietary macOS app archives (OmniFocus 4.9.3, Things 3, OmniOutliner 6.3.1, OmniGraffle 7.26.1, OmniPlan 4.11) used for a clean-room reverse engineering study of how commercial organizers model information. Rules, absolute: analyze only; never execute anything extracted; never commit, copy, or re-extract any of its contents into the repo or any test fixture. The study's dossier and decompiled pseudocode live privately off-repo at `~/docs/research/organizer-apps/` (dossier + four pseudocode dirs with `_index.json` manifests); read the dossier before any Phase 25 work. The findings are recorded as ten unboxed post-1.0 candidate items in `roadmap.md` Phase 25, each citing its dossier section. Phase 24 is skipped as a number (burned internal alias, see the tricks section). Deepening the study further stays open on Brandon's word.
+
 **Architectural commitment: every non-GUI surface stays CLI-testable.** The data layer, search engine, and import/export pipelines all run through `atrium-cli` (or future siblings like `atriumd`, the post-1.0 `atrium-tui`). Don't add functionality to the GTK binary that can't be reached from the shell.
 
 ## Authoritative documents
 
 - **`spec.md`**: the contract. Architecture (§3), schema (§4), UI deltas (§5), Quick Entry (§6), import/export mapping (§7), perf budget (§8). Read it before changing semantics. If a request conflicts with the spec, surface that; don't quietly drift.
-- **`roadmap.md`**: the 20-phase plan plus four sub-phases (12.5, 15.5, 15.75, 19.5). Don't skip phases or pull work forward without explicit go-ahead.
+- **`roadmap.md`**: the phase plan (0 through 23, plus sub-phases 12.5, 15.5, 15.75, 19.5, and post-1.0 Phase 25; number 24 is burned). Don't skip phases or pull work forward without explicit go-ahead.
 - **`patchnotes.md`**: newest at top.
 
 ## Architectural commitments (don't drift)

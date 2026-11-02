@@ -12,7 +12,11 @@
   parent-chain effective dates, structured perspectives, container
   counters, sentinel-date audit, migration-engineering patterns, and the
   round-two (repetition + sync engines) triage box. Phase number 24 is
-  skipped (burned internal alias for the v0.72.0 lane). No code changes.
+  skipped (burned internal alias for the v0.72.0 lane). AGENTS.md gains
+  the study block: the `testing_facility/` guardrails (analyze only,
+  never execute extracted code, never commit or copy contents), the
+  private dossier pointer, and the roadmap bullet truth-up. Each Phase 25
+  box cites its dossier section. No code changes.
 - **vir-gtk adopted at 1.4.3** (consumer wave, lock bump only): a
   presented `Alert` now keeps answering after the caller drops the
   Alert value - the response state anchors to the dialog window, where
