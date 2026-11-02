@@ -42,3 +42,4 @@ debug-memory.log
 # Retired agent client's local settings; the machine-global ignore was
 # doing this work, which a fresh clone elsewhere would not see.
 .claude/
+/testing_facility
