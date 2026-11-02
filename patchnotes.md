@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **roadmap: Phase 25 (Organizer-Research Adoptables) added.** Planning-only
+  commit from a clean-room static-analysis study of shipped Things 3 /
+  OmniFocus 4 / OmniPlan / OmniOutliner / OmniGraffle artifacts (analysis
+  held privately off-repo; nothing extracted or copied enters the tree).
+  Ten unboxed post-1.0 candidate items recorded with their evidence:
+  Today-order with day-rollover invalidation, template/instance repetition
+  vs RRULE iteration, defer-due coupling, due-anchored reminder offsets,
+  parent-chain effective dates, structured perspectives, container
+  counters, sentinel-date audit, migration-engineering patterns, and the
+  round-two (repetition + sync engines) triage box. Phase number 24 is
+  skipped (burned internal alias for the v0.72.0 lane). No code changes.
 - **vir-gtk adopted at 1.4.3** (consumer wave, lock bump only): a
   presented `Alert` now keeps answering after the caller drops the
   Alert value - the response state anchors to the dialog window, where
