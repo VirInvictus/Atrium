@@ -75,7 +75,7 @@ fn main() -> glib::ExitCode {
         return glib::ExitCode::SUCCESS;
     }
     if let Some(scale) = cfg.fixture {
-        return run_fixture_oneshot(scale);
+        return run_fixture_oneshot(scale, cfg.force);
     }
 
     // Force runtime initialisation so signal handlers can spawn onto it.
@@ -94,10 +94,14 @@ fn main() -> glib::ExitCode {
     exit
 }
 
-fn run_fixture_oneshot(scale: FixtureScale) -> glib::ExitCode {
+fn run_fixture_oneshot(scale: FixtureScale, force: bool) -> glib::ExitCode {
     let db_path = atrium_core::db_path();
+    // v0.77.0 (issue #9): the resolved path is always user-visible, not
+    // just a tracing line, so a lost XDG_DATA_HOME override is obvious
+    // before anything is written.
+    println!("fixture target database: {}", db_path.display());
     info!(scale = ?scale, db = %db_path.display(), "running fixture-only mode");
-    match generate_fixtures(&db_path, scale) {
+    match generate_fixtures(&db_path, scale, force) {
         Ok(summary) => {
             println!(
                 "Generated {} tasks across {} projects in {} areas ({} tags) in {} ms.",
@@ -115,9 +119,21 @@ fn run_fixture_oneshot(scale: FixtureScale) -> glib::ExitCode {
 fn generate_fixtures(
     db_path: &std::path::Path,
     scale: FixtureScale,
+    force: bool,
 ) -> Result<atrium_core::db::fixtures::FixtureSummary> {
     let mut conn = atrium_core::db::open(db_path)
         .with_context(|| format!("open database at {}", db_path.display()))?;
+    if !force
+        && atrium_core::db::fixtures::database_has_rows(&conn)
+            .context("check the target database for existing rows")?
+    {
+        anyhow::bail!(
+            "refusing to generate fixtures into a database that already contains rows: {}\n\
+             pass --force to append anyway, or point XDG_DATA_HOME at a scratch directory \
+             for a throwaway run",
+            db_path.display()
+        );
+    }
     atrium_core::db::fixtures::generate(&mut conn, scale).context("fixture generation failed")
 }
 
@@ -1116,6 +1132,7 @@ fn install_gsettings_schema_dir() {
 struct Config {
     debug: bool,
     fixture: Option<FixtureScale>,
+    force: bool,
     version_requested: bool,
     help_requested: bool,
 }
@@ -1143,6 +1160,7 @@ impl Config {
                     })?;
                     cfg.fixture = Some(scale);
                 }
+                "--force" => cfg.force = true,
                 "--version" | "-V" => cfg.version_requested = true,
                 "--help" | "-h" => cfg.help_requested = true,
                 other => {
@@ -1166,6 +1184,8 @@ fn print_help() {
     println!(
         "                           SCALE: small (1K) | medium (10K) | large (50K) | stress (100K)"
     );
+    println!("    --force                With --fixture: generate even when the target database");
+    println!("                           already contains rows (appends).");
     println!("    -V, --version          Print version and exit.");
     println!("    -h, --help             Print this help and exit.");
 }
@@ -1227,5 +1247,80 @@ mod tests {
         assert!(cfg.help_requested);
         let cfg = Config::from_args(["atrium", "-V"]).unwrap();
         assert!(cfg.version_requested);
+    }
+
+    #[test]
+    fn config_parses_force_flag() {
+        let cfg = Config::from_args(["atrium", "--fixture", "small", "--force"]).unwrap();
+        assert!(cfg.force);
+        assert!(cfg.fixture.is_some());
+        let cfg = Config::from_args(["atrium"]).unwrap();
+        assert!(!cfg.force);
+    }
+
+    // v0.77.0 (issue #9): the oneshot guard. These run the real
+    // generator against explicit tempdir paths, never db_path(), so a
+    // failing test cannot pollute a live database.
+
+    fn unique_dir(tag: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "atrium-fixture-guard-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn fixture_oneshot_allows_a_fresh_database() {
+        let root = unique_dir("fresh");
+        let db = root.join("atrium.db");
+        let summary = generate_fixtures(&db, FixtureScale::Small, false).unwrap();
+        assert_eq!(summary.tasks, 1_000);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn fixture_oneshot_refuses_a_populated_database() {
+        let root = unique_dir("guard");
+        let db = root.join("atrium.db");
+        // Seed one content row the way real user data would exist:
+        // not fixture-shaped.
+        {
+            let conn = atrium_core::db::open(&db).unwrap();
+            conn.execute(
+                "INSERT INTO area (uuid, title, position) VALUES ('u', 'real area', 1.0)",
+                [],
+            )
+            .unwrap();
+        }
+
+        // Without --force: refuse, naming the path and the escape hatches.
+        let err = generate_fixtures(&db, FixtureScale::Small, false).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("already contains rows"), "message was: {msg}");
+        assert!(msg.contains(db.display().to_string().as_str()));
+        assert!(msg.contains("--force"));
+
+        // --force preserves the historical append behavior on top of
+        // the user data. (Appending fixture onto fixture collides on
+        // the generator's deterministic UNIQUE tag names; --force is
+        // for real-data databases, and the refusal is the protection.)
+        let summary = generate_fixtures(&db, FixtureScale::Small, true).unwrap();
+        assert_eq!(summary.tasks, 1_000);
+        let conn = atrium_core::db::open(&db).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT count(*) FROM task", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1_000);
+        let areas: i64 = conn
+            .query_row("SELECT count(*) FROM area", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(areas, 6); // the user's one + the five fixture areas
+        std::fs::remove_dir_all(&root).ok();
     }
 }

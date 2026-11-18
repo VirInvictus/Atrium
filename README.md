@@ -176,7 +176,7 @@ cargo run -p atrium-cli -- list today
 scripts/regression.sh
 ```
 
-`atrium --debug` opens the Memory Watch window (live RSS / heap sampling against the perf budget); stress fixtures come from `atrium --fixture SCALE` (1K/10K/50K/100K). The Meson wrapper at `meson.build` is for Flatpak; native development uses Cargo directly.
+`atrium --debug` opens the Memory Watch window (live RSS / heap sampling against the perf budget); stress fixtures come from `atrium --fixture SCALE` (1K/10K/50K/100K). The oneshot prints the database it is about to write and refuses a database that already contains rows unless `--force` is passed, so a throwaway run wants `XDG_DATA_HOME` pointed at a scratch directory. The Meson wrapper at `meson.build` is for Flatpak; native development uses Cargo directly.
 
 ## Status
 

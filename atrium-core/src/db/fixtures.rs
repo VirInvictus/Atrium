@@ -88,6 +88,27 @@ pub struct FixtureSummary {
     pub elapsed_ms: u128,
 }
 
+/// Whether the database already carries content rows.
+///
+/// The guard behind the `--fixture` oneshot's refusal (tracker issue #9,
+/// v0.77.0): a freshly migrated database has empty content tables, so
+/// anything non-empty means the generator would append to real data.
+/// Checks every table the generator writes, not just `task`, so a
+/// database holding only areas, tags, or a leftover perspective is
+/// caught too.
+pub fn database_has_rows(conn: &Connection) -> Result<bool, DbError> {
+    let any: i64 = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM area) \
+         OR EXISTS(SELECT 1 FROM project) \
+         OR EXISTS(SELECT 1 FROM tag) \
+         OR EXISTS(SELECT 1 FROM task) \
+         OR EXISTS(SELECT 1 FROM perspective)",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(any != 0)
+}
+
 /// Generate fixture data at the given scale into `conn`.
 ///
 /// Wraps everything in a single transaction so the cost of FTS5 trigger
@@ -443,5 +464,31 @@ mod tests {
             Some(FixtureScale::Medium)
         ));
         assert!(FixtureScale::parse("nonsense").is_none());
+    }
+
+    #[test]
+    fn fresh_database_has_no_rows() {
+        let conn = fresh_db();
+        assert!(!database_has_rows(&conn).unwrap());
+    }
+
+    #[test]
+    fn generated_database_has_rows() {
+        let mut conn = fresh_db();
+        generate(&mut conn, FixtureScale::Small).unwrap();
+        assert!(database_has_rows(&conn).unwrap());
+    }
+
+    #[test]
+    fn single_area_counts_as_rows() {
+        // v0.77.0 guard: any content row refuses the generator, not just
+        // tasks. One stray area is the smallest real-data case.
+        let conn = fresh_db();
+        conn.execute(
+            "INSERT INTO area (uuid, title, position) VALUES ('u', 'a', 1.0)",
+            [],
+        )
+        .unwrap();
+        assert!(database_has_rows(&conn).unwrap());
     }
 }

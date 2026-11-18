@@ -22,7 +22,7 @@ It runs every gate the v0.1 release sequence (Phase 9) cares about, in fail-fast
 
 The cold-start step is conservative: 500 ms is well above what the §8 budget calls for (250 ms on a 5K-task DB) and well above the observed numbers (~30–40 ms in `docs/perf-baseline.md`). Headroom keeps it from flapping on a slow host while still catching regressions of multiple-x.
 
-The fixture smoke uses a `mktemp -d` directory passed as `XDG_DATA_HOME`, so the gate never touches the developer's real `atrium.db`. The directory is removed on script exit.
+The fixture smoke uses a `mktemp -d` directory passed as `XDG_DATA_HOME`, so the gate never touches the developer's real `atrium.db`. The directory is removed on script exit. Since v0.77.0 the oneshot itself also refuses a target database that already contains rows unless `--force` is passed, so a lost override fails loudly instead of silently appending to the live database.
 
 The 5.5 `atrium-cli` smoke (added at v0.5.x and grown through v0.6.x) reuses the same fixture DB. It exercises every read subcommand (`list` over all canonical lists + areas + projects + tags + perspectives), every write subcommand (`add`, `capture`, `edit`, `complete`, `delete`), and every metadata flow (`info`, `search` with both fast-path and fallback predicates). v0.5.4 added the kanban smoke against the fixture-seeded "Fixture Board" perspective; v0.6.5 added the `perspective` write-side smoke (create / edit / delete + the no-op-print case). Together with the unit-test suite this is the closest the CLI gate can get to "actually used the app" without a display.
 

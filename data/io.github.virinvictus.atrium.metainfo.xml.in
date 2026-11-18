@@ -111,6 +111,11 @@
   -->
 
   <releases>
+    <release version="0.77.0" date="2026-11-17">
+      <description translate="no">
+        <p>The fixture-guard release: atrium --fixture now prints the database it is about to write and refuses a target that already contains rows unless --force is passed, closing the silent live-database pollution found the hard way in the 2026-09-14 blitz (tracker issue #9); the in-app app.fixture action stays deliberately unguarded. The consumer waves shipped since v0.76.0 ride the same tag: vir-gtk 1.4.1 through 1.4.3 and vir-search 1.4.3 lock bumps with no Atrium code changes.</p>
+      </description>
+    </release>
     <release version="0.76.0" date="2026-09-14">
       <description translate="no">
         <p>The answered-gates stamp: the kanban board warns before materialising more than 2,000 cards (the memory guard for the recorded 1.9 GB finding), release automation answers v* tags with the full check suite and a verbatim Release, the mdBook is published to Pages, CI actions are SHA-pinned with the fedora image pinned by version, and Dependabot watches workflow dependencies only.</p>

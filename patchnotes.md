@@ -1,7 +1,38 @@
 # Atrium — Patch Notes
 
-## Unreleased
+## v0.77.0: fixture guard + consumer-wave catch-up (2026-11-17)
 
+**The `--fixture` oneshot learns to protect the live database (tracker
+issue #9, moved from the roadmap 2026-11-13), and the work that landed
+on main since v0.76.0 without a tag rides this one: the Phase 25
+planning drop, four shared-library consumer waves, and the
+housekeeping batch below.**
+
+- **Changed:** `atrium --fixture SCALE` prints the database it is
+  about to write and refuses to generate when that database already
+  contains rows (any of the content tables the generator writes, not
+  just `task`). The refusal names the path and both escape hatches:
+  `--force` to append anyway (the historical behavior, for a real-data
+  database), or a scratch `XDG_DATA_HOME` for a throwaway run. Found
+  the hard way in the 2026-09-14 blitz, when a bare
+  `cargo run -p atrium -- --fixture small` added 1000 tasks to the
+  live database. The in-app `app.fixture` GAction is unchanged by
+  design: it exists to stress the running app's own database. The
+  regression and perf gates already ran under isolated overrides and
+  are unaffected. The guard probe is
+  `atrium-core::db::fixtures::database_has_rows`; the binary refuses
+  in the oneshot before the generator runs; new tests cover the fresh
+  allows / populated refuses / force appends path plus the flag parse.
+  Full workspace suite 1006 green; ship gate PASS.
+- **Housekeeping that rode in without entries:** repo sponsorship
+  metadata (`.github/FUNDING.yml` for GitHub Sponsors + Liberapay, and
+  the matching `donation` URL in the AppStream metainfo), three
+  Dependabot workflow bumps (actions/deploy-pages 5.0.1, checkout
+  7.0.1, setup-uv 10.2.0), the guidance-file unification
+  (per-repo `CLAUDE.md` files became `AGENTS.md`), the spec
+  search-grammar drift fixes carried over from the vir-search lane
+  (#117), a `.gitignore` addition, and the roadmap truth-up ticks.
+  No application changes.
 - **roadmap: Phase 25 (Organizer-Research Adoptables) added.** Planning-only
   commit from a clean-room static-analysis study of shipped Things 3 /
   OmniFocus 4 / OmniPlan / OmniOutliner / OmniGraffle artifacts (analysis
