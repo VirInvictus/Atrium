@@ -76,11 +76,31 @@ jobs:
           GDK_BACKEND: x11
         run: xvfb-run -a cargo test --workspace
 
+      - name: Fetch the annotated tag object
+        env:
+          TAG: ${{ github.ref_name }}
+        # checkout rewrites refs/tags/vX to the resolved commit SHA even
+        # after its fetch (deadbeef-cui v2.0.1 precedent), so the annotated
+        # object must be re-fetched --force right before it is read; gh's
+        # --notes-from-tag otherwise silently falls back to the commit
+        # message (Catagotchi issue #2, ten damaged releases over six
+        # weeks; Atrium's v0.76.0 body was the same casualty, repaired
+        # 2026-11-17).
+        run: git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+
       - name: Create the Release from the tag's verbatim message
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --notes-from-tag \
+          OT="$(git for-each-ref "refs/tags/$TAG" --format='%(objecttype)')"
+          if [ "$OT" != "tag" ]; then
+            echo "::error::tag $TAG is $OT, not an annotated tag; the verbatim patchnotes entry is unavailable"
+            exit 1
+          fi
+          git for-each-ref "refs/tags/$TAG" --format='%(contents)' > /tmp/release-notes.md
+          TITLE="$(head -1 /tmp/release-notes.md)"
+          gh release create "$TAG" \
+            --notes-file /tmp/release-notes.md \
             --verify-tag \
-            --title "$GITHUB_REF_NAME"
+            --title "$TITLE"
