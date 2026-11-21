@@ -1,5 +1,15 @@
 # Atrium — Patch Notes
 
+## Unreleased
+
+- **Adopted:** vir-gtk 1.5.0 (`d37ef6e`). The base sheet's checked/active
+  default went quiet (upstream issue #1: state display stops spending the
+  accent); Atrium voted paint-accent in the 1.1.0 decision, so the paint
+  returns as an app-tier rule in the generated sheet (`button:active`,
+  `button:checked` on the Atrium accent, dragonYellow) and every checked
+  or pressed button renders exactly as before. `data/cargo-sources.json`
+  regenerated with the lock.
+
 ## v0.77.0: fixture guard + consumer-wave catch-up (2026-11-17)
 
 **The `--fixture` oneshot learns to protect the live database (tracker

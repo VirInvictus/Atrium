@@ -115,6 +115,10 @@ button {
   transition: background-color 120ms ease, border-color 120ms ease;
 }
 button:disabled { opacity: 0.5; color: %FG%; border-color: %GRID%; background-color: %BG_CARD%; }
+/* Atrium voted paint-accent in the 1.1.0 checked decision; vir-gtk 1.5.0
+   amended that default to the quiet lift (issue #1), so the paint returns
+   here, app-side, where a divergence belongs. */
+button:active, button:checked { background-color: %ACCENT%; color: %ON_ACCENT%; border-color: %ACCENT%; }
 button.circular { border-radius: 999px; padding: 4px; }
 button.flat:hover, button.circular:hover { background-color: alpha(%FG%, 0.10); }
 button.suggested-action:hover { background-color: %WARN%; border-color: %WARN%; }
